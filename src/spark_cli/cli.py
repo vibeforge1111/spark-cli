@@ -4,6 +4,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import tomllib
+
+CLI_MAX_SUPPORTED_SCHEMA = 1
 
 
 SPARK_HOME = Path.home() / ".spark"
@@ -470,6 +473,107 @@ def detect_runtime_binary(name: str) -> dict[str, Any]:
     return {"name": name, "present": True, "path": path, "version": version}
 
 
+def parse_version_tuple(raw: str) -> tuple[int, ...] | None:
+    match = re.search(r"\d+(?:\.\d+)*", raw or "")
+    if not match:
+        return None
+    try:
+        return tuple(int(part) for part in match.group(0).split("."))
+    except ValueError:
+        return None
+
+
+def compare_version_tuples(actual: tuple[int, ...], operator: str, required: tuple[int, ...]) -> bool:
+    length = max(len(actual), len(required))
+    a = actual + (0,) * (length - len(actual))
+    r = required + (0,) * (length - len(required))
+    if operator in (">=",):
+        return a >= r
+    if operator == ">":
+        return a > r
+    if operator in ("==", "="):
+        return a == r
+    if operator == "<":
+        return a < r
+    if operator == "<=":
+        return a <= r
+    return False
+
+
+def parse_version_constraint(constraint: str) -> list[tuple[str, tuple[int, ...]]]:
+    clauses: list[tuple[str, tuple[int, ...]]] = []
+    for chunk in (constraint or "").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        match = re.match(r"^(>=|<=|==|=|>|<)?\s*(.+)$", chunk)
+        if not match:
+            continue
+        operator = match.group(1) or ">="
+        version_tuple = parse_version_tuple(match.group(2))
+        if version_tuple is not None:
+            clauses.append((operator, version_tuple))
+    return clauses
+
+
+def runtime_version_satisfies(detected_version: str, constraint: str) -> tuple[bool, str]:
+    actual = parse_version_tuple(detected_version or "")
+    if actual is None:
+        return True, f"could not parse `{detected_version}`; skipping constraint check"
+    clauses = parse_version_constraint(constraint or "")
+    if not clauses:
+        return True, "no parseable constraint"
+    actual_str = ".".join(str(n) for n in actual)
+    for operator, required in clauses:
+        if not compare_version_tuples(actual, operator, required):
+            req_str = ".".join(str(n) for n in required)
+            return False, f"{actual_str} does not satisfy {operator}{req_str}"
+    return True, f"{actual_str} satisfies {constraint}"
+
+
+def check_runtime_version_for_module(module: Module) -> tuple[bool, str]:
+    runtime = module.manifest.get("runtime", {})
+    kind = runtime.get("kind")
+    constraint = runtime.get("version")
+    if not kind or not constraint:
+        return True, ""
+    info = detect_runtime_binary(str(kind))
+    if not info["present"]:
+        return False, f"{module.name} needs {kind} {constraint} but {kind} is not on PATH"
+    detected = info.get("version") or ""
+    ok, detail = runtime_version_satisfies(detected, str(constraint))
+    if ok:
+        return True, f"{module.name}: {kind} {constraint} satisfied ({detail})"
+    return False, f"{module.name}: {kind} {constraint} not satisfied -- {detail}"
+
+
+def enforce_runtime_versions(modules: list[Module]) -> None:
+    problems: list[str] = []
+    for module in modules:
+        ok, detail = check_runtime_version_for_module(module)
+        if not ok and detail:
+            problems.append(detail)
+    if problems:
+        raise SystemExit("Runtime version requirements not met:\n  - " + "\n  - ".join(problems))
+
+
+def manifest_schema_version(module: Module) -> int:
+    raw = module.manifest.get("schema", 1)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 1
+
+
+def validate_manifest_schema(module: Module) -> None:
+    version = manifest_schema_version(module)
+    if version > CLI_MAX_SUPPORTED_SCHEMA:
+        raise SystemExit(
+            f"{module.name} declares manifest schema {version}; this spark-cli only supports "
+            f"schema {CLI_MAX_SUPPORTED_SCHEMA}. Upgrade spark-cli."
+        )
+
+
 def required_runtimes_for_modules(modules: list[Module]) -> list[str]:
     seen: list[str] = []
     for module in modules:
@@ -499,6 +603,18 @@ def print_setup_preflight(bundle: list[Module]) -> None:
             print(f"  [OK]   {runtime_name} -> {version}")
         else:
             print(f"  [miss] {runtime_name} not on PATH -- install before running setup")
+    constraint_lines = []
+    for module in bundle:
+        ok, detail = check_runtime_version_for_module(module)
+        if not detail:
+            continue
+        marker = "[OK]  " if ok else "[WARN]"
+        constraint_lines.append(f"  {marker} {detail}")
+    if constraint_lines:
+        print("")
+        print("Module runtime constraints:")
+        for line in constraint_lines:
+            print(line)
 
 
 def prompt_for_secret(secret_id: str, requirement: dict[str, Any]) -> str:
@@ -1103,12 +1219,16 @@ def cmd_install(args: argparse.Namespace) -> int:
     if args.target in registry.get("bundles", {}):
         bundle_modules = [modules[name] for name in resolve_bundle_names(args.target)]
         detect_ingress_owner(bundle_modules)
+        for module in bundle_modules:
+            validate_manifest_schema(module)
         conflicts = detect_capability_conflicts(bundle_modules, installed_modules)
         if conflicts:
             raise SystemExit("Cannot install bundle because of capability conflicts: " + "; ".join(conflicts))
         unmet = validate_capability_needs_for_install(bundle_modules, installed_modules, modules)
         if unmet:
             raise SystemExit("Cannot install bundle because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+        if not getattr(args, "skip_runtime_check", False):
+            enforce_runtime_versions(bundle_modules)
         if not args.skip_install_commands:
             for module in bundle_modules:
                 execute_install_commands(module)
@@ -1124,6 +1244,7 @@ def cmd_install(args: argparse.Namespace) -> int:
             )
         return 0
     module = resolve_install_target(args.target, modules)
+    validate_manifest_schema(module)
     source_kind = determine_install_source_kind(args.target, modules)
     conflicts = detect_capability_conflicts([module], installed_modules)
     if conflicts:
@@ -1131,6 +1252,8 @@ def cmd_install(args: argparse.Namespace) -> int:
     unmet = validate_capability_needs_for_install([module], installed_modules, modules)
     if unmet:
         raise SystemExit("Cannot install module because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+    if not getattr(args, "skip_runtime_check", False):
+        enforce_runtime_versions([module])
     if not args.skip_install_commands:
         execute_install_commands(module)
     install_modules([module])
@@ -1150,12 +1273,16 @@ def cmd_setup(args: argparse.Namespace) -> int:
     bundle = resolve_bundle(args.bundle, modules)
     ingress_owner = detect_ingress_owner(bundle)
     installed_modules = resolve_installed_modules()
+    for module in bundle:
+        validate_manifest_schema(module)
     conflicts = detect_capability_conflicts(bundle, installed_modules)
     if conflicts:
         raise SystemExit("Cannot run setup because of capability conflicts: " + "; ".join(conflicts))
     unmet = validate_capability_needs_for_install(bundle, installed_modules, modules)
     if unmet:
         raise SystemExit("Cannot run setup because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+    if not getattr(args, "skip_runtime_check", False):
+        enforce_runtime_versions(bundle)
     interactive = setup_is_interactive(args)
     if interactive:
         print_setup_preflight(bundle)
@@ -1740,11 +1867,13 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
     install_parser.add_argument("target")
     install_parser.add_argument("--skip-install-commands", action="store_true")
+    install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     install_parser.set_defaults(func=cmd_install)
 
     setup_parser = subparsers.add_parser("setup", help="Configure a starter bundle")
     setup_parser.add_argument("bundle", choices=sorted(load_registry_definition().get("bundles", {}).keys()))
     setup_parser.add_argument("--skip-install-commands", action="store_true")
+    setup_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     setup_parser.add_argument(
         "--non-interactive",
         action="store_true",

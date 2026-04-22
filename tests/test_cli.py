@@ -32,8 +32,15 @@ from spark_cli.cli import (
     load_json,
     module_log_path,
     module_secret_env_bindings,
+    check_runtime_version_for_module,
+    enforce_runtime_versions,
+    manifest_schema_version,
     needs_capabilities,
+    parse_version_constraint,
+    parse_version_tuple,
+    runtime_version_satisfies,
     validate_capability_needs_for_install,
+    validate_manifest_schema,
     persist_keychain_secrets,
     split_secret_bindings,
     store_secret,
@@ -86,6 +93,116 @@ def make_module(name: str, capabilities: list[str]) -> Module:
 
 
 class SparkCliTests(unittest.TestCase):
+    def test_parse_version_tuple_extracts_digits(self) -> None:
+        self.assertEqual(parse_version_tuple("Python 3.13.5"), (3, 13, 5))
+        self.assertEqual(parse_version_tuple("v22.18.0"), (22, 18, 0))
+        self.assertEqual(parse_version_tuple("uv 0.9.16 (abcd)"), (0, 9, 16))
+        self.assertEqual(parse_version_tuple("22"), (22,))
+        self.assertIsNone(parse_version_tuple(""))
+        self.assertIsNone(parse_version_tuple("no digits here"))
+
+    def test_parse_version_constraint_handles_default_operator_and_commas(self) -> None:
+        self.assertEqual(parse_version_constraint(">=3.11"), [(">=", (3, 11))])
+        self.assertEqual(parse_version_constraint("3.11"), [(">=", (3, 11))])
+        self.assertEqual(
+            parse_version_constraint(">=3.11, <4"),
+            [(">=", (3, 11)), ("<", (4,))],
+        )
+
+    def test_runtime_version_satisfies_true_when_actual_meets_constraint(self) -> None:
+        ok, detail = runtime_version_satisfies("Python 3.13.5", ">=3.11")
+        self.assertTrue(ok)
+        self.assertIn("3.13.5", detail)
+
+    def test_runtime_version_satisfies_false_when_actual_below_constraint(self) -> None:
+        ok, detail = runtime_version_satisfies("v20.10.0", ">=22")
+        self.assertFalse(ok)
+        self.assertIn("20.10.0 does not satisfy >=22", detail)
+
+    def test_runtime_version_satisfies_skips_when_detected_unparseable(self) -> None:
+        ok, detail = runtime_version_satisfies("", ">=3.11")
+        self.assertTrue(ok)
+        self.assertIn("skipping", detail)
+
+    def test_check_runtime_version_for_module_skips_when_no_runtime_block(self) -> None:
+        module = Module(
+            name="no-runtime",
+            path=Path("C:/tmp/no-runtime"),
+            manifest={"module": {"name": "no-runtime", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+        )
+        ok, detail = check_runtime_version_for_module(module)
+        self.assertTrue(ok)
+        self.assertEqual(detail, "")
+
+    def test_check_runtime_version_for_module_fails_when_binary_missing(self) -> None:
+        module = Module(
+            name="missing-runtime",
+            path=Path("C:/tmp/missing"),
+            manifest={
+                "module": {"name": "missing-runtime", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "runtime": {"kind": "definitely-not-a-real-tool-xyz", "version": ">=1"},
+            },
+        )
+        ok, detail = check_runtime_version_for_module(module)
+        self.assertFalse(ok)
+        self.assertIn("not on PATH", detail)
+
+    def test_check_runtime_version_for_module_passes_for_present_python(self) -> None:
+        module = Module(
+            name="python-module",
+            path=Path("C:/tmp/python-module"),
+            manifest={
+                "module": {"name": "python-module", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "runtime": {"kind": "python", "version": ">=3.0"},
+            },
+        )
+        ok, detail = check_runtime_version_for_module(module)
+        self.assertTrue(ok)
+        self.assertIn("satisfied", detail)
+
+    def test_enforce_runtime_versions_raises_with_all_failures(self) -> None:
+        missing_a = Module(
+            name="missing-a",
+            path=Path("C:/tmp/a"),
+            manifest={
+                "module": {"name": "missing-a", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "runtime": {"kind": "definitely-not-a-real-tool-xyz", "version": ">=1"},
+            },
+        )
+        missing_b = Module(
+            name="missing-b",
+            path=Path("C:/tmp/b"),
+            manifest={
+                "module": {"name": "missing-b", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "runtime": {"kind": "also-fake-tool-xyz", "version": ">=1"},
+            },
+        )
+        with self.assertRaises(SystemExit) as error:
+            enforce_runtime_versions([missing_a, missing_b])
+        text = str(error.exception)
+        self.assertIn("missing-a", text)
+        self.assertIn("missing-b", text)
+
+    def test_manifest_schema_version_defaults_to_one(self) -> None:
+        module = Module(name="m", path=Path("C:/tmp/m"), manifest={"module": {"name": "m"}})
+        self.assertEqual(manifest_schema_version(module), 1)
+
+    def test_validate_manifest_schema_rejects_future_schema(self) -> None:
+        future = Module(
+            name="from-future",
+            path=Path("C:/tmp/from-future"),
+            manifest={"schema": 99, "module": {"name": "from-future"}},
+        )
+        with self.assertRaises(SystemExit) as error:
+            validate_manifest_schema(future)
+        self.assertIn("schema 99", str(error.exception))
+
+    def test_validate_manifest_schema_accepts_current_and_missing(self) -> None:
+        current = Module(name="c", path=Path("C:/tmp/c"), manifest={"schema": 1, "module": {"name": "c"}})
+        implicit = Module(name="i", path=Path("C:/tmp/i"), manifest={"module": {"name": "i"}})
+        validate_manifest_schema(current)
+        validate_manifest_schema(implicit)
+
     def test_needs_capabilities_reads_manifest_block(self) -> None:
         module = Module(
             name="consumer",
