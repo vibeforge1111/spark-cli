@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -993,10 +994,63 @@ def save_pids(payload: dict[str, Any]) -> None:
     save_json(PID_PATH, payload)
 
 
-def start_module(module: Module) -> None:
+def pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def ready_timeout_seconds(module: Module) -> int:
+    configured = module.manifest.get("healthcheck", {}).get("timeout_seconds", 10)
+    try:
+        return max(1, int(configured))
+    except (TypeError, ValueError):
+        return 10
+
+
+def wait_for_ready_check(module: Module) -> tuple[bool, str]:
+    ready_check = module.ready_check
+    if not ready_check:
+        return True, "no ready check declared"
+
+    deadline = time.time() + ready_timeout_seconds(module)
+    last_error = "ready check did not pass before timeout"
+    while time.time() < deadline:
+        if ready_check.startswith(("http://", "https://")):
+            try:
+                with urllib.request.urlopen(ready_check, timeout=2) as response:
+                    if 200 <= int(response.status) < 400:
+                        return True, ready_check
+                    last_error = f"ready check returned HTTP {response.status}"
+            except (urllib.error.URLError, TimeoutError) as error:
+                last_error = str(error)
+        else:
+            result = run_shell(ready_check, module.path)
+            if result.returncode == 0:
+                return True, summarize_command_output(result)
+            last_error = summarize_command_output(result)
+        time.sleep(1)
+    return False, last_error
+
+
+def start_module(module: Module) -> bool:
     command = module.run_command
     if not command:
-        return
+        return True
+
+    pids = load_pids()
+    existing = pids.get(module.name)
+    if existing:
+        existing_pid = int(existing.get("pid", 0))
+        if pid_is_running(existing_pid):
+            print(f"Skipping {module.name}: already running (pid {existing_pid})")
+            return True
+        pids.pop(module.name, None)
+        save_pids(pids)
 
     module_log_dir = LOG_DIR / module.name
     module_log_dir.mkdir(parents=True, exist_ok=True)
@@ -1015,16 +1069,22 @@ def start_module(module: Module) -> None:
         stderr=subprocess.STDOUT,
         creationflags=creationflags,
     )
-    pids = load_pids()
     pids[module.name] = {
         "pid": process.pid,
         "command": command,
         "path": str(module.path),
-        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "started_at": timestamp_now(),
         "log_path": str(log_path),
+        "ready_check": module.ready_check,
     }
     save_pids(pids)
     print(f"Started {module.name} (pid {process.pid})")
+    ready, detail = wait_for_ready_check(module)
+    if ready:
+        print(f"Ready {module.name}: {detail}")
+    else:
+        print(f"Start warning for {module.name}: {detail}")
+    return ready
 
 
 def cmd_start(args: argparse.Namespace) -> int:
@@ -1033,13 +1093,15 @@ def cmd_start(args: argparse.Namespace) -> int:
     if not modules:
         print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
         return 1
+    exit_code = 0
     target_modules = resolve_start_modules(args.target, modules)
     for module in target_modules:
         if not module.run_command:
             print(f"Skipping {module.name}: no run.default command declared")
             continue
-        start_module(module)
-    return 0
+        if not start_module(module):
+            exit_code = 1
+    return exit_code
 
 
 def stop_module(name: str, pid: int) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -26,7 +27,10 @@ from spark_cli.cli import (
     expand_targets,
     generated_module_env_path,
     remove_managed_env_block,
+    pid_is_running,
     print_install_summary,
+    ready_timeout_seconds,
+    wait_for_ready_check,
     resolve_bundle_names,
     resolve_install_target,
     resolve_start_modules,
@@ -306,6 +310,35 @@ class SparkCliTests(unittest.TestCase):
         )
         self.assertEqual(envs["spark-telegram-bot"]["BOT_TOKEN"], "abc")
         self.assertNotIn("BOT_TOKEN", envs["spawner-ui"])
+
+    def test_pid_is_running_detects_current_process(self) -> None:
+        self.assertTrue(pid_is_running(os.getpid()))
+
+    def test_ready_timeout_seconds_reads_healthcheck_timeout(self) -> None:
+        module = Module(
+            name="timeout-target",
+            path=Path("C:/tmp/timeout-target"),
+            manifest={
+                "module": {"name": "timeout-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "healthcheck": {"timeout_seconds": 17},
+            },
+        )
+        self.assertEqual(ready_timeout_seconds(module), 17)
+
+    def test_wait_for_ready_check_runs_shell_ready_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module = Module(
+                name="ready-target",
+                path=Path(tmp_dir),
+                manifest={
+                    "module": {"name": "ready-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                    "run": {"default": {"ready_check": 'python -c "print(\'ready\')"' }},
+                    "healthcheck": {"timeout_seconds": 2},
+                },
+            )
+            ready, detail = wait_for_ready_check(module)
+            self.assertTrue(ready)
+            self.assertEqual(detail, "ready")
 
     def test_remove_managed_env_block_strips_only_managed_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
