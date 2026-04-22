@@ -163,6 +163,23 @@ def detect_ingress_owner(bundle: list[Module]) -> Module:
     return owners[0]
 
 
+def detect_capability_conflicts(candidate_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
+    combined: dict[str, Module] = dict(installed_modules)
+    for module in candidate_modules:
+        combined[module.name] = module
+
+    capability_owners: dict[str, set[str]] = {}
+    for module in combined.values():
+        for capability in module.capabilities:
+            capability_owners.setdefault(capability, set()).add(module.name)
+
+    conflicts: list[str] = []
+    ingress_owners = sorted(capability_owners.get("telegram.ingress", set()))
+    if len(ingress_owners) > 1:
+        conflicts.append("multiple telegram ingress owners declared: " + ", ".join(ingress_owners))
+    return conflicts
+
+
 def module_env_path(module: Module) -> Path | None:
     config = module.manifest.get("config", {})
     output = config.get("output")
@@ -256,13 +273,21 @@ def install_modules(modules: list[Module]) -> None:
 def cmd_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = discover_modules()
+    installed = load_json(REGISTRY_PATH, {})
+    installed_modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
     registry = load_registry_definition()
     if args.target in registry.get("bundles", {}):
         bundle_modules = [modules[name] for name in resolve_bundle_names(args.target)]
         detect_ingress_owner(bundle_modules)
+        conflicts = detect_capability_conflicts(bundle_modules, installed_modules)
+        if conflicts:
+            raise SystemExit("Cannot install bundle because of capability conflicts: " + "; ".join(conflicts))
         install_modules(bundle_modules)
         return 0
     module = resolve_install_target(args.target, modules)
+    conflicts = detect_capability_conflicts([module], installed_modules)
+    if conflicts:
+        raise SystemExit("Cannot install module because of capability conflicts: " + "; ".join(conflicts))
     install_modules([module])
     return 0
 
@@ -272,6 +297,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
     modules = discover_modules()
     bundle = resolve_bundle(args.bundle, modules)
     ingress_owner = detect_ingress_owner(bundle)
+    installed = load_json(REGISTRY_PATH, {})
+    installed_modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    conflicts = detect_capability_conflicts(bundle, installed_modules)
+    if conflicts:
+        raise SystemExit("Cannot run setup because of capability conflicts: " + "; ".join(conflicts))
 
     if not args.bot_token:
         raise SystemExit("--bot-token is required for the telegram-starter spike")
@@ -285,17 +315,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         "configured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     save_json(CONFIG_PATH, setup_state)
-
-    installed_payload = {
-        module.name: {
-            "path": str(module.path),
-            "version": module.version,
-            "kind": module.kind,
-            "plane": module.plane,
-        }
-        for module in bundle
-    }
-    save_json(REGISTRY_PATH, installed_payload)
+    install_modules(bundle)
 
     gateway = modules["spark-telegram-bot"]
     gateway_env = {

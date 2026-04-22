@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import (
     Module,
+    detect_capability_conflicts,
     detect_ingress_owner,
     expand_targets,
     print_install_summary,
@@ -110,6 +111,20 @@ class SparkCliTests(unittest.TestCase):
             output = stdout.getvalue()
         self.assertIn("Install plan:", output)
         self.assertIn("Telegram ingress owner: spark-telegram-bot", output)
+
+    def test_detect_capability_conflicts_allows_single_ingress_owner(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        runtime = make_module("spark-intelligence-builder", ["spark.runtime"])
+        self.assertEqual(detect_capability_conflicts([gateway, runtime], {}), [])
+
+    def test_detect_capability_conflicts_rejects_multiple_ingress_owners(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        other_gateway = make_module("other-telegram-gateway", ["telegram.ingress"])
+        conflicts = detect_capability_conflicts([gateway, other_gateway], {})
+        self.assertEqual(
+            conflicts,
+            ["multiple telegram ingress owners declared: other-telegram-gateway, spark-telegram-bot"],
+        )
 
 
 if __name__ == "__main__":
