@@ -1,184 +1,223 @@
 # Spark CLI — Status Audit
 
-**As of:** 2026-04-22
+**Last updated:** 2026-04-22 (end of day)
 **Scope:** the `spark-cli` spike at `C:\Users\USER\Desktop\spark-cli`
-**Source of truth:** `src/spark_cli/cli.py` (1255 LOC) + `tests/test_cli.py` (491 LOC)
-**Test state:** 27/27 passing (including uncommitted WIP)
+**Source of truth:** `src/spark_cli/cli.py` (1826 LOC) + `tests/test_cli.py` (922 LOC)
+**Test state:** 56/56 passing on this machine
+**Branch:** `master` at commit `f779d47`
 
-This document exists because the previous session's terminal exited mid-work.
-It's a ground-truth check against the v1 design before we continue.
+This document is the ground-truth index of what the spike does, what it does
+not, and where to look. Update it at the end of any session that changes the
+surface area of the CLI.
 
 ---
 
 ## TL;DR
 
-The spike **covers the full install → setup → start → status → stop → uninstall
-lifecycle** for modules declared in a local `registry.json`. It is behind the
-v1 design on three fronts: (1) **no interactive wizard**, (2) **no OS
-keychain** for secrets, (3) **no git-based fetch** — registry entries still
-point at local paths.
+The spike covers the **full install → setup → start → status → stop →
+uninstall lifecycle** for modules declared in a local `registry.json`,
+with git-based fetch, keychain-backed secrets, an interactive setup
+wizard, dependency-aware start/stop ordering, repair hints, and a
+capability resolver.
 
-The uncommitted WIP is the **ready-check + pid-liveness** feature. It is
-complete and green; just not committed.
-
-**Recommended next cut:** commit the WIP, then ship the interactive
-`spark setup` wizard. That's the single highest-impact gap vs the v1 design.
-
----
-
-## ✅ Built and shipped (committed)
-
-Tracked through 11 commits on `master`. Behavior covered by tests unless noted.
-
-| Area | What works | Code | Test |
-|---|---|---|---|
-| Manifest parsing | `spark.toml` → `Module` dataclass with typed accessors | `cli.py:30-123` | ✓ via fixtures |
-| Registry | Local `registry.json` with modules + bundles | `cli.py:126-128`, `registry.json` | `test_resolve_bundle_names_reads_registry_bundle` |
-| `list` | Lists discovered modules w/ version/kind/plane/blessed/installed | `cli.py:386-397` | — |
-| `install <module>` | By registry name or local path, with `[install.dev].commands` execution | `cli.py:697-737` | `test_resolve_install_target_*`, `test_execute_install_commands_*` |
-| `install <bundle>` | Resolves bundle, enforces single telegram ingress owner | `cli.py:702-721` | `test_detect_ingress_owner_*` |
-| Capability conflict guard | Blocks double-ownership of `telegram.ingress` | `cli.py:312-326` | `test_detect_capability_conflicts_*` |
-| `setup <bundle>` | Manifest-driven secret collection, generates per-module env, routes telegram secret only to gateway | `cli.py:740-787` | `test_build_module_envs_routes_*`, `test_collect_secret_*` |
-| Managed `.env` block | Idempotent `# --- spark-cli managed start/end ---` block in module `.env` | `cli.py:337-383` | `test_update_env_file_*`, `test_remove_managed_env_block_*` |
-| Generic secret input | `--secret KEY=VALUE` + legacy `--bot-token` flags | `cli.py:157-212` | `test_collect_secret_values_*` |
-| `status` + `--json` | Per-module healthcheck; dep-aware repair hints | `cli.py:814-886` | `test_build_module_repair_hints_*`, `test_build_status_repair_hints_*` |
-| `doctor` + `--json` | Diagnostic-mode wrapper around status | `cli.py:889-896` | — |
-| `update [target]` | Re-runs install commands, runs `post_install` hook, re-syncs env | `cli.py:1134-1157` | `test_install_module_record_*` (provenance) |
-| `uninstall [target]` | `pre_uninstall` hook → stop pid → delete generated env → strip managed block → `post_uninstall` | `cli.py:1160-1191` | `test_update_setup_state_after_uninstall_*` |
-| `uninstall --force` | Bypasses dependency protection | `cli.py:1168-1169` | `test_detect_uninstall_blockers_*` |
-| `start [target]` | Topological order by `needs.modules`; pid tracking in `~/.spark/state/pids.json` | `cli.py:1090-1104` | `test_resolve_start_modules_orders_*` |
-| `stop [target]` | Reverse-topological stop using dependents graph | `cli.py:1115-1131` | `test_resolve_stop_module_names_*` |
-| Install provenance | `installed.json` tracks `installed_via`, `bundle_provenance`, `last_install`/`last_update` | `cli.py:412-461` | `test_install_module_record_writes_provenance_metadata` |
-| Per-module process logs | `~/.spark/logs/<module>/process.log` (written during `start`) | `cli.py:1055-1058` | — |
-| Output summarization | Strips npm `> ...` prefix lines in healthcheck detail | `cli.py:800-811` | `test_summarize_command_output_*` |
-| Windows process groups | `DETACHED_PROCESS` + `taskkill /T /F` | `cli.py:1060-1062`, `cli.py:1108-1112` | — |
+What it still does **not** do: runtime version enforcement, manifest
+schema versioning, license/Pro gating, `spark login`, a dashboard or
+web installer, module scaffolding (`spark init`), and `--resume` on
+failed installs. None of those are blockers for "a fresh user gets to
+`spark setup telegram-starter` working end-to-end."
 
 ---
 
-## 🟡 Uncommitted WIP (green, just not committed)
+## Shipped feature matrix
 
-Files with changes: `src/spark_cli/cli.py` (+76 / -7), `tests/test_cli.py` (+33).
+Tracked across 15 commits on `master`. Every entry is covered by tests
+unless noted.
 
-- `pid_is_running(pid)` — checks process liveness via `os.kill(pid, 0)`.
-  If a pid in `pids.json` is stale (process died), `start_module` drops it
-  and launches fresh. Test: `test_pid_is_running_detects_current_process`.
-- `ready_timeout_seconds(module)` — reads `[healthcheck].timeout_seconds`
-  with sensible default (10s). Test: `test_ready_timeout_seconds_*`.
-- `wait_for_ready_check(module)` — polls `[run.default].ready_check`
-  until the deadline. HTTP URLs use `urllib.request`; anything else runs
-  as a shell command. Test: `test_wait_for_ready_check_runs_shell_*`.
-- `start_module` now **returns `bool`** (ready/not) and `cmd_start`
-  propagates an error exit code if any module fails its ready check.
-- Removed unused `import shlex`.
+### Install lifecycle
 
-**All 27 tests pass with these changes in place.** Safe to commit as-is.
+| Feature | Code | Test |
+|---|---|---|
+| Manifest parsing into a `Module` dataclass | `cli.py:30-123` | via fixtures |
+| Local `registry.json` with modules + bundles | `cli.py:126-218` | `test_resolve_bundle_names_reads_registry_bundle` |
+| `list` | `cmd_list` | — |
+| `install <module>` (registry name or local path) | `cmd_install` | `test_resolve_install_target_*` |
+| `install <bundle>` with ingress-owner enforcement | `cmd_install` | `test_detect_ingress_owner_*` |
+| `install <git-url>` / `install <registry-name>` with git source | `clone_module_source`, `resolve_install_target` | `test_clone_module_source_clones_and_pull_updates_from_local_bare_repo` |
+| Capability conflict guard (multiple `telegram.ingress` owners) | `detect_capability_conflicts` | `test_detect_capability_conflicts_*` |
+| Capability needs resolver (`needs.capabilities`) | `validate_capability_needs_for_install` | `test_validate_capability_needs_*` |
+| `[install.dev].commands` execution with failure surfacing | `execute_install_commands` | `test_execute_install_commands_*` |
+| `post_install` / `pre_uninstall` / `post_uninstall` hooks | `run_module_hook` | — |
+| Install provenance (`installed_via`, `bundle_provenance`, `last_install`, `last_update`) | `install_module_record` | `test_install_module_record_writes_provenance_metadata` |
+
+### Setup
+
+| Feature | Code | Test |
+|---|---|---|
+| Bundle resolution + single-ingress enforcement | `resolve_bundle`, `detect_ingress_owner` | — |
+| Manifest-driven secret collection | `collect_secret_requirements`, `collect_secret_values` | `test_collect_secret_*` |
+| Interactive setup wizard (TTY prompts via `getpass`) | `run_setup_wizard` | `test_run_setup_wizard_*` |
+| Preflight runtime detection (`claude`, `uv`, `bun`, `node`, `python`) | `detect_runtime_binary`, `print_setup_preflight` | `test_detect_runtime_binary_*`, `test_required_runtimes_for_modules_*` |
+| `--non-interactive` mode | `setup_is_interactive` | `test_setup_is_interactive_*` |
+| `--secret key=value` plus legacy `--bot-token` etc. | `parse_secret_pairs`, `collect_secret_values` | `test_collect_secret_values_*` |
+| Generated module env files in `~/.spark/config/modules/` | `write_generated_env` | — |
+| Idempotent `# --- spark-cli managed start/end ---` block in module `.env` | `update_env_file`, `remove_managed_env_block` | `test_update_env_file_*`, `test_remove_managed_env_block_*` |
+| Ingress-only telegram secret routing | `build_module_envs` | `test_build_module_envs_routes_telegram_secret_only_to_gateway` |
+
+### Secrets
+
+| Feature | Code | Test |
+|---|---|---|
+| OS keychain backend via `python-keyring` with probe | `keychain_available`, `store_secret`, `fetch_secret`, `delete_secret` | `test_store_and_fetch_secret_roundtrip_via_file_backend` |
+| File fallback at `~/.spark/config/secrets.local.json` (mode 0o600) | same | same |
+| Manifest `storage = "keychain"` routes to keychain at setup time | `persist_keychain_secrets`, `split_secret_bindings` | `test_persist_keychain_secrets_*` |
+| Keychain env vars stripped from plaintext env files | `strip_keychain_env_vars` | `test_strip_keychain_env_vars_*` |
+| Keychain secrets injected into subprocess env at start time | `keychain_env_for_module`, `start_module` | `test_keychain_env_for_module_*` |
+| `spark secrets list / set / get / delete` (masking, `--reveal`) | `cmd_secrets_*` | — (smoke-tested end-to-end against real Credential Manager) |
+
+### Status and doctor
+
+| Feature | Code | Test |
+|---|---|---|
+| `status` + `status --json` with per-module healthcheck | `collect_status_payload`, `cmd_status` | `test_build_module_repair_hints_*` |
+| `doctor` + `doctor --json` | `cmd_doctor` | — |
+| Dep-aware repair hints (missing deps, unhealthy deps, missing ingress owner, stale bundle) | `build_module_repair_hints`, `build_status_repair_hints` | `test_build_status_repair_hints_*` |
+| Healthcheck `failure_hint` / `success_hint` surfacing | `evaluate_module_health` | — |
+| npm `> cmd` prefix stripping in healthcheck output | `summarize_command_output` | `test_summarize_command_output_*` |
+
+### Update and uninstall
+
+| Feature | Code | Test |
+|---|---|---|
+| `update [target]` re-runs install commands and `post_install` hook | `cmd_update` | — |
+| `git pull --ff-only` for git-managed modules | `pull_module_source`, `module_is_git_managed` | `test_clone_module_source_*` (covers pull) |
+| Env resync into module `.env` | `sync_generated_env_to_module` | — |
+| `uninstall [target]` with dep protection and `--force` | `cmd_uninstall`, `detect_uninstall_blockers` | `test_detect_uninstall_blockers_*` |
+| Clone dir teardown on uninstall | `remove_module_clone` | — |
+| Setup-state repair after uninstall | `update_setup_state_after_uninstall` | `test_update_setup_state_after_uninstall_*` |
+
+### Start / stop / logs
+
+| Feature | Code | Test |
+|---|---|---|
+| `start [target]` in topological order from `needs.modules` | `resolve_start_modules`, `topologically_sort_modules` | `test_resolve_start_modules_*` |
+| Pid tracking in `~/.spark/state/pids.json` | `load_pids`, `save_pids` | — |
+| Stale pid detection; re-launch when dead | `pid_is_running`, `start_module` | `test_pid_is_running_*` |
+| Ready-check polling (HTTP + shell) | `wait_for_ready_check` | `test_wait_for_ready_check_*` |
+| `stop [target]` in reverse-topological order | `resolve_stop_module_names` | `test_resolve_stop_module_names_*` |
+| Windows-safe process groups (`DETACHED_PROCESS`, `taskkill /T /F`) | `start_module`, `stop_module` | — |
+| `logs <module> [-n N] [-f]` with tail + follow | `cmd_logs`, `tail_log_lines`, `follow_log_file` | `test_tail_log_lines_*`, `test_module_log_path_*` |
+
+### Git fetch
+
+| Feature | Code | Test |
+|---|---|---|
+| URL shape detection (`https://`, `git@`, `github.com/...`, `.git`) | `is_git_source` | `test_is_git_source_*` |
+| URL normalization (github shorthand → https) | `normalize_git_url` | `test_normalize_git_url_*` |
+| Name inference from URL | `infer_module_name_from_url` | `test_infer_module_name_from_url_*` |
+| Clone into `~/.spark/modules/<name>/source/` | `clone_module_source` | integration test with local bare repo |
+| Prefer cloned copy over registry path during discovery | `discover_modules` | — |
+| Detect spark-managed module paths | `module_is_git_managed` | `test_module_is_git_managed_*` |
 
 ---
 
-## ❌ Not built (v1 design gaps)
+## Not yet implemented
 
-Mapped to the design docs you pasted (now persisted under `docs/design/`).
+Rough order of value-per-lift. None are blockers for the
+`spark setup telegram-starter` first-run story.
 
-### High-value, small lift
+### Small lift
 
-1. **Interactive `spark setup` wizard.** Today, setup requires `--secret
-   key=value` flags. No TTY prompts, no bundle picker, no Claude-Code
-   auto-detection. Closes 6 of 11 rows in the user-flows friction map.
-   — `design-v1 §spark setup flow`, `user-flows §5`.
-2. **`spark logs <module> [--follow]`.** Logs already land in
-   `~/.spark/logs/<name>/process.log` during `start`. Just needs tail.
-   — `design-v1 §CLI surface`.
-3. **Runtime detection** (`uv` / `bun` / `node` / Claude Code CLI) during
-   setup, with Homebrew/winget pointers when missing.
-   — `lessons §2`.
+- **`spark config get/set`** — user-level config at `~/.spark/config.toml`.
+- **Manifest schema version** (`schema = 1`) — one-field forward-compat hook.
+- **Runtime version range** from `[runtime].version` (`>=3.11`, `>=22`) — semver check before `[install.dev]` runs.
 
 ### Medium lift
 
-4. **OS keychain secrets storage.** Manifests already declare
-   `storage = "keychain"` (see `spark-telegram-bot` bot_token and
-   webhook_secret). Today the CLI writes everything as plaintext env
-   files in `~/.spark/config/modules/*.env`. Python has `keyring` stdlib
-   → Windows Credential Manager on this box.
-   — `design-v1 §Secrets handling`.
-5. **`spark secrets set/list/rotate`** — keychain-backed CLI surface.
-   — `design-v1 §CLI surface`.
-6. **`spark config get/set <key>`** — writes user-level
-   `~/.spark/config.toml`.
-   — `design-v1 §CLI surface`.
+- **Trust prompt for non-blessed git URLs** — print the manifest's `[hooks]` block and require confirmation before running.
+- **`--resume` on failed installs** — each install step is already idempotent; needs a resume cursor in `installed.json`.
+- **Telemetry opt-in prompt** during `spark setup`.
+- **`spark search`** over the blessed registry.
 
 ### Larger scope
 
-7. **Git-based fetch.** `registry.json` currently points at local paths
-   on this machine. Real installer has to `git clone --depth=1`.
-   — `design-v1 §Decision 2`.
-8. **Capability resolver for `needs.capabilities`.** We detect conflicts
-   today (multiple `telegram.ingress` owners) but don't *resolve* needs
-   — e.g. a module declaring `needs.capabilities = ["memory.store"]`
-   won't get auto-wired to whichever installed module provides it.
-   — `user-flows §6`.
-9. **Runtime version range enforcement** from `[runtime].version`
-   (semver range checking).
-10. **Schema version field** (`schema = 1` in `spark.toml`) — for future
-    migrations.
-11. **Trust prompt** for installing from arbitrary git URLs before
-    running any `[hooks]`.
-    — `design-v1 §Open question 5`.
-12. **`--resume`** for failed installs (idempotent step replay).
-13. **`spark search`** (registry discovery).
-14. **`spark dashboard`** (SvelteKit foreground app).
-15. **`spark init <name>`** (scaffolder for new modules).
-16. **`spark login` + license verification + Pro tier gating.**
-    — `design-v1 §Licensing & Spark Pro`.
-17. **Telemetry opt-in prompt.**
+- **`spark init <name>`** — module scaffolder.
+- **`spark dashboard`** — SvelteKit foreground app shelling out to `spark <cmd> --json`.
+- **`spark login` + license/Pro gating** — JWT, offline grace, sub-check at install/start.
+- **Web installer at `sparkswarm.ai/install`** — same dashboard in onboarding mode.
+- **Full `needs.capabilities` wizard path** — today the resolver reports unmet needs; an interactive flow would offer to install a suggested provider in place.
 
 ---
 
-## ❓ Unsure — needs a check before acting
+## Unsure — verify before acting
 
-1. **Are the three downstream manifests correct and realistic?**
-   I read `spark-intelligence-builder/spark.toml` and `spawner-ui/spark.toml`
-   — both valid. I read the top of `spark-telegram-bot/spark.toml`; haven't
-   seen its full bottom half. Should confirm `[run.default]`, `[hooks]`,
-   and `[healthcheck]` blocks are wired.
-2. **Does `npm run health:spark` actually exist in spawner-ui?** The
-   manifest declares it; if the script isn't in `package.json`, `status`
-   will always show red for spawner-ui.
-3. **Does `python -m spark_intelligence.cli doctor` still exist?** The
-   builder manifest declares it as the healthcheck. If the CLI renamed
-   it, we'd see a false red in `status`.
-4. **Is `~/.spark/state/installed.json` currently in a consistent state?**
-   It lists all three modules with only basic fields (no `installed_via`,
-   no `bundle_provenance`). That shape predates commit `bb850aa`. If a
-   user re-runs `install`, the record gets upgraded in place — confirmed
-   by reading `install_module_record` (`cli.py:421-461`). Not broken, but
-   means current state is from an older format.
-5. **Does the `spark` binary on PATH point at this spike or another
-   tool?** README notes a conflict and suggests `spark-local`. Haven't
-   checked the resolved PATH on this box.
-
-None of these are blockers for the wizard work, but #2 and #3 are worth
-running before demoing `status` to anyone.
+1. **`spawner-ui` `npm run health:spark`** — declared in its manifest; has never been confirmed to exist in its `package.json`. If the script is missing, `spark status` will always show red for spawner-ui.
+2. **`python -m spark_intelligence.cli doctor`** — the builder's declared healthcheck. Run it once to confirm the entry point still exists.
+3. **PATH collision** — if another tool named `spark` is already on PATH, `pip install -e .` will not overwrite it. `spark-local` is the safe alias.
+4. **Existing `~/.spark/state/installed.json`** — was written under the older provenance schema. Any `install` will upgrade the record in place; not broken, just means current on-disk shape predates commit `bb850aa`.
 
 ---
 
-## Recommendation
+## File layout
 
-Two commits in order:
+```
+spark-cli/
+├── pyproject.toml                 # name=spark-cli, deps=[keyring>=24.0], scripts=spark + spark-local
+├── registry.json                  # modules and bundles (local paths today)
+├── README.md                      # command reference
+├── docs/
+│   ├── STATUS.md                  # this file
+│   └── design/
+│       ├── spark-installer-design-v1.md
+│       ├── lessons-from-todays-install.md
+│       └── user-flows-and-diagrams.md
+├── src/spark_cli/
+│   ├── __init__.py
+│   └── cli.py                     # everything: primitives + commands + argparse
+└── tests/
+    └── test_cli.py                # 56 tests; unittest + mock
+```
 
-**Commit A — "Wait for ready check and detect stale pids."** Lands the
-current WIP. Pure cleanup. Trivial review.
+`~/.spark/` layout created and managed by the CLI:
 
-**Commit B — "Add interactive spark setup wizard."** New `--interactive`
-default for `setup`. Detect Claude Code OAuth state, `uv`, `bun`, `node`.
-Prompt for each `[needs.secrets]` the bundle declares, deduped. Fall back
-to non-interactive when `--secret` flags are supplied or stdin isn't a
-TTY (keeps the test suite running under pytest).
+```
+~/.spark/
+├── state/
+│   ├── installed.json             # installed modules + provenance
+│   ├── setup.json                 # configured bundle + ingress owner
+│   └── pids.json                  # running process pids
+├── config/
+│   ├── modules/<name>.env         # generated module env files (non-secret)
+│   ├── secrets_index.json         # which backend holds each secret
+│   └── secrets.local.json         # only when keychain is unavailable
+├── modules/<name>/source/         # clone target for git-sourced modules
+└── logs/<name>/process.log        # process logs from `spark start`
+```
 
-Secondary, same branch if time allows:
-- `spark logs <module> [--follow]` — 30-line add.
-- Keychain storage for secrets marked `storage = "keychain"` in their
-  manifest block, with the generated env files referencing an indirect
-  lookup instead of plaintext.
+---
 
-Defer to next branch: git-based fetch, capability resolver, license /
-Pro, dashboard, `init`.
+## Quick operator reference
+
+```bash
+# First-time setup
+python -m spark_cli.cli setup telegram-starter       # interactive preflight + prompts
+python -m spark_cli.cli setup telegram-starter --non-interactive --secret telegram.bot_token=... --secret telegram.admin_ids=...
+
+# Lifecycle
+python -m spark_cli.cli list
+python -m spark_cli.cli install <module|bundle|path|git-url>
+python -m spark_cli.cli update [target]
+python -m spark_cli.cli uninstall [target] [--force]
+
+# Operation
+python -m spark_cli.cli start [target]
+python -m spark_cli.cli stop  [target]
+python -m spark_cli.cli status [--json]
+python -m spark_cli.cli doctor [--json]
+python -m spark_cli.cli logs <module> [-n 200] [-f]
+
+# Secrets
+python -m spark_cli.cli secrets list
+python -m spark_cli.cli secrets set <secret_id> [--value ...] [--backend keychain|file]
+python -m spark_cli.cli secrets get <secret_id> [--reveal]
+python -m spark_cli.cli secrets delete <secret_id>
+```
