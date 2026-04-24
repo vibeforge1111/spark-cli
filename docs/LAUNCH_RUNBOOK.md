@@ -28,7 +28,7 @@ Get-Content .\install.ps1
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Linux, WSL, or macOS:
+macOS, Linux, or WSL. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading managed Node:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.sh

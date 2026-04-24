@@ -9,6 +9,7 @@ SPARK_SKIP_SETUP="${SPARK_SKIP_SETUP:-0}"
 SPARK_BUNDLE="${SPARK_BUNDLE:-telegram-starter}"
 SPARK_SETUP_ARGS="${SPARK_SETUP_ARGS:-}"
 SPARK_LOCAL_REGISTRY="${SPARK_LOCAL_REGISTRY:-}"
+SPARK_NODE_PLATFORM="${SPARK_NODE_PLATFORM:-}"
 
 usage() {
   cat <<'EOF'
@@ -29,7 +30,8 @@ Options:
 
 Environment mirrors these flags:
   SPARK_PREFIX, SPARK_CLI_SOURCE, SPARK_CLI_REF, SPARK_NODE_VERSION,
-  SPARK_BUNDLE, SPARK_SETUP_ARGS, SPARK_LOCAL_REGISTRY, SPARK_SKIP_SETUP.
+  SPARK_BUNDLE, SPARK_SETUP_ARGS, SPARK_LOCAL_REGISTRY, SPARK_SKIP_SETUP,
+  SPARK_NODE_PLATFORM.
 EOF
 }
 
@@ -79,9 +81,35 @@ print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
 }
 
+detect_node_platform() {
+  local os_name arch os_id arch_id
+  os_name="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os_name" in
+    Linux) os_id="linux" ;;
+    Darwin) os_id="darwin" ;;
+    *)
+      echo "Unsupported OS for install.sh: $os_name. Use install.ps1 on Windows." >&2
+      exit 1
+      ;;
+  esac
+
+  case "$arch" in
+    x86_64|amd64) arch_id="x64" ;;
+    arm64|aarch64) arch_id="arm64" ;;
+    *)
+      echo "Unsupported CPU architecture for managed Node: $arch" >&2
+      exit 1
+      ;;
+  esac
+
+  printf '%s-%s\n' "$os_id" "$arch_id"
+}
+
 install_node() {
   local tools_dir="$SPARK_PREFIX/tools"
-  local node_dir="$tools_dir/node-v$SPARK_NODE_VERSION-linux-x64"
+  local node_dir="$tools_dir/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM"
   if [ -x "$node_dir/bin/node" ]; then
     log "Node $SPARK_NODE_VERSION already installed at $node_dir"
     return
@@ -90,11 +118,11 @@ install_node() {
   need_cmd curl
   need_cmd tar
   mkdir -p "$tools_dir"
-  local archive="$tools_dir/node-v$SPARK_NODE_VERSION-linux-x64.tar.xz"
+  local archive="$tools_dir/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM.tar.xz"
   local shasums="$tools_dir/node-v$SPARK_NODE_VERSION-SHASUMS256.txt"
-  local url="https://nodejs.org/dist/v$SPARK_NODE_VERSION/node-v$SPARK_NODE_VERSION-linux-x64.tar.xz"
+  local url="https://nodejs.org/dist/v$SPARK_NODE_VERSION/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM.tar.xz"
   local shasums_url="https://nodejs.org/dist/v$SPARK_NODE_VERSION/SHASUMS256.txt"
-  log "Downloading Node $SPARK_NODE_VERSION"
+  log "Downloading Node $SPARK_NODE_VERSION for $SPARK_NODE_PLATFORM"
   curl -fsSL "$url" -o "$archive"
   curl -fsSL "$shasums_url" -o "$shasums"
   verify_node_archive "$archive" "$shasums"
@@ -169,7 +197,7 @@ write_wrapper() {
   cat > "$wrapper" <<EOF
 #!/usr/bin/env bash
 export SPARK_HOME="$SPARK_PREFIX"
-export PATH="$SPARK_PREFIX/tools/node-v$SPARK_NODE_VERSION-linux-x64/bin:\$PATH"
+export PATH="$SPARK_PREFIX/tools/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM/bin:\$PATH"
 exec "$SPARK_PREFIX/tools/spark-cli-venv/bin/python" -m spark_cli.cli "\$@"
 EOF
   chmod +x "$wrapper"
@@ -205,9 +233,12 @@ EOF
 main() {
   need_cmd python3
   SPARK_PREFIX="$(normalize_path "$SPARK_PREFIX")"
+  if [ -z "$SPARK_NODE_PLATFORM" ]; then
+    SPARK_NODE_PLATFORM="$(detect_node_platform)"
+  fi
   mkdir -p "$SPARK_PREFIX"
   install_node
-  export PATH="$SPARK_PREFIX/tools/node-v$SPARK_NODE_VERSION-linux-x64/bin:$PATH"
+  export PATH="$SPARK_PREFIX/tools/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM/bin:$PATH"
   log "Node runtime: $(node -v)"
   checkout_cli
   install_cli_venv

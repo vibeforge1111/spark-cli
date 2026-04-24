@@ -70,7 +70,7 @@ Per-module runtimes are declared in each module's `spark.toml`. The installer ch
 
 ## Install The CLI
 
-Recommended macOS/Linux/WSL install:
+Recommended macOS/Linux/WSL install. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading the managed Node runtime:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.sh

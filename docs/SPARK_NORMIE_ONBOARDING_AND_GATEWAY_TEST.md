@@ -40,7 +40,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
   -SetupArg "<ZAI_API_KEY>"
 ```
 
-### WSL, Linux, macOS
+### macOS, Linux, WSL
+
+The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading managed Node.
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.sh
