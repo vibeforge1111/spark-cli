@@ -128,7 +128,8 @@ Cloud keys and the Telegram bot token are stored through the Spark secret backen
 - `BOT_TOKEN`
 - `ADMIN_TELEGRAM_IDS`
 - `SPARK_BUILDER_REPO`
-- `SPARK_BUILDER_BRIDGE_MODE=auto`
+- `SPARK_BUILDER_HOME`
+- `SPARK_BUILDER_BRIDGE_MODE=required`
 - `SPAWNER_UI_URL=http://127.0.0.1:5173`
 - `TELEGRAM_GATEWAY_MODE=polling`
 - `TELEGRAM_RELAY_SECRET`
@@ -143,7 +144,10 @@ Cloud keys and the Telegram bot token are stored through the Spark secret backen
 `spark-intelligence-builder` receives:
 
 - non-secret LLM provider metadata
-- default memory discovery through the Builder bootstrap path
+- `SPARK_INTELLIGENCE_HOME`
+- `SPARK_RESEARCHER_ROOT`
+- `SPARK_DOMAIN_CHIP_MEMORY_ROOT`
+- default memory initialized with `spark.memory.enabled=true`, `spark.memory.shadow_mode=false`, and `domain-chip-memory` active
 
 The starter path should not require `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or anything on port `8787`.
 
@@ -165,16 +169,18 @@ In Telegram:
 3. Send `/diagnose`.
 4. Send a normal message: `What can you do with my Spark memory and missions?`
 5. Send `/remember Spark launch test memory is connected`.
-6. Send `/recall Spark launch test`.
-7. Send `/run Create a small launch-readiness checklist for this Spark install`.
-8. Send `/board`.
-9. Send `/mission status <mission-id>` using the ID returned by `/run`.
+6. Send `/remember my preferred Spark reply style is concise but warm`.
+7. Send `/recall Spark launch test`.
+8. Send `/run Create a small launch-readiness checklist for this Spark install`.
+9. Send `/board`.
+10. Send `/mission status <mission-id>` using the ID returned by `/run`.
 
 Pass means:
 
 - `/diagnose` shows Telegram, Builder memory bridge, Spawner, and the selected LLM provider as reachable or gives a specific repair hint.
 - Normal chat returns an LLM-backed response, not a dead fallback.
 - `/remember` and `/recall` go through Builder memory when available.
+- explicit style saves return a short saved confirmation and never expose internal headings such as `Working Memory`.
 - `/run` creates a Spawner mission and Telegram receives mission lifecycle updates through the secret-protected local relay.
 - No launch step asks the user to start or configure a dashboard on `8787`.
 
@@ -199,6 +205,8 @@ For local development, patch the registry to point at sibling local repos or run
 - Telegram ingress owner is `spark-telegram-bot`
 - `TELEGRAM_GATEWAY_MODE=polling`
 - one shared `TELEGRAM_RELAY_SECRET` between Telegram and Spawner
+- Telegram generated env includes `SPARK_BUILDER_HOME`, `SPARK_BUILDER_REPO`, and `SPARK_BUILDER_BRIDGE_MODE`
+- Builder state has memory enabled, shadow mode disabled, `domain-chip-memory` active, and `spark-researcher` connected
 - no raw cloud API key in Spawner or Builder generated env
 - no generated `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or `8787` dependency
 
@@ -208,7 +216,8 @@ For local development, patch the registry to point at sibling local repos or run
 - Bot says admin only: send `/myid`, add that numeric ID to `ADMIN_TELEGRAM_IDS`, and rerun setup.
 - LLM is offline: rerun `spark setup --llm-provider <provider> ...key...`, then `spark status`.
 - `/run` fails: start `spawner-ui`, confirm `SPAWNER_UI_URL`, and check that Spawner has the same `TELEGRAM_RELAY_SECRET`.
-- Memory fallback appears: check Builder health and confirm `domain-chip-memory` is installed in the starter bundle.
+- `/remember` says `Working Memory`, gives a vague answer, or later `/recall` misses it: rerun `spark setup`, restart `spark-telegram-bot`, and confirm Telegram env points to the same `SPARK_BUILDER_HOME` that Builder initialized. Launch setup should use `SPARK_BUILDER_BRIDGE_MODE=required`, so broken Builder memory fails visibly instead of silently falling back.
+- Memory fallback appears: check Builder health and confirm `domain-chip-memory` is installed, active, and `spark.memory.shadow_mode=false`.
 
 ## Future Webhook Work
 

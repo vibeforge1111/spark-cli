@@ -877,7 +877,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_BUILDER_REPO": str(builder.path),
         "SPARK_BUILDER_HOME": str(builder_home),
         "SPARK_BUILDER_PYTHON": str(Path(sys.executable)),
-        "SPARK_BUILDER_BRIDGE_MODE": "auto",
+        "SPARK_BUILDER_BRIDGE_MODE": "required",
         "SPAWNER_UI_URL": args.spawner_ui_url or "http://127.0.0.1:5173",
         "TELEGRAM_GATEWAY_MODE": "polling",
         "TELEGRAM_RELAY_SECRET": relay_secret,

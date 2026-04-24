@@ -136,7 +136,9 @@ Setup writes the shared env that makes the pieces talk to each other:
 - Telegram uses long polling for this launch.
 - Telegram and Spawner both get a generated `TELEGRAM_RELAY_SECRET`.
 - Telegram and Spawner share the mission relay URL.
+- Telegram receives `SPARK_BUILDER_HOME`, `SPARK_BUILDER_REPO`, and `SPARK_BUILDER_BRIDGE_MODE=required`, so memory commands go through Builder instead of a local no-op adapter.
 - Telegram, Spawner, and Builder get selected non-secret LLM provider metadata.
+- Builder is initialized with memory enabled, `shadow_mode=false`, `domain-chip-memory` active, and `spark-researcher` connected.
 - Cloud API keys are stored through Spark's secret backend.
 
 The older dashboard/resonance API is intentionally not part of the launch starter path. Fresh installs should not require `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or a local service on port `8787`.
@@ -159,6 +161,7 @@ Useful Telegram checks:
 - `/start` shows the available commands.
 - `/myid` prints the numeric Telegram ID to put in `ADMIN_TELEGRAM_IDS`.
 - `/diagnose` checks LLM/provider paths.
+- `/remember my preferred Spark reply style is concise but warm` should return a short saved confirmation, not an internal `Working Memory` heading.
 - `/run <goal>` sends a mission to Spawner UI.
 
 ## Agent Operating Guide
@@ -169,8 +172,10 @@ If you are an LLM agent installing Spark for a user:
 2. Run `spark setup` first; do not install the five core repos one by one unless debugging.
 3. Use `spark status --json` before declaring the install healthy.
 4. Never print or commit bot tokens, provider API keys, `.env`, `.env.*`, or `~/.spark/config/secrets.local.json`.
-5. If a module fails healthcheck, read `spark status` repair hints before editing code.
-6. Do not add the deferred dashboard/port `8787` path back into launch onboarding.
+5. Confirm Telegram's generated env points at Builder with `SPARK_BUILDER_HOME`, and confirm Builder has memory enabled with `domain-chip-memory` active.
+6. If `/remember` replies with `Working Memory`, generic memory text, or a false success while recall fails, rerun `spark setup`, restart `spark-telegram-bot`, then inspect Builder memory state before editing bot code. The launch starter should fail visibly if Builder is unreachable, not silently fall back.
+7. If a module fails healthcheck, read `spark status` repair hints before editing code.
+8. Do not add the deferred dashboard/port `8787` path back into launch onboarding.
 
 ## Commands
 
