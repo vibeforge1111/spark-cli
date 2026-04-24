@@ -16,6 +16,7 @@ from spark_cli.cli import (
     build_module_envs,
     collect_secret_requirements,
     collect_secret_values,
+    cmd_setup,
     CONFIG_PATH,
     detect_runtime_binary,
     clone_module_source,
@@ -574,6 +575,137 @@ class SparkCliTests(unittest.TestCase):
     def test_setup_defaults_to_telegram_starter_bundle(self) -> None:
         args = build_parser().parse_args(["setup", "--non-interactive"])
         self.assertEqual(args.bundle, "telegram-starter")
+
+    def test_setup_default_bundle_registers_five_module_starter_stack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            fixture_root = tmp / "fixtures"
+            fixture_root.mkdir()
+
+            manifests = {
+                "spark-researcher": {
+                    "kind": "runtime",
+                    "plane": "research",
+                    "capabilities": ["spark.researcher", "spark.advisory", "spark.research.memory"],
+                    "needs_capabilities": [],
+                    "needs_secrets": [],
+                },
+                "spark-intelligence-builder": {
+                    "kind": "runtime",
+                    "plane": "runtime",
+                    "capabilities": ["spark.runtime"],
+                    "needs_capabilities": [],
+                    "needs_secrets": [],
+                },
+                "domain-chip-memory": {
+                    "kind": "chip-pack",
+                    "plane": "runtime",
+                    "capabilities": ["spark.memory.default"],
+                    "needs_capabilities": [],
+                    "needs_secrets": [],
+                },
+                "spawner-ui": {
+                    "kind": "app",
+                    "plane": "execution",
+                    "capabilities": ["mission.execution"],
+                    "needs_capabilities": [],
+                    "needs_secrets": [],
+                },
+                "spark-telegram-bot": {
+                    "kind": "service",
+                    "plane": "ingress",
+                    "capabilities": ["telegram.ingress"],
+                    "needs_capabilities": ["spark.runtime"],
+                    "needs_secrets": ["telegram.bot_token", "telegram.admin_ids"],
+                },
+            }
+            registry = {"modules": {}, "bundles": {"telegram-starter": {"modules": list(manifests)}}}
+            for name, manifest in manifests.items():
+                module_path = fixture_root / name
+                module_path.mkdir()
+                registry["modules"][name] = {"source": str(module_path), "blessed": True}
+                module_path.joinpath("spark.toml").write_text(
+                    "\n".join(
+                        [
+                            "[module]",
+                            f'name = "{name}"',
+                            'version = "0.1.0"',
+                            f'kind = "{manifest["kind"]}"',
+                            f'plane = "{manifest["plane"]}"',
+                            "",
+                            "[provides]",
+                            "capabilities = [" + ", ".join(f'"{item}"' for item in manifest["capabilities"]) + "]",
+                            "",
+                            "[needs]",
+                            "capabilities = [" + ", ".join(f'"{item}"' for item in manifest["needs_capabilities"]) + "]",
+                            "secrets = [" + ", ".join(f'"{item}"' for item in manifest["needs_secrets"]) + "]",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            spark_home = tmp / "spark-home"
+            state_dir = spark_home / "state"
+            config_dir = spark_home / "config"
+            module_config_dir = config_dir / "modules"
+            patches = {
+                "SPARK_HOME": spark_home,
+                "STATE_DIR": state_dir,
+                "CONFIG_DIR": config_dir,
+                "MODULE_CONFIG_DIR": module_config_dir,
+                "LOG_DIR": spark_home / "logs",
+                "REGISTRY_PATH": state_dir / "installed.json",
+                "CONFIG_PATH": state_dir / "setup.json",
+                "PID_PATH": state_dir / "pids.json",
+                "INSTALL_PROGRESS_PATH": state_dir / "install_progress.json",
+                "USER_CONFIG_PATH": config_dir / "config.json",
+                "SECRETS_INDEX_PATH": config_dir / "secrets_index.json",
+                "SECRETS_FILE_PATH": config_dir / "secrets.local.json",
+            }
+            args = build_parser().parse_args(
+                [
+                    "setup",
+                    "--non-interactive",
+                    "--skip-install-commands",
+                    "--skip-runtime-check",
+                    "--secret",
+                    "telegram.bot_token=123456:test-token",
+                    "--secret",
+                    "telegram.admin_ids=111,222",
+                ]
+            )
+
+            with patch.multiple("spark_cli.cli", **patches), patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                self.assertEqual(cmd_setup(args), 0)
+
+            expected = [
+                "spark-researcher",
+                "spark-intelligence-builder",
+                "domain-chip-memory",
+                "spawner-ui",
+                "spark-telegram-bot",
+            ]
+            installed = load_json(state_dir / "installed.json", {})
+            self.assertEqual(list(installed), expected)
+            for name in expected:
+                self.assertEqual(
+                    installed[name]["installed_via"],
+                    {"kind": "bundle", "target": "telegram-starter", "bundle": "telegram-starter"},
+                )
+                self.assertEqual(installed[name]["bundle_provenance"], ["telegram-starter"])
+
+            setup_state = load_json(state_dir / "setup.json", {})
+            self.assertEqual(setup_state["bundle"], "telegram-starter")
+            self.assertEqual(setup_state["modules"], expected)
+            self.assertEqual(setup_state["telegram_ingress_owner"], "spark-telegram-bot")
+
+            gateway_env = (module_config_dir / "spark-telegram-bot.env").read_text(encoding="utf-8")
+            spawner_env = (module_config_dir / "spawner-ui.env").read_text(encoding="utf-8")
+            self.assertIn("BOT_TOKEN=123456:test-token", gateway_env)
+            self.assertIn("ADMIN_TELEGRAM_IDS=111,222", gateway_env)
+            self.assertIn("SPAWNER_UI_URL=http://127.0.0.1:5173", gateway_env)
+            self.assertNotIn("BOT_TOKEN=", spawner_env)
+            self.assertIn("MISSION_CONTROL_WEBHOOK_URLS=http://127.0.0.1:8788/spawner-events", spawner_env)
 
     def test_print_install_summary_mentions_ingress_owner(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
