@@ -130,6 +130,14 @@ Provider options:
 | Z.AI / GLM | Use the coding endpoint key | `spark setup --llm-provider zai --zai-api-key <ZAI_API_KEY>` |
 | Ollama | Start Ollama locally | `spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>` |
 
+If your terminal will not paste secrets, copy the key normally and type `@clipboard` instead of the key:
+
+```bash
+spark setup --llm-provider zai --zai-api-key @clipboard --resume
+```
+
+The same shortcut works for BotFather tokens and generic secrets, for example `spark setup --bot-token @clipboard --resume`.
+
 For more control, set separate providers for Spark's roles:
 
 ```bash

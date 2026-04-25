@@ -72,9 +72,12 @@ from spark_cli.cli import (
     step_previously_completed,
     manifest_schema_version,
     needs_capabilities,
+    parse_secret_pairs,
     parse_version_constraint,
     parse_version_tuple,
     provider_status_payload,
+    read_clipboard_text,
+    resolve_secret_input,
     runtime_version_satisfies,
     validate_capability_needs_for_install,
     validate_manifest_schema,
@@ -99,6 +102,7 @@ from spark_cli.cli import (
     process_runtime_detail,
     format_start_warning,
     post_ready_watch_seconds,
+    prompt_for_secret,
     ready_timeout_seconds,
     read_generated_env,
     required_runtimes_for_modules,
@@ -2064,20 +2068,20 @@ class SparkCliTests(unittest.TestCase):
         existing = {"telegram.bot_token": "already-set"}
         prompted: list[str] = []
 
-        def fake_getpass(prompt: str) -> str:
+        def fake_input(prompt: str) -> str:
             prompted.append(prompt)
             if "Admin ids" in prompt:
                 return "123,456"
-            if "Relay secret" in prompt:
-                return ""
             return "SHOULD-NOT-HAPPEN"
 
-        with patch("spark_cli.cli.getpass.getpass", side_effect=fake_getpass):
+        with patch("builtins.input", side_effect=fake_input), \
+             patch("spark_cli.cli.getpass.getpass") as getpass_mock:
             collected = run_setup_wizard(existing, requirements)
         self.assertEqual(collected["telegram.bot_token"], "already-set")
         self.assertEqual(collected["telegram.admin_ids"], "123,456")
         self.assertNotIn("telegram.relay_secret", collected)
         self.assertEqual(len(prompted), 1)
+        getpass_mock.assert_not_called()
 
     def test_run_setup_wizard_reprompts_when_required_secret_empty(self) -> None:
         requirements = {"telegram.bot_token": {"prompt": "Bot token", "required": True}}
@@ -2086,6 +2090,27 @@ class SparkCliTests(unittest.TestCase):
         with patch("spark_cli.cli.getpass.getpass", side_effect=lambda _prompt: next(answers)):
             collected = run_setup_wizard({}, requirements)
         self.assertEqual(collected["telegram.bot_token"], "finally-a-value")
+
+    def test_parse_secret_pairs_reads_clipboard_sentinel(self) -> None:
+        with patch("spark_cli.cli.read_clipboard_text", return_value="clip-secret"):
+            parsed = parse_secret_pairs(["llm.zai.api_key=@clipboard"])
+        self.assertEqual(parsed["llm.zai.api_key"], "clip-secret")
+
+    def test_prompt_for_secret_reads_clipboard_sentinel(self) -> None:
+        with patch("spark_cli.cli.getpass.getpass", return_value="@clipboard"), \
+             patch("spark_cli.cli.read_clipboard_text", return_value="hidden-clip-secret"):
+            value = prompt_for_secret("llm.zai.api_key", {"prompt": "Z.AI API key", "required": True})
+        self.assertEqual(value, "hidden-clip-secret")
+
+    def test_prompt_for_secret_uses_visible_input_for_admin_ids(self) -> None:
+        with patch("builtins.input", return_value="123,456"), \
+             patch("spark_cli.cli.getpass.getpass") as getpass_mock:
+            value = prompt_for_secret("telegram.admin_ids", {"prompt": "Admin ids", "required": True})
+        self.assertEqual(value, "123,456")
+        getpass_mock.assert_not_called()
+
+    def test_resolve_secret_input_leaves_normal_values_alone(self) -> None:
+        self.assertEqual(resolve_secret_input("plain-secret"), "plain-secret")
 
     def test_run_llm_provider_wizard_selects_zai_and_collects_key(self) -> None:
         class Args:
@@ -2173,9 +2198,66 @@ class SparkCliTests(unittest.TestCase):
             telegram_relay_secret = None
             non_interactive = False
 
-        with patch("spark_cli.cli.getpass.getpass", return_value="prompted-value"):
+        with patch("spark_cli.cli.fetch_secret", return_value=None), \
+             patch("spark_cli.cli.getpass.getpass", return_value="prompted-value"):
             values = collect_secret_values(Args(), [module], interactive=True)
         self.assertEqual(values["telegram.bot_token"], "prompted-value")
+
+    def test_collect_secret_values_reuses_stored_secrets_before_prompting(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
+                "needs": {"secrets": ["telegram.bot_token"]},
+                "secrets": {
+                    "telegram_bot_token": {"prompt": "Bot token", "required": True, "env_var": "BOT_TOKEN"},
+                },
+            },
+        )
+
+        class Args:
+            secret = None
+            bot_token = None
+            admin_telegram_ids = None
+            telegram_relay_secret = None
+            non_interactive = False
+
+        with patch("spark_cli.cli.fetch_secret", return_value="stored-token"), \
+             patch("spark_cli.cli.getpass.getpass") as getpass_mock:
+            values = collect_secret_values(Args(), [module], interactive=True)
+        self.assertEqual(values["telegram.bot_token"], "stored-token")
+        getpass_mock.assert_not_called()
+
+    def test_collect_secret_values_reuses_generated_env_before_prompting(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
+                "needs": {"secrets": ["telegram.admin_ids"]},
+                "secrets": {
+                    "telegram_admin_ids": {"prompt": "Admin ids", "required": True, "env_var": "ADMIN_TELEGRAM_IDS"},
+                },
+            },
+        )
+
+        class Args:
+            secret = None
+            bot_token = None
+            admin_telegram_ids = None
+            telegram_relay_secret = None
+            non_interactive = False
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_dir = Path(tmp_dir)
+            (config_dir / "spark-telegram-bot.env").write_text("ADMIN_TELEGRAM_IDS=123,456\n", encoding="utf-8")
+            with patch("spark_cli.cli.MODULE_CONFIG_DIR", config_dir), \
+                 patch("spark_cli.cli.fetch_secret", return_value=None), \
+                 patch("builtins.input") as input_mock:
+                values = collect_secret_values(Args(), [module], interactive=True)
+        self.assertEqual(values["telegram.admin_ids"], "123,456")
+        input_mock.assert_not_called()
 
     def test_collect_secret_values_non_interactive_raises_on_missing(self) -> None:
         module = Module(
@@ -2197,7 +2279,8 @@ class SparkCliTests(unittest.TestCase):
             telegram_relay_secret = None
             non_interactive = True
 
-        with self.assertRaises(SystemExit) as error:
+        with patch("spark_cli.cli.fetch_secret", return_value=None), \
+             self.assertRaises(SystemExit) as error:
             collect_secret_values(Args(), [module], interactive=False)
         self.assertIn("Missing required secrets", str(error.exception))
 

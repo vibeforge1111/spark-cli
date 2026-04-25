@@ -448,13 +448,49 @@ def timestamp_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def read_clipboard_text() -> str:
+    commands: list[list[str]] = []
+    if sys.platform == "win32":
+        commands.append(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"])
+    elif sys.platform == "darwin":
+        commands.append(["pbpaste"])
+    else:
+        for candidate in ("wl-paste", "xclip", "xsel"):
+            path = shutil.which(candidate)
+            if not path:
+                continue
+            if candidate == "xclip":
+                commands.append([path, "-selection", "clipboard", "-o"])
+            elif candidate == "xsel":
+                commands.append([path, "--clipboard", "--output"])
+            else:
+                commands.append([path])
+
+    for command in commands:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            value = result.stdout.strip()
+            if value:
+                return value
+    raise SystemExit(
+        "Could not read a secret from the system clipboard. Copy the value first, then use `@clipboard`, "
+        "or pass the value directly."
+    )
+
+
+def resolve_secret_input(value: str) -> str:
+    if value.strip().lower() == "@clipboard":
+        return read_clipboard_text()
+    return value
+
+
 def parse_secret_pairs(raw_pairs: list[str] | None) -> dict[str, str]:
     secrets: dict[str, str] = {}
     for raw in raw_pairs or []:
         if "=" not in raw:
             raise SystemExit(f"Invalid --secret value: {raw}. Expected KEY=VALUE.")
         key, value = raw.split("=", 1)
-        secrets[key.strip()] = value
+        secrets[key.strip()] = resolve_secret_input(value)
     return secrets
 
 
@@ -497,9 +533,19 @@ def collect_secret_values(
     }
     for key, value in legacy_map.items():
         if value:
-            secret_values.setdefault(key, str(value))
+            secret_values.setdefault(key, resolve_secret_input(str(value)))
 
     requirements = collect_secret_requirements(modules)
+    for secret_id in requirements:
+        if secret_id in secret_values:
+            continue
+        stored = fetch_secret(secret_id)
+        if stored:
+            secret_values[secret_id] = stored
+            continue
+        generated = fetch_generated_secret_value(requirements[secret_id])
+        if generated:
+            secret_values[secret_id] = generated
 
     if interactive is None:
         interactive = setup_is_interactive(args)
@@ -782,16 +828,39 @@ def prompt_for_secret(secret_id: str, requirement: dict[str, Any]) -> str:
     required = bool(requirement.get("required"))
     prompt_text = str(requirement.get("prompt") or secret_id)
     suffix = "" if required else " (press enter to skip)"
+    if secret_id == "telegram.admin_ids":
+        while True:
+            try:
+                value = input(f"  {prompt_text}{suffix}: ").strip()
+            except EOFError:
+                return ""
+            if value:
+                return value
+            if not required:
+                return ""
+            print(f"  {secret_id} is required. Enter your numeric Telegram ID or cancel with Ctrl-C.")
     while True:
         try:
-            value = getpass.getpass(f"  {prompt_text}{suffix}: ")
+            value = getpass.getpass(f"  {prompt_text}{suffix} (typing is hidden; type @clipboard to use copied value): ")
         except EOFError:
             return ""
         if value:
-            return value
+            return resolve_secret_input(value)
         if not required:
             return ""
         print(f"  {secret_id} is required. Paste a value or cancel with Ctrl-C.")
+
+
+def fetch_generated_secret_value(requirement: dict[str, Any]) -> str | None:
+    env_var = requirement.get("env_var")
+    if not env_var:
+        return None
+    for module_name in requirement.get("modules", []):
+        values = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+        value = values.get(str(env_var))
+        if value:
+            return value
+    return None
 
 
 def run_setup_wizard(
@@ -4283,8 +4352,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip interactive preflight and secret prompts (require --secret for every required secret).",
     )
-    setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value")
-    setup_parser.add_argument("--bot-token")
+    setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value; use value @clipboard to read from the OS clipboard")
+    setup_parser.add_argument("--bot-token", help="Telegram BotFather token, or @clipboard")
     setup_parser.add_argument("--admin-telegram-ids")
     setup_parser.add_argument("--telegram-relay-secret")
     setup_parser.add_argument("--spawner-ui-url", default="http://127.0.0.1:5173")
@@ -4293,13 +4362,13 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--builder-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Builder reasoning and orchestration")
     setup_parser.add_argument("--memory-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for memory synthesis and recall")
     setup_parser.add_argument("--mission-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Spawner missions and coding/build work")
-    setup_parser.add_argument("--zai-api-key", help="Z.AI / GLM coding endpoint API key")
+    setup_parser.add_argument("--zai-api-key", help="Z.AI / GLM coding endpoint API key, or @clipboard")
     setup_parser.add_argument("--zai-base-url", default="https://api.z.ai/api/coding/paas/v4/")
     setup_parser.add_argument("--zai-model", default="glm-5.1")
-    setup_parser.add_argument("--openai-api-key")
+    setup_parser.add_argument("--openai-api-key", help="OpenAI API key, or @clipboard")
     setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1")
     setup_parser.add_argument("--openai-model", default="gpt-5.5")
-    setup_parser.add_argument("--anthropic-api-key")
+    setup_parser.add_argument("--anthropic-api-key", help="Anthropic API key, or @clipboard")
     setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
     setup_parser.add_argument("--anthropic-model", default="claude-sonnet-4.5")
     setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
