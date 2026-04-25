@@ -3130,6 +3130,10 @@ def format_start_warning(module: Module, detail: str, process: subprocess.Popen[
     return f"{detail}. The process is still running and may still be booting. {log_hint}"
 
 
+def windows_service_creationflags() -> int:
+    return int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) | int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
     missing: list[str] = []
     running_names: list[str] = []
@@ -3177,7 +3181,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False) -> bool:
         "env": subprocess_env,
     }
     if os.name == "nt":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        popen_kwargs["creationflags"] = windows_service_creationflags()
     else:
         popen_kwargs["start_new_session"] = True
 

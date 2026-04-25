@@ -109,6 +109,7 @@ from spark_cli.cli import (
     start_module,
     stop_module,
     wait_for_ready_check,
+    windows_service_creationflags,
     resolve_bundle_names,
     resolve_install_target,
     resolve_start_modules,
@@ -1810,6 +1811,14 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("spark-telegram-bot", detail)
         self.assertIn("spawner-ui (pid 102)", detail)
+
+    def test_windows_service_creationflags_keeps_stdio_redirectable(self) -> None:
+        flags = windows_service_creationflags()
+        detached = int(getattr(subprocess, "DETACHED_PROCESS", 0))
+
+        if detached:
+            self.assertFalse(flags & detached)
+        self.assertIsInstance(flags, int)
 
     def test_start_module_allows_boot_warning_when_process_keeps_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
