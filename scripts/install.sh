@@ -310,6 +310,7 @@ main() {
 Spark command:
   $SPARK_PREFIX/bin/spark --help
   $SPARK_PREFIX/bin/spark guide
+  $SPARK_PREFIX/bin/spark providers list
 
 To use \`spark\` by name in this terminal:
   source "$SPARK_PREFIX/env"
@@ -319,7 +320,12 @@ To make that permanent, add this line to your shell profile:
 
 Operational checks:
   $SPARK_PREFIX/bin/spark status
+  $SPARK_PREFIX/bin/spark providers status
+  $SPARK_PREFIX/bin/spark verify
   $SPARK_PREFIX/bin/spark autostart status
+
+If Telegram is quiet or memory is not responding:
+  $SPARK_PREFIX/bin/spark fix telegram
   $SPARK_PREFIX/bin/spark logs spark-telegram-bot
 EOF
 }

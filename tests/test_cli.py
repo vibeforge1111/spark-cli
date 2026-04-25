@@ -2636,6 +2636,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertNotIn('"${setup_words[@]}" "${extra_setup_args[@]}"', script)
         self.assertIn(r"To use \`spark\` by name in this terminal:", script)
         self.assertIn('source "$SPARK_PREFIX/env"', script)
+        self.assertIn("$SPARK_PREFIX/bin/spark providers list", script)
+        self.assertIn("$SPARK_PREFIX/bin/spark providers status", script)
+        self.assertIn("$SPARK_PREFIX/bin/spark verify", script)
+        self.assertIn("$SPARK_PREFIX/bin/spark fix telegram", script)
         self.assertIn("spark_cli.cli", script)
 
     def test_windows_install_script_bootstraps_local_prefix_contract(self) -> None:
@@ -2655,6 +2659,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("& $sparkCmd setup $Bundle @SetupArg", script)
         self.assertIn("[switch]$NoAutostart", script)
         self.assertIn("& $sparkCmd autostart install $Bundle --now", script)
+        self.assertIn("spark providers list", script)
+        self.assertIn("spark providers status", script)
+        self.assertIn("spark verify", script)
+        self.assertIn("spark fix telegram", script)
 
     def test_readme_does_not_recommend_piping_remote_installers_to_shell(self) -> None:
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
