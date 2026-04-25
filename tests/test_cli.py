@@ -2560,6 +2560,38 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark verify --deep", payload["next_commands"])
         self.assertIn("spark restart telegram-starter", payload["next_commands"])
 
+    def test_collect_telegram_fix_payload_flags_rejected_stored_bot_token(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [
+                {
+                    "name": "spark-telegram-bot",
+                    "healthy": False,
+                    "detail": "Telegram health: FAILED - Telegram rejected BOT_TOKEN.",
+                },
+            ],
+            "tracked_pids": {},
+            "llm": {
+                "provider": "zai",
+                "roles": {
+                    "chat": {"provider": "zai", "auth_mode": "api_key"},
+                    "builder": {"provider": "zai", "auth_mode": "api_key"},
+                    "memory": {"provider": "zai", "auth_mode": "api_key"},
+                    "mission": {"provider": "zai", "auth_mode": "api_key"},
+                },
+            },
+            "repair_hints": [],
+        }
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.load_json", return_value={"secret_keys": ["telegram.bot_token", "telegram.admin_ids"]}), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            payload = collect_telegram_fix_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["bot_token"]["ok"])
+        self.assertIn("Telegram rejected it", checks["bot_token"]["detail"])
+        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token <BOTFATHER_TOKEN>")
+
     def test_provider_status_payload_reports_role_readiness(self) -> None:
         setup_state = {
             "llm": {

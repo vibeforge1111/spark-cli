@@ -2312,11 +2312,20 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "repair": "spark status",
         }
     )
+    telegram_detail = str(telegram_result.get("detail", "")) if isinstance(telegram_result, dict) else ""
+    token_recorded = "telegram.bot_token" in secret_keys
+    token_rejected = "telegram rejected bot_token" in telegram_detail.lower()
     checks.append(
         {
             "name": "bot_token",
-            "ok": "telegram.bot_token" in secret_keys,
-            "detail": "Telegram bot token is configured." if "telegram.bot_token" in secret_keys else "Telegram bot token is missing.",
+            "ok": token_recorded and not token_rejected,
+            "detail": (
+                "Telegram bot token is configured."
+                if token_recorded and not token_rejected
+                else "Telegram bot token is stored but Telegram rejected it; rotate it in BotFather."
+                if token_recorded and token_rejected
+                else "Telegram bot token is missing."
+            ),
             "repair": "spark setup --bot-token <BOTFATHER_TOKEN>",
         }
     )
