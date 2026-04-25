@@ -1798,7 +1798,8 @@ def build_status_repair_hints(
             "No LLM provider is configured. Run `spark setup` to choose chat, builder, memory, and mission providers."
         )
     if isinstance(llm_state, dict):
-        hints.extend(build_llm_repair_hints(llm_state))
+        setup_secret_keys = set(setup_state.get("secret_keys", []))
+        hints.extend(build_llm_repair_hints(llm_state, secret_keys=setup_secret_keys))
     module_results_by_name = {item["name"]: item for item in module_results}
     for module in modules.values():
         missing_dependencies, unhealthy_dependencies = dependency_issues_for_module(module, module_results_by_name)
@@ -1817,8 +1818,9 @@ def build_status_repair_hints(
     return deduped
 
 
-def build_llm_repair_hints(llm_state: dict[str, Any]) -> list[str]:
+def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] | None = None) -> list[str]:
     hints: list[str] = []
+    stored_secret_keys = secret_keys or set()
     roles = llm_state.get("roles")
     if isinstance(roles, dict):
         role_items = [(role, roles.get(role, {})) for role in LLM_ROLES]
@@ -1829,6 +1831,19 @@ def build_llm_repair_hints(llm_state: dict[str, Any]) -> list[str]:
             continue
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
         auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        provider_spec = LLM_PROVIDER_ENV.get(provider, {})
+        api_key_secret = provider_spec.get("api_key_secret")
+        if auth_mode == "not_configured":
+            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
+                auth_mode = "api_key"
+            elif api_key_secret and api_key_secret in stored_secret_keys:
+                auth_mode = "api_key"
+            elif provider in {"codex", "openai"} and detect_codex_cli()["present"]:
+                auth_mode = "codex_oauth"
+            elif provider == "anthropic" and detect_claude_code()["present"]:
+                auth_mode = "claude_oauth"
+            elif provider == "ollama":
+                auth_mode = "local"
         role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
         role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
         if provider == "not_configured":

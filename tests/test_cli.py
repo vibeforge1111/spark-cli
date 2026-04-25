@@ -2360,6 +2360,14 @@ class SparkCliTests(unittest.TestCase):
         )
         self.assertIn("LLM provider uses Z.AI but is missing an API key. Re-run `spark setup --llm-provider zai --zai-api-key <key>`.", hints)
 
+    def test_build_status_repair_hints_uses_legacy_secret_keys_for_api_auth(self) -> None:
+        hints = build_status_repair_hints(
+            {},
+            [],
+            {"secret_keys": ["llm.zai.api_key"], "llm": {"provider": "zai", "api_key_configured": True}},
+        )
+        self.assertEqual([], [hint for hint in hints if "Z.AI" in hint or "missing an API key" in hint])
+
     def test_build_status_repair_hints_allows_openai_codex_auth(self) -> None:
         hints = build_status_repair_hints(
             {},
@@ -2369,11 +2377,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual([], [hint for hint in hints if "OpenAI is selected" in hint or "missing an API key" in hint])
 
     def test_build_status_repair_hints_reports_openai_without_auth(self) -> None:
-        hints = build_status_repair_hints(
-            {},
-            [],
-            {"llm": {"provider": "openai", "api_key_configured": False, "auth_mode": "not_configured"}},
-        )
+        with patch("spark_cli.cli.detect_codex_cli", return_value={"present": False}):
+            hints = build_status_repair_hints(
+                {},
+                [],
+                {"llm": {"provider": "openai", "api_key_configured": False, "auth_mode": "not_configured"}},
+            )
         self.assertIn(
             "LLM provider uses OpenAI but neither Codex CLI OAuth nor OPENAI_API_KEY is configured. Run `codex` to sign in with ChatGPT, or rerun `spark setup --llm-provider openai --openai-api-key <key>`.",
             hints,
