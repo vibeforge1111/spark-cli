@@ -26,6 +26,7 @@ from spark_cli.cli import (
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
+    collect_registry_pin_drift_payload,
     collect_setup_configuration,
     collect_llm_doctor_context,
     collect_telegram_fix_payload,
@@ -1575,6 +1576,41 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertFalse(payload["ok"])
         self.assertIn("module is missing a full commit pin", payload["checks"][0]["warnings"])
+
+    def test_registry_pin_drift_payload_detects_lagging_blessed_module(self) -> None:
+        registry = {
+            "modules": {
+                "spark-telegram-bot": {
+                    "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+                    "commit": "a" * 40,
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=lambda _source: "b" * 40)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["checks"][0]["remote_head"], "b" * 40)
+        self.assertIn("lags or diverges", payload["checks"][0]["detail"])
+
+    def test_registry_pin_drift_payload_accepts_current_blessed_module(self) -> None:
+        registry = {
+            "modules": {
+                "spark-character": {
+                    "source": "https://github.com/vibeforge1111/spark-character",
+                    "commit": "c" * 40,
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=lambda _source: "c" * 40)
+
+        self.assertTrue(payload["ok"])
+        self.assertIn("matches remote HEAD", payload["checks"][0]["detail"])
 
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])

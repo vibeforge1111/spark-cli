@@ -23,7 +23,7 @@ import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
@@ -1083,6 +1083,73 @@ def collect_module_provenance_payload(
             "signed_commits": "report_only",
             "attestations": "report_only",
         },
+        "checks": checks,
+    }
+
+
+def resolve_remote_git_head(source: str) -> str:
+    result = subprocess.run(
+        git_command("ls-remote", normalize_git_url(source), "HEAD"),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or "unknown git error"
+        raise RuntimeError(detail)
+    first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+    commit = first_line.split()[0].strip().lower() if first_line else ""
+    if not validate_commit_pin(commit):
+        raise RuntimeError("remote HEAD did not resolve to a full commit SHA")
+    return commit
+
+
+def collect_registry_pin_drift_payload(
+    *,
+    registry: dict[str, Any] | None = None,
+    resolver: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
+    registry_payload = registry if registry is not None else load_registry_definition()
+    modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
+    resolver = resolver or resolve_remote_git_head
+    checks: list[dict[str, Any]] = []
+    for name, metadata in sorted(modules.items()):
+        if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
+            continue
+        source = str(metadata.get("source", "")).strip()
+        if not is_git_source(source):
+            continue
+        pinned = str(metadata.get("commit", "")).strip().lower()
+        try:
+            validate_commit_pin(pinned)
+            remote = resolver(source).strip().lower()
+            validate_commit_pin(remote)
+        except (RuntimeError, SystemExit) as error:
+            checks.append(
+                {
+                    "name": str(name),
+                    "source": source,
+                    "pinned_commit": pinned,
+                    "remote_head": "",
+                    "ok": False,
+                    "detail": f"Could not verify remote HEAD: {error}",
+                }
+            )
+            continue
+        ok = pinned == remote
+        checks.append(
+            {
+                "name": str(name),
+                "source": source,
+                "pinned_commit": pinned,
+                "remote_head": remote,
+                "ok": ok,
+                "detail": "registry pin matches remote HEAD" if ok else "registry pin lags or diverges from remote HEAD",
+            }
+        )
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "summary": "Spark registry pin drift verification",
         "checks": checks,
     }
 
@@ -5002,6 +5069,20 @@ def onboarding_checklist() -> list[str]:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    if getattr(args, "registry_pins", False):
+        payload = collect_registry_pin_drift_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            print(f"      pinned: {check['pinned_commit']}")
+            if check.get("remote_head"):
+                print(f"      remote: {check['remote_head']}")
+        return 0 if payload["ok"] else 1
+
     if getattr(args, "provenance", False):
         payload = collect_module_provenance_payload()
         if args.json:
@@ -6885,6 +6966,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
     verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
+    verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
     verify_parser.set_defaults(func=cmd_verify)
 
     fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")

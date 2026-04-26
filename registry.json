@@ -2,42 +2,42 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "86d7850b7f77854ab36371b83ff8ce674bbddce8",
+      "commit": "ef7a9ee165e5cdf48a6749b87edea49ed7981c4d",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark"
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "341b3314c6b033b7f96fcbb42f76a2125d8be6a2",
+      "commit": "341b33170d5b0e256f1c60d25bfbdb4a24779a87",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark"
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "5951eae2528c636a4568b8eed73b8785fc09432b",
+      "commit": "0302f2e50402f8e9771c036be9882a76c68ada52",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "4c4f4f2f0f5b3ce03e7a47bac9846dd7a8512e77",
+      "commit": "1fc760542733ecaa1098ca219b92da2d592bf362",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing"
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "4dbe4294f00d056ad783d8fb4059adc17e058ea1",
+      "commit": "7a97767064840a86fa1d40209204b89e8929e82a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip"
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "6d55a64bc529eb4c31155dc802c568597712ef7b",
+      "commit": "61b9be862494a7a0b3166ba22aaa5116b568e29d",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack"
