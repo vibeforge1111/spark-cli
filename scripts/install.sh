@@ -3,7 +3,12 @@ set -euo pipefail
 
 SPARK_PREFIX="${SPARK_PREFIX:-$HOME/.spark}"
 SPARK_CLI_SOURCE="${SPARK_CLI_SOURCE:-https://github.com/vibeforge1111/spark-cli}"
-SPARK_CLI_REF="${SPARK_CLI_REF:-}"
+SPARK_DEFAULT_CLI_REF="spark-cli-launch-2026-04-26"
+SPARK_CLI_REF_USER_SET=0
+if [ -n "${SPARK_CLI_REF:-}" ]; then
+  SPARK_CLI_REF_USER_SET=1
+fi
+SPARK_CLI_REF="${SPARK_CLI_REF:-$SPARK_DEFAULT_CLI_REF}"
 SPARK_NODE_VERSION="${SPARK_NODE_VERSION:-22.18.0}"
 SPARK_SKIP_SETUP="${SPARK_SKIP_SETUP:-0}"
 SPARK_AUTOSTART="${SPARK_AUTOSTART:-1}"
@@ -26,6 +31,8 @@ SPARK_SHELL_PROFILE="${SPARK_SHELL_PROFILE:-auto}"
 SPARK_NODE_BIN_DIR=""
 SPARK_CANONICAL_CLI_SOURCE="https://github.com/vibeforge1111/spark-cli"
 SPARK_ALLOW_DEV_SOURCE="${SPARK_ALLOW_DEV_SOURCE:-0}"
+SPARK_SECRET_FILES=()
+trap 'cleanup_secret_files' EXIT HUP INT TERM
 
 usage() {
   cat <<'EOF'
@@ -81,7 +88,7 @@ while [ "$#" -gt 0 ]; do
     --source)
       SPARK_CLI_SOURCE="$2"; shift 2 ;;
     --ref)
-      SPARK_CLI_REF="$2"; shift 2 ;;
+      SPARK_CLI_REF="$2"; SPARK_CLI_REF_USER_SET=1; shift 2 ;;
     --node-version)
       SPARK_NODE_VERSION="$2"; shift 2 ;;
     --managed-node)
@@ -140,6 +147,13 @@ log() {
   printf '[spark-install] %s\n' "$*"
 }
 
+cleanup_secret_files() {
+  if [ "${#SPARK_SECRET_FILES[@]}" -gt 0 ]; then
+    rm -f "${SPARK_SECRET_FILES[@]}"
+    SPARK_SECRET_FILES=()
+  fi
+}
+
 normalize_macos_locale() {
   if [ "$(uname -s)" != "Darwin" ]; then
     return
@@ -159,6 +173,22 @@ normalize_path() {
   python3 - "$1" <<'PY'
 import os, sys
 print(os.path.abspath(os.path.expanduser(sys.argv[1])))
+PY
+}
+
+require_python_version() {
+  python3 - <<'PY'
+import sys
+
+required = (3, 11)
+if sys.version_info < required:
+    version = ".".join(str(part) for part in sys.version_info[:3])
+    print(
+        f"Python >= {required[0]}.{required[1]} is required for Spark. Found Python {version}. "
+        "Install a newer python3 and rerun the installer.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 PY
 }
 
@@ -194,7 +224,7 @@ validate_install_settings() {
     fi
   fi
 
-  if [ -n "$SPARK_CLI_REF" ] && [ "$SPARK_ALLOW_DEV_SOURCE" != "1" ]; then
+  if [ "$SPARK_CLI_REF_USER_SET" = "1" ] && [ -n "$SPARK_CLI_REF" ] && [ "$SPARK_ALLOW_DEV_SOURCE" != "1" ]; then
     echo "Refusing custom git ref without --allow-dev-source: $SPARK_CLI_REF" >&2
     exit 1
   fi
@@ -295,6 +325,19 @@ verify_node_archive() {
   fi
 }
 
+checkout_cli_ref() {
+  local target="$1"
+  if git -C "$target" checkout "$SPARK_CLI_REF" >/dev/null 2>&1; then
+    return
+  fi
+  if git -C "$target" fetch --depth=1 origin "$SPARK_CLI_REF" >/dev/null 2>&1; then
+    git -C "$target" checkout FETCH_HEAD
+    return
+  fi
+  git -C "$target" fetch --depth=1 origin "refs/tags/$SPARK_CLI_REF:refs/tags/$SPARK_CLI_REF"
+  git -C "$target" checkout "$SPARK_CLI_REF"
+}
+
 checkout_cli() {
   local target="$SPARK_PREFIX/tools/spark-cli"
   mkdir -p "$SPARK_PREFIX/tools"
@@ -309,15 +352,12 @@ checkout_cli() {
   need_cmd git
   if [ -d "$target/.git" ]; then
     log "Updating existing spark-cli checkout"
-    git -C "$target" fetch --depth=1 origin "${SPARK_CLI_REF:-HEAD}"
   else
     log "Cloning spark-cli from $SPARK_CLI_SOURCE"
     rm -rf "$target"
     git clone --depth=1 "$SPARK_CLI_SOURCE" "$target"
   fi
-  if [ -n "$SPARK_CLI_REF" ]; then
-    git -C "$target" checkout "$SPARK_CLI_REF"
-  fi
+  checkout_cli_ref "$target"
 }
 
 install_cli_venv() {
@@ -420,7 +460,6 @@ EOF
   fi
 
   local spark_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE")
-  local spark_secret_files=()
   local spark_secret_ref_value=""
   spark_secret_ref() {
     local value="$1"
@@ -428,7 +467,7 @@ EOF
     secret_file="$(mktemp "${TMPDIR:-/tmp}/spark-secret.XXXXXX")"
     chmod 600 "$secret_file"
     printf '%s' "$value" > "$secret_file"
-    spark_secret_files+=("$secret_file")
+    SPARK_SECRET_FILES+=("$secret_file")
     spark_secret_ref_value="@file:$secret_file"
   }
   if [ "$SPARK_NON_INTERACTIVE_SETUP" = "1" ]; then
@@ -477,9 +516,7 @@ EOF
   log "Running spark setup $SPARK_BUNDLE"
   local setup_exit=0
   "${spark_setup_cmd[@]}" || setup_exit=$?
-  if [ "${#spark_secret_files[@]}" -gt 0 ]; then
-    rm -f "${spark_secret_files[@]}"
-  fi
+  cleanup_secret_files
   return "$setup_exit"
 }
 
@@ -513,6 +550,7 @@ EOF
 
 main() {
   need_cmd python3
+  require_python_version
   normalize_macos_locale
   SPARK_PREFIX="$(normalize_path "$SPARK_PREFIX")"
   if [ -z "$SPARK_NODE_PLATFORM" ]; then

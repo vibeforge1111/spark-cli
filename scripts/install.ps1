@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "",
+    [string]$Ref = "spark-cli-launch-2026-04-26",
     [string]$NodeVersion = "22.18.0",
     [string]$Bundle = "telegram-starter",
     [string]$BotToken = "",
@@ -23,6 +23,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 
 function Write-SparkLog {
     param([string]$Message)
@@ -42,6 +43,15 @@ function Require-Command {
     param([string]$Name)
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         throw "Missing required command: $Name"
+    }
+}
+
+function Require-PythonVersion {
+    $versionText = (& python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))")
+    & python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' | Out-Null
+    $ok = $LASTEXITCODE
+    if ($ok -ne 0) {
+        throw "Python >= 3.11 is required for Spark. Found Python $versionText. Install a newer Python and rerun the installer."
     }
 }
 
@@ -72,7 +82,7 @@ function Test-InstallSettings {
     if ($normalizedSource -ne $canonicalSource -and -not $AllowDevSource) {
         throw "Refusing non-canonical Spark CLI source: $Source. Use -AllowDevSource only for local development after reviewing the source."
     }
-    if ($Ref -and -not $AllowDevSource) {
+    if ($RefWasProvided -and $Ref -and -not $AllowDevSource) {
         throw "Refusing custom git ref without -AllowDevSource: $Ref"
     }
     if ($LocalRegistry -and -not $AllowDevSource) {
@@ -154,6 +164,29 @@ function Copy-DirectoryContents {
         Copy-Item -Destination $To -Recurse -Force
 }
 
+function Checkout-CliRef {
+    param([string]$Target)
+    git -C $Target checkout $Ref *> $null
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+    git -C $Target fetch --depth=1 origin $Ref *> $null
+    if ($LASTEXITCODE -eq 0) {
+        git -C $Target checkout FETCH_HEAD
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+    git -C $Target fetch --depth=1 origin "refs/tags/${Ref}:refs/tags/${Ref}"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not fetch Spark CLI ref: $Ref"
+    }
+    git -C $Target checkout $Ref
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not checkout Spark CLI ref: $Ref"
+    }
+}
+
 function Checkout-Cli {
     $target = Join-Path $Script:SparkPrefix "tools\spark-cli"
     New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
@@ -166,7 +199,6 @@ function Checkout-Cli {
     Require-Command git
     if (Test-Path (Join-Path $target ".git")) {
         Write-SparkLog "Updating existing spark-cli checkout"
-        git -C $target fetch --depth=1 origin $(if ($Ref) { $Ref } else { "HEAD" })
     } else {
         if (Test-Path $target) {
             Remove-Item -LiteralPath $target -Recurse -Force
@@ -174,9 +206,7 @@ function Checkout-Cli {
         Write-SparkLog "Cloning spark-cli from $Source"
         git clone --depth=1 $Source $target
     }
-    if ($Ref) {
-        git -C $target checkout $Ref
-    }
+    Checkout-CliRef -Target $target
     return $target
 }
 
@@ -327,6 +357,7 @@ function Run-Autostart {
 }
 
 Require-Command python
+Require-PythonVersion
 $Script:SparkPrefix = Resolve-FullPath $Prefix
 Test-InstallSettings
 New-Item -ItemType Directory -Force -Path $Script:SparkPrefix | Out-Null

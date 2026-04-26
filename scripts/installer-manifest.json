@@ -1,13 +1,13 @@
-{
-  "schema": 1,
-  "installers": {
-    "install.sh": {
-      "path": "scripts/install.sh",
-      "sha256": "62b9fc0d4b1ac0503e06c79aa22cfaa937956794bcf51029d83000ad9cf12ba0"
-    },
-    "install.ps1": {
-      "path": "scripts/install.ps1",
-      "sha256": "b29aa8d919ca50f37b40ef89c1e50abe505d5b975b7e339bb6069120856544cf"
-    }
-  }
+﻿{
+    "schema":  1,
+    "installers":  {
+                       "install.sh":  {
+                                          "path":  "scripts/install.sh",
+                                          "sha256":  "6d423de6f3297f4bfe8ccbe24f59ee74458d6997d4544b7882a5a7c3140bdee8"
+                                      },
+                       "install.ps1":  {
+                                           "path":  "scripts/install.ps1",
+                                           "sha256":  "78d89dea2d3d5d1ce7483b1d975616339c52cc7783f3a67b77bba12e4ccdcd71"
+                                       }
+                   }
 }
