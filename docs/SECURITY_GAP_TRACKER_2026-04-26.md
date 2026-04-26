@@ -11,7 +11,9 @@ This tracker is the cross-repo source of truth for the April 26 hardening pass. 
 | Live `.env` / temp working files | Contained locally | Current-tree scan still sees local `.env`, `.env.override`, `.env.dspy.local`, and many Builder `.tmp-*` homes, but follow-up `git ls-files` and `git check-ignore` showed those paths are ignored rather than tracked. Do not print or commit their contents. |
 | History rewrite | Deferred | No `git filter-repo` rewrite is planned unless a real committed secret is found. Rewriting history and force-pushing remain destructive coordinated work requiring explicit approval. |
 | Blessed module commit pins | Done | `registry.json` blessed Git modules are pinned to full commits and registry validation refuses missing pins. |
+| Registry pin drift verification | Done | `spark verify --registry-pins` compares blessed registry pins against remote HEAD and fails on lag/divergence. Run it after every blessed module push. |
 | Module provenance / attestations | Started | `spark verify --provenance` reports commit-pin, signed-commit, and attestation posture in report-only mode. Signature and attestation enforcement are intentionally not breaking installs yet. |
+| Floating production git dependencies | Contained | Builder's `spark-character` dependency is pinned to a full commit and represented in `uv.lock`. No production dependency should use branch refs such as `@master`. |
 | Private JSON linked-path protection | Done | Spark private JSON writes refuse symlink/reparse-point paths. |
 | Generated env linked-path protection | Done | Generated module env writes and cleanup now use the same linked-path guard plus write-boundary checks. |
 | Endpoint audit | Started | See `docs/ENDPOINT_AUDIT_2026-04-26.md`. Builder and Telegram local relay surfaces are documented with current auth posture. |
@@ -19,6 +21,7 @@ This tracker is the cross-repo source of truth for the April 26 hardening pass. 
 | Provider base URL overrides | Done | `domain-chip-memory` now validates OpenAI and MiniMax base URLs as HTTPS, credential-free, query/fragment-free URLs on known provider hosts before constructing clients. |
 | Researcher adapter subprocess config | Done | `spark-researcher` adapter env/CLI command overrides now validate executables against per-adapter allowlists. The generic adapter is disabled by default and requires an explicit executable allowlist. |
 | Module runtime shell execution | Done | `spark-cli` module hooks, healthchecks, ready checks, and process starts now parse runtime commands to argv and run without `shell=True`; supported runtime tools are allowlisted. |
+| Runtime command policy ownership | Done | Runtime argv parsing and execution moved into `src/spark_cli/runtime_policy.py`; the misleading `run_shell` API was removed. |
 | Approval engine | Planned only | Sensitive-action approval policy is deliberately deferred. See `docs/APPROVAL_ENGINE_PLAN_2026-04-26.md` for scope, rollout phases, and test requirements before implementation. |
 | Docker sandbox | Deferred optional | Docker isolation should stay optional and additive. It should not be required for normal local Spark usage. |
 | T11 sustained-attack tier | Deferred | Do not focus implementation now, but keep spark-character structure compatible with adding the tier later. |

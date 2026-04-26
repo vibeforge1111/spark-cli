@@ -208,6 +208,15 @@ spark verify --deep
 
 Deep verification runs Builder's direct memory smoke test with cleanup, so a setup agent can distinguish "memory is installed" from "memory is actually wired."
 
+To verify the blessed registry after pushing a production module:
+
+```bash
+spark verify --registry-pins
+spark verify --provenance
+```
+
+`--registry-pins` checks every blessed module pin against its remote HEAD. `--provenance` checks commit-pin, signature, and attestation posture in report-only mode.
+
 To inspect only LLM choices and role readiness:
 
 ```bash
@@ -348,9 +357,17 @@ python -m pytest tests/ -q
 
 Current focused suite lives in `tests/test_cli.py`.
 
+Before publishing registry or installer changes, also run:
+
+```bash
+python -m spark_cli.cli verify --registry-pins --json
+python -m spark_cli.cli verify --provenance --json
+```
+
 ## More Docs
 
 - [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs/SPARK_ECOSYSTEM_LAUNCH.md) - public launch contract
+- [docs/SPARK_MAINTAINABILITY_GOVERNANCE_2026-04-26.md](./docs/SPARK_MAINTAINABILITY_GOVERNANCE_2026-04-26.md) - cross-repo maintainability rules, redlines, and session protocol
 - [docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md](./docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md) - step-by-step install and real-time Telegram gateway test
 - [docs/LAUNCH_RUNBOOK.md](./docs/LAUNCH_RUNBOOK.md) - release-day verification
 - [docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md](./docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md) - launch security audit
