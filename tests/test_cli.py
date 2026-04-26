@@ -69,6 +69,7 @@ from spark_cli.cli import (
     module_secret_env_bindings,
     next_telegram_profile_relay_port,
     normalize_telegram_profile,
+    provider_env_blocklist,
     primary_telegram_profile,
     check_runtime_version_for_module,
     clear_install_progress,
@@ -142,6 +143,7 @@ from spark_cli.cli import (
     run_setup_wizard,
     shell_command_env,
     setup_is_interactive,
+    strip_reserved_workspace_env,
     split_telegram_admin_ids,
     start_module,
     stop_module,
@@ -344,6 +346,39 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertEqual(env["BOT_TOKEN"], "default-profile-token")
         self.assertEqual(env["TELEGRAM_RELAY_SECRET"], "default-profile-relay")
+
+    def test_module_runtime_env_filters_parent_provider_secrets(self) -> None:
+        module = make_module("safe-env-module", ["test.capability"])
+        with patch.dict(
+            os.environ,
+            {
+                "PATH": "C:/safe-bin",
+                "OPENAI_API_KEY": "parent-openai",
+                "ZAI_BASE_URL": "https://evil.example",
+                "UNRELATED_SECRET": "parent-secret",
+            },
+            clear=True,
+        ), patch("spark_cli.cli.read_generated_env", return_value={}):
+            env = module_runtime_env(module)
+        self.assertEqual(env["PATH"].split(os.pathsep)[-1], "C:/safe-bin")
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("ZAI_BASE_URL", env)
+        self.assertNotIn("UNRELATED_SECRET", env)
+
+    def test_module_runtime_env_strips_reserved_generated_provider_overrides(self) -> None:
+        module = make_module("generated-env-module", ["test.capability"], ["llm.openai.api_key"])
+        generated = {
+            "OPENAI_API_KEY": "generated-openai",
+            "OPENAI_BASE_URL": "https://evil.example/v1",
+            "SPARK_WORKSPACE_ROOT": "C:/spark/workspaces",
+        }
+        with patch("spark_cli.cli.shell_command_env", return_value={}), \
+             patch("spark_cli.cli.read_generated_env", return_value=generated), \
+             patch("spark_cli.cli.keychain_env_for_module", return_value={"OPENAI_API_KEY": "keychain-openai"}):
+            env = module_runtime_env(module)
+        self.assertEqual(env["OPENAI_API_KEY"], "keychain-openai")
+        self.assertNotIn("OPENAI_BASE_URL", env)
+        self.assertEqual(env["SPARK_WORKSPACE_ROOT"], "C:/spark/workspaces")
 
     def test_primary_telegram_profile_prefers_configured_primary(self) -> None:
         setup_state = {
@@ -3057,6 +3092,23 @@ class SparkCliTests(unittest.TestCase):
             else:
                 self.assertIn(sys.executable, python_shim.read_text(encoding="utf-8"))
                 self.assertTrue((shim_dir / "pip.cmd").exists())
+
+    def test_provider_env_blocklist_is_derived_from_registry(self) -> None:
+        blocked = provider_env_blocklist()
+        self.assertIn("OPENAI_API_KEY", blocked)
+        self.assertIn("OPENAI_BASE_URL", blocked)
+        self.assertIn("MINIMAX_API_KEY", blocked)
+        self.assertIn("ZAI_BASE_URL", blocked)
+
+    def test_strip_reserved_workspace_env_keeps_non_reserved_values(self) -> None:
+        stripped = strip_reserved_workspace_env(
+            {
+                "OPENAI_API_KEY": "workspace-secret",
+                "MINIMAX_BASE_URL": "https://evil.example",
+                "SPARK_INTELLIGENCE_HOME": "C:/spark/state",
+            }
+        )
+        self.assertEqual(stripped, {"SPARK_INTELLIGENCE_HOME": "C:/spark/state"})
 
     def test_read_generated_env_ignores_comments_and_blank_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

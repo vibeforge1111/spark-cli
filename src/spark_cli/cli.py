@@ -68,6 +68,46 @@ AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
+SAFE_PARENT_ENV_KEYS = {
+    "APPDATA",
+    "COMSPEC",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "SHELL",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "USER",
+    "USERNAME",
+    "USERPROFILE",
+    "WINDIR",
+}
+SAFE_PARENT_ENV_PREFIXES = ("XDG_",)
+STATIC_PROVIDER_ENV_BLOCKLIST = {
+    "ANTHROPIC_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "GOOGLE_API_KEY",
+    "MINIMAX_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_URL",
+    "TELEGRAM_API_BASE",
+    "TELEGRAM_BOT_TOKEN",
+    "ZAI_API_KEY",
+    "ZAI_BASE_URL",
+}
 
 try:  # keyring is an optional runtime dep; we degrade gracefully without it.
     import keyring as _keyring
@@ -1139,8 +1179,38 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
             pass
 
 
-def shell_command_env() -> dict[str, str]:
-    env = os.environ.copy()
+def provider_env_blocklist() -> set[str]:
+    blocked = set(STATIC_PROVIDER_ENV_BLOCKLIST)
+    for spec in LLM_PROVIDER_ENV.values():
+        for key in ("api_key_env", "base_url_env"):
+            value = spec.get(key)
+            if value:
+                blocked.add(str(value))
+    return blocked
+
+
+def is_safe_parent_env_key(key: str) -> bool:
+    normalized = key.upper()
+    return normalized in SAFE_PARENT_ENV_KEYS or any(normalized.startswith(prefix) for prefix in SAFE_PARENT_ENV_PREFIXES)
+
+
+def safe_parent_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    source = os.environ if base is None else base
+    blocked = provider_env_blocklist()
+    return {
+        key: value
+        for key, value in source.items()
+        if is_safe_parent_env_key(key) and key.upper() not in blocked
+    }
+
+
+def strip_reserved_workspace_env(values: dict[str, str]) -> dict[str, str]:
+    blocked = provider_env_blocklist()
+    return {key: value for key, value in values.items() if key.upper() not in blocked}
+
+
+def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
+    env = safe_parent_env() if filtered else os.environ.copy()
     current_python = Path(sys.executable)
     python_path = str(current_python) if current_python.exists() else resolve_runtime_binary("python")
     if not python_path:
@@ -1463,10 +1533,10 @@ def read_generated_env(path: Path) -> dict[str, str]:
 
 
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
-    env = shell_command_env()
-    env.update(read_generated_env(generated_module_env_path(module)))
+    env = shell_command_env(filtered=True)
+    env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
     if module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile):
-        env.update(read_generated_env(generated_module_env_path(module, profile)))
+        env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
     env.update(keychain_env_for_module(module))
     if module.name == "spark-telegram-bot":
         env.update(keychain_env_for_telegram_profile(profile))
@@ -3281,7 +3351,7 @@ def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=shell_command_env(),
+            env=shell_command_env(filtered=True),
         )
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout if isinstance(error.stdout, str) else ""
