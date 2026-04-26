@@ -128,6 +128,101 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
+TRUST_BLOCK_THRESHOLD = {
+    "builtin": "critical",
+    "trusted": "critical",
+    "community": "high",
+    "untrusted": "medium",
+}
+CHIP_SCAN_SEVERITY_RANK = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+}
+CHIP_SCAN_SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "site-packages",
+}
+CHIP_SCAN_SKIP_FILES = {
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "yarn.lock",
+}
+CHIP_SCAN_TEXT_SUFFIXES = {
+    "",
+    ".bat",
+    ".cmd",
+    ".env",
+    ".ini",
+    ".js",
+    ".json",
+    ".mjs",
+    ".ps1",
+    ".py",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+CHIP_SCAN_EXECUTABLE_SUFFIXES = {
+    ".com",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".pyd",
+    ".so",
+}
+CHIP_SCAN_MAX_FILE_BYTES = 256 * 1024
+CHIP_SCAN_MAX_FILES = 500
+CHIP_SCAN_MAX_TOTAL_BYTES = 4 * 1024 * 1024
+CHIP_SCAN_PATTERNS = (
+    (
+        "embedded-private-key",
+        "critical",
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        "private key material is embedded in the module",
+    ),
+    (
+        "shell-pipe-installer",
+        "high",
+        re.compile(r"\b(?:curl|wget|iwr|Invoke-WebRequest)\b[^\n\r|;&]*(?:\||;|&&)[^\n\r]*(?:bash|sh|iex|Invoke-Expression)\b", re.IGNORECASE),
+        "remote download is piped into a shell/interpreter",
+    ),
+    (
+        "secret-file-access",
+        "high",
+        re.compile(r"(?:readFileSync|open|Get-Content|cat)\s*\(?[^\n\r]*(?:\.ssh|id_rsa|secrets\.local\.json|\.aws|\.gnupg|\.env)", re.IGNORECASE),
+        "code appears to read credential files directly",
+    ),
+    (
+        "dangerous-recursive-delete",
+        "high",
+        re.compile(r"\b(?:rm\s+-rf|Remove-Item\b[^\n\r]*\s-Recurse)\b[^\n\r]*(?:~|/|\\|C:)", re.IGNORECASE),
+        "code contains a broad recursive delete command",
+    ),
+    (
+        "python-shell-true",
+        "medium",
+        re.compile(r"subprocess\.(?:run|Popen|call|check_call|check_output)\([^\n\r]*shell\s*=\s*True", re.IGNORECASE),
+        "Python subprocess uses shell=True",
+    ),
+)
 
 try:  # keyring is an optional runtime dep; we degrade gracefully without it.
     import keyring as _keyring
@@ -244,6 +339,17 @@ class Module:
         if not command:
             return None
         return str(command)
+
+
+@dataclass
+class ChipScanFinding:
+    category: str
+    severity: str
+    path: str
+    detail: str
+
+    def format(self) -> str:
+        return f"[{self.severity}] {self.category} in {self.path}: {self.detail}"
 
 
 @dataclass
@@ -2685,6 +2791,130 @@ def is_blessed_registry_entry(target: str) -> bool:
     return bool(metadata.get("blessed"))
 
 
+def module_trust_tier(module: Module, target: str | None = None) -> str:
+    registry_modules = load_registry_definition().get("modules", {})
+    metadata = registry_modules.get(module.name) or (registry_modules.get(target) if target else {}) or {}
+    configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
+    if metadata.get("blessed") and not configured:
+        return "trusted"
+    tier = str(configured or "community").strip().lower()
+    return tier if tier in TRUST_TIERS else "community"
+
+
+def chip_scan_blocks_tier(severity: str, trust_tier: str) -> bool:
+    threshold = TRUST_BLOCK_THRESHOLD.get(trust_tier, "high")
+    return CHIP_SCAN_SEVERITY_RANK.get(severity, 0) >= CHIP_SCAN_SEVERITY_RANK[threshold]
+
+
+def chip_scan_relative_path(root: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
+    findings: list[ChipScanFinding] = []
+    for category, severity, pattern, detail in CHIP_SCAN_PATTERNS:
+        if pattern.search(text):
+            findings.append(ChipScanFinding(category, severity, path_label, detail))
+    return findings
+
+
+def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
+    relative = chip_scan_relative_path(root, path)
+    suffix = path.suffix.lower()
+    findings: list[ChipScanFinding] = []
+    try:
+        stat_result = path.stat()
+    except OSError as error:
+        return [ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
+    if suffix in CHIP_SCAN_EXECUTABLE_SUFFIXES:
+        findings.append(ChipScanFinding("executable-binary", "high", relative, "binary executable is present in the module"))
+    if stat_result.st_size > CHIP_SCAN_MAX_FILE_BYTES:
+        return findings
+    if path.name in CHIP_SCAN_SKIP_FILES or suffix not in CHIP_SCAN_TEXT_SUFFIXES:
+        return findings
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        return [*findings, ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
+    if b"\0" in data:
+        return findings
+    text = data.decode("utf-8", errors="replace")
+    return [*findings, *chip_scan_text(relative, text)]
+
+
+def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:
+    root = resolve_policy_path(module.path)
+    if not root.exists():
+        return []
+    tier = trust_tier or module_trust_tier(module)
+    findings: list[ChipScanFinding] = []
+    total_bytes = 0
+    scanned_files = 0
+    for current_root, dir_names, file_names in os.walk(root):
+        current = Path(current_root)
+        dir_names[:] = [name for name in dir_names if name not in CHIP_SCAN_SKIP_DIRS]
+        for name in list(dir_names):
+            directory = current / name
+            if not directory.is_symlink():
+                continue
+            target = resolve_policy_path(directory)
+            if not policy_path_is_same_or_child(target, root):
+                findings.append(
+                    ChipScanFinding(
+                        "symlink-escape",
+                        "high",
+                        chip_scan_relative_path(root, directory),
+                        f"symlink target leaves module root: {target}",
+                    )
+                )
+            dir_names.remove(name)
+        for file_name in file_names:
+            path = current / file_name
+            if path.is_symlink():
+                target = resolve_policy_path(path)
+                if not policy_path_is_same_or_child(target, root):
+                    findings.append(
+                        ChipScanFinding(
+                            "symlink-escape",
+                            "high",
+                            chip_scan_relative_path(root, path),
+                            f"symlink target leaves module root: {target}",
+                        )
+                    )
+                continue
+            scanned_files += 1
+            if scanned_files > CHIP_SCAN_MAX_FILES:
+                findings.append(ChipScanFinding("module-size", "medium", ".", "module has too many files to scan completely"))
+                return findings
+            try:
+                total_bytes += path.stat().st_size
+            except OSError:
+                pass
+            if total_bytes > CHIP_SCAN_MAX_TOTAL_BYTES:
+                findings.append(ChipScanFinding("module-size", "medium", ".", "module exceeds scanner byte budget"))
+                return findings
+            findings.extend(chip_scan_file(root, path))
+    if tier == "builtin":
+        return [finding for finding in findings if finding.severity == "critical"]
+    return findings
+
+
+def enforce_module_trust_scan(module: Module, target: str | None = None) -> None:
+    tier = module_trust_tier(module, target)
+    findings = scan_module_trust(module, trust_tier=tier)
+    blocked = [finding for finding in findings if chip_scan_blocks_tier(finding.severity, tier)]
+    if blocked:
+        detail = "\n  - ".join(finding.format() for finding in blocked[:8])
+        extra = "" if len(blocked) <= 8 else f"\n  - ...and {len(blocked) - 8} more"
+        raise SystemExit(
+            f"Module `{module.name}` failed the {tier} trust-tier scan:\n  - {detail}{extra}\n"
+            "Review the module contents or move it to a stricter trust boundary before installing/running it."
+        )
+
+
 def describe_install_risk(module: Module) -> list[str]:
     lines: list[str] = []
     commands = module.install_commands
@@ -2716,6 +2946,7 @@ def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str
 
 
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
+    enforce_module_trust_scan(module, target)
     if getattr(args, "trust", False):
         return
     if is_blessed_registry_entry(target):
@@ -4757,6 +4988,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     command = module.run_command
     if not command:
         return True
+    enforce_module_trust_scan(module, module.name)
     require_write_allowed(module.path, safe_root=spark_write_safe_root(), subject=f"{module.name} module root")
 
     process_key = module_process_key(module.name, profile)
