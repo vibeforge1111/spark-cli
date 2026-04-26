@@ -2874,7 +2874,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(collected["telegram.admin_ids"], "123,456")
         self.assertNotIn("telegram.relay_secret", collected)
         self.assertEqual(len(prompted), 1)
-        self.assertIn("Secrets are hidden", output.getvalue())
+        self.assertIn("Secrets are masked with stars on Windows", output.getvalue())
         self.assertIn("Telegram admin IDs are shown", output.getvalue())
         getpass_mock.assert_not_called()
 
@@ -2896,6 +2896,12 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.read_clipboard_text", return_value="hidden-clip-secret"):
             value = prompt_for_secret("llm.zai.api_key", {"prompt": "Z.AI API key", "required": True})
         self.assertEqual(value, "hidden-clip-secret")
+
+    def test_prompt_for_secret_uses_masked_reader_for_api_keys(self) -> None:
+        with patch("spark_cli.cli.read_secret_interactive", return_value="zai-key") as masked_reader:
+            value = prompt_for_secret("llm.zai.api_key", {"prompt": "Z.AI API key", "required": True})
+        self.assertEqual(value, "zai-key")
+        self.assertIn("typing is masked", masked_reader.call_args.args[0])
 
     def test_read_secret_interactive_falls_back_to_hidden_getpass_when_masking_unavailable(self) -> None:
         with patch("spark_cli.cli.stdin_is_tty", return_value=False), \
