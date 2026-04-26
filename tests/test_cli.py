@@ -23,6 +23,7 @@ from spark_cli.cli import (
     command_with_managed_python,
     collect_secret_requirements,
     collect_secret_values,
+    collect_installer_integrity_payload,
     collect_setup_configuration,
     collect_telegram_fix_payload,
     collect_verify_payload,
@@ -45,6 +46,7 @@ from spark_cli.cli import (
     infer_module_name_from_url,
     initialize_builder_runtime_home,
     install_command_argv,
+    installer_manifest_payload,
     git_command,
     is_git_source,
     module_is_git_managed,
@@ -4340,6 +4342,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Open Telegram and send /start", output)
         self.assertIn("/access 3 is recommended", output)
         self.assertIn("/run say exactly OK", output)
+
+    def test_installer_manifest_matches_current_scripts(self) -> None:
+        payload = installer_manifest_payload()
+        committed = collect_installer_integrity_payload()
+        self.assertEqual(committed["manifest"], str(Path(__file__).resolve().parents[1] / "scripts" / "installer-manifest.json"))
+        self.assertTrue(committed["ok"])
+        expected = {name: item["sha256"] for name, item in payload["installers"].items()}
+        actual = {
+            check["name"].removeprefix("local_"): check["actual_sha256"]
+            for check in committed["checks"]
+        }
+        self.assertEqual(actual, expected)
+
+    def test_verify_installers_uses_integrity_payload(self) -> None:
+        args = build_parser().parse_args(["verify", "--installers", "--json"])
+        payload = {
+            "ok": True,
+            "summary": "Spark installer integrity verification",
+            "manifest": "scripts/installer-manifest.json",
+            "checks": [{"name": "local_install.sh", "ok": True, "detail": "ready"}],
+        }
+        with patch("spark_cli.cli.collect_installer_integrity_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with(hosted=False)
+        self.assertIn("local_install.sh", stdout.getvalue())
 
     def test_collect_verify_payload_deep_runs_builder_memory_direct_smoke(self) -> None:
         expected = [

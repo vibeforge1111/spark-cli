@@ -51,6 +51,15 @@ AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
 AUTOSTART_WINDOWS_TASK_NAME = "Spark Telegram Agent"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LOCAL_REGISTRY_PATH = REPO_ROOT / "registry.json"
+INSTALLER_MANIFEST_PATH = REPO_ROOT / "scripts" / "installer-manifest.json"
+INSTALLER_SCRIPT_PATHS = {
+    "install.sh": REPO_ROOT / "scripts" / "install.sh",
+    "install.ps1": REPO_ROOT / "scripts" / "install.ps1",
+}
+HOSTED_INSTALLER_URLS = {
+    "install.sh": "https://agent.sparkswarm.ai/install.sh",
+    "install.ps1": "https://agent.sparkswarm.ai/install.ps1",
+}
 DEFAULT_TELEGRAM_PROFILE = "default"
 DEFAULT_PRIMARY_TELEGRAM_PROFILE = "primary"
 PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
@@ -633,6 +642,91 @@ def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
+
+
+def installer_manifest_payload() -> dict[str, Any]:
+    return {
+        "schema": 1,
+        "installers": {
+            name: {
+                "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
+                "sha256": sha256_file(path),
+            }
+            for name, path in INSTALLER_SCRIPT_PATHS.items()
+        },
+    }
+
+
+def hosted_installer_sha256(name: str, url: str) -> str:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "spark-cli/0.1 installer-integrity",
+            "Accept": "text/plain,*/*",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = response.read()
+    return sha256_bytes(payload)
+
+
+def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, Any]:
+    manifest = load_json(INSTALLER_MANIFEST_PATH, {})
+    installers = manifest.get("installers") if isinstance(manifest, dict) else None
+    checks: list[dict[str, Any]] = []
+    for name, path in INSTALLER_SCRIPT_PATHS.items():
+        expected = ""
+        if isinstance(installers, dict) and isinstance(installers.get(name), dict):
+            expected = str(installers[name].get("sha256", "")).lower()
+        actual = sha256_file(path).lower() if path.exists() else ""
+        local_ok = bool(expected) and actual == expected
+        checks.append(
+            {
+                "name": f"local_{name}",
+                "ok": local_ok,
+                "expected_sha256": expected,
+                "actual_sha256": actual,
+                "detail": (
+                    f"{name} matches committed installer manifest."
+                    if local_ok
+                    else f"{name} does not match committed installer manifest."
+                ),
+            }
+        )
+        if hosted:
+            url = HOSTED_INSTALLER_URLS[name]
+            try:
+                hosted_hash = hosted_installer_sha256(name, url).lower()
+                hosted_ok = bool(expected) and hosted_hash == expected
+                detail = f"{url} matches committed installer manifest." if hosted_ok else f"{url} does not match committed installer manifest."
+            except (OSError, urllib.error.URLError, TimeoutError) as exc:
+                hosted_hash = ""
+                hosted_ok = False
+                detail = f"Could not fetch {url}: {exc}"
+            checks.append(
+                {
+                    "name": f"hosted_{name}",
+                    "ok": hosted_ok,
+                    "expected_sha256": expected,
+                    "actual_sha256": hosted_hash,
+                    "url": url,
+                    "detail": detail,
+                }
+            )
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "summary": "Spark installer integrity verification",
+        "manifest": str(INSTALLER_MANIFEST_PATH),
+        "checks": checks,
+    }
 
 
 def save_json(path: Path, payload: Any) -> None:
@@ -3836,6 +3930,20 @@ def onboarding_checklist() -> list[str]:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
+    if getattr(args, "installers", False):
+        payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("expected_sha256"):
+                print(f"      expected: {check['expected_sha256']}")
+                print(f"      actual:   {check['actual_sha256']}")
+        return 0 if payload["ok"] else 1
+
     onboarding = bool(getattr(args, "onboarding", False))
     payload = collect_verify_payload(deep=bool(getattr(args, "deep", False) or onboarding))
     if onboarding:
@@ -5659,6 +5767,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--json", action="store_true")
     verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
     verify_parser.add_argument("--onboarding", action="store_true", help="Run first-user onboarding checks and print the Telegram finish checklist")
+    verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
+    verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
     verify_parser.set_defaults(func=cmd_verify)
 
     fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")

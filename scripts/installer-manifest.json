@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "installers": {
+    "install.sh": {
+      "path": "scripts/install.sh",
+      "sha256": "62b9fc0d4b1ac0503e06c79aa22cfaa937956794bcf51029d83000ad9cf12ba0"
+    },
+    "install.ps1": {
+      "path": "scripts/install.ps1",
+      "sha256": "b29aa8d919ca50f37b40ef89c1e50abe505d5b975b7e339bb6069120856544cf"
+    }
+  }
+}
