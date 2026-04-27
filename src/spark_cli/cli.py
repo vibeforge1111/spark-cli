@@ -2055,7 +2055,7 @@ LLM_ROLE_LABELS = {
     "mission": "Spawner missions and coding work",
 }
 LLM_PROVIDER_LABELS = {
-    "openai": "OpenAI",
+    "openai": "OpenAI / OpenAI-compatible",
     "codex": "Codex CLI / ChatGPT sign-in",
     "anthropic": "Anthropic / Claude",
     "zai": "Z.AI / GLM coding endpoint",
@@ -2063,7 +2063,7 @@ LLM_PROVIDER_LABELS = {
     "ollama": "Ollama local",
 }
 LLM_PROVIDER_AUTH_HINTS = {
-    "openai": "signed-in Codex CLI or OPENAI_API_KEY",
+    "openai": "signed-in Codex CLI, OPENAI_API_KEY, or local OpenAI-compatible server",
     "codex": "signed-in Codex CLI",
     "anthropic": "Claude Code sign-in or ANTHROPIC_API_KEY",
     "zai": "ZAI_API_KEY",
@@ -2077,7 +2077,7 @@ def describe_llm_provider_setup(provider: str) -> str:
     auth_hint = LLM_PROVIDER_AUTH_HINTS[provider]
     status = ""
     if provider == "openai":
-        status = "ChatGPT/Codex sign-in detected" if detect_codex_cli()["present"] else "use OPENAI_API_KEY or run `codex` to sign in"
+        status = "ChatGPT/Codex sign-in detected" if detect_codex_cli()["present"] else "use OPENAI_API_KEY, run `codex` to sign in, or point --openai-base-url at LM Studio"
     elif provider == "codex":
         status = "Codex CLI detected" if detect_codex_cli()["present"] else "run `codex` to sign in first"
     elif provider == "anthropic":
@@ -6684,6 +6684,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "spark setup --llm-provider codex --codex-model gpt-5.5",
                 "spark setup --llm-provider openai",
                 "spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model gpt-5.5",
+                "spark setup --llm-provider openai --openai-base-url http://localhost:1234/v1 --openai-model <LM_STUDIO_MODEL>",
                 "spark setup --llm-provider anthropic",
                 "spark setup --llm-provider anthropic --anthropic-api-key <ANTHROPIC_API_KEY>",
                 "spark setup --llm-provider zai --zai-api-key <ZAI_API_KEY>",
@@ -6691,7 +6692,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>",
                 "spark setup --chat-llm-provider openai --builder-llm-provider openai --memory-llm-provider ollama --mission-llm-provider minimax",
             ],
-            "llm_auth_note": "The easiest path is `spark setup` and the guided picker. OpenAI can use a signed-in Codex CLI / ChatGPT session or OPENAI_API_KEY. Anthropic can use Claude Code or ANTHROPIC_API_KEY. Z.AI and MiniMax use API keys. Ollama is local. If your default chat LLM is not a local executor, Spark uses Codex or Claude for mission/build execution when available.",
+            "llm_auth_note": "The easiest path is `spark setup` and the guided picker. OpenAI can use a signed-in Codex CLI / ChatGPT session, OPENAI_API_KEY, or an OpenAI-compatible local server such as LM Studio with --openai-base-url. Anthropic can use Claude Code or ANTHROPIC_API_KEY. Z.AI and MiniMax use API keys. Ollama is local. If your default chat LLM is not a local executor, Spark uses Codex or Claude for mission/build execution when available.",
         },
         "start": [
             "spark autostart install --now",
@@ -6865,9 +6866,9 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--zai-api-key", help="Z.AI / GLM coding endpoint API key, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--zai-base-url", default="https://api.z.ai/api/coding/paas/v4/")
     setup_parser.add_argument("--zai-model", default="glm-5.1")
-    setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1")
-    setup_parser.add_argument("--openai-model", default="gpt-5.5")
+    setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path; optional for local OpenAI-compatible servers")
+    setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1", help="OpenAI-compatible base URL, for example https://api.openai.com/v1 or http://localhost:1234/v1 for LM Studio")
+    setup_parser.add_argument("--openai-model", default="gpt-5.5", help="OpenAI/OpenAI-compatible model name")
     setup_parser.add_argument("--anthropic-api-key", help="Anthropic API key, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
     setup_parser.add_argument("--anthropic-model", default="claude-sonnet-4.5")
