@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -4359,6 +4360,75 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "created_at": timestamp_now(),
+        "spark_home": redact_shareable_text(str(SPARK_HOME)),
+        "status": collect_status_payload(),
+        "providers": provider_status_payload(),
+        "verify": collect_verify_payload(deep=False),
+        "security": collect_security_audit_payload(deep=False),
+        "logs_included": bool(include_logs),
+        "redaction": {
+            "secrets_redacted": True,
+            "home_paths_redacted": True,
+            "share_policy": "local_review_first",
+        },
+    }
+    if include_logs:
+        logs: dict[str, list[str]] = {}
+        status_payload = payload.get("status")
+        modules = status_payload.get("modules") if isinstance(status_payload, dict) else []
+        if isinstance(modules, list):
+            for module in modules:
+                if not isinstance(module, dict) or not module.get("name"):
+                    continue
+                name = str(module["name"])
+                lines = tail_log_lines(module_log_path(name), log_lines)
+                if lines:
+                    logs[name] = [redact_shareable_text(line.rstrip()) for line in lines]
+        payload["logs"] = logs
+    return redact_shareable_payload(redact_for_llm(payload))
+
+
+def write_support_bundle(payload: dict[str, Any]) -> Path:
+    output_dir = SPARK_HOME / "support"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path = output_dir / f"spark-support-{stamp}.zip"
+    readme = (
+        "Spark Support Bundle\n\n"
+        "This archive is local-first and not uploaded automatically.\n"
+        "Review it before sharing. Secrets, token-looking values, and local home paths are redacted best-effort.\n"
+    )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("README.txt", readme)
+        archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    return path
+
+
+def cmd_support(args: argparse.Namespace) -> int:
+    if args.support_command != "bundle":
+        raise SystemExit(f"Unknown support command: {args.support_command}")
+    payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0
+    path = write_support_bundle(payload)
+    print("Spark support bundle")
+    print("")
+    print(f"[OK] Wrote local redacted support bundle: {path}")
+    print("")
+    print("Review before sharing:")
+    print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
+    print("  - Logs are excluded unless you used --include-logs.")
+    print("  - Nothing was uploaded.")
+    print("")
+    print("Useful next:")
+    print(f"  spark doctor llm \"Describe the Spark issue\" --save-report")
+    return 0
+
+
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk|sk-proj|sk-ant|gho|ghp|glpat|xoxb|xoxp|AIza)[A-Za-z0-9_\-]{16,}\b"),
@@ -4477,6 +4547,103 @@ def redact_secret_surface_logs() -> dict[str, Any]:
     return {"changed": changed, "scanned_files": scanned}
 
 
+def collect_security_audit_payload(*, deep: bool = False) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    secret_surface = collect_secret_surface_payload()
+    checks.append(
+        {
+            "name": "secret_surface",
+            "ok": bool(secret_surface.get("ok")),
+            "severity": "high" if not secret_surface.get("ok") else "info",
+            "detail": secret_surface.get("detail", ""),
+            "repair": "spark fix secrets --redact-logs",
+        }
+    )
+
+    provider_payload = provider_status_payload()
+    checks.append(
+        {
+            "name": "llm_roles",
+            "ok": bool(provider_payload.get("ok")),
+            "severity": "medium" if not provider_payload.get("ok") else "info",
+            "detail": provider_payload.get("summary", ""),
+            "repair": "spark providers status",
+        }
+    )
+
+    generated_env = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
+    gateway_mode = generated_env.get("TELEGRAM_GATEWAY_MODE", "polling")
+    checks.append(
+        {
+            "name": "telegram_ingress_mode",
+            "ok": gateway_mode == "polling",
+            "severity": "high" if gateway_mode != "polling" else "info",
+            "detail": (
+                "Telegram is using long polling."
+                if gateway_mode == "polling"
+                else f"Telegram gateway mode is {gateway_mode}; launch profile should stay on long polling for this release."
+            ),
+            "repair": "spark setup --resume",
+        }
+    )
+
+    status_payload = collect_status_payload()
+    repair_hints = status_payload.get("repair_hints") if isinstance(status_payload, dict) else []
+    checks.append(
+        {
+            "name": "runtime_health",
+            "ok": bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False,
+            "severity": "medium" if repair_hints else "info",
+            "detail": "Spark runtime health is clean." if not repair_hints else "; ".join(str(item) for item in repair_hints[:3]),
+            "repair": "spark live status",
+        }
+    )
+
+    if deep:
+        checks.append(
+            {
+                "name": "deep_verify",
+                "ok": bool(collect_verify_payload(deep=True).get("ok")),
+                "severity": "medium",
+                "detail": "Deep verification completed; run `spark verify --deep` for full details.",
+                "repair": "spark verify --deep",
+            }
+        )
+
+    findings = [check for check in checks if not check.get("ok")]
+    return {
+        "ok": not findings,
+        "checks": checks,
+        "findings": findings,
+        "summary": "Spark security audit",
+        "share_policy": "Use `spark support bundle --include-logs` only after reviewing the local archive.",
+    }
+
+
+def cmd_security(args: argparse.Namespace) -> int:
+    if args.security_command != "audit":
+        raise SystemExit(f"Unknown security command: {args.security_command}")
+    payload = collect_security_audit_payload(deep=args.deep)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0 if payload.get("ok") else 1
+    print("Spark security audit")
+    print("")
+    for check in payload["checks"]:
+        if check.get("ok"):
+            marker = "[OK]"
+        else:
+            marker = "[FIX]"
+        print(f"{marker} {check['name']}: {check['detail']}")
+        if not check.get("ok") and check.get("repair"):
+            print(f"      {check['repair']}")
+    print("")
+    print("Safe sharing:")
+    print("  spark support bundle")
+    print("  spark support bundle --include-logs")
+    return 0 if payload.get("ok") else 1
+
+
 def redact_sensitive_text(value: str) -> str:
     redacted = str(value)
     for pattern in SENSITIVE_VALUE_PATTERNS:
@@ -4503,6 +4670,16 @@ def redact_shareable_text(value: str) -> str:
     redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
     redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
     return redacted
+
+
+def redact_shareable_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): redact_shareable_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_shareable_payload(item) for item in value]
+    if isinstance(value, str):
+        return redact_shareable_text(value)
+    return value
 
 
 def redact_for_llm(value: Any) -> Any:
@@ -4937,6 +5114,101 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
     }
 
 
+def collect_simple_fix_payload(target: str) -> dict[str, Any]:
+    status_payload = collect_status_payload()
+    provider_payload = provider_status_payload()
+    status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    spawner_module = next(
+        (module for module in status_modules if isinstance(module, dict) and module.get("name") == "spawner-ui"),
+        None,
+    )
+    recipes = {
+        "spawner": {
+            "summary": "Spark Spawner repair",
+            "checks": [
+                {
+                    "name": "spawner-ui health",
+                    "ok": bool(isinstance(spawner_module, dict) and spawner_module.get("healthy") is True),
+                    "detail": (
+                        str(spawner_module.get("detail"))
+                        if isinstance(spawner_module, dict) and spawner_module.get("detail")
+                        else "Spawner UI should answer on http://127.0.0.1:5173."
+                    ),
+                    "repair": "spark restart spawner-ui",
+                },
+                {
+                    "name": "mission relay",
+                    "ok": bool(provider_payload.get("ok")),
+                    "detail": "Mission provider roles should be configured before /run.",
+                    "repair": "spark providers status",
+                },
+            ],
+            "next_commands": ["spark restart spawner-ui", "spark verify --onboarding", "spark logs spawner-ui --lines 80"],
+        },
+        "providers": {
+            "summary": "Spark provider repair",
+            "checks": [
+                {
+                    "name": "provider roles",
+                    "ok": bool(provider_payload.get("ok")),
+                    "detail": provider_payload.get("summary", "Provider status unavailable."),
+                    "repair": "spark setup",
+                }
+            ],
+            "next_commands": ["spark providers status", "spark providers test --role chat", "spark setup"],
+        },
+        "memory": {
+            "summary": "Spark memory repair",
+            "checks": [
+                {
+                    "name": "memory wiring",
+                    "ok": bool(collect_verify_payload(deep=False).get("ok")),
+                    "detail": "Builder, Researcher, and domain-chip-memory should be wired together.",
+                    "repair": "spark verify --deep",
+                }
+            ],
+            "next_commands": ["spark verify --deep", "spark status", "spark doctor llm \"Spark memory is not recalling\" --save-report"],
+        },
+        "live": {
+            "summary": "Spark Live repair",
+            "checks": [
+                {
+                    "name": "live readiness",
+                    "ok": bool(status_payload.get("ok")),
+                    "detail": "Spark Live expects Telegram profile(s), Spawner, providers, and memory to be ready.",
+                    "repair": "spark live restart",
+                }
+            ],
+            "next_commands": ["spark live status", "spark live restart", "spark live logs"],
+        },
+        "update": {
+            "summary": "Spark update repair",
+            "checks": [
+                {
+                    "name": "dirty module safety",
+                    "ok": True,
+                    "detail": "Use --skip-dirty when local module edits should not block clean modules from updating.",
+                    "repair": "",
+                }
+            ],
+            "next_commands": ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"],
+        },
+        "autostart": {
+            "summary": "Spark autostart repair",
+            "checks": [
+                {
+                    "name": "login startup",
+                    "ok": True,
+                    "detail": "Use autostart status/install to make Spark Live start when the computer logs in.",
+                    "repair": "",
+                }
+            ],
+            "next_commands": ["spark autostart status", "spark autostart install --now", "spark live status"],
+        },
+    }
+    return recipes[target]
+
+
 def cmd_fix(args: argparse.Namespace) -> int:
     if args.target == "secrets":
         if getattr(args, "redact_logs", False):
@@ -4973,6 +5245,24 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("  - Rerun `spark setup` after updating modules so keychain-backed secrets are removed from generated env files.")
             print("  - Run `spark verify --deep` again before sharing any diagnostics upstream.")
         return 0 if payload.get("ok") else 1
+
+    if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
+        payload = collect_simple_fix_payload(args.target)
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
+        print(payload["summary"])
+        print("")
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("repair"):
+                print(f"      {check['repair']}")
+        print("")
+        print("Useful commands:")
+        for command in payload["next_commands"]:
+            print(f"  {command}")
+        return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
 
     if args.target != "telegram":
         raise SystemExit(f"Unknown fix target: {args.target}")
@@ -5132,6 +5422,65 @@ def provider_status_payload() -> dict[str, Any]:
     }
 
 
+def resolve_provider_test_target(role: str, provider: str | None = None) -> dict[str, Any]:
+    args = argparse.Namespace(
+        role=role,
+        provider=provider,
+        model=None,
+        base_url=None,
+    )
+    return resolve_llm_doctor_target(args)
+
+
+def provider_test_payload(*, role: str = "chat", provider: str | None = None) -> dict[str, Any]:
+    try:
+        target = resolve_provider_test_target(role, provider)
+    except SystemExit as exc:
+        return {
+            "ok": False,
+            "role": role,
+            "provider": provider or "configured",
+            "detail": str(exc),
+            "repair": "spark setup",
+        }
+    safe_target = redact_for_llm(target)
+    if target.get("unsupported"):
+        return {
+            "ok": False,
+            "role": role,
+            "provider": target.get("provider"),
+            "model": target.get("model"),
+            "auth_mode": target.get("auth_mode"),
+            "detail": f"Provider {target.get('provider')} is configured but Spark CLI cannot directly probe this auth mode yet.",
+            "repair": "spark providers status",
+            "target": safe_target,
+        }
+    prompt = "Reply with exactly PING_OK. No extra words."
+    try:
+        response = call_llm_doctor(target, prompt).strip()
+    except (SystemExit, urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {
+            "ok": False,
+            "role": role,
+            "provider": target.get("provider"),
+            "model": target.get("model"),
+            "auth_mode": target.get("auth_mode"),
+            "detail": redact_sensitive_text(str(exc)),
+            "repair": "spark setup",
+            "target": safe_target,
+        }
+    return {
+        "ok": "PING_OK" in response,
+        "role": role,
+        "provider": target.get("provider"),
+        "model": target.get("model"),
+        "auth_mode": target.get("auth_mode"),
+        "detail": response if "PING_OK" in response else "Provider replied, but not with PING_OK.",
+        "repair": "" if "PING_OK" in response else "spark setup",
+        "target": safe_target,
+    }
+
+
 def cmd_providers(args: argparse.Namespace) -> int:
     if args.providers_command == "list":
         payload = provider_catalog_payload()
@@ -5160,6 +5509,21 @@ def cmd_providers(args: argparse.Namespace) -> int:
             )
         for hint in payload["repair_hints"]:
             print(f"Repair: {hint}")
+        return 0 if payload["ok"] else 1
+    if args.providers_command == "test":
+        payload = provider_test_payload(role=args.role, provider=args.provider)
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        marker = "[OK]" if payload.get("ok") else "[FIX]"
+        print("Spark provider test")
+        print("")
+        print(
+            f"{marker} {payload.get('role')} -> {payload.get('provider')} "
+            f"({payload.get('model') or 'model unknown'}): {payload.get('detail')}"
+        )
+        if not payload.get("ok") and payload.get("repair"):
+            print(f"Repair: {payload['repair']}")
         return 0 if payload["ok"] else 1
     raise SystemExit(f"Unknown providers command: {args.providers_command}")
 
@@ -7334,7 +7698,12 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark verify", "use": "Launch-readiness proof for modules, LLM roles, Telegram long polling, Builder memory, Spawner relay, and running processes." },
             { "command": "spark verify --onboarding", "use": "First-user checklist for Telegram, access level, memory, and a tiny Spawner mission." },
             { "command": "spark fix telegram", "use": "Targeted quiet-bot repair checklist: token, admin ids, Builder bridge, LLM roles, process, and logs." },
+            { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, or Mission Control is not reachable." },
+            { "command": "spark providers test --role chat", "use": "Send a tiny PING_OK probe through the selected chat LLM." },
+            { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
+            { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
+            { "command": "spark doctor llm \"<problem>\" --save-report", "use": "Ask the user's configured LLM for a redacted repair plan." },
             { "command": "spark autostart install --now", "use": "Turn on the Telegram agent now and every time this computer logs in." },
             { "command": "spark autostart status", "use": "Check whether login autostart is installed." },
             { "command": "spark logs spark-telegram-bot", "use": "Read Telegram gateway logs." },
@@ -7526,6 +7895,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_llm_parser.add_argument("--upstream-out", help="Path for --upstream-report output")
     doctor_llm_parser.set_defaults(func=cmd_doctor)
 
+    support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
+    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+    support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
+    support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
+    support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
+    support_bundle_parser.add_argument("--json", action="store_true", help="Print the redacted bundle payload instead of writing a zip")
+    support_bundle_parser.set_defaults(func=cmd_support)
+
     verify_parser = subparsers.add_parser("verify", help="Verify launch-critical Spark wiring end to end")
     verify_parser.add_argument("--json", action="store_true")
     verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
@@ -7537,7 +7914,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.set_defaults(func=cmd_verify)
 
     fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")
-    fix_parser.add_argument("target", nargs="?", choices=["telegram", "secrets"], default="telegram")
+    fix_parser.add_argument(
+        "target",
+        nargs="?",
+        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
+        default="telegram",
+    )
     fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
     fix_parser.add_argument("--json", action="store_true")
     fix_parser.set_defaults(func=cmd_fix)
@@ -7550,6 +7932,18 @@ def build_parser() -> argparse.ArgumentParser:
     providers_status_parser = providers_sub.add_parser("status", help="Show chat/build/memory/mission provider readiness")
     providers_status_parser.add_argument("--json", action="store_true")
     providers_status_parser.set_defaults(func=cmd_providers)
+    providers_test_parser = providers_sub.add_parser("test", help="Send a tiny PING_OK probe through one configured role")
+    providers_test_parser.add_argument("--role", choices=LLM_ROLES, default="chat", help="LLM role to test")
+    providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
+    providers_test_parser.add_argument("--json", action="store_true")
+    providers_test_parser.set_defaults(func=cmd_providers)
+
+    security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
+    security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
+    security_audit_parser = security_subparsers.add_parser("audit", help="Check secrets, provider wiring, ingress mode, and runtime health")
+    security_audit_parser.add_argument("--deep", action="store_true", help="Include deep verification checks")
+    security_audit_parser.add_argument("--json", action="store_true")
+    security_audit_parser.set_defaults(func=cmd_security)
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)

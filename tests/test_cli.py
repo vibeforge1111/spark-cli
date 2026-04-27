@@ -25,6 +25,8 @@ from spark_cli.cli import (
     command_with_managed_python,
     collect_secret_requirements,
     collect_secret_surface_payload,
+    collect_security_audit_payload,
+    collect_support_bundle_payload,
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
@@ -116,6 +118,7 @@ from spark_cli.cli import (
     parse_version_constraint,
     parse_version_tuple,
     provider_status_payload,
+    provider_test_payload,
     redact_for_llm,
     redact_shareable_text,
     redact_sensitive_text,
@@ -529,6 +532,63 @@ class SparkCliTests(unittest.TestCase):
         self.assertNotIn("sk-proj-secretvalue", draft)
         self.assertNotIn("C:/Users/Alice", draft)
         self.assertIn("focused test", draft)
+
+    def test_support_bundle_payload_is_redacted_and_local_first(self) -> None:
+        status = {
+            "ok": False,
+            "modules": [{"name": "spark-telegram-bot", "installed": {"path": "C:/Users/Alice/.spark/modules/bot"}}],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir)
+            log_path = log_dir / "spark-telegram-bot" / "process.log"
+            log_path.parent.mkdir(parents=True)
+            log_path.write_text(
+                "BOT_TOKEN=1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890 in C:/Users/Alice/.spark/logs\n",
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.collect_status_payload", return_value=status), \
+                 patch("spark_cli.cli.provider_status_payload", return_value={"ok": True}), \
+                 patch("spark_cli.cli.collect_verify_payload", return_value={"ok": True}), \
+                 patch("spark_cli.cli.collect_security_audit_payload", return_value={"ok": True}), \
+                 patch("spark_cli.cli.LOG_DIR", log_dir):
+                payload = collect_support_bundle_payload(include_logs=True, log_lines=5)
+        encoded = json.dumps(payload)
+        self.assertIn("local_review_first", encoded)
+        self.assertNotIn("1234567890:AA", encoded)
+        self.assertNotIn("Alice", encoded)
+
+    def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
+        with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No LLM provider is configured."}), \
+             patch("spark_cli.cli.read_generated_env", return_value={"TELEGRAM_GATEWAY_MODE": "polling"}), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "repair_hints": []}):
+            payload = collect_security_audit_payload()
+        self.assertFalse(payload["ok"])
+        names = [check["name"] for check in payload["checks"]]
+        self.assertIn("secret_surface", names)
+        self.assertIn("llm_roles", names)
+        self.assertIn("spark support bundle", payload["share_policy"])
+
+    def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
+        with patch("spark_cli.cli.resolve_provider_test_target", return_value={
+            "provider": "zai",
+            "role": "chat",
+            "model": "glm-5.1",
+            "base_url": "https://api.z.ai/api/coding/paas/v4/",
+            "api_key": "zai-secret",
+            "auth_mode": "api_key",
+        }), patch("spark_cli.cli.call_llm_doctor", return_value="PING_OK"):
+            payload = provider_test_payload(role="chat")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["provider"], "zai")
+        self.assertNotIn("zai-secret", json.dumps(payload))
+
+    def test_new_user_experience_commands_parse(self) -> None:
+        parser = build_parser()
+        self.assertEqual(parser.parse_args(["support", "bundle"]).support_command, "bundle")
+        self.assertEqual(parser.parse_args(["security", "audit"]).security_command, "audit")
+        self.assertEqual(parser.parse_args(["providers", "test", "--role", "memory"]).providers_command, "test")
+        self.assertEqual(parser.parse_args(["fix", "spawner"]).target, "spawner")
 
     def test_resolve_llm_doctor_target_uses_configured_builder_api_key(self) -> None:
         setup_state = {
