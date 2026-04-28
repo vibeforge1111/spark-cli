@@ -5723,21 +5723,7 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0
-        print(payload["summary"])
-        print(payload["default_rule"])
-        print("")
-        print("Fast paths")
-        print("  Already use ChatGPT/Codex: spark setup --llm-provider codex")
-        print("  Already use Claude:        spark setup --llm-provider anthropic")
-        print("  Have an OpenAI API key:    spark setup --llm-provider openai --openai-api-key <key>")
-        print("  Want local/private:        spark setup --llm-provider lmstudio  or  spark setup --llm-provider ollama")
-        print("")
-        print("Provider guide")
-        for provider in payload["providers"]:
-            models = ", ".join(provider["recommended_models"])
-            print(f"- {provider['id']}: {provider['lane']}; models: {models}")
-            print(f"  Best for: {provider['best_for']}")
-            print(f"  Start: {provider['getting_started']}")
+        print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
@@ -5783,6 +5769,35 @@ def cmd_providers(args: argparse.Namespace) -> int:
             print(f"Repair: {payload['repair']}")
         return 0 if payload["ok"] else 1
     raise SystemExit(f"Unknown providers command: {args.providers_command}")
+
+
+def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
+    print(payload["summary"])
+    print(payload["default_rule"])
+    print("")
+    print("Fast paths")
+    print("  Already use ChatGPT/Codex: spark setup --llm-provider codex")
+    print("  Already use Claude:        spark setup --llm-provider anthropic")
+    print("  Have an OpenAI API key:    spark setup --llm-provider openai --openai-api-key <key>")
+    print("  Want local/private:        spark setup --llm-provider lmstudio  or  spark setup --llm-provider ollama")
+    print("")
+    print("Provider guide")
+    for provider in payload["providers"]:
+        models = ", ".join(provider["recommended_models"])
+        print(f"- {provider['id']}: {provider['lane']}; models: {models}")
+        print(f"  Best for: {provider['best_for']}")
+        print(f"  Start: {provider['getting_started']}")
+
+
+def cmd_recommend(args: argparse.Namespace) -> int:
+    if args.recommend_command == "llms":
+        payload = provider_recommendations_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        print_llm_provider_recommendations(payload)
+        return 0
+    raise SystemExit(f"Unknown recommend command: {args.recommend_command}")
 
 
 def installed_record_path(installed: object, module_name: str) -> Path | None:
@@ -8254,6 +8269,12 @@ def build_parser() -> argparse.ArgumentParser:
     providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
     providers_test_parser.add_argument("--json", action="store_true")
     providers_test_parser.set_defaults(func=cmd_providers)
+
+    recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
+    recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
+    recommend_llms_parser = recommend_sub.add_parser("llms", help="Recommend LLM providers for Spark")
+    recommend_llms_parser.add_argument("--json", action="store_true")
+    recommend_llms_parser.set_defaults(func=cmd_recommend)
 
     security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
     security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)

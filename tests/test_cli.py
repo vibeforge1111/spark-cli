@@ -4426,6 +4426,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Want local/private", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
 
+    def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
+        args = build_parser().parse_args(["recommend", "llms"])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        output = stdout.getvalue()
+        self.assertIn("Spark LLM recommendations", output)
+        self.assertIn("Already use Claude", output)
+        self.assertIn("spark setup --llm-provider anthropic", output)
+        self.assertIn("Want local/private", output)
+
+    def test_cmd_recommend_llms_json_is_agent_readable(self) -> None:
+        args = build_parser().parse_args(["recommend", "llms", "--json"])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("want_local_private", payload["paths"])
+        self.assertIn("lmstudio", payload["paths"]["want_local_private"])
+
     def test_collect_secret_values_prompts_when_interactive_and_missing(self) -> None:
         module = Module(
             name="spark-telegram-bot",
