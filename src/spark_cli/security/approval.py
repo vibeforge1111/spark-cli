@@ -15,6 +15,8 @@ ApprovalClass = Literal[
     "external_publish",
     "process_autostart_mutation",
     "network_exfiltration",
+    "remote_code_execution",
+    "container_privilege_escalation",
     "identity_access_mutation",
     "high_cost_execution",
 ]
@@ -71,6 +73,28 @@ def _target_after(parts: list[str], command_names: set[str]) -> str:
     return ""
 
 
+def _has_option_value(parts: list[str], option_names: set[str], suspicious_values: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        value = ""
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if name not in option_names:
+                continue
+        elif part in option_names and index + 1 < len(lowered):
+            value = lowered[index + 1]
+        else:
+            continue
+        normalized = value.replace("\\", "/").rstrip("/")
+        if (
+            normalized in suspicious_values
+            or any(normalized.startswith(item.rstrip("/") + "/") for item in suspicious_values)
+            or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in suspicious_values)
+        ):
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -90,7 +114,7 @@ def _decision(
         action_class=action_class,
         risk=risk,
         requires_approval=requires,
-        approval_mode="interactive" if requires else "none",
+        approval_mode="blocked" if requires and context.non_interactive else "interactive" if requires else "none",
         reason=reason,
         target_display=target_display,
         command_digest=_digest_command(argv),
@@ -165,6 +189,46 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve secret access",
         )
+    if first == "spark" and second == "secrets" and _contains_any(lowered, {"set"}):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can store, rotate, or overwrite Spark credentials.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve secret change",
+        )
+
+    if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
+        r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
+        joined,
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "Command appears to download remote code and execute it.",
+            target_display=parts[0],
+            confirmation_phrase="approve remote code execution",
+        )
+
+    if first == "docker" and (
+        "--privileged" in lowered
+        or "--network=host" in lowered
+        or ("--network" in lowered and "host" in lowered)
+        or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "container_privilege_escalation",
+            "critical",
+            "Docker command can expose the host, Docker socket, host network, or privileged container capabilities.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve container privilege",
+        )
 
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
@@ -175,6 +239,40 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can publish or redeploy hosted infrastructure.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve hosted deploy",
+        )
+    if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can change hosted environment variables or secrets.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve hosted secret change",
+        )
+    if first == "gh" and (
+        lowered[1:3] in [["secret", "set"], ["variable", "set"]]
+        or lowered[1:3] in [["pr", "merge"], ["release", "create"], ["release", "upload"]]
+    ):
+        action = "credential_mutation" if "secret" in lowered or "variable" in lowered else "external_publish"
+        return _decision(
+            parts,
+            ctx,
+            action,
+            "high",
+            "GitHub command can mutate repository secrets/variables, merge PRs, or publish releases.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve github mutation",
+        )
+    if first in {"kubectl", "helm", "terraform"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install"}):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if "destroy" in lowered or "delete" in lowered else "high",
+            "Command can mutate live infrastructure.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve infrastructure change",
         )
     if (first == "git" and second == "push") or (first == "npm" and second == "publish") or joined.startswith("gh release create"):
         return _decision(
