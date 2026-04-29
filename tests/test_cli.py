@@ -172,6 +172,7 @@ from spark_cli.cli import (
     pid_is_running,
     print_install_summary,
     process_runtime_detail,
+    runtime_env_contract_errors,
     format_start_warning,
     post_ready_watch_seconds,
     prompt_for_secret,
@@ -1194,6 +1195,21 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(env["OPENAI_API_KEY"], "keychain-openai")
         self.assertNotIn("OPENAI_BASE_URL", env)
         self.assertEqual(env["SPARK_WORKSPACE_ROOT"], "C:/spark/workspaces")
+
+    def test_runtime_env_contract_flags_undeclared_provider_secret(self) -> None:
+        module = make_module("unsafe-env-module", ["test.capability"])
+        with patch("spark_cli.cli.read_generated_env", return_value={}), \
+             patch("spark_cli.cli.module_runtime_env", return_value={"OPENAI_API_KEY": "leaked"}):
+            errors = runtime_env_contract_errors({"unsafe-env-module": module})
+        self.assertTrue(any("OPENAI_API_KEY" in error for error in errors))
+
+    def test_runtime_env_contract_allows_declared_provider_secret(self) -> None:
+        module = make_module("safe-env-module", ["test.capability"], ["llm.openai.api_key"])
+        module.manifest["secrets"]["llm_openai_api_key"]["env_var"] = "OPENAI_API_KEY"
+        with patch("spark_cli.cli.read_generated_env", return_value={}), \
+             patch("spark_cli.cli.module_runtime_env", return_value={"OPENAI_API_KEY": "stored"}):
+            errors = runtime_env_contract_errors({"safe-env-module": module})
+        self.assertEqual(errors, [])
 
     def test_primary_telegram_profile_prefers_configured_primary(self) -> None:
         setup_state = {

@@ -5286,6 +5286,48 @@ def endpoint_security_errors() -> list[str]:
     return errors
 
 
+def module_allowed_secret_env_vars(module: Module) -> set[str]:
+    return {binding["env_var"].upper() for binding in module_secret_env_bindings(module)}
+
+
+def generated_env_contract_errors(modules: dict[str, Module] | None = None) -> list[str]:
+    loaded = modules if modules is not None else resolve_installed_modules()
+    blocked = provider_env_blocklist()
+    errors: list[str] = []
+    for module in loaded.values():
+        allowed = module_allowed_secret_env_vars(module)
+        env_path = generated_module_env_path(module)
+        generated = read_generated_env(env_path)
+        leaked = sorted(key for key in generated if key.upper() in blocked and key.upper() not in allowed)
+        if leaked:
+            errors.append(
+                f"{module.name} generated env contains reserved provider secret env var(s): {', '.join(leaked)}."
+            )
+    return errors
+
+
+def runtime_env_contract_errors(modules: dict[str, Module] | None = None) -> list[str]:
+    try:
+        loaded = modules if modules is not None else resolve_installed_modules()
+    except (OSError, SystemExit, KeyError, tomllib.TOMLDecodeError) as exc:
+        return [f"Could not inspect installed module env contracts: {exc}."]
+    blocked = provider_env_blocklist()
+    errors = generated_env_contract_errors(loaded)
+    for module in loaded.values():
+        allowed = module_allowed_secret_env_vars(module)
+        try:
+            env = module_runtime_env(module)
+        except (OSError, SystemExit, KeyError, tomllib.TOMLDecodeError) as exc:
+            errors.append(f"Could not build runtime env for {module.name}: {exc}.")
+            continue
+        leaked = sorted(key for key in env if key.upper() in blocked and key.upper() not in allowed)
+        if leaked:
+            errors.append(
+                f"{module.name} runtime env exposes undeclared provider secret env var(s): {', '.join(leaked)}."
+            )
+    return errors
+
+
 def agency_guardrail_errors() -> list[str]:
     errors: list[str] = []
     if str(os.environ.get("SPARK_ALLOW_HOSTED_FULL_ACCESS") or "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -5409,6 +5451,15 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
         not endpoint_errors,
         "Provider and bridge endpoints avoid obvious SSRF/misrouting hazards." if not endpoint_errors else "; ".join(endpoint_errors[:6]),
         "Use HTTPS for remote providers, localhost for local-only services, and never point providers at metadata or wildcard addresses.",
+        severity="high",
+    ))
+
+    runtime_env_errors = runtime_env_contract_errors()
+    checks.append(security_check(
+        "runtime_env_contract",
+        not runtime_env_errors,
+        "Runtime envs only expose provider secrets through declared module bindings." if not runtime_env_errors else "; ".join(runtime_env_errors[:6]),
+        "Move provider/API keys into Spark secrets, declare needed secrets in spark.toml, then rerun `spark setup --resume`.",
         severity="high",
     ))
 
