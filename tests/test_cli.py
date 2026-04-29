@@ -5994,8 +5994,21 @@ class SparkCliTests(unittest.TestCase):
         with patch("spark_cli.cli.collect_hosted_security_payload", return_value=payload) as collect_mock, \
              patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
-        collect_mock.assert_called_once_with()
+        collect_mock.assert_called_once_with(deep=False)
         self.assertIn("non_root_runtime", stdout.getvalue())
+
+    def test_verify_hosted_deep_requests_deep_security_payload(self) -> None:
+        args = build_parser().parse_args(["verify", "--hosted", "--deep", "--json"])
+        payload = {
+            "ok": True,
+            "summary": "Spark hosted security verification",
+            "checks": [{"name": "hosted_deep_mission_smoke", "ok": True, "detail": "ready"}],
+        }
+        with patch("spark_cli.cli.collect_hosted_security_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with(deep=True)
+        self.assertIn("hosted_deep_mission_smoke", stdout.getvalue())
 
     def test_collect_hosted_security_payload_requires_keys_for_public_bind(self) -> None:
         with patch.dict(
@@ -6064,6 +6077,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["allowed_hosts"]["ok"])
         self.assertFalse(checks["hosted_api_keys"]["ok"])
         self.assertFalse(checks["headless_provider"]["ok"])
+
+    def test_collect_hosted_security_payload_deep_appends_mission_smoke(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SPARK_HOME": "/data/spark",
+                "SPARK_LLM_PROVIDER": "zai",
+                "SPARK_SPAWNER_HOST": "0.0.0.0",
+                "SPARK_ALLOWED_HOSTS": "spark-live.example.test",
+                "SPARK_BRIDGE_API_KEY": "bridge",
+                "SPARK_UI_API_KEY": "ui",
+            },
+            clear=True,
+        ), patch("spark_cli.cli.current_uid", return_value=1000), \
+            patch("spark_cli.cli.docker_socket_present", return_value=False), \
+            patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+            patch("spark_cli.cli.hosted_deep_mission_smoke", return_value={
+                "name": "hosted_deep_mission_smoke",
+                "ok": True,
+                "required": True,
+                "detail": "smoke ok",
+            }) as smoke_mock:
+            payload = collect_hosted_security_payload(deep=True)
+        self.assertTrue(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(checks["hosted_deep_mission_smoke"]["ok"])
+        smoke_mock.assert_called_once_with()
 
     def test_ready_check_headers_use_hosted_ui_key_for_loopback_only(self) -> None:
         with patch.dict(os.environ, {"SPARK_UI_API_KEY": "ui-key", "SPARK_BRIDGE_API_KEY": "bridge-key"}, clear=True):

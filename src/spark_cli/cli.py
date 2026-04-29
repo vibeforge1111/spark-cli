@@ -6392,7 +6392,93 @@ def hosted_spark_home_is_safe(value: str) -> bool:
     return not any(candidate in hosted_unsafe_home_paths() for candidate in candidates)
 
 
-def collect_hosted_security_payload() -> dict[str, Any]:
+def hosted_spawner_base_url() -> str:
+    port = (
+        os.environ.get("SPARK_SPAWNER_PORT")
+        or os.environ.get("PORT")
+        or os.environ.get("SPARK_PORT")
+        or "5173"
+    )
+    return f"http://127.0.0.1:{str(port).strip()}"
+
+
+def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
+    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+    if not ui_key or not bridge_key:
+        return {
+            "name": "hosted_deep_mission_smoke",
+            "ok": False,
+            "required": True,
+            "detail": "Hosted mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY.",
+            "repair": "Set hosted API keys, restart Spark Live, then rerun spark verify --hosted --deep.",
+        }
+
+    base_url = hosted_spawner_base_url().rstrip("/")
+    marker = "SPARK_HOSTED_DEEP_OK"
+    request_id = f"hosted-deep-{int(time.time())}"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-spawner-ui-key": ui_key,
+        "x-api-key": bridge_key,
+    }
+    payload = {
+        "goal": f"Reply with exactly: {marker}",
+        "providers": [os.environ.get("SPARK_LLM_PROVIDER") or "codex"],
+        "promptMode": "simple",
+        "requestId": request_id,
+    }
+    try:
+        request = urllib.request.Request(
+            f"{base_url}/api/spark/run",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            start_payload = json.loads(response.read().decode("utf-8") or "{}")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return {
+            "name": "hosted_deep_mission_smoke",
+            "ok": False,
+            "required": True,
+            "detail": f"Could not start protected hosted mission smoke: {exc}",
+            "repair": "Run spark live status and spark logs spawner-ui --lines 80.",
+        }
+
+    mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
+    deadline = time.time() + timeout_seconds
+    last_detail = "Mission was accepted; waiting for board result."
+    while time.time() < deadline:
+        try:
+            request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
+            with urllib.request.urlopen(request, timeout=10) as response:
+                board_text = response.read().decode("utf-8")
+            if marker in board_text:
+                return {
+                    "name": "hosted_deep_mission_smoke",
+                    "ok": True,
+                    "required": True,
+                    "detail": f"Protected mission path completed with {marker} ({mission_id}).",
+                    "repair": "",
+                }
+            if mission_id in board_text:
+                last_detail = f"Mission {mission_id} is visible on the board but has not emitted {marker} yet."
+        except (OSError, TimeoutError, urllib.error.URLError) as exc:
+            last_detail = f"Board poll failed while waiting for {mission_id}: {exc}"
+        time.sleep(3)
+
+    return {
+        "name": "hosted_deep_mission_smoke",
+        "ok": False,
+        "required": True,
+        "detail": last_detail,
+        "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
+    }
+
+
+def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
     provider = (os.environ.get("SPARK_LLM_PROVIDER") or "").strip().lower()
     allowed_hosts = [host.strip() for host in (os.environ.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
     spawner_host = (os.environ.get("SPARK_SPAWNER_HOST") or "").strip()
@@ -6486,6 +6572,9 @@ def collect_hosted_security_payload() -> dict[str, Any]:
         }
     )
 
+    if deep:
+        checks.append(hosted_deep_mission_smoke())
+
     return {
         "ok": all(bool(check["ok"]) for check in checks if check.get("required", True)),
         "summary": "Spark hosted security verification",
@@ -6494,6 +6583,7 @@ def collect_hosted_security_payload() -> dict[str, Any]:
             "spark live status",
             "spark verify --onboarding",
             "spark providers test --role chat",
+            "spark verify --hosted --deep",
             "spark logs spawner-ui --lines 80",
         ],
     }
@@ -6555,7 +6645,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 0 if payload["ok"] else 1
 
     if getattr(args, "hosted", False):
-        payload = collect_hosted_security_payload()
+        payload = collect_hosted_security_payload(deep=bool(getattr(args, "deep", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
