@@ -5585,6 +5585,20 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
         severity="high",
     ))
 
+    provenance_payload = collect_module_provenance_payload()
+    provenance_errors = [
+        f"{check.get('name', 'unknown')}: {', '.join(check.get('warnings', [])) or check.get('detail', 'provenance check failed')}"
+        for check in provenance_payload.get("checks", [])
+        if not check.get("ok")
+    ]
+    checks.append(security_check(
+        "module_provenance",
+        bool(provenance_payload.get("ok")),
+        "Blessed registry modules have commit pins and attestation metadata." if not provenance_errors else "; ".join(provenance_errors[:6]),
+        "Run `spark verify --provenance`, then update registry pins/attestations before publishing the installer.",
+        severity="high",
+    ))
+
     lockfile_errors = dependency_lockfile_errors()
     checks.append(security_check(
         "dependency_lockfiles",
