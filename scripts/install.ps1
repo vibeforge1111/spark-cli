@@ -611,7 +611,7 @@ function Run-Setup {
     $setupArgs += $SetupArg
     Write-SparkLog "Running spark setup $Bundle"
     try {
-        & $sparkCmd setup $Bundle @setupArgs
+        & $sparkCmd setup $Bundle --no-autostart @setupArgs
         if ($LASTEXITCODE -ne 0) {
             throw "spark setup failed with exit code $LASTEXITCODE"
         }

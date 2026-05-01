@@ -805,7 +805,7 @@ EOF
     cp "$SPARK_LOCAL_REGISTRY" "$cli_dir/registry.json"
   fi
 
-  local spark_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE")
+  local spark_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE" "--no-autostart")
   local spark_secret_ref_value=""
   spark_secret_ref() {
     local value="$1"

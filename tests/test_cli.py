@@ -214,9 +214,12 @@ from spark_cli.cli import (
     resolve_stop_module_names,
     render_launch_agent_plist,
     render_systemd_autostart_unit,
+    render_linux_xdg_autostart_entry,
+    render_wsl_windows_startup_script,
     autostart_telegram_profiles,
     autostart_shell_command,
     autostart_shell_commands,
+    windows_path_to_wsl_path,
     windows_cmd_c,
     windows_run_key_command,
     windows_run_key_installed,
@@ -224,6 +227,7 @@ from spark_cli.cli import (
     windows_startup_legacy_cmd_path,
     telegram_profiles_to_start_by_default,
     linux_autostart_path,
+    linux_xdg_autostart_path,
     systemctl_command,
     spark_invocation_args,
     summarize_command_output,
@@ -2704,6 +2708,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(args.target, "telegram-starter")
         self.assertTrue(args.now)
 
+    def test_autostart_on_off_aliases_parse(self) -> None:
+        on_args = build_parser().parse_args(["autostart", "on", "--now"])
+        off_args = build_parser().parse_args(["autostart", "off"])
+
+        self.assertEqual(on_args.target, "telegram-starter")
+        self.assertTrue(on_args.now)
+        self.assertEqual(on_args.func.__name__, "cmd_autostart_install")
+        self.assertEqual(off_args.func.__name__, "cmd_autostart_uninstall")
+
+    def test_setup_autostart_defaults_on_and_can_be_disabled(self) -> None:
+        default_args = build_parser().parse_args(["setup", "--non-interactive"])
+        disabled_args = build_parser().parse_args(["setup", "--non-interactive", "--no-autostart"])
+
+        self.assertTrue(default_args.autostart)
+        self.assertFalse(disabled_args.autostart)
+
     def test_restart_accepts_starter_bundle_target(self) -> None:
         args = build_parser().parse_args(["restart", "telegram-starter"])
         self.assertEqual(args.target, "telegram-starter")
@@ -2720,6 +2740,15 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("/tmp/spark stop telegram-starter", unit)
         self.assertIn("WantedBy=default.target", unit)
 
+    def test_render_linux_xdg_autostart_entry_runs_hidden_shell_command(self) -> None:
+        entry = render_linux_xdg_autostart_entry(start_command="/tmp/spark start telegram-starter")
+
+        self.assertIn("Type=Application", entry)
+        self.assertIn("Name=Spark Telegram Agent", entry)
+        self.assertIn("Exec=/bin/sh -lc", entry)
+        self.assertIn("/tmp/spark start telegram-starter", entry)
+        self.assertIn("Terminal=false", entry)
+
     def test_linux_autostart_path_uses_system_service_for_root_scope(self) -> None:
         self.assertEqual(
             linux_autostart_path("system"),
@@ -2727,6 +2756,8 @@ class SparkCliTests(unittest.TestCase):
         )
         self.assertIn("--user", systemctl_command("user", "enable", "spark-telegram-agent.service"))
         self.assertNotIn("--user", systemctl_command("system", "enable", "spark-telegram-agent.service"))
+        self.assertEqual(linux_xdg_autostart_path().name, "spark-telegram-agent.desktop")
+        self.assertEqual(linux_xdg_autostart_path().parent.name, "autostart")
 
     def test_render_launch_agent_plist_runs_at_login(self) -> None:
         plist = render_launch_agent_plist(
@@ -2850,6 +2881,7 @@ class SparkCliTests(unittest.TestCase):
     def test_autostart_install_linux_writes_service_and_enables_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
             commands: list[list[str]] = []
 
             def fake_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -2858,8 +2890,10 @@ class SparkCliTests(unittest.TestCase):
 
             args = build_parser().parse_args(["autostart", "install", "--now"])
             with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
                  patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
                  patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
                  patch("spark_cli.cli.spark_invocation_args", return_value=["/tmp/spark"]), \
                  patch("spark_cli.cli.autostart_telegram_profiles", return_value=[]), \
                  patch("spark_cli.cli.run_autostart_helper", side_effect=fake_helper), \
@@ -2869,9 +2903,58 @@ class SparkCliTests(unittest.TestCase):
             unit = service_path.read_text(encoding="utf-8")
             self.assertIn("/tmp/spark start --allow-boot-warnings telegram-starter", unit)
             self.assertIn("/tmp/spark stop telegram-starter", unit)
+            desktop_entry = xdg_path.read_text(encoding="utf-8")
+            self.assertIn("Exec=/bin/sh -lc", desktop_entry)
+            self.assertIn("/tmp/spark start --allow-boot-warnings telegram-starter", desktop_entry)
             self.assertIn(["systemctl", "--user", "daemon-reload"], commands)
             self.assertIn(["systemctl", "--user", "enable", service_path.name], commands)
             self.assertIn(["systemctl", "--user", "restart", service_path.name], commands)
+
+    def test_autostart_uninstall_linux_removes_service_and_desktop_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
+            service_path.write_text("[Unit]\n", encoding="utf-8")
+            xdg_path.write_text("[Desktop Entry]\n", encoding="utf-8")
+            commands: list[list[str]] = []
+
+            def fake_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            args = build_parser().parse_args(["autostart", "uninstall"])
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
+                 patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
+                 patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
+                 patch("spark_cli.cli.run_autostart_helper", side_effect=fake_helper), \
+                 patch("sys.stdout", new_callable=StringIO):
+                self.assertEqual(args.func(args), 0)
+
+            self.assertFalse(service_path.exists())
+            self.assertFalse(xdg_path.exists())
+            self.assertIn(["systemctl", "--user", "disable", "--now", service_path.name], commands)
+
+    def test_autostart_status_linux_reports_desktop_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
+            xdg_path.write_text("[Desktop Entry]\n", encoding="utf-8")
+            args = build_parser().parse_args(["autostart", "status"])
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
+                 patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
+                 patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
+                 patch("spark_cli.cli.load_json", return_value={}), \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertEqual(args.func(args), 0)
+
+            text = output.getvalue()
+            self.assertIn("Installed: yes", text)
+            self.assertIn("Systemd service installed: no", text)
+            self.assertIn("Linux desktop fallback installed: yes", text)
 
     def test_autostart_install_macos_replaces_existing_launch_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -2929,6 +3012,66 @@ class SparkCliTests(unittest.TestCase):
             self.assertRegex(content, r'CurrentDirectory = "C:[/\\]Users[/\\]Example[/\\]\.spark"')
             self.assertRegex(content, r'Environment\("PROCESS"\)\("SPARK_HOME"\) = "C:[/\\]Users[/\\]Example[/\\]\.spark"')
             self.assertIn(r'%ComSpec% /d /s /c ""C:\Users\Example\.spark\bin\spark.cmd"" start telegram-starter', content)
+
+    def test_windows_path_to_wsl_path_converts_drive_paths(self) -> None:
+        self.assertEqual(
+            windows_path_to_wsl_path(r"C:\Users\Example\AppData\Roaming"),
+            Path("/mnt/c/Users/Example/AppData/Roaming"),
+        )
+
+    def test_render_wsl_windows_startup_script_runs_hidden_wsl_command(self) -> None:
+        script = render_wsl_windows_startup_script(
+            "/home/example/.spark/bin/spark start telegram-starter",
+            distro_name="Ubuntu",
+        )
+
+        self.assertIn('CreateObject("WScript.Shell")', script)
+        self.assertIn("wsl.exe", script)
+        self.assertIn("-d Ubuntu", script)
+        self.assertIn("--exec sh -lc", script)
+        self.assertIn("/home/example/.spark/bin/spark start telegram-starter", script)
+
+    def test_autostart_install_wsl_writes_windows_login_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            startup_script = Path(tmp_dir) / "spark-telegram-agent.vbs"
+            commands: list[list[str]] = []
+
+            def fake_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            args = build_parser().parse_args(["autostart", "install", "--now"])
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=True), \
+                 patch("spark_cli.cli.wsl_windows_startup_script_path", return_value=startup_script), \
+                 patch("spark_cli.cli.wsl_distro_name", return_value="Ubuntu"), \
+                 patch("spark_cli.cli.spark_invocation_args", return_value=["/home/example/.spark/bin/spark"]), \
+                 patch("spark_cli.cli.autostart_telegram_profiles", return_value=[]), \
+                 patch("spark_cli.cli.run_autostart_helper", side_effect=fake_helper), \
+                 patch("sys.stdout", new_callable=StringIO):
+                self.assertEqual(args.func(args), 0)
+
+            content = startup_script.read_text(encoding="ascii")
+            self.assertIn("wsl.exe", content)
+            self.assertIn("--exec sh -lc", content)
+            self.assertIn("/home/example/.spark/bin/spark start --allow-boot-warnings telegram-starter", content)
+            self.assertEqual(commands, [["sh", "-lc", "/home/example/.spark/bin/spark start --allow-boot-warnings telegram-starter"]])
+
+    def test_autostart_status_wsl_reports_windows_login_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            startup_script = Path(tmp_dir) / "spark-telegram-agent.vbs"
+            startup_script.write_text("Set shell = CreateObject(\"WScript.Shell\")\r\n", encoding="ascii")
+            args = build_parser().parse_args(["autostart", "status"])
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=True), \
+                 patch("spark_cli.cli.wsl_windows_startup_script_path", return_value=startup_script), \
+                 patch("spark_cli.cli.load_json", return_value={}), \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertEqual(args.func(args), 0)
+
+            text = output.getvalue()
+            self.assertIn("WSL Windows-login fallback:", text)
+            self.assertIn("Installed: yes", text)
 
     def test_windows_run_key_command_points_to_startup_script(self) -> None:
         command = windows_run_key_command(Path(r"C:\Users\Example\Startup\spark-telegram-agent.vbs"))
@@ -3277,6 +3420,7 @@ class SparkCliTests(unittest.TestCase):
                     "--non-interactive",
                     "--skip-install-commands",
                     "--skip-runtime-check",
+                    "--no-autostart",
                     "--skip-telegram-token-check",
                     "--secret",
                     "telegram.bot_token=123456:test-token",
@@ -7451,7 +7595,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('export PATH="$SPARK_PREFIX/bin:$SPARK_NODE_BIN_DIR:\\$PATH"', script)
         self.assertIn('"$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE"', script)
         self.assertIn('"$SPARK_PREFIX/bin/spark" autostart install "$SPARK_BUNDLE" --now', script)
-        self.assertIn('local spark_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE")', script)
+        self.assertIn('local spark_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE" "--no-autostart")', script)
         self.assertIn('spark_setup_cmd+=("--bot-token" "$spark_secret_ref_value")', script)
         self.assertIn('spark_setup_cmd+=("--admin-telegram-ids" "$SPARK_ADMIN_TELEGRAM_IDS")', script)
         self.assertIn('spark_setup_cmd+=("--llm-provider" "$SPARK_LLM_PROVIDER")', script)
@@ -7507,7 +7651,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }', script)
         self.assertIn('if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }', script)
         self.assertIn('if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }', script)
-        self.assertIn("& $sparkCmd setup $Bundle @setupArgs", script)
+        self.assertIn("& $sparkCmd setup $Bundle --no-autostart @setupArgs", script)
         self.assertIn("[switch]$NoAutostart", script)
         self.assertIn("& $sparkCmd autostart install $Bundle --now", script)
         self.assertIn("spark providers list", script)

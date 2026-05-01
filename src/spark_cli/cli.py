@@ -4444,6 +4444,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
         setup_state,
     )
     print_setup_summary(args, plan.ingress_owner, builder_notes, keychain_report, setup_state)
+    if getattr(args, "autostart", True):
+        print("")
+        print("Installing login autostart (default). Turn it off with: spark autostart off")
+        cmd_autostart_install(argparse.Namespace(target=args.bundle, now=True))
     return 0
 
 
@@ -8972,6 +8976,17 @@ WantedBy=default.target
 """
 
 
+def render_linux_xdg_autostart_entry(*, start_command: str) -> str:
+    return f"""[Desktop Entry]
+Type=Application
+Name=Spark Telegram Agent
+Comment=Start Spark when this desktop session logs in
+Exec=/bin/sh -lc {shlex.quote(start_command)}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+"""
+
+
 def render_launch_agent_plist(*, target: str, start_command: str, stop_command: str) -> str:
     stdout_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.out.log"
     stderr_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.err.log"
@@ -9018,6 +9033,10 @@ def linux_autostart_path(scope: str | None = None) -> Path:
     return Path.home() / ".config" / "systemd" / "user" / f"{AUTOSTART_SERVICE_NAME}.service"
 
 
+def linux_xdg_autostart_path() -> Path:
+    return Path.home() / ".config" / "autostart" / f"{AUTOSTART_SERVICE_NAME}.desktop"
+
+
 def systemctl_command(scope: str, *args: str) -> list[str]:
     if scope == "system":
         return ["systemctl", *args]
@@ -9026,6 +9045,67 @@ def systemctl_command(scope: str, *args: str) -> list[str]:
 
 def macos_autostart_path() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{AUTOSTART_LAUNCHD_LABEL}.plist"
+
+
+def running_under_wsl() -> bool:
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return "microsoft" in release or "wsl" in release
+
+
+def wsl_distro_name() -> str:
+    return os.environ.get("WSL_DISTRO_NAME", "").strip() or "Ubuntu"
+
+
+def windows_path_to_wsl_path(path_text: str) -> Path:
+    value = path_text.strip().strip('"')
+    match = re.match(r"^([A-Za-z]):\\(.*)$", value)
+    if match:
+        drive = match.group(1).lower()
+        tail = match.group(2).replace("\\", "/")
+        return Path(f"/mnt/{drive}/{tail}")
+    return Path(value)
+
+
+def wsl_windows_appdata_path() -> Path | None:
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return windows_path_to_wsl_path(appdata)
+    command = ["cmd.exe", "/d", "/c", "echo", "%APPDATA%"]
+    result = run_autostart_helper(command)
+    if result.returncode != 0:
+        print_helper_failure(command, result)
+        return None
+    output = (result.stdout or "").strip().splitlines()
+    return windows_path_to_wsl_path(output[-1]) if output else None
+
+
+def wsl_windows_startup_script_path() -> Path | None:
+    appdata = wsl_windows_appdata_path()
+    if appdata is None:
+        return None
+    return appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.vbs"
+
+
+def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
+    command = subprocess.list2cmdline(
+        [
+            "wsl.exe",
+            "-d",
+            distro_name or wsl_distro_name(),
+            "--cd",
+            str(Path.home()),
+            "--exec",
+            "sh",
+            "-lc",
+            start_command,
+        ]
+    )
+    return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
 
 
 def windows_startup_script_path() -> Path:
@@ -9109,12 +9189,38 @@ def windows_run_key_installed() -> bool:
     return result.returncode == 0
 
 
+def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, bool]:
+    startup_path = wsl_windows_startup_script_path()
+    if startup_path is None:
+        return None, False
+    startup_path.parent.mkdir(parents=True, exist_ok=True)
+    startup_path.write_text(render_wsl_windows_startup_script(start_command), encoding="ascii")
+    return startup_path, True
+
+
 def cmd_autostart_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     target = validate_autostart_target(args.target or "telegram-starter")
     start_command = autostart_shell_command("start", target)
     stop_command = autostart_shell_command("stop", target)
     failures = 0
+
+    if sys.platform.startswith("linux") and running_under_wsl():
+        startup_path, installed = install_wsl_windows_login_bridge(start_command)
+        if installed and startup_path is not None:
+            print(f"Installed WSL Windows-login fallback: {startup_path}")
+        else:
+            failures += 1
+            print("Could not install WSL Windows-login fallback because Windows APPDATA was unavailable.")
+        if args.now:
+            now_command = ["sh", "-lc", start_command]
+            result = run_autostart_helper(now_command)
+            if result.returncode != 0:
+                failures += 1
+                print_helper_failure(now_command, result)
+                print(f"Manual fallback for this session: {start_command}")
+        print("Spark will start at Windows login with: " + start_command)
+        return 1 if failures else 0
 
     if sys.platform.startswith("linux"):
         scope = linux_autostart_scope()
@@ -9129,6 +9235,15 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
         print(f"Installed Spark autostart service ({scope}): {service_path}")
+        if scope == "user":
+            xdg_path = linux_xdg_autostart_path()
+            xdg_path.parent.mkdir(parents=True, exist_ok=True)
+            xdg_path.write_text(
+                render_linux_xdg_autostart_entry(start_command=start_command),
+                encoding="utf-8",
+            )
+            xdg_path.chmod(0o600)
+            print(f"Installed Linux desktop autostart fallback: {xdg_path}")
         for command in (
             systemctl_command(scope, "daemon-reload"),
             systemctl_command(scope, "enable", service_path.name),
@@ -9229,6 +9344,13 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
 
 def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
     failures = 0
+    if sys.platform.startswith("linux") and running_under_wsl():
+        startup_path = wsl_windows_startup_script_path()
+        if startup_path is not None and startup_path.exists():
+            startup_path.unlink()
+            print(f"Removed WSL Windows-login fallback: {startup_path}")
+        return 0
+
     if sys.platform.startswith("linux"):
         scope = linux_autostart_scope()
         service_path = linux_autostart_path(scope)
@@ -9240,6 +9362,10 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         if service_path.exists():
             service_path.unlink()
             print(f"Removed Spark autostart service: {service_path}")
+        xdg_path = linux_xdg_autostart_path()
+        if xdg_path.exists():
+            xdg_path.unlink()
+            print(f"Removed Linux desktop autostart fallback: {xdg_path}")
         reload_command = systemctl_command(scope, "daemon-reload")
         result = run_autostart_helper(reload_command)
         if result.returncode != 0:
@@ -9313,15 +9439,31 @@ def cmd_autostart_status(_: argparse.Namespace) -> int:
     configured_text = ", ".join(configured) if configured else "none"
     manual = manual_telegram_profiles()
     manual_text = ", ".join(manual) if manual else "none"
-    if sys.platform.startswith("linux"):
-        scope = linux_autostart_scope()
-        service_path = linux_autostart_path(scope)
-        print(f"Linux systemd {scope} service: {service_path}")
-        print("Installed: " + ("yes" if service_path.exists() else "no"))
+    if sys.platform.startswith("linux") and running_under_wsl():
+        startup_path = wsl_windows_startup_script_path()
+        installed = bool(startup_path and startup_path.exists())
+        print(f"WSL Windows-login fallback: {startup_path or 'unavailable'}")
+        print("Installed: " + ("yes" if installed else "no"))
         print(f"Telegram profiles configured: {configured_text}")
         print(f"Telegram profiles in autostart: {profile_text}")
         print(f"Telegram profiles manual/off: {manual_text}")
-        if service_path.exists():
+        return 0
+
+    if sys.platform.startswith("linux"):
+        scope = linux_autostart_scope()
+        service_path = linux_autostart_path(scope)
+        xdg_path = linux_xdg_autostart_path()
+        service_installed = service_path.exists()
+        xdg_installed = xdg_path.exists()
+        print(f"Linux systemd {scope} service: {service_path}")
+        print("Installed: " + ("yes" if service_installed or xdg_installed else "no"))
+        print("Systemd service installed: " + ("yes" if service_installed else "no"))
+        print(f"Linux desktop fallback: {xdg_path}")
+        print("Linux desktop fallback installed: " + ("yes" if xdg_installed else "no"))
+        print(f"Telegram profiles configured: {configured_text}")
+        print(f"Telegram profiles in autostart: {profile_text}")
+        print(f"Telegram profiles manual/off: {manual_text}")
+        if service_installed:
             result = run_autostart_helper(systemctl_command(scope, "is-enabled", service_path.name))
             enabled = (result.stdout or result.stderr or "").strip() or f"exit {result.returncode}"
             print(f"Enabled: {enabled}")
@@ -10111,6 +10253,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip interactive preflight and secret prompts (require --secret for every required secret).",
     )
+    setup_autostart_install_group = setup_parser.add_mutually_exclusive_group()
+    setup_autostart_install_group.add_argument(
+        "--autostart",
+        dest="autostart",
+        action="store_true",
+        default=True,
+        help="Install OS login autostart after setup (default)",
+    )
+    setup_autostart_install_group.add_argument(
+        "--no-autostart",
+        dest="autostart",
+        action="store_false",
+        help="Keep Spark manual after setup; you can enable it later with `spark autostart on --now`",
+    )
     setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value; use @clipboard, @env:NAME, or @file:path for secret input")
     setup_parser.add_argument("--bot-token", help="Telegram BotFather token, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument(
@@ -10382,8 +10538,14 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_install_parser.add_argument("target", nargs="?", default="telegram-starter")
     autostart_install_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
     autostart_install_parser.set_defaults(func=cmd_autostart_install)
+    autostart_on_parser = autostart_subparsers.add_parser("on", help="Install OS login autostart")
+    autostart_on_parser.add_argument("target", nargs="?", default="telegram-starter")
+    autostart_on_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
+    autostart_on_parser.set_defaults(func=cmd_autostart_install)
     autostart_uninstall_parser = autostart_subparsers.add_parser("uninstall", help="Remove OS login autostart")
     autostart_uninstall_parser.set_defaults(func=cmd_autostart_uninstall)
+    autostart_off_parser = autostart_subparsers.add_parser("off", help="Remove OS login autostart")
+    autostart_off_parser.set_defaults(func=cmd_autostart_uninstall)
     autostart_profile_parser = autostart_subparsers.add_parser(
         "profile",
         help="Turn login startup on or off for one Telegram profile",
