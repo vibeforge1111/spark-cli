@@ -4654,6 +4654,7 @@ def print_setup_next_steps(
     print("")
     print(f"Telegram: {telegram_label}")
     print("Allowed by default: chat, memory, diagnostics, public research, and approved missions.")
+    print("Local files and workspaces stay off by default; use /access 4 only when you want Spark to inspect this computer.")
     print(f"Autostart: {'enabled' if autostart_enabled else 'disabled'}")
     print("")
     print("Open Telegram and send:")
@@ -4678,10 +4679,12 @@ def print_setup_next_steps(
     print("Checks:")
     print("  spark verify --onboarding")
     print("  spark fix telegram")
+    print("  spark fix spawner")
     if not start_ok:
         print("")
-        print("Start now:")
+        print("Mission Control or Spark did not fully start. Start it now:")
         print(f"  spark start {bundle_name}")
+        print("  spark logs spawner-ui --lines 80")
 
 
 def resolve_setup_bundle_plan(args: argparse.Namespace) -> SetupBundlePlan:
@@ -11059,7 +11062,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "Open Telegram and message @BotFather.",
                 "Send /newbot and follow BotFather's prompts.",
                 "Copy the token BotFather gives you.",
-                "Start your new bot, send /myid, and copy your numeric Telegram id.",
+                "Message @userinfobot and copy your numeric Telegram id.",
                 "Run spark setup again with the bot token and admin id if you did not provide them during install.",
             ],
             "llm_roles": [
@@ -11087,7 +11090,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             {"title": "Get your Telegram bot ready", "steps": [
                 "Open Telegram and message @BotFather.",
                 "Send /newbot and copy the token BotFather gives you.",
-                "Start your new bot, send /myid, and copy your numeric Telegram id.",
+                "Message @userinfobot and copy your numeric Telegram id.",
             ]},
             {"title": "Run setup", "steps": [
                 "Run: spark setup",
@@ -11106,6 +11109,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             {"title": "Finish in Telegram", "steps": [
                 "Send /start to your Spark bot.",
                 "Choose what Spark can do when asked. Most users should allow chat, memory, diagnostics, public research, and approved missions.",
+                "Use /access 4 only when you want Spark to inspect or build inside local folders on this computer.",
                 "Send /diagnose and make sure Telegram, LLM, memory, and Spawner look OK.",
                 "Send /remember I like concise warm replies, then /recall concise warm replies.",
                 "Try a tiny build with /run say exactly OK, then check /board.",
@@ -11115,6 +11119,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "spark autostart on --now",
             "Open Telegram and send /start to your Spark bot.",
             "Choose what Spark can do when asked; you can keep it chat-only or allow approved missions.",
+            "Local workspace access is separate. Send /access 4 only when you want Spark to inspect local folders on this computer.",
             "Send /diagnose in Telegram.",
             "spark verify --onboarding",
         ],
@@ -11128,8 +11133,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
         "access_levels": [
             {"level": "1", "about": "Chat, memory, recall, and diagnostics. No Spawner builds."},
             {"level": "2", "about": "Requested builds and missions. Spark only starts Spawner after you clearly ask."},
-            {"level": "3", "about": "Default. Public links, docs, and GitHub research, plus requested builds."},
-            {"level": "4", "about": "Local projects, files, debugging, repo inspection, and deeper missions. Destructive actions still need explicit approval."},
+            {"level": "3", "about": "Default. Public links, docs, and GitHub research, plus requested builds. Does not inspect local folders."},
+            {"level": "4", "about": "Local projects, files on this computer, debugging, repo inspection, and deeper missions. Destructive actions still need explicit approval."},
         ],
         "telegram_commands": [
             { "command": "/start", "use": "Show the basic command surface." },
@@ -11150,7 +11155,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark verify --onboarding", "use": "First-user checklist for Telegram, allowed actions, memory, and a tiny Spawner mission." },
             { "command": "spark fix telegram", "use": "Targeted quiet-bot repair checklist: token, admin ids, memory bridge, LLM roles, process, and logs." },
             { "command": "spark fix autostart", "use": "Targeted login-startup repair checklist: installed hooks, stale paths, permissions, and Telegram profile selection." },
-            { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, or Mission Control is not reachable." },
+            { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, preview links, or Mission Control is not reachable." },
             { "command": "spark providers test --role chat", "use": "Send a tiny PING_OK probe through the selected chat LLM." },
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
@@ -11205,7 +11210,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "LLM does not answer: rerun spark setup to choose your Agent and Mission provider, then run spark status.",
             "Fresh install feels incomplete: run spark verify --onboarding and follow the first [FIX] line.",
             "Login startup is stale or confusing: run spark fix autostart, then spark autostart on --now if needed.",
-            "/run fails: start spawner-ui and check spark logs spawner-ui.",
+            "/run, Kanban, Canvas, or preview links fail: run spark fix spawner, then check spark logs spawner-ui.",
+            "Spark says it cannot inspect this workspace: send /access 4 only if you want local folder access on this computer.",
             "Memory does not work: run spark status and repair Spark runtime/domain-chip-memory hints first.",
         ],
     }

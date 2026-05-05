@@ -738,13 +738,18 @@ function Invoke-Install {
     Write-Host "Finish in Telegram:"
     Write-Host "  1. Open your Spark bot and send /start"
     Write-Host "  2. Choose what Spark can do when asked. Most people should allow chat, memory, diagnostics, public research, and approved missions"
-    Write-Host "  3. Send /diagnose"
-    Write-Host "  4. Try memory: /remember I like concise warm replies"
-    Write-Host "  5. Try a tiny build: /run say exactly OK"
+    Write-Host "  3. Use /access 4 only when you want Spark to inspect or build inside local folders on this computer"
+    Write-Host "  4. Send /diagnose"
+    Write-Host "  5. Try memory: /remember I like concise warm replies"
+    Write-Host "  6. Try a tiny build: /run say exactly OK"
     Write-Host ""
     Write-Host "If Telegram is quiet or memory is not responding:"
     Write-Host "  spark fix telegram"
     Write-Host "  spark logs spark-telegram-bot"
+    Write-Host ""
+    Write-Host "If Mission Control, Kanban, Canvas, or preview links are not responding:"
+    Write-Host "  spark fix spawner"
+    Write-Host "  spark logs spawner-ui --lines 80"
 }
 
 try {

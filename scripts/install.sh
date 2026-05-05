@@ -983,13 +983,18 @@ Install log:
 Finish in Telegram:
   1. Open your Spark bot and send /start
   2. Choose what Spark can do when asked. Most people should allow chat, memory, diagnostics, public research, and approved missions
-  3. Send /diagnose
-  4. Try memory: /remember I like concise warm replies
-  5. Try a tiny build: /run say exactly OK
+  3. Use /access 4 only when you want Spark to inspect or build inside local folders on this computer
+  4. Send /diagnose
+  5. Try memory: /remember I like concise warm replies
+  6. Try a tiny build: /run say exactly OK
 
 If Telegram is quiet or memory is not responding:
   $SPARK_PREFIX/bin/spark fix telegram
   $SPARK_PREFIX/bin/spark logs spark-telegram-bot
+
+If Mission Control, Kanban, Canvas, or preview links are not responding:
+  $SPARK_PREFIX/bin/spark fix spawner
+  $SPARK_PREFIX/bin/spark logs spawner-ui --lines 80
 EOF
 }
 
