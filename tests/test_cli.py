@@ -7166,7 +7166,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Spark onboarding verification", output)
         self.assertIn("Finish onboarding in Telegram", output)
         self.assertIn("Open Telegram and send /start", output)
-        self.assertIn("chat, memory, diagnostics, public research, and approved missions", output)
+        self.assertIn("choose Level 4 so Mission Control can inspect and build in local workspaces", output)
         self.assertIn("/run say exactly OK", output)
 
     def test_installer_manifest_matches_current_scripts(self) -> None:
