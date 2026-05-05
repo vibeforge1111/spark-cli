@@ -365,6 +365,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark fix autostart` | Diagnose missing/stale login hooks, permissions, and manual Telegram profiles |
 | `spark autostart profile <name> off` | Keep one Telegram profile manual while Spark autostart stays on |
 | `spark autostart off` | Remove the login hook |
+| `spark smoke first-run [--quick\|--json]` | Check first-run readiness and print the Telegram Mission Control smoke script |
 | `spark guide [--advanced\|--json]` | Show onboarding, advanced guidance, and command reference |
 | `spark init <name>` | Scaffold a new module |
 | `spark search [query]` | Browse the registry |

@@ -8904,6 +8904,84 @@ def onboarding_checklist() -> list[str]:
     ]
 
 
+def first_run_smoke_telegram_script() -> list[str]:
+    return [
+        "/start",
+        "/access 4",
+        "/diagnose",
+        "/remember I like concise warm replies",
+        "/recall concise warm replies",
+        '/run build one file only: index.html with a big heading "Spark first-run smoke" and text "Mission Control preview works". Do not make a full app, do not add package files, and keep it as static HTML only.',
+        "/board",
+    ]
+
+
+def collect_first_run_smoke_payload(*, deep: bool = True) -> dict[str, Any]:
+    payload = collect_verify_payload(deep=deep)
+    payload = dict(payload)
+    payload["summary"] = "Spark first-run smoke"
+    payload["deep"] = deep
+    payload["onboarding_checklist"] = onboarding_checklist()
+    payload["telegram_script"] = first_run_smoke_telegram_script()
+    payload["success_criteria"] = [
+        "Telegram /diagnose reports Telegram, providers, memory, and Spawner as ready.",
+        "The /remember then /recall probe returns the saved preference.",
+        "The tiny static /run sends progress, completion, and a preview link.",
+        "The preview link opens the generated index.html.",
+    ]
+    payload["next_commands"] = [
+        "spark smoke first-run",
+        "spark providers test --role chat",
+        "spark logs spark-telegram-bot --lines 80",
+        "spark logs spawner-ui --lines 80",
+        "spark fix telegram",
+        "spark fix spawner",
+    ]
+    return payload
+
+
+def print_first_run_smoke_payload(payload: dict[str, Any]) -> None:
+    print(payload["summary"])
+    print(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
+    print(f"Mode: {'deep local checks' if payload.get('deep') else 'quick local checks'}")
+    print("")
+    for check in payload["checks"]:
+        marker = "[OK]" if check["ok"] else "[FIX]"
+        print(f"{marker} {check['name']}: {check['detail']}")
+        if not check["ok"] and check.get("repair"):
+            print(f"      {check['repair']}")
+    if payload.get("status_repair_hints"):
+        print("")
+        print("Status repair hints:")
+        for hint in payload["status_repair_hints"]:
+            print(f"  - {hint}")
+    print("")
+    print("Telegram first-run script:")
+    for item in payload["telegram_script"]:
+        print(f"  {item}")
+    print("")
+    print("Pass criteria:")
+    for item in payload["success_criteria"]:
+        print(f"  - {item}")
+    print("")
+    print("Repair commands:")
+    for command in payload["next_commands"][1:]:
+        print(f"  {command}")
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    command = getattr(args, "smoke_command", None)
+    if command != "first-run":
+        raise SystemExit("Choose a smoke command, for example: spark smoke first-run")
+
+    payload = collect_first_run_smoke_payload(deep=not bool(getattr(args, "quick", False)))
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0 if payload["ok"] else 1
+    print_first_run_smoke_payload(payload)
+    return 0 if payload["ok"] else 1
+
+
 def print_hosted_security_payload(payload: dict[str, Any]) -> None:
     print(payload["summary"])
     for check in payload["checks"]:
@@ -11153,6 +11231,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark live status", "use": "Check whether Spark Live is running quietly in the background." },
             { "command": "spark verify", "use": "Launch-readiness proof for modules, LLM roles, Telegram long polling, Builder memory, Spawner relay, and running processes." },
             { "command": "spark verify --onboarding", "use": "First-user checklist for Telegram, allowed actions, memory, and a tiny Spawner mission." },
+            { "command": "spark smoke first-run", "use": "Guided first-run proof: local readiness checks, Telegram script, memory probe, tiny static build, and preview pass criteria." },
             { "command": "spark fix telegram", "use": "Targeted quiet-bot repair checklist: token, admin ids, memory bridge, LLM roles, process, and logs." },
             { "command": "spark fix autostart", "use": "Targeted login-startup repair checklist: installed hooks, stale paths, permissions, and Telegram profile selection." },
             { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, preview links, or Mission Control is not reachable." },
@@ -11182,6 +11261,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
             { "command": "spark verify [--onboarding|--deep|--installers]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, or installer integrity." },
+            { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
@@ -11208,7 +11288,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "Bot is quiet and you are not sure why: run spark fix telegram.",
             "Bot says admin only: send /myid, add that numeric id during spark setup, then restart.",
             "LLM does not answer: rerun spark setup to choose your Agent and Mission provider, then run spark status.",
-            "Fresh install feels incomplete: run spark verify --onboarding and follow the first [FIX] line.",
+            "Fresh install feels incomplete: run spark smoke first-run and follow the first [FIX] line or Telegram script step.",
             "Login startup is stale or confusing: run spark fix autostart, then spark autostart on --now if needed.",
             "/run, Kanban, Canvas, or preview links fail: run spark fix spawner, then check spark logs spawner-ui.",
             "Spark says it cannot inspect this workspace: send /access 4 so Mission Control can inspect and build in local folders on this computer.",
@@ -11496,6 +11576,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
     verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
     verify_parser.set_defaults(func=cmd_verify)
+
+    smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
+    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+    first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
+    first_run_smoke_parser.add_argument("--json", action="store_true")
+    first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
+    first_run_smoke_parser.set_defaults(func=cmd_smoke)
 
     fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")
     fix_parser.add_argument(

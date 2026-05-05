@@ -7169,6 +7169,48 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("choose Level 4 so Mission Control can inspect and build in local workspaces", output)
         self.assertIn("/run say exactly OK", output)
 
+    def test_smoke_first_run_prints_guided_telegram_script(self) -> None:
+        args = build_parser().parse_args(["smoke", "first-run"])
+        payload = {
+            "ok": True,
+            "summary": "Spark launch verification",
+            "bundle": "telegram-starter",
+            "checks": [{"name": "starter_bundle", "ok": True, "detail": "ready"}],
+            "next_commands": ["spark status"],
+            "status_repair_hints": [],
+        }
+        with patch("spark_cli.cli.collect_verify_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with(deep=True)
+        output = stdout.getvalue()
+        self.assertIn("Spark first-run smoke", output)
+        self.assertIn("Telegram first-run script", output)
+        self.assertIn("/access 4", output)
+        self.assertIn("/diagnose", output)
+        self.assertIn("Spark first-run smoke", output)
+        self.assertIn("preview link opens", output)
+
+    def test_smoke_first_run_json_is_agent_readable_and_quick_skips_deep(self) -> None:
+        args = build_parser().parse_args(["smoke", "first-run", "--quick", "--json"])
+        payload = {
+            "ok": True,
+            "summary": "Spark launch verification",
+            "bundle": "telegram-starter",
+            "checks": [{"name": "starter_bundle", "ok": True, "detail": "ready"}],
+            "next_commands": ["spark status"],
+            "status_repair_hints": [],
+        }
+        with patch("spark_cli.cli.collect_verify_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with(deep=False)
+        rendered = json.loads(stdout.getvalue())
+        self.assertEqual(rendered["summary"], "Spark first-run smoke")
+        self.assertFalse(rendered["deep"])
+        self.assertIn("/access 4", rendered["telegram_script"])
+        self.assertTrue(any("preview link" in item for item in rendered["success_criteria"]))
+
     def test_installer_manifest_matches_current_scripts(self) -> None:
         payload = installer_manifest_payload()
         committed = collect_installer_integrity_payload()
