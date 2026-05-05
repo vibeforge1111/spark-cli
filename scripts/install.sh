@@ -982,8 +982,8 @@ Install log:
 
 Finish in Telegram:
   1. Open your Spark bot and send /start
-  2. Choose what Spark can do when asked. Most people should allow chat, memory, diagnostics, public research, and approved missions
-  3. Use /access 4 only when you want Spark to inspect or build inside local folders on this computer
+  2. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces
+  3. Use a lower level only when you want chat, memory, diagnostics, public research, or remote missions without local files
   4. Send /diagnose
   5. Try memory: /remember I like concise warm replies
   6. Try a tiny build: /run say exactly OK

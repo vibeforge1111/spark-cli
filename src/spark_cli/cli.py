@@ -4653,8 +4653,8 @@ def print_setup_next_steps(
         print("Spark is configured, but not started yet.")
     print("")
     print(f"Telegram: {telegram_label}")
-    print("Allowed by default: chat, memory, diagnostics, public research, and approved missions.")
-    print("Local files and workspaces stay off by default; use /access 4 only when you want Spark to inspect this computer.")
+    print("Recommended for builders: choose Level 4 when prompted so Mission Control can inspect and build in local workspaces.")
+    print("Choose a lower level only for chat-only or public-research installs.")
     print(f"Autostart: {'enabled' if autostart_enabled else 'disabled'}")
     print("")
     print("Open Telegram and send:")
@@ -8895,7 +8895,7 @@ def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
 def onboarding_checklist() -> list[str]:
     return [
         "Open Telegram and send /start to your Spark bot.",
-        "Choose what Spark can do when asked; most users should allow chat, memory, diagnostics, public research, and approved missions.",
+        "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
         "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
         "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
         "Send /remember I like concise warm replies, then /recall concise warm replies.",
@@ -11108,8 +11108,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             ]},
             {"title": "Finish in Telegram", "steps": [
                 "Send /start to your Spark bot.",
-                "Choose what Spark can do when asked. Most users should allow chat, memory, diagnostics, public research, and approved missions.",
-                "Use /access 4 only when you want Spark to inspect or build inside local folders on this computer.",
+                "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
+                "Use a lower level only when you want chat, memory, diagnostics, public research, or remote missions without local files.",
                 "Send /diagnose and make sure Telegram, LLM, memory, and Spawner look OK.",
                 "Send /remember I like concise warm replies, then /recall concise warm replies.",
                 "Try a tiny build with /run say exactly OK, then check /board.",
@@ -11118,8 +11118,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
         "start": [
             "spark autostart on --now",
             "Open Telegram and send /start to your Spark bot.",
-            "Choose what Spark can do when asked; you can keep it chat-only or allow approved missions.",
-            "Local workspace access is separate. Send /access 4 only when you want Spark to inspect local folders on this computer.",
+            "Choose what Spark can do when asked. For Mission Control builds on this computer, send /access 4.",
+            "Use a lower access level only when you want Spark kept away from local folders.",
             "Send /diagnose in Telegram.",
             "spark verify --onboarding",
         ],
@@ -11132,9 +11132,9 @@ def onboarding_guide_payload() -> dict[str, Any]:
         ],
         "access_levels": [
             {"level": "1", "about": "Chat, memory, recall, and diagnostics. No Spawner builds."},
-            {"level": "2", "about": "Requested builds and missions. Spark only starts Spawner after you clearly ask."},
-            {"level": "3", "about": "Default. Public links, docs, and GitHub research, plus requested builds. Does not inspect local folders."},
-            {"level": "4", "about": "Local projects, files on this computer, debugging, repo inspection, and deeper missions. Destructive actions still need explicit approval."},
+            {"level": "2", "about": "Requested remote missions. Spark only starts Spawner after you clearly ask."},
+            {"level": "3", "about": "Public links, docs, and GitHub research, plus requested missions. Does not inspect local folders."},
+            {"level": "4", "about": "Recommended for builders. Local projects, files on this computer, Mission Control builds, debugging, repo inspection, and deeper missions. Destructive actions still need explicit approval."},
         ],
         "telegram_commands": [
             { "command": "/start", "use": "Show the basic command surface." },
@@ -11211,7 +11211,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "Fresh install feels incomplete: run spark verify --onboarding and follow the first [FIX] line.",
             "Login startup is stale or confusing: run spark fix autostart, then spark autostart on --now if needed.",
             "/run, Kanban, Canvas, or preview links fail: run spark fix spawner, then check spark logs spawner-ui.",
-            "Spark says it cannot inspect this workspace: send /access 4 only if you want local folder access on this computer.",
+            "Spark says it cannot inspect this workspace: send /access 4 so Mission Control can inspect and build in local folders on this computer.",
             "Memory does not work: run spark status and repair Spark runtime/domain-chip-memory hints first.",
         ],
     }
