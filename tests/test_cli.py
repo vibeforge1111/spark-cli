@@ -5292,6 +5292,39 @@ class SparkCliTests(unittest.TestCase):
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
                 "http://127.0.0.1:8080/api/providers",
             )
+            self.assertEqual(
+                module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),
+                "http://127.0.0.1:8080/api/health/live",
+            )
+
+    def test_spawner_health_uses_liveness_endpoint_in_hosted_mode(self) -> None:
+        class Response:
+            status = 200
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:5173/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1", "SPARK_SPAWNER_PORT": "8080"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", return_value=Response()), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertTrue(result["healthy"])
+        self.assertEqual(result["healthcheck_command"], "GET http://127.0.0.1:8080/api/health/live")
+        run_runtime.assert_not_called()
 
     def test_direct_node_package_script_argv_resolves_ts_node_without_cmd_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

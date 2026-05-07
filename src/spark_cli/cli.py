@@ -4323,6 +4323,30 @@ def detect_uninstall_blockers(removing_modules: list[Module], installed_modules:
 
 
 def evaluate_module_health(module: Module) -> dict[str, Any]:
+    runtime_env = module_runtime_env(module)
+    if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
+        health_url = spawner_runtime_health_url(module, runtime_env)
+        failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
+        success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
+        try:
+            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
+            with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
+                healthy = 200 <= int(response.status) < 300
+                detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
+        except Exception as exc:
+            healthy = False
+            detail = f"Spawner UI live health failed: {exc}"
+        return {
+            "name": module.name,
+            "version": module.version,
+            "kind": module.kind,
+            "plane": module.plane,
+            "healthy": healthy,
+            "detail": detail,
+            "healthcheck_command": f"GET {health_url}",
+            "failure_hint": failure_hint,
+            "success_hint": success_hint,
+        }
     command = module.healthcheck_command
     if not command:
         return {
@@ -4336,7 +4360,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             "failure_hint": None,
         }
     timeout_seconds = ready_timeout_seconds(module)
-    result = run_runtime_command(command, module.path, env=module_runtime_env(module), timeout=timeout_seconds)
+    result = run_runtime_command(command, module.path, env=runtime_env, timeout=timeout_seconds)
     detail = summarize_command_output(result)
     failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
     success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
@@ -10145,11 +10169,38 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
     return argv
 
 
+def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
+    return bool(
+        running_as_hosted_context()
+        or env.get("SPARK_LIVE_CONTAINER")
+        or env.get("RAILWAY_ENVIRONMENT")
+        or env.get("SPARK_ALLOWED_HOSTS")
+        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
+    )
+
+
+def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
+    bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
+    if bind_port:
+        return bind_port
+    ready_check = module.ready_check or ""
+    if ready_check.startswith(("http://", "https://")):
+        parsed = urllib.parse.urlparse(ready_check)
+        if parsed.port:
+            return str(parsed.port)
+    return "5173"
+
+
+def spawner_runtime_health_url(module: Module, env: dict[str, str]) -> str:
+    path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
+    return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
+
+
 def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
     if module.name == "spawner-ui":
         bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
         if bind_port:
-            return f"http://127.0.0.1:{bind_port}/api/providers"
+            return spawner_runtime_health_url(module, env)
     return module.ready_check
 
 
