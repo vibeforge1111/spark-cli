@@ -1826,6 +1826,9 @@ def collect_secret_values(
             secret_values.setdefault(key, resolved_value)
 
     requirements = collect_secret_requirements(modules)
+    if getattr(args, "external_telegram_ingress", False):
+        requirements.pop("telegram.bot_token", None)
+        requirements.pop("telegram.admin_ids", None)
     for secret_id in requirements:
         if secret_id in secret_values:
             continue
@@ -4733,6 +4736,7 @@ def collect_setup_configuration(
         "bundle": args.bundle,
         "modules": [module.name for module in bundle],
         "telegram_ingress_owner": ingress_owner.name,
+        "telegram_ingress_mode": "external" if getattr(args, "external_telegram_ingress", False) else "local",
         "configured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "secret_keys": sorted(preserved_secret_keys | set(secret_values.keys())),
         "llm": llm_setup_state(llm_provider, llm_env),
@@ -4875,7 +4879,10 @@ def print_setup_summary(
     print("Spark setup complete.")
     print(f"Bundle: {args.bundle}")
     print(f"Telegram ingress owner: {ingress_owner.name}")
-    print("Bot token routed only to spark-telegram-bot.")
+    if getattr(args, "external_telegram_ingress", False):
+        print("Telegram ingress mode: external; no bot token stored in this Spark Live runtime.")
+    else:
+        print("Bot token routed only to spark-telegram-bot.")
     print(f"Generated module config dir: {MODULE_CONFIG_DIR}")
     for note in builder_notes:
         print(f"Builder runtime: {note}")
@@ -5325,7 +5332,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_live(args: argparse.Namespace) -> int:
     command = getattr(args, "live_command", "status")
     if command in {"start", "run"}:
-        args.target = "telegram-starter"
+        args.target = live_runtime_target()
         args.profile = DEFAULT_TELEGRAM_PROFILE
         args.allow_boot_warnings = False
         start_code = cmd_start(args)
@@ -5337,12 +5344,12 @@ def cmd_live(args: argparse.Namespace) -> int:
             follow_live_logs(lines=getattr(args, "lines", 80))
         return start_code
     if command == "stop":
-        args.target = "telegram-starter"
+        args.target = live_runtime_target()
         args.profile = DEFAULT_TELEGRAM_PROFILE
         args.cascade = True
         return cmd_stop(args)
     if command == "restart":
-        args.target = "telegram-starter"
+        args.target = live_runtime_target()
         args.profile = DEFAULT_TELEGRAM_PROFILE
         args.cascade = True
         args.allow_boot_warnings = False
@@ -5373,9 +5380,20 @@ def cmd_live(args: argparse.Namespace) -> int:
     raise SystemExit(f"Unknown live command: {command}")
 
 
+def telegram_ingress_is_external(setup_state: dict[str, Any] | None = None) -> bool:
+    setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+    return isinstance(setup, dict) and setup.get("telegram_ingress_mode") == "external"
+
+
+def live_runtime_target() -> str:
+    return "spawner-ui" if telegram_ingress_is_external() else "telegram-starter"
+
+
 def live_log_targets() -> list[tuple[str, Path]]:
     targets: list[tuple[str, Path]] = [("spawner-ui", module_log_path("spawner-ui"))]
     setup_state = load_json(CONFIG_PATH, {})
+    if telegram_ingress_is_external(setup_state):
+        return targets
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if isinstance(profiles, dict) and profiles:
         for profile in sorted(profiles):
@@ -10127,11 +10145,12 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
     names: list[str] = []
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
-    if "spark-telegram-bot" in installed_names and not has_profiles:
+    external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
+    if "spark-telegram-bot" in installed_names and not has_profiles and not external_telegram:
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
+    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
         for profile, profile_state in sorted(profiles.items()):
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
@@ -11982,6 +12001,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value; use @clipboard, @env:NAME, or @file:path for secret input")
     setup_parser.add_argument("--bot-token", help="Telegram BotFather token, @clipboard, @env:NAME, or @file:path")
+    setup_parser.add_argument("--external-telegram-ingress", action="store_true", help=argparse.SUPPRESS)
     setup_parser.add_argument(
         "--skip-telegram-token-check",
         action="store_true",

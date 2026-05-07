@@ -73,8 +73,19 @@ if [ -z "$provider" ]; then
   die "SPARK_LLM_PROVIDER is required. Good VPS/Railway choices: zai, codex with OPENAI_API_KEY, openai, openrouter, kimi, huggingface, minimax, anthropic with API key."
 fi
 
-require_env TELEGRAM_BOT_TOKEN
-require_env TELEGRAM_ADMIN_IDS
+telegram_mode="${SPARK_LIVE_TELEGRAM_MODE:-monolith}"
+case "$telegram_mode" in
+  monolith)
+    require_env TELEGRAM_BOT_TOKEN
+    require_env TELEGRAM_ADMIN_IDS
+    ;;
+  external)
+    log "Using external Telegram ingress owner; Spark Live will not require or start a local bot poller."
+    ;;
+  *)
+    die "SPARK_LIVE_TELEGRAM_MODE must be 'monolith' or 'external'."
+    ;;
+esac
 
 export SPARK_SPAWNER_PORT="${SPARK_SPAWNER_PORT:-${PORT:-5173}}"
 export SPARK_SPAWNER_HOST="${SPARK_SPAWNER_HOST:-0.0.0.0}"
@@ -98,15 +109,22 @@ setup_args=(
   telegram-starter
   --non-interactive
   --run-install-commands
-  --bot-token
-  "@env:TELEGRAM_BOT_TOKEN"
-  --admin-telegram-ids
-  "$TELEGRAM_ADMIN_IDS"
   --llm-provider
   "$provider"
   --spawner-ui-url
   "http://127.0.0.1:${SPARK_SPAWNER_PORT}"
 )
+
+if [ "$telegram_mode" = "external" ]; then
+  setup_args+=(--external-telegram-ingress)
+else
+  setup_args+=(
+    --bot-token
+    "@env:TELEGRAM_BOT_TOKEN"
+    --admin-telegram-ids
+    "$TELEGRAM_ADMIN_IDS"
+  )
+fi
 
 case "$provider" in
   zai)

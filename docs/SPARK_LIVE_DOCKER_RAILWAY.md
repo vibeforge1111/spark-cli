@@ -90,7 +90,8 @@ Choose one Telegram polling owner before setting secrets:
   `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_IDS` here.
 - Split Railway/VPS: a standalone `spark-telegram-bot` service owns Telegram
   long polling, so do not set `TELEGRAM_BOT_TOKEN` on Spark Live. Put the token
-  only on the bot service as `BOT_TOKEN`.
+  only on the bot service as `BOT_TOKEN`, and set
+  `SPARK_LIVE_TELEGRAM_MODE=external` on Spark Live.
 
 If both Spark Live and `spark-telegram-bot` receive the same bot token, Telegram
 will terminate one poller with `409 Conflict: terminated by other getUpdates
@@ -206,7 +207,9 @@ SPARK_SPAWNER_PORT=${PORT}
 For split Railway deploys, omit `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_IDS`
 from this Spark Live service. The separate `spark-telegram-bot` service should
 hold `BOT_TOKEN`, `ADMIN_TELEGRAM_IDS`, `TELEGRAM_GATEWAY_MODE=polling`, relay
-settings, and the shared bridge secret.
+settings, and the shared bridge secret. Set `SPARK_LIVE_TELEGRAM_MODE=external`
+on Spark Live so the Docker entrypoint configures the runtime without requiring
+or starting a local Telegram poller.
 
 `RAILWAY_RUN_UID=0` lets the entrypoint repair Railway volume ownership. Spark then
 drops to the non-root `spark` user before setup and runtime work starts.
