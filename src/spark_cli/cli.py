@@ -9551,7 +9551,7 @@ def first_run_smoke_telegram_script() -> list[str]:
         "/diagnose",
         "/remember I like concise warm replies",
         "/recall concise warm replies",
-        '/run build one file only: index.html with a big heading "Spark first-run smoke" and text "Mission Control preview works". Do not make a full app, do not add package files, and keep it as static HTML only.',
+        '/run Build a tiny static HTML page called Spark first-run smoke. It should have one file, index.html, with a dark Mission Control panel, a green "Spark Live OK" status, and the text "Telegram to Spawner relay worked". Do not add package files, do not install dependencies, and keep it simple enough to finish fast.',
         "/board",
     ]
 
@@ -9567,7 +9567,8 @@ def collect_first_run_smoke_payload(*, deep: bool = True) -> dict[str, Any]:
         "Telegram /diagnose reports Telegram, providers, memory, and Spawner as ready.",
         "The /remember then /recall probe returns the saved preference.",
         "The tiny static /run sends progress, completion, and a preview link.",
-        "The preview link opens the generated index.html.",
+        "The generated workspace contains index.html with Spark Live OK and Telegram-to-Spawner relay text.",
+        "The generated workspace does not require package.json, node_modules, or dependency installation.",
     ]
     payload["next_commands"] = [
         "spark smoke first-run",

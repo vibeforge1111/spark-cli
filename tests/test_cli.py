@@ -7460,8 +7460,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Telegram first-run script", output)
         self.assertIn("/access 4", output)
         self.assertIn("/diagnose", output)
-        self.assertIn("Spark first-run smoke", output)
-        self.assertIn("preview link opens", output)
+        self.assertIn("Spark Live OK", output)
+        self.assertIn("one file, index.html", output)
+        self.assertIn("does not require package.json", output)
 
     def test_smoke_first_run_json_is_agent_readable_and_quick_skips_deep(self) -> None:
         args = build_parser().parse_args(["smoke", "first-run", "--quick", "--json"])
@@ -7481,7 +7482,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(rendered["summary"], "Spark first-run smoke")
         self.assertFalse(rendered["deep"])
         self.assertIn("/access 4", rendered["telegram_script"])
-        self.assertTrue(any("preview link" in item for item in rendered["success_criteria"]))
+        self.assertTrue(any("Spark Live OK" in item for item in rendered["success_criteria"]))
+        self.assertTrue(any("package.json" in item for item in rendered["success_criteria"]))
 
     def test_installer_manifest_matches_current_scripts(self) -> None:
         payload = installer_manifest_payload()

@@ -289,7 +289,38 @@ After deploy:
    safety as ready.
 7. Send `/diagnose` to the sandbox Telegram bot.
 8. Send `/remember Railway sandbox works`, then `/recall Railway sandbox`.
-9. Send `/run say exactly OK`.
+9. Send this constrained static build smoke:
+
+   ```text
+   /run Build a tiny static HTML page called Spark Production Smoke. It should have one file, index.html, with a dark Mission Control panel, a green "Spark Live OK" status, and the text "Telegram to Spawner relay worked on May 8, 2026". Do not add package files, do not install dependencies, and keep it simple enough to finish fast.
+   ```
+
+Pass criteria:
+
+- `/diagnose` shows the bot relay and Spawner UI as reachable.
+- If plain chat times out but Spawner mission ping passes, treat that as a chat
+  provider timeout to tune, not a failed build path.
+- The mission plan has the constrained static steps: `Create Exact Static Index
+  HTML` and `Verify One-File Static Contract`.
+- The mission completes with `2` completed tasks and `0` failed tasks.
+- The generated workspace contains `index.html` with `Spark Live OK` and
+  `Telegram to Spawner relay worked on May 8, 2026`.
+- The generated workspace does not need `package.json`, `node_modules`, or
+  dependency installation.
+
+For a repeatable operator-side check across the split Railway services, run:
+
+```powershell
+.\scripts\railway-production-smoke.ps1 `
+  -SparkLiveCwd C:\path\to\spark-cli-prod-worktree `
+  -TelegramBotCwd C:\path\to\spark-telegram-bot `
+  -PublicUrl https://spark-live-production.up.railway.app
+```
+
+The script checks public health, `spark live status`, the installed Spawner
+registry pin, Telegram bot runtime health, and the bot service's authenticated
+health/providers/mission-board calls into Spawner. It does not start a new LLM
+mission, so use the Telegram `/run` smoke above for the full paid-provider path.
 
 The hosted deep smoke is intentionally not part of the fast default check. It
 uses the configured mission provider and may spend real LLM credits.
