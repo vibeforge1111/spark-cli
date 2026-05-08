@@ -1,10 +1,52 @@
 # Spark CLI — Status Audit
 
-**Last updated:** 2026-04-24 (launch installer/onboarding pass)
-**Scope:** the `spark-cli` spike at `<workspace>\\spark-cli`
-**Source of truth:** `src/spark_cli/cli.py` (~2420 LOC) + `tests/test_cli.py` (~1270 LOC)
-**Test state:** 98/98 passing on this machine after the launch installer pass
-**Branch:** `master`
+**Last updated:** 2026-05-08 (Railway/VPS/sandbox hardening pass)
+**Scope:** the `spark-cli` repo at `<workspace>\spark-cli`
+**Source of truth:** `src/spark_cli/cli.py` (~12.9k LOC) + `src/spark_cli/sandbox/*` + `tests/test_cli.py` (~9.5k LOC)
+**Test state:** 497 passed / 5 skipped on this machine after the remote sandbox hardening pass
+**Working branch:** `codex/fix-railway-smoke-remote-failures-20260508`
+
+---
+
+## Release prep update (2026-05-08)
+
+Spark CLI now has a production-prep hardening layer for hosted Spark Live,
+Railway/VPS docs, SSH remote targets, Modal smoke checks, installer integrity,
+and shareable diagnostics.
+
+Shipped in this pass:
+
+- `spark verify --installers --json` checks installer manifest metadata and
+  local installer checksums.
+- `spark verify --sandboxes --json` reports remote sandbox readiness without
+  running cloud smoke jobs.
+- SSH sandbox lane: `add`, `list`, `trust`, `doctor`, optional
+  `doctor --remote-probe`, `smoke`, and `remove`.
+- Modal sandbox lane: `doctor` and explicit no-secret `smoke`.
+- Hosted Spark Live docs and verification cover Docker, Railway, and VPS
+  deployment shapes.
+- Remote sandbox outputs redact secret-like values, URL credentials, bearer
+  tokens, PEM blocks, Telegram tokens, provider tokens, private key paths,
+  local audit paths, and local diagnostic paths.
+- Pro connection-token/bearer-token mentions are paused in docs until the
+  downstream Spark Pro entitlement path exists.
+
+Verified during this pass:
+
+- `python -m pytest` -> 497 passed, 5 skipped
+- `python -m spark_cli.cli verify --installers --json` -> OK
+- `python -m spark_cli.cli verify --sandboxes --json` -> OK, with Modal auth
+  correctly reported as optional when no local Modal auth marker exists
+- `python -m spark_cli.cli support bundle --json` -> no raw local path leak
+- `git diff --check` -> OK
+
+Still intentionally deferred:
+
+- SSH prepare/deploy, remote log tailing, and arbitrary remote shell.
+- Modal arbitrary run, artifact pull, persistent volumes, and provider-secret
+  passthrough.
+- Public inbound hosted services beyond the reviewed Spark Live lane.
+- Spark Pro connection tokens and bearer-token entitlement flow.
 
 ---
 
@@ -39,7 +81,7 @@ Verified again during the launch pass:
 - default LLM provider wiring supports Z.AI GLM (`glm-5.1`) without writing raw keys to generated module env files
 - dashboard/resonance API is deferred; starter installs should not require `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or a local service on port 8787
 
-Still needs a follow-up hardening pass:
+Still needs a future installer-hardening pass:
 
 - full dependency-install smoke with install command logs per module
 - bundle lock file with repo refs/SHAs
@@ -54,7 +96,7 @@ Fresh-machine install path is verified end to end.
 
 | Check | Result |
 |---|---|
-| `spark-cli` repo public on GitHub | `vibeforge1111/spark-cli` (MIT) |
+| `spark-cli` repo public on GitHub | `vibeforge1111/spark-cli` (PRIVATE, MIT) |
 | `pip install -e .` works from clone | yes |
 | `python -m pytest tests/ -q` | 84 pass |
 | Three starter modules have `spark.toml` on `origin/main` | yes: `spark-telegram-bot`, `vibeship-spawner-ui`, `spark-intelligence-builder` |
@@ -101,12 +143,13 @@ surface area of the CLI.
 
 ## TL;DR
 
-The spike ships the **full install lifecycle** for both registry-backed and
+The repo ships the **full install lifecycle** for both registry-backed and
 git-sourced modules, plus a **module scaffolder** (`spark init`), **user
 config**, **registry search**, **OS-keychain secrets**, **interactive setup
 wizard**, **dependency-aware start/stop**, **trust prompt for non-blessed
 installs**, **`--resume`** on failed installs, **runtime version enforcement**,
-and a **schema-version guard**. Fourteen top-level commands total.
+**schema-version guard**, **hosted Spark Live verification**, **remote sandbox
+doctor/smoke checks**, and **shareable redacted diagnostics**.
 
 What it still does **not** do: a dashboard, license/Pro gating via
 `spark login`, and a web installer. All three are explicit large-scope
@@ -115,7 +158,7 @@ signing keys, and hosted infra.
 
 ---
 
-## CLI surface (14 commands)
+## CLI surface
 
 ```
 spark list                            # discovered modules
@@ -128,6 +171,10 @@ spark start [target]                  # topological launch with ready-check
 spark stop  [target]                  # reverse-topological kill
 spark status [--json]                 # healthchecks + repair hints
 spark doctor [--json]                 # diagnostic variant of status
+spark verify [--installers|--sandboxes|--hosted] [--json]
+spark sandbox ssh <add|list|trust|doctor|smoke|remove>
+spark sandbox modal <doctor|smoke>
+spark live <status|start|run|restart|stop|logs|verify>
 spark logs <module> [-n N] [-f]       # tail process logs
 spark search [query]                  # registry browse + installed badge
 spark secrets list|set|get|delete     # keychain-backed secret store
@@ -145,8 +192,9 @@ Global install-time flags on `install` and `setup`:
 
 ## Shipped feature matrix
 
-Tracked across 17 commits on `master`. Every entry is covered by tests
-unless noted.
+The original April launch matrix is kept as historical feature inventory. New
+May remote-sandbox and hosted-live surfaces are covered in the release-prep
+update above and in the dedicated sandbox docs.
 
 ### Install lifecycle
 
@@ -336,4 +384,12 @@ python -m spark_cli.cli logs <module> [-n 200] [-f]
 python -m spark_cli.cli config set dashboard.port 8765
 python -m spark_cli.cli secrets list
 python -m spark_cli.cli secrets set telegram.bot_token
+
+# Release and remote sandbox checks
+python -m spark_cli.cli verify --installers --json
+python -m spark_cli.cli verify --sandboxes --json
+python -m spark_cli.cli sandbox ssh doctor <name> --remote-probe --json
+python -m spark_cli.cli sandbox ssh smoke <name> --json
+python -m spark_cli.cli sandbox modal doctor --json
+python -m spark_cli.cli sandbox modal smoke --json
 ```

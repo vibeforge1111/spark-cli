@@ -334,6 +334,7 @@ Live CLI/image until this gate passes:
 python -m pytest tests/test_cli.py -q
 python -m spark_cli.cli verify --registry-pins
 python -m spark_cli.cli verify --provenance
+python -m spark_cli.cli verify --sandboxes
 railway up --detach --service spark-live
 railway ssh --service spark-live spark live status
 railway ssh --service spark-live spark live verify --quick

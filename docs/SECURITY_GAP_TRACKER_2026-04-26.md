@@ -53,7 +53,8 @@ Result:
 
 ## Gitleaks Scan - 2026-04-26
 
-Tool: gitleaks 8.30.1, downloaded locally into `C:\Users\USER\Desktop\spark-security-audit-reports`.
+Tool: gitleaks 8.30.1, downloaded locally into a disposable
+`<security-audit-reports>` directory.
 
 | Repo | Initial result | Resolution |
 | --- | --- | --- |

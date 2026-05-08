@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,9 @@ from spark_cli.cli import (
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
     collect_registry_pin_drift_payload,
+    collect_sandbox_verify_payload,
     collect_setup_configuration,
+    collect_status_payload,
     collect_hosted_security_payload,
     collect_llm_doctor_context,
     collect_telegram_fix_payload,
@@ -41,6 +44,7 @@ from spark_cli.cli import (
     cmd_secrets_set,
     cmd_live,
     cmd_onboard,
+    cmd_sandbox,
     cmd_start,
     cmd_setup,
     cmd_uninstall,
@@ -137,6 +141,7 @@ from spark_cli.cli import (
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
+    public_local_path_ref,
     resolve_provider_test_target,
     redact_for_llm,
     redact_shareable_text,
@@ -257,6 +262,47 @@ from spark_cli.cli import (
 )
 from spark_cli.security.approval import CommandContext, approval_required_for_command
 from spark_cli.security.url_policy import UrlPolicy, validate_url_safety
+from spark_cli.sandbox.audit import sandbox_audit_path, sandbox_audit_ref, write_audit_event
+from spark_cli.sandbox.capabilities import (
+    ActionClassification,
+    CapabilityManifest,
+    toxic_flow_denied,
+    toxic_flow_findings,
+)
+from spark_cli.sandbox.output import bound_sandbox_output, redact_sandbox_text, strip_terminal_controls
+from spark_cli.sandbox.paths import resolve_safe_output_path, validate_target_name
+from spark_cli.sandbox.modal import (
+    collect_modal_doctor_payload,
+    collect_modal_smoke_payload,
+    modal_auth_markers,
+    modal_smoke_script,
+    modal_smoke_subprocess_env,
+    run_modal_smoke_probe,
+)
+from spark_cli.sandbox.ssh import (
+    add_ssh_target,
+    build_ssh_base_argv,
+    collect_ssh_doctor_payload,
+    collect_ssh_smoke_payload,
+    fingerprint_known_host_line,
+    list_ssh_targets,
+    load_ssh_targets,
+    parse_ssh_keyscan_output,
+    public_ssh_argv_preview,
+    remove_ssh_target,
+    run_ssh_fixed_probe,
+    run_ssh_smoke_probe,
+    ssh_fixed_probe_argv,
+    ssh_management_capabilities,
+    ssh_smoke_execute_argv,
+    ssh_smoke_probe_hash,
+    ssh_subprocess_env,
+    trust_ssh_target_host_key,
+    SshHostKeyScan,
+    validate_remote_workspace,
+    validate_ssh_host,
+    validate_ssh_user,
+)
 
 
 def make_module(name: str, capabilities: list[str], secrets: list[str] | None = None) -> Module:
@@ -290,6 +336,851 @@ def make_module(name: str, capabilities: list[str], secrets: list[str] | None = 
 
 
 class SparkCliTests(unittest.TestCase):
+    def test_sandbox_capability_manifest_serializes_stable_payload(self) -> None:
+        manifest = CapabilityManifest(
+            backend="ssh",
+            filesystem="temp",
+            network="off",
+            secrets="none",
+            persistence="named-target",
+            privilege="non-root",
+            inbound="none",
+            cost="free-local",
+        )
+        self.assertEqual(manifest.to_dict()["backend"], "ssh")
+        self.assertIn("persistence:named-target", manifest.risk_badges())
+
+    def test_sandbox_toxic_flow_blocks_secret_network_write(self) -> None:
+        findings = toxic_flow_findings({"secret_access", "network_write"})
+        self.assertTrue(findings)
+        self.assertTrue(toxic_flow_denied({"secret_access", "network_write"}))
+
+    def test_sandbox_action_classification_reports_toxic_findings(self) -> None:
+        classification = ActionClassification(
+            action_id="remote-smoke",
+            mode="read_only",
+            capabilities=CapabilityManifest(backend="ssh"),
+            operations=frozenset({"untrusted_artifact", "execute"}),
+        )
+        payload = classification.to_dict()
+        self.assertEqual(payload["action_id"], "remote-smoke")
+        self.assertTrue(payload["toxic_findings"])
+
+    def test_sandbox_output_strips_controls_redacts_and_bounds(self) -> None:
+        raw = "\x1b[31mOPENAI_API_KEY=sk-1234567890abcdef\x1b[0m\n" + "\n".join(f"line-{idx}" for idx in range(8))
+        bounded = bound_sandbox_output(raw, max_bytes=80, max_lines=3)
+        self.assertNotIn("\x1b", bounded.text)
+        self.assertNotIn("sk-1234567890abcdef", bounded.text)
+        self.assertIn("[output truncated]", bounded.text)
+        self.assertTrue(bounded.truncated)
+
+    def test_sandbox_redaction_catches_telegram_and_bearer_tokens(self) -> None:
+        text = redact_sandbox_text("Authorization: Bearer abcdefghijklmnopqrstuvwxyz and bot123456:abcdefghijklmnopqrstuvwxyz")
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz", text)
+        self.assertIn("[REDACTED]", text)
+
+    def test_sandbox_redaction_catches_common_cloud_and_header_tokens(self) -> None:
+        slack_token = "xox" + "b-1234567890-" + "abcdefghijklmnopqrstuvwxyz"
+        samples = [
+            "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+            "HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz123456",
+            "GOOGLE_API_KEY=AIzaSyA1234567890abcdefghijklmnopq",
+            "GITLAB_TOKEN=glpat-abcdefghijklmnopqrstuvwxyz123456",
+            f"SLACK_TOKEN={slack_token}",
+            "X-Api-Key: custom-header-secret-value",
+            "Cookie: sessionid=private-cookie-value",
+            "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+        ]
+        text = redact_sandbox_text("\n".join(samples))
+        for leaked in [
+            "AKIA1234567890ABCDEF",
+            "hf_abcdefghijklmnopqrstuvwxyz123456",
+            "AIzaSyA1234567890abcdefghijklmnopq",
+            "glpat-abcdefghijklmnopqrstuvwxyz123456",
+            slack_token,
+            "custom-header-secret-value",
+            "sessionid=private-cookie-value",
+            "dXNlcjpwYXNzd29yZA==",
+        ]:
+            self.assertNotIn(leaked, text)
+        self.assertIn("[REDACTED]", text)
+
+    def test_sandbox_redaction_catches_url_credentials_and_jwts(self) -> None:
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlNwYXJrIn0."
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        )
+        text = redact_sandbox_text(
+            "postgres://spark:database-password@example.test/db "
+            "https://example.test/callback?sig=signed-url-secret&ok=1 "
+            f"jwt={jwt}"
+        )
+        self.assertNotIn("database-password", text)
+        self.assertNotIn("signed-url-secret", text)
+        self.assertNotIn(jwt, text)
+        self.assertIn("postgres://spark:", text)
+        self.assertIn("https://example.test/callback?sig=", text)
+        self.assertIn("[REDACTED]", text)
+
+    def test_sandbox_strip_terminal_controls_removes_osc_links(self) -> None:
+        text = strip_terminal_controls("\x1b]8;;https://example.test\x07click\x1b]8;;\x07")
+        self.assertEqual(text, "click")
+
+    def test_sandbox_target_name_validation(self) -> None:
+        self.assertEqual(validate_target_name("odyssey-vps"), "odyssey-vps")
+        for value in ["Odyssey", "../oops", "a", "bad_name", "bad/target", "bad-"]:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    validate_target_name(value)
+
+    def test_sandbox_output_path_stays_inside_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self.assertEqual(resolve_safe_output_path("artifact.txt", root=root), root / "artifact.txt")
+            with self.assertRaises(ValueError):
+                resolve_safe_output_path("../escape.txt", root=root)
+
+    def test_sandbox_audit_event_redacts_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            path = write_audit_event(
+                "ssh",
+                "odyssey-vps",
+                {"action_id": "doctor", "detail": "Bearer abcdefghijklmnopqrstuvwxyz"},
+                home=home,
+            )
+            self.assertEqual(path, sandbox_audit_path("ssh", "odyssey-vps", home=home))
+            payload = json.loads(path.read_text(encoding="utf-8").strip())
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertNotIn("abcdefghijklmnopqrstuvwxyz", payload["detail"])
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o077, 0)
+
+    def test_sandbox_parser_accepts_ssh_and_modal_skeleton(self) -> None:
+        ssh_args = build_parser().parse_args([
+            "sandbox",
+            "ssh",
+            "add",
+            "odyssey-vps",
+            "--host",
+            "example.test",
+            "--user",
+            "spark",
+            "--identity-file",
+            "~/.ssh/spark_odyssey",
+            "--json",
+        ])
+        self.assertEqual(ssh_args.command, "sandbox")
+        self.assertEqual(ssh_args.sandbox_backend, "ssh")
+        self.assertEqual(ssh_args.ssh_command, "add")
+        self.assertIs(ssh_args.func, cmd_sandbox)
+
+        modal_args = build_parser().parse_args(["sandbox", "modal", "smoke", "--json"])
+        self.assertEqual(modal_args.sandbox_backend, "modal")
+        self.assertEqual(modal_args.modal_command, "smoke")
+        self.assertIs(modal_args.func, cmd_sandbox)
+
+    def test_modal_doctor_cli_json_runs_payload(self) -> None:
+        args = build_parser().parse_args(["sandbox", "modal", "doctor", "--json"])
+        stdout = StringIO()
+        with patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={
+            "ok": True,
+            "backend": "modal",
+            "command": "doctor",
+            "checks": [],
+            "capabilities": {},
+            "next": "done",
+        }) as collect, redirect_stdout(stdout):
+            exit_code = cmd_sandbox(args)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["backend"], "modal")
+        collect.assert_called_once_with()
+
+    def test_modal_auth_markers_report_presence_without_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {
+            "MODAL_TOKEN_ID": "ak-secret-id",
+            "MODAL_TOKEN_SECRET": "as-secret-token",
+            "MODAL_PROFILE": "spark",
+        }, clear=False):
+            home = Path(tmpdir)
+            (home / ".modal.toml").write_text("[profile]\n", encoding="utf-8")
+            payload = modal_auth_markers(home=home)
+        self.assertTrue(payload["env_auth"])
+        self.assertTrue(payload["config_present"])
+        self.assertEqual(payload["config_count"], 1)
+        self.assertEqual(payload["profile"], "spark")
+        self.assertNotIn("ak-secret-id", json.dumps(payload))
+        self.assertNotIn("as-secret-token", json.dumps(payload))
+        self.assertNotIn(str(tmpdir), json.dumps(payload))
+
+    def test_modal_doctor_payload_checks_sdk_auth_and_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch("spark_cli.sandbox.modal.modal_sdk_available", return_value=True), \
+             patch("spark_cli.sandbox.modal.modal_cli_path", return_value=str(Path(tmpdir) / "bin" / "modal")):
+            home = Path(tmpdir)
+            (home / ".modal.toml").write_text("[profile]\n", encoding="utf-8")
+            payload = collect_modal_doctor_payload(home=home)
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(payload["ok"])
+        self.assertTrue(checks["modal_sdk"]["ok"])
+        self.assertTrue(checks["modal_auth_marker"]["ok"])
+        self.assertIn("block_network=True", checks["default_limits"]["detail"])
+        self.assertIn("available on PATH", checks["modal_cli"]["detail"])
+        self.assertNotIn(str(tmpdir), json.dumps(payload))
+
+    def test_modal_smoke_script_uses_network_block_and_cleanup(self) -> None:
+        script = modal_smoke_script()
+        self.assertIn("modal.Sandbox.create", script)
+        self.assertIn("block_network=True", script)
+        self.assertIn("sandbox.terminate()", script)
+        self.assertIn("sandbox.detach()", script)
+        self.assertNotIn("MODAL_TOKEN_SECRET", script)
+
+    def test_modal_smoke_probe_requires_sdk_before_subprocess(self) -> None:
+        with patch("spark_cli.sandbox.modal.modal_sdk_available", return_value=False), \
+             patch("spark_cli.sandbox.modal.subprocess.run") as run:
+            payload = run_modal_smoke_probe()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["returncode"], 127)
+        run.assert_not_called()
+
+    def test_modal_smoke_subprocess_env_drops_spark_and_provider_secrets(self) -> None:
+        env = modal_smoke_subprocess_env({
+            "PATH": "C:/bin",
+            "MODAL_TOKEN_ID": "id",
+            "MODAL_TOKEN_SECRET": "secret",
+            "OPENAI_API_KEY": "sk-secret",
+            "PYTHONPATH": str(Path.cwd()),
+            "SPARK_UI_API_KEY": "ui-secret",
+            "TELEGRAM_RELAY_SECRET": "relay-secret",
+            "VIRTUAL_ENV": str(Path.cwd() / ".venv"),
+        })
+        self.assertEqual(env["PATH"], "C:/bin")
+        self.assertEqual(env["MODAL_TOKEN_ID"], "id")
+        self.assertEqual(env["MODAL_TOKEN_SECRET"], "secret")
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("PYTHONPATH", env)
+        self.assertNotIn("SPARK_UI_API_KEY", env)
+        self.assertNotIn("TELEGRAM_RELAY_SECRET", env)
+        self.assertNotIn("VIRTUAL_ENV", env)
+
+    def test_modal_smoke_probe_runs_child_and_redacts_output(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["python"],
+            0,
+            stdout="SPARK_MODAL_SMOKE_OK\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz",
+            stderr="",
+        )
+        with patch("spark_cli.sandbox.modal.modal_sdk_available", return_value=True), \
+             patch("spark_cli.sandbox.modal.subprocess.run", return_value=completed) as run:
+            payload = run_modal_smoke_probe()
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz", payload["output"]["text"])
+        argv = run.call_args.args[0]
+        self.assertIn("-c", argv)
+        self.assertIn("block_network=True", argv[-1])
+        self.assertNotIn("OPENAI_API_KEY", run.call_args.kwargs["env"])
+
+    def test_modal_smoke_collect_writes_audit_after_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={"ok": True}), \
+             patch("spark_cli.sandbox.modal.run_modal_smoke_probe", return_value={
+                 "ok": True,
+                 "returncode": 0,
+                 "output": {"text": "SPARK_MODAL_SMOKE_OK", "truncated": False, "original_bytes": 20, "original_lines": 1},
+                 "cleanup_requested": True,
+                 "detail": "Modal no-secret sandbox smoke completed.",
+            }):
+            payload = collect_modal_smoke_payload(home=Path(tmpdir))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["audit"], sandbox_audit_ref("modal", "smoke"))
+            self.assertNotIn(str(tmpdir), json.dumps(payload["audit"]))
+            audit_path = sandbox_audit_path("modal", "smoke", home=Path(tmpdir))
+            audit_payload = json.loads(audit_path.read_text(encoding="utf-8").strip())
+        self.assertEqual(audit_payload["action_id"], "modal_smoke")
+        self.assertTrue(audit_payload["cleanup_requested"])
+
+    def test_modal_smoke_cli_json_runs_payload(self) -> None:
+        args = build_parser().parse_args(["sandbox", "modal", "smoke", "--json"])
+        stdout = StringIO()
+        with patch("spark_cli.sandbox.modal.collect_modal_smoke_payload", return_value={
+            "ok": True,
+            "backend": "modal",
+            "command": "smoke",
+            "checks": [],
+            "capabilities": {},
+            "audit": {},
+            "next": "done",
+        }) as collect, redirect_stdout(stdout):
+            self.assertEqual(cmd_sandbox(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        collect.assert_called_once_with()
+
+    def test_ssh_target_store_add_list_remove_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="Example.TEST",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            self.assertEqual(warnings, [])
+            self.assertEqual(target.host, "example.test")
+            self.assertEqual(target.user, "spark")
+            self.assertEqual(target.host_key_status, "unverified")
+            public_target = target.to_public_dict()
+            self.assertTrue(public_target["identity_file_configured"])
+            self.assertNotIn("identity_file", public_target)
+            self.assertEqual(list_ssh_targets(home=home)[0].name, "odyssey-vps")
+            audit_events = [
+                json.loads(line)
+                for line in sandbox_audit_path("ssh", "odyssey-vps", home=home).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(audit_events[-1]["action_id"], "ssh_target_add")
+            self.assertTrue(audit_events[-1]["identity_file_configured"])
+            self.assertNotIn("spark_key", json.dumps(audit_events[-1]))
+            self.assertTrue(remove_ssh_target("odyssey-vps", home=home))
+            audit_events = [
+                json.loads(line)
+                for line in sandbox_audit_path("ssh", "odyssey-vps", home=home).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(audit_events[-1]["action_id"], "ssh_target_remove")
+            self.assertEqual(list_ssh_targets(home=home), [])
+
+    def test_ssh_target_store_never_writes_private_key_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("PRIVATE KEY MATERIAL", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            store_text = (home / "config" / "ssh_targets.json").read_text(encoding="utf-8")
+            store_payload = json.loads(store_text)
+            self.assertEqual(store_payload["targets"]["odyssey-vps"]["identity_file"], str(key.resolve()))
+            self.assertNotIn("PRIVATE KEY MATERIAL", store_text)
+
+    def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_ssh_user("root")
+        for host in ["ssh://example.test", "spark@example.test", "example.test/path", "169.254.169.254", "-badhost"]:
+            with self.subTest(host=host):
+                with self.assertRaises(ValueError):
+                    validate_ssh_host(host)
+
+    def test_ssh_remote_workspace_rejects_shelly_paths(self) -> None:
+        self.assertEqual(validate_remote_workspace("~/spark-live"), "~/spark-live")
+        self.assertEqual(validate_remote_workspace("/opt/spark_live-1"), "/opt/spark_live-1")
+        for workspace in ["", "spark-live", "~other/spark", "~/spark live", "~/spark-live;curl bad", "~/../.ssh", "$(pwd)"]:
+            with self.subTest(workspace=workspace):
+                with self.assertRaises(ValueError):
+                    validate_remote_workspace(workspace)
+
+    def test_ssh_management_capabilities_are_local_only(self) -> None:
+        payload = ssh_management_capabilities().to_dict()
+        self.assertEqual(payload["backend"], "ssh")
+        self.assertEqual(payload["network"], "off")
+        self.assertEqual(payload["secrets"], "none")
+
+    def test_ssh_subprocess_env_drops_spark_and_provider_secrets(self) -> None:
+        env = ssh_subprocess_env({
+            "PATH": "C:/Windows/System32/OpenSSH",
+            "USERPROFILE": "C:/Users/Example",
+            "OPENAI_API_KEY": "sk-secret",
+            "SPARK_UI_API_KEY": "ui-secret",
+            "TELEGRAM_RELAY_SECRET": "relay-secret",
+            "SSH_AUTH_SOCK": "/tmp/agent.sock",
+        })
+        self.assertEqual(env["PATH"], "C:/Windows/System32/OpenSSH")
+        self.assertEqual(env["USERPROFILE"], "C:/Users/Example")
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("SPARK_UI_API_KEY", env)
+        self.assertNotIn("TELEGRAM_RELAY_SECRET", env)
+        self.assertNotIn("SSH_AUTH_SOCK", env)
+
+    def test_sandbox_ssh_add_list_remove_cli_uses_temp_spark_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}):
+            key = Path(tmpdir) / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_args = build_parser().parse_args([
+                "sandbox",
+                "ssh",
+                "add",
+                "odyssey-vps",
+                "--host",
+                "example.test",
+                "--user",
+                "spark",
+                "--identity-file",
+                str(key),
+                "--json",
+            ])
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(cmd_sandbox(add_args), 0)
+            add_payload = json.loads(stdout.getvalue())
+            self.assertTrue(add_payload["ok"])
+            self.assertEqual(add_payload["target"]["host_key_status"], "unverified")
+            self.assertTrue(add_payload["target"]["identity_file_configured"])
+            self.assertNotIn("identity_file", add_payload["target"])
+            self.assertNotIn(str(key), stdout.getvalue())
+
+            list_args = build_parser().parse_args(["sandbox", "ssh", "list", "--json"])
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(cmd_sandbox(list_args), 0)
+            list_payload = json.loads(stdout.getvalue())
+            self.assertEqual(len(list_payload["targets"]), 1)
+            self.assertTrue(list_payload["targets"][0]["identity_file_configured"])
+            self.assertNotIn("identity_file", list_payload["targets"][0])
+            self.assertNotIn(str(key), stdout.getvalue())
+
+            remove_args = build_parser().parse_args(["sandbox", "ssh", "remove", "odyssey-vps", "--json"])
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(cmd_sandbox(remove_args), 0)
+            self.assertEqual(load_ssh_targets(home=Path(tmpdir)), {})
+
+    def test_ssh_base_argv_uses_strict_security_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                port=2222,
+                home=home,
+            )
+            argv = build_ssh_base_argv(target, home=home)
+            self.assertIn("BatchMode=yes", argv)
+            self.assertIn("IdentitiesOnly=yes", argv)
+            self.assertIn("ForwardAgent=no", argv)
+            self.assertIn("RequestTTY=no", argv)
+            self.assertIn("StrictHostKeyChecking=yes", argv)
+            self.assertNotIn("StrictHostKeyChecking=no", argv)
+            self.assertNotIn("ForwardAgent=yes", argv)
+            self.assertTrue(any(str(home / "config" / "ssh_known_hosts") in part for part in argv))
+            self.assertIn("spark@example.test", argv)
+            preview = public_ssh_argv_preview(argv)
+            self.assertIn("<identity-file>", preview)
+            self.assertIn("UserKnownHostsFile=<spark-known-hosts>", preview)
+            self.assertNotIn(str(key.resolve()), json.dumps(preview))
+            self.assertNotIn(str(home), json.dumps(preview))
+
+    def test_ssh_doctor_payload_reports_local_checks_without_connecting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch("spark_cli.sandbox.ssh.shutil.which", return_value="C:/Windows/System32/OpenSSH/ssh.exe"):
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            payload = collect_ssh_doctor_payload("odyssey-vps", home=home)
+            self.assertTrue(payload["ok"])
+            checks = {check["name"]: check for check in payload["checks"]}
+            self.assertTrue(checks["local_ssh_client"]["ok"])
+            self.assertTrue(checks["target_record"]["ok"])
+            self.assertTrue(checks["identity_file"]["ok"])
+            self.assertFalse(checks["host_key_trust"]["ok"])
+            self.assertEqual(checks["host_key_trust"]["level"], "warning")
+            self.assertIn("StrictHostKeyChecking=yes", payload["ssh_argv_preview"])
+            self.assertIn("<identity-file>", payload["ssh_argv_preview"])
+            self.assertNotIn(str(key.resolve()), json.dumps(payload))
+            self.assertNotIn(str(home), json.dumps(payload))
+
+    def test_ssh_doctor_cli_reports_missing_target_as_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}):
+            args = build_parser().parse_args(["sandbox", "ssh", "doctor", "odyssey-vps", "--json"])
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(cmd_sandbox(args), 1)
+            payload = json.loads(stdout.getvalue())
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["checks"][-1]["name"], "target_record")
+            self.assertIn("not configured", payload["checks"][-1]["detail"])
+
+    def test_ssh_keyscan_output_normalizes_known_host_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                port=2222,
+                home=home,
+            )
+            line = parse_ssh_keyscan_output("example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey", target)
+            self.assertEqual(line, "[example.test]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey")
+
+    def test_ssh_trust_records_public_host_key_and_updates_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch("spark_cli.sandbox.ssh.shutil.which", return_value="ssh"):
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            scan = SshHostKeyScan(
+                known_hosts_line="example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey",
+                fingerprint="SHA256:testfingerprint",
+                key_type="ssh-ed25519",
+            )
+            target, trusted_scan = trust_ssh_target_host_key("odyssey-vps", home=home, scanned=scan)
+            self.assertEqual(trusted_scan.fingerprint, "SHA256:testfingerprint")
+            self.assertEqual(target.host_key_status, "trusted")
+            self.assertEqual(target.host_key_fingerprint, "SHA256:testfingerprint")
+            known_hosts_text = (home / "config" / "ssh_known_hosts").read_text(encoding="utf-8")
+            self.assertIn("example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey", known_hosts_text)
+            audit_payload = json.loads(sandbox_audit_path("ssh", "odyssey-vps", home=home).read_text(encoding="utf-8").splitlines()[-1])
+            self.assertEqual(audit_payload["action_id"], "ssh_trust_host_key")
+            self.assertEqual(audit_payload["fingerprint"], "SHA256:testfingerprint")
+            self.assertEqual(audit_payload["key_type"], "ssh-ed25519")
+            doctor = collect_ssh_doctor_payload("odyssey-vps", home=home)
+            checks = {check["name"]: check for check in doctor["checks"]}
+            self.assertTrue(checks["host_key_trust"]["ok"])
+
+    def test_ssh_trust_rejects_fingerprint_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            scan = SshHostKeyScan(
+                known_hosts_line="example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey",
+                fingerprint="SHA256:actual",
+                key_type="ssh-ed25519",
+            )
+            with self.assertRaises(ValueError):
+                trust_ssh_target_host_key("odyssey-vps", expected_fingerprint="SHA256:expected", home=home, scanned=scan)
+
+    def test_ssh_trust_cli_uses_scan_helper_and_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}):
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            scan = SshHostKeyScan(
+                known_hosts_line="example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey",
+                fingerprint="SHA256:testfingerprint",
+                key_type="ssh-ed25519",
+            )
+            args = build_parser().parse_args(["sandbox", "ssh", "trust", "odyssey-vps", "--json"])
+            stdout = StringIO()
+            with patch("spark_cli.sandbox.ssh.scan_ssh_host_key", return_value=scan), redirect_stdout(stdout):
+                self.assertEqual(cmd_sandbox(args), 0)
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["host_key"]["fingerprint"], "SHA256:testfingerprint")
+
+    def test_ssh_fingerprint_known_host_line_uses_ssh_keygen(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["ssh-keygen"],
+            0,
+            stdout="256 SHA256:testfingerprint example.test (ED25519)\n",
+            stderr="",
+        )
+        with patch("spark_cli.sandbox.ssh.subprocess.run", return_value=completed) as run:
+            scan = fingerprint_known_host_line("example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey")
+        self.assertEqual(scan.fingerprint, "SHA256:testfingerprint")
+        self.assertEqual(scan.key_type, "ssh-ed25519")
+        self.assertEqual(run.call_args.args[0][0:2], ["ssh-keygen", "-lf"])
+
+    def test_ssh_fixed_probe_argv_uses_only_supported_probe_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            argv = ssh_fixed_probe_argv(target, "connection", home=home)
+            self.assertEqual(argv[-1], "printf 'SPARK_SSH_OK\\n'; id -u")
+            self.assertIn("StrictHostKeyChecking=yes", argv)
+            with self.assertRaises(ValueError):
+                ssh_fixed_probe_argv(target, "rm -rf /", home=home)
+
+    def test_ssh_fixed_probe_redacts_and_bounds_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            completed = subprocess.CompletedProcess(
+                ["ssh"],
+                0,
+                stdout="SPARK_SSH_OK\n1000\nOPENAI_API_KEY=sk-1234567890abcdef",
+                stderr="",
+            )
+            with patch("spark_cli.sandbox.ssh.subprocess.run", return_value=completed) as run:
+                payload = run_ssh_fixed_probe(target, "connection", home=home)
+            self.assertTrue(payload["ok"])
+            self.assertNotIn("sk-1234567890abcdef", payload["output"]["text"])
+            self.assertNotIn("OPENAI_API_KEY", run.call_args.kwargs["env"])
+
+    def test_ssh_doctor_remote_probe_skips_without_trust(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch("spark_cli.sandbox.ssh.shutil.which", return_value="ssh"):
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            payload = collect_ssh_doctor_payload("odyssey-vps", home=home, remote_probe=True)
+            checks = {check["name"]: check for check in payload["checks"]}
+            self.assertFalse(checks["remote_connection_probe"]["ok"])
+            self.assertIn("host key is not trusted", checks["remote_connection_probe"]["detail"])
+            self.assertEqual(payload["audit"], sandbox_audit_ref("ssh", "odyssey-vps"))
+            self.assertNotIn(str(home), json.dumps(payload["audit"]))
+            audit_payload = json.loads(sandbox_audit_path("ssh", "odyssey-vps", home=home).read_text(encoding="utf-8").splitlines()[-1])
+            self.assertEqual(audit_payload["action_id"], "ssh_remote_probe")
+            self.assertFalse(audit_payload["probe_ran"])
+
+    def test_ssh_doctor_remote_probe_runs_after_trust(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch("spark_cli.sandbox.ssh.shutil.which", return_value="ssh"), \
+             patch("spark_cli.sandbox.ssh.run_ssh_fixed_probe", return_value={
+                 "ok": True,
+                 "probe_id": "connection",
+                 "returncode": 0,
+                 "output": {"text": "SPARK_SSH_OK\n1000", "truncated": False, "original_bytes": 17, "original_lines": 2},
+                 "detail": "SSH connection probe completed.",
+             }) as probe:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            trust_ssh_target_host_key(
+                "odyssey-vps",
+                home=home,
+                scanned=SshHostKeyScan(
+                    known_hosts_line="example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey",
+                    fingerprint="SHA256:testfingerprint",
+                    key_type="ssh-ed25519",
+                ),
+            )
+            payload = collect_ssh_doctor_payload("odyssey-vps", home=home, remote_probe=True)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["remote_probe"]["probe_id"], "connection")
+            self.assertEqual(payload["audit"], sandbox_audit_ref("ssh", "odyssey-vps"))
+            self.assertNotIn(str(home), json.dumps(payload["audit"]))
+            audit_payload = json.loads(sandbox_audit_path("ssh", "odyssey-vps", home=home).read_text(encoding="utf-8").splitlines()[-1])
+            self.assertEqual(audit_payload["action_id"], "ssh_remote_probe")
+            self.assertTrue(audit_payload["probe_ran"])
+            self.assertEqual(audit_payload["returncode"], 0)
+            probe.assert_called_once()
+
+    def test_ssh_doctor_remote_probe_cli_flag(self) -> None:
+        args = build_parser().parse_args(["sandbox", "ssh", "doctor", "odyssey-vps", "--remote-probe", "--json"])
+        self.assertTrue(args.remote_probe)
+
+    def test_ssh_smoke_probe_hash_mismatch_blocks_before_subprocess(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            with patch("spark_cli.sandbox.ssh.subprocess.run") as run:
+                payload = run_ssh_smoke_probe(target, home=home, expected_hash="0" * 64)
+            self.assertFalse(payload["ok"])
+            self.assertTrue(payload["blocked"])
+            self.assertEqual(payload["stage"], "local_hash_check")
+            run.assert_not_called()
+
+    def test_ssh_smoke_execute_argv_cleans_up_unless_debug_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            probe_hash = ssh_smoke_probe_hash()
+            remote_path = f"/tmp/spark-sandbox-smoke-odyssey-vps-{probe_hash[:12]}.sh"
+            cleanup_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, home=home)[-1]
+            keep_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, keep_debug_files=True, home=home)[-1]
+            self.assertIn("trap cleanup EXIT", cleanup_command)
+            self.assertIn("rm -f", cleanup_command)
+            self.assertIn("sha256sum", cleanup_command)
+            self.assertIn("SPARK_SSH_DEBUG_FILE", keep_command)
+            self.assertNotIn("trap cleanup EXIT", keep_command)
+
+    def test_ssh_smoke_probe_uploads_executes_and_redacts_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            target, _warnings = add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            probe_hash = ssh_smoke_probe_hash()
+            upload = subprocess.CompletedProcess(["ssh"], 0, stdout="", stderr="")
+            execute = subprocess.CompletedProcess(
+                ["ssh"],
+                0,
+                stdout=f"SPARK_SSH_SMOKE_OK\nprobe_sha256={probe_hash}\nOPENAI_API_KEY=sk-1234567890abcdef",
+                stderr="",
+            )
+            with patch("spark_cli.sandbox.ssh.subprocess.run", side_effect=[upload, execute]) as run:
+                payload = run_ssh_smoke_probe(target, home=home)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(run.call_count, 2)
+            self.assertIn("cat > /tmp/spark-sandbox-smoke-odyssey-vps-", run.call_args_list[0].args[0][-1])
+            self.assertIn("trap cleanup EXIT", run.call_args_list[1].args[0][-1])
+            self.assertNotIn("OPENAI_API_KEY", run.call_args_list[0].kwargs["env"])
+            self.assertNotIn("sk-1234567890abcdef", payload["output"]["text"])
+
+    def test_ssh_smoke_collect_requires_trusted_host(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            with patch("spark_cli.sandbox.ssh.subprocess.run") as run:
+                payload = collect_ssh_smoke_payload("odyssey-vps", home=home)
+            checks = {check["name"]: check for check in payload["checks"]}
+            self.assertFalse(payload["ok"])
+            self.assertFalse(checks["host_key_trust"]["ok"])
+            self.assertNotIn(str(key.resolve()), json.dumps(payload))
+            self.assertNotIn(str(home), json.dumps(payload))
+            run.assert_not_called()
+
+    def test_ssh_smoke_collect_writes_audit_after_trusted_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+             patch("spark_cli.sandbox.ssh.run_ssh_smoke_probe", return_value={
+                 "ok": True,
+                 "stage": "execute",
+                 "probe_hash": "a" * 64,
+                 "remote_path": "",
+                 "returncode": 0,
+                 "output": {"text": "SPARK_SSH_SMOKE_OK", "truncated": False, "original_bytes": 17, "original_lines": 1},
+                 "cleanup_requested": True,
+                 "debug_files_kept": False,
+                 "detail": "SSH smoke probe completed.",
+             }) as probe:
+            home = Path(tmpdir)
+            key = home / "spark_key"
+            key.write_text("not a real key", encoding="utf-8")
+            add_ssh_target(
+                name="odyssey-vps",
+                host="example.test",
+                user="spark",
+                identity_file=key,
+                home=home,
+            )
+            trust_ssh_target_host_key(
+                "odyssey-vps",
+                home=home,
+                scanned=SshHostKeyScan(
+                    known_hosts_line="example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey",
+                    fingerprint="SHA256:testfingerprint",
+                    key_type="ssh-ed25519",
+                ),
+            )
+            payload = collect_ssh_smoke_payload("odyssey-vps", home=home)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["audit"], sandbox_audit_ref("ssh", "odyssey-vps"))
+            self.assertNotIn(str(home), json.dumps(payload["audit"]))
+            audit_path = sandbox_audit_path("ssh", "odyssey-vps", home=home)
+            audit_payload = json.loads(audit_path.read_text(encoding="utf-8").splitlines()[-1])
+            self.assertEqual(audit_payload["action_id"], "ssh_smoke")
+            self.assertEqual(audit_payload["probe_hash"], "a" * 64)
+            probe.assert_called_once()
+
+    def test_ssh_smoke_cli_json_runs_payload(self) -> None:
+        args = build_parser().parse_args(["sandbox", "ssh", "smoke", "odyssey-vps", "--keep-debug-files", "--json"])
+        stdout = StringIO()
+        with patch("spark_cli.sandbox.ssh.collect_ssh_smoke_payload", return_value={
+            "ok": True,
+            "backend": "ssh",
+            "command": "smoke",
+            "target": {"name": "odyssey-vps"},
+            "checks": [],
+            "capabilities": {},
+            "audit": {},
+            "next": "done",
+        }) as collect, redirect_stdout(stdout):
+            self.assertEqual(cmd_sandbox(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        collect.assert_called_once_with("odyssey-vps", keep_debug_files=True)
+
     def test_approval_classifier_allows_harmless_status(self) -> None:
         decision = approval_required_for_command(["spark", "status"], CommandContext())
         self.assertFalse(decision.requires_approval)
@@ -646,7 +1537,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertNotIn("1234567890:AA", redacted)
         self.assertNotIn("8319079055", redacted)
         self.assertNotIn("192.168.1.50", redacted)
-        self.assertIn("~/.spark", redacted)
+        self.assertIn("<spark-home>", redacted)
         self.assertIn("[TELEGRAM_ID_REDACTED]", redacted)
         self.assertIn("[PRIVATE_IP_REDACTED]", redacted)
 
@@ -745,6 +1636,7 @@ class SparkCliTests(unittest.TestCase):
                 payload = collect_support_bundle_payload(include_logs=True, log_lines=5)
         encoded = json.dumps(payload)
         self.assertIn("local_review_first", encoded)
+        self.assertEqual(payload["spark_home"], "<spark-home>")
         self.assertIn("sharing_manifest", payload)
         self.assertTrue(payload["sharing_manifest"]["review_required"])
         self.assertFalse(payload["sharing_manifest"]["uploaded"])
@@ -863,6 +1755,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("llm_roles", names)
         self.assertIn("module_provenance", names)
         self.assertIn("spark support bundle", payload["share_policy"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertIn("<spark-home>/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
+        self.assertNotIn("~/.spark/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
 
     def test_security_audit_flags_registry_provenance_failures(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean"}), \
@@ -3658,6 +4553,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark autostart off", output)
         self.assertIn("Full command reference", output)
         self.assertIn("spark approval classify -- <command>", output)
+        self.assertIn("explicit no-secret Modal smoke", output)
 
     def test_guide_json_is_agent_readable(self) -> None:
         args = build_parser().parse_args(["guide", "--json"])
@@ -3693,6 +4589,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parser_commands - documented_top_level, set())
         self.assertIn("spark approval classify -- <command>", command_reference)
         self.assertIn("spark autostart install|on|uninstall|off|profile|status", command_reference)
+        self.assertIn("spark verify [--onboarding|--deep|--installers|--sandboxes]", command_reference)
+        sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox ssh|modal")
+        self.assertIn("host-key trust", sandbox_entry["use"])
+        self.assertIn("Modal smoke", sandbox_entry["use"])
 
     def test_setup_default_bundle_registers_starter_stack(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -6833,6 +7733,88 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(record["installed_at"], record["last_install"]["at"])
             self.assertIn("updated_at", record)
 
+    def test_public_local_path_ref_masks_local_paths_but_keeps_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            with patch("spark_cli.cli.SPARK_HOME", spark_home):
+                self.assertEqual(public_local_path_ref(spark_home / "config"), "<spark-home>/config")
+                self.assertEqual(public_local_path_ref("https://example.test/repo.git"), "https://example.test/repo.git")
+                self.assertEqual(public_local_path_ref(Path(tmp_dir) / "elsewhere" / "tool.exe"), "<local-path>/tool.exe")
+
+    def test_status_payload_masks_config_and_installed_local_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            config_dir = spark_home / "config"
+            module_path = spark_home / "modules" / "spawner-ui" / "source"
+            module = Module(
+                name="spawner-ui",
+                path=module_path,
+                manifest={
+                    "module": {"name": "spawner-ui", "version": "1.0.0", "kind": "app", "plane": "execution"}
+                },
+            )
+
+            def fake_load_json(path: Path, default: object) -> object:
+                name = Path(path).name
+                if name == "installed.json":
+                    return {
+                        "spawner-ui": {
+                            "path": str(module_path),
+                            "source": str(module_path),
+                            "installed_via": {"kind": "local_path", "target": str(module_path)},
+                            "last_install": {"source_kind": "local_path", "source_target": str(module_path)},
+                            "last_update": {"source_kind": "registry_git", "source_target": "https://example.test/spawner.git"},
+                        }
+                    }
+                if name == "setup.json":
+                    return {"telegram_profiles": {"spark-agi": {"relay_port": 8789, "autostart": True}}}
+                return {}
+
+            tracked_pids = {
+                "spawner-ui": {
+                    "pid": 123,
+                    "module": "spawner-ui",
+                    "path": str(module_path),
+                    "log_path": str(spark_home / "logs" / "spawner-ui" / "process.log"),
+                    "ready_check": f"workspace={module_path}",
+                },
+                "spark-telegram-bot:spark-agi": {"pid": 456, "module": "spark-telegram-bot"},
+            }
+
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                 patch("spark_cli.cli.CONFIG_DIR", config_dir), \
+                 patch("spark_cli.cli.LOG_DIR", spark_home / "logs"), \
+                 patch("spark_cli.cli.ensure_state_dirs"), \
+                 patch("spark_cli.cli.load_json", side_effect=fake_load_json), \
+                 patch("spark_cli.cli.load_module", return_value=module), \
+                 patch("spark_cli.cli.evaluate_module_health", return_value={
+                     "name": "spawner-ui",
+                     "version": "1.0.0",
+                     "kind": "app",
+                     "plane": "execution",
+                     "healthy": None,
+                     "detail": f"workspace={module_path}",
+                     "healthcheck_command": None,
+                     "failure_hint": None,
+                 }), \
+                 patch("spark_cli.cli.load_pids", return_value=tracked_pids), \
+                 patch("spark_cli.cli.pid_is_running", return_value=True), \
+                 patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}), \
+                 patch("spark_cli.cli.build_status_repair_hints", return_value=[]):
+                payload = collect_status_payload()
+
+            self.assertEqual(payload["config_dir"], "<spark-home>/config")
+            installed = payload["modules"][0]["installed"]
+            self.assertEqual(installed["path"], "<spark-home>/modules/spawner-ui/source")
+            self.assertEqual(installed["source"], "<spark-home>/modules/spawner-ui/source")
+            self.assertEqual(installed["installed_via"]["target"], "<spark-home>/modules/spawner-ui/source")
+            self.assertEqual(installed["last_install"]["source_target"], "<spark-home>/modules/spawner-ui/source")
+            self.assertEqual(installed["last_update"]["source_target"], "https://example.test/spawner.git")
+            self.assertEqual(payload["tracked_pids"]["spawner-ui"]["path"], "<spark-home>/modules/spawner-ui/source")
+            self.assertEqual(payload["tracked_pids"]["spawner-ui"]["log_path"], "<spark-home>/logs/spawner-ui/process.log")
+            self.assertEqual(payload["telegram_profiles"][0]["log_path"], "<spark-home>/logs/spark-telegram-bot/spark-agi.log")
+            self.assertNotIn(str(tmp_dir), json.dumps(payload))
+
     def test_cmd_update_stops_running_module_before_install_commands(self) -> None:
         module = Module(
             name="spawner-ui",
@@ -7017,6 +7999,8 @@ class SparkCliTests(unittest.TestCase):
             hints = build_module_repair_hints(module, result, {"spawner-ui": result}, {})
         self.assertTrue(any("Repair runtime first:" in hint and "node >=22 not satisfied" in hint for hint in hints))
         self.assertTrue(any("installed wrapper" in hint for hint in hints))
+        self.assertTrue(any("<spark-home>/bin/" in hint for hint in hints))
+        self.assertFalse(any(str(SPARK_HOME) in hint for hint in hints))
 
     def test_build_status_repair_hints_reports_missing_ingress_owner_and_unhealthy_dependency(self) -> None:
         builder = Module(
@@ -7488,7 +8472,8 @@ class SparkCliTests(unittest.TestCase):
     def test_installer_manifest_matches_current_scripts(self) -> None:
         payload = installer_manifest_payload()
         committed = collect_installer_integrity_payload()
-        self.assertEqual(committed["manifest"], str(Path(__file__).resolve().parents[1] / "scripts" / "installer-manifest.json"))
+        self.assertEqual(committed["manifest"], "scripts/installer-manifest.json")
+        self.assertNotIn(str(Path(__file__).resolve().parents[1]), json.dumps(committed))
         self.assertTrue(committed["ok"])
         self.assertIn(
             {
@@ -7662,6 +8647,44 @@ class SparkCliTests(unittest.TestCase):
         collect_mock.assert_called_once_with(deep=True)
         self.assertIn("hosted_deep_mission_smoke", stdout.getvalue())
 
+    def test_verify_sandboxes_reports_docs_ssh_and_optional_modal(self) -> None:
+        args = build_parser().parse_args(["verify", "--sandboxes", "--json"])
+        payload = {
+            "ok": True,
+            "summary": "Spark remote sandbox verification",
+            "checks": [{"name": "modal_doctor", "ok": False, "level": "warning", "detail": "optional"}],
+            "ssh_targets": [],
+            "modal_doctor": {"ok": False},
+        }
+        with patch("spark_cli.cli.collect_sandbox_verify_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with()
+        self.assertIn("modal_doctor", stdout.getvalue())
+
+    def test_collect_sandbox_verify_payload_keeps_modal_optional_without_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}), \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={"ok": False, "checks": []}):
+            payload = collect_sandbox_verify_payload()
+        self.assertTrue(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(checks["sandbox_security_docs"]["ok"])
+        self.assertTrue(checks["ssh_targets"]["ok"])
+        self.assertFalse(checks["modal_doctor"]["ok"])
+        self.assertFalse(checks["modal_doctor"]["required"])
+
+    def test_collect_sandbox_verify_payload_fails_bad_ssh_target_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}), \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={"ok": True, "checks": []}):
+            config = Path(tmpdir) / "config"
+            config.mkdir(parents=True)
+            (config / "ssh_targets.json").write_text('{"schema_version": 999, "targets": {}}', encoding="utf-8")
+            payload = collect_sandbox_verify_payload()
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["ssh_target_store"]["ok"])
+        self.assertEqual(checks["ssh_target_store"]["repair"], "Review <spark-home>/config/ssh_targets.json.")
+
     def test_collect_hosted_security_payload_requires_keys_for_public_bind(self) -> None:
         with patch.dict(
             os.environ,
@@ -7685,6 +8708,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["no_docker_socket"]["ok"])
         self.assertTrue(checks["allowed_hosts"]["ok"])
         self.assertTrue(checks["hosted_api_keys"]["ok"])
+
+    def test_collect_hosted_security_payload_masks_local_spark_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / ".spark"
+            with patch.dict(
+                os.environ,
+                {
+                    "SPARK_HOME": str(spark_home),
+                    "SPARK_LLM_PROVIDER": "zai",
+                },
+                clear=True,
+            ), patch("spark_cli.cli.current_uid", return_value=1000), \
+                patch("spark_cli.cli.docker_socket_present", return_value=False), \
+                patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}):
+                payload = collect_hosted_security_payload()
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["spark_home_boundary"]["detail"], "Spark home is isolated at <spark-home>.")
+        self.assertNotIn(str(tmpdir), json.dumps(payload))
 
     def test_collect_hosted_security_payload_uses_tracked_runtime_uids(self) -> None:
         with patch.dict(
@@ -7992,6 +9033,8 @@ class SparkCliTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertFalse(checks["hosted_secret_file_permissions"]["ok"])
             self.assertIn("0600", checks["hosted_secret_file_permissions"]["detail"])
+        self.assertIn("<spark-home>/config/secrets.local.json", checks["hosted_secret_file_permissions"]["repair"])
+        self.assertNotIn("~/.spark/config/secrets.local.json", checks["hosted_secret_file_permissions"]["repair"])
 
     def test_hosted_sensitive_mounts_parse_linux_mountinfo(self) -> None:
         mountinfo = (

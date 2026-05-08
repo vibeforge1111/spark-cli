@@ -73,8 +73,8 @@ For sensitive actions, Spark should present a concise prompt:
 Approval required: delete ignored Builder temp homes
 Risk: destructive filesystem
 Targets:
-- C:\Users\USER\Desktop\spark-intelligence-builder\.tmp-home-live-telegram-real
-- C:\Users\USER\Desktop\spark-intelligence-builder\.tmp-home-poll-real
+- <builder-workspace>\.tmp-home-live-telegram-real
+- <builder-workspace>\.tmp-home-poll-real
 
 Type the confirmation phrase to continue:
 delete builder temp homes

@@ -19,6 +19,47 @@ Spawner UI is included as the local execution plane and mission surface. The old
 dashboard/resonance API is not part of launch. A starter install should not need
 `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or anything on port `8787`.
 
+## Release gate before push
+
+Run this from the exact branch or worktree intended for production. Do not push
+installer changes until this gate passes and any paired Spark repo updates are
+ready to ship together.
+
+```bash
+python -m pytest
+python -m spark_cli.cli verify --installers --json
+python -m spark_cli.cli verify --sandboxes --json
+git diff --check
+```
+
+Expected results:
+
+- tests pass, with only known skips;
+- installer manifest release metadata and local script checksums match;
+- sandbox verification is green when no SSH targets are configured;
+- Modal auth can be a non-blocking optional warning on machines without Modal
+  credentials;
+- output does not expose local usernames, private key paths, provider tokens,
+  BotFather tokens, bearer tokens, or Spark Pro connection-token instructions.
+
+Before publishing hosted installer changes, also check the hosted copy:
+
+```bash
+python -m spark_cli.cli verify --installers --hosted-installers --json
+```
+
+For hosted Spark Live or Railway/VPS changes, use the hosted gate:
+
+```bash
+python -m spark_cli.cli verify --hosted --json
+python -m spark_cli.cli live verify --json
+```
+
+If a real Railway production smoke is available, run the split-service smoke
+from [SPARK_LIVE_DOCKER_RAILWAY.md](./SPARK_LIVE_DOCKER_RAILWAY.md) and confirm
+Telegram `/diagnose`, Spawner UI, and the mission board all report healthy
+before pushing installer links.
+
 ## Fresh install
 
 Windows PowerShell:
@@ -168,3 +209,6 @@ Launch should degrade gracefully without trying `localhost:8787`.
   installer issue.
 - Existing Svelte check warnings are present in Spawner UI, but `npm run check`
   and `npm run build` pass.
+- SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
+  volumes, provider-secret passthrough, and Spark Pro connection tokens are
+  intentionally deferred. Do not document or advertise them as shipped surfaces.

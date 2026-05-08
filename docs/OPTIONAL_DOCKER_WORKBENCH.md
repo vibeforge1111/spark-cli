@@ -15,6 +15,23 @@ This repo provides two opt-in Docker lanes:
 
 Use these when you want to test a new feature without contaminating the operator's real `~/.spark` state.
 
+SSH and Modal are separate future lanes, not replacements for this Docker
+workbench:
+
+- [Agentic remote sandbox security research](./AGENTIC_REMOTE_SANDBOX_SECURITY_RESEARCH.md)
+  is the shared threat model and control set for Docker, SSH, Modal, Railway,
+  and future VPS execution lanes.
+- [OWASP agentic security deep dive](./OWASP_AGENTIC_SECURITY_DEEP_DIVE.md)
+  maps OWASP ASI, LLM, MCP, and Agentic Skills risks to Spark controls.
+- [Remote sandbox security checklist](./REMOTE_SANDBOX_SECURITY_CHECKLIST.md)
+  is the PR gate before any remote execution or hosted sandbox work ships.
+- [SSH remote sandbox architecture](./SSH_REMOTE_SANDBOX_ARCHITECTURE.md) covers
+  user-owned VPS/GPU/home-server compatibility. SSH is transport, not a sandbox,
+  so the plan starts with doctor and smoke commands before deploys.
+- [Modal sandbox architecture](./MODAL_SANDBOX_ARCHITECTURE.md) covers
+  ephemeral cloud sandboxes for disposable execution. Modal comes after SSH in
+  the rollout order.
+
 ## What This Is Not
 
 Docker is not:
