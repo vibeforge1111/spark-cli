@@ -190,6 +190,7 @@ SPARK_HOME="$(mktemp -d)" python -m spark_cli.cli setup \
   --no-start-now \
   --skip-install-commands \
   --skip-runtime-check \
+  --skip-telegram-token-check \
   --secret telegram.bot_token=123456:test-token \
   --secret telegram.admin_ids=111222333 \
   --llm-provider zai \

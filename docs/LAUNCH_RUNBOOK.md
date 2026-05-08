@@ -153,6 +153,7 @@ spark setup --non-interactive `
   --admin-telegram-ids "12345" `
   --llm-provider zai `
   --zai-api-key "fake-zai-key" `
+  --skip-telegram-token-check `
   --no-autostart `
   --no-start-now `
   --skip-install-commands `
@@ -169,6 +170,7 @@ spark setup --non-interactive \
   --admin-telegram-ids "12345" \
   --llm-provider zai \
   --zai-api-key "fake-zai-key" \
+  --skip-telegram-token-check \
   --no-autostart \
   --no-start-now \
   --skip-install-commands \
@@ -176,15 +178,19 @@ spark setup --non-interactive \
 spark status --json
 ```
 
-After the smoke, scan generated env files and source checkouts for accidental
-secrets or deferred dashboard configuration:
+After the smoke, scan generated config, state, and logs for accidental secrets
+or deferred dashboard configuration. Keep the scan focused on generated files;
+installed source checkouts can contain redaction fixtures and runbook examples.
 
 ```bash
-grep -R "fake-zai-key\|SPARK_API_URL\|SPARK_DASHBOARD_URL\|8787" "$SPARK_HOME" || true
+grep -R "fake-zai-key\|fake-token\|SPARK_API_URL\|SPARK_DASHBOARD_URL\|sscli_v1\|BEGIN .*PRIVATE KEY" \
+  "$SPARK_HOME/config" "$SPARK_HOME/state" "$SPARK_HOME/logs" 2>/dev/null || true
 ```
 
 The fake LLM key must not appear in generated module env files. Non-secret Z.AI
-metadata such as provider, base URL, and model is expected.
+metadata such as provider, base URL, and model is expected. With a fake
+Telegram token and `--no-start-now`, `spark status` may report the Telegram bot
+or runtime processes as unhealthy; that is expected for this no-secret smoke.
 
 ## Troubleshooting
 
