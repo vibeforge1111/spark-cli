@@ -8158,6 +8158,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark verify --deep", payload["next_commands"])
         self.assertIn("spark restart telegram-starter", payload["next_commands"])
 
+    def test_doctor_prints_plain_first_user_summary(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [
+                {"name": "spark-telegram-bot", "healthy": False, "detail": "Telegram rejected BOT_TOKEN."},
+                {"name": "spark-intelligence-builder", "healthy": True, "detail": "runtime importable"},
+                {"name": "domain-chip-memory", "healthy": True, "detail": "5 normalized contracts"},
+                {"name": "spawner-ui", "healthy": True, "detail": "healthy"},
+            ],
+            "telegram_profiles": [{"profile": "default", "running": False}],
+            "llm": {"provider": "zai", "model": "glm-5.1"},
+            "repair_hints": ["Run `spark setup --bot-token <BOTFATHER_TOKEN>`."],
+        }
+        args = build_parser().parse_args(["doctor"])
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             redirect_stdout(StringIO()) as stdout:
+            code = args.func(args)
+
+        output = stdout.getvalue()
+        self.assertEqual(code, 1)
+        self.assertIn("Spark doctor", output)
+        self.assertIn("Spark needs attention.", output)
+        self.assertIn("- Telegram: needs attention - Telegram rejected BOT_TOKEN.", output)
+        self.assertIn("- LLM: zai (glm-5.1)", output)
+        self.assertIn("Fix next", output)
+        self.assertNotIn('"modules"', output)
+
     def test_collect_telegram_fix_payload_flags_rejected_stored_bot_token(self) -> None:
         status_payload = {
             "ok": False,
@@ -8530,7 +8557,7 @@ class SparkCliTests(unittest.TestCase):
             }
         ).encode("utf-8")
 
-        def fake_urlopen(request: Any, timeout: int = 0) -> FakeResponse:
+        def fake_urlopen(request: Any, timeout: int = 0, **_: Any) -> FakeResponse:
             url = request.full_url
             if url.endswith("/install/checksums.txt"):
                 return FakeResponse(checksums_payload)
@@ -8584,7 +8611,7 @@ class SparkCliTests(unittest.TestCase):
             }
         ).encode("utf-8")
 
-        def fake_urlopen(request: Any, timeout: int = 0) -> FakeResponse:
+        def fake_urlopen(request: Any, timeout: int = 0, **_: Any) -> FakeResponse:
             url = request.full_url
             if url.endswith("/install/checksums.txt"):
                 return FakeResponse(checksums_payload)
@@ -8606,6 +8633,20 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["hosted_install.sh"]["ok"])
         self.assertFalse(checks["hosted_release_manifest"]["ok"])
         self.assertFalse(checks["hosted_commands_metadata"]["ok"])
+
+    def test_hosted_installer_fetch_failure_reports_actual_fetch_failed(self) -> None:
+        with patch(
+            "spark_cli.cli.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("certificate verify failed"),
+        ):
+            payload = collect_installer_integrity_payload(hosted=True)
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        hosted = checks["hosted_install.sh"]
+        self.assertFalse(hosted["ok"])
+        self.assertEqual(hosted["actual_sha256"], "<fetch failed>")
+        self.assertIn("Could not fetch hosted installer checksum metadata", hosted["detail"])
+        self.assertIn("<fetch failed>", hosted["detail"])
 
     def test_verify_installers_uses_integrity_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--installers", "--json"])
@@ -9375,7 +9416,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("normalize_macos_locale", script)
         self.assertIn('export LC_ALL="en_US.UTF-8"', script)
         self.assertIn("ensure_python_runtime", script)
-        self.assertIn("Python 3.11+ not found", script)
+        self.assertIn("Python >=3.11,<3.14 not found", script)
         self.assertIn("pinned uv", script)
         self.assertIn("detect_node_platform", script)
         self.assertIn('Darwin) os_id="darwin"', script)
@@ -9416,6 +9457,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('spark_setup_cmd+=("--bot-token" "$spark_secret_ref_value")', script)
         self.assertIn('spark_setup_cmd+=("--admin-telegram-ids" "$SPARK_ADMIN_TELEGRAM_IDS")', script)
         self.assertIn('spark_setup_cmd+=("--llm-provider" "$SPARK_LLM_PROVIDER")', script)
+        self.assertIn('preview_setup_cmd+=("${extra_setup_args[@]}")', script)
+        self.assertIn('preview_setup_cmd+=("--zai-api-key" "<redacted>")', script)
         self.assertNotIn('"${setup_words[@]}" "${extra_setup_args[@]}"', script)
         self.assertIn(r"To use \`spark\` by name in this terminal:", script)
         self.assertIn("For default installs, the installer also adds this line to your shell profile", script)
@@ -9447,7 +9490,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('[string]$BotToken = ""', script)
         self.assertIn('[switch]$ManagedNode', script)
         self.assertIn("Ensure-PythonRuntime", script)
-        self.assertIn("Python 3.11+ not found", script)
+        self.assertIn("Python >=3.11,<3.14 not found", script)
         self.assertIn("pinned uv", script)
         self.assertIn("node-v$NodeVersion-win-x64.zip", script)
         self.assertIn("Using system Node", script)
@@ -9475,6 +9518,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }', script)
         self.assertIn('if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }', script)
         self.assertIn('if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }', script)
+        self.assertIn('$setupPreviewArgs += $SetupArg', script)
+        self.assertIn('if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }', script)
         self.assertIn('$setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }', script)
         self.assertIn("& $sparkCmd setup $Bundle @setupStartArgs @setupArgs", script)
         self.assertIn("[switch]$NoAutostart", script)

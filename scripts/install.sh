@@ -231,7 +231,7 @@ normalize_path() {
 python_is_compatible() {
   "$1" - <<'PY' >/dev/null 2>&1
 import sys
-raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)
 PY
 }
 
@@ -465,7 +465,7 @@ preflight() {
   if find_system_python; then
     log "Python runtime: $("$SPARK_PYTHON_BIN" --version 2>/dev/null) at $SPARK_PYTHON_BIN"
   else
-    log "Python runtime: Python 3.11+ not found; pinned uv $SPARK_UV_VERSION will be downloaded after confirmation"
+    log "Python runtime: Python >=3.11,<3.14 not found; pinned uv $SPARK_UV_VERSION will be downloaded after confirmation"
   fi
   need_cmd git
   need_cmd curl
@@ -526,7 +526,7 @@ Details:
   Node platform:       $SPARK_NODE_PLATFORM
   Node version:        $SPARK_NODE_VERSION
   Python version:      $SPARK_PYTHON_VERSION
-  Python source:       existing Python 3.11+ or pinned uv $SPARK_UV_VERSION if needed
+  Python source:       existing Python >=3.11,<3.14 or pinned uv $SPARK_UV_VERSION if needed
   Managed Node forced: $SPARK_MANAGED_NODE
   CLI source:          $SPARK_CLI_SOURCE
   CLI release:         $SPARK_CLI_RELEASE_NAME
@@ -549,8 +549,8 @@ Would write:
 
 Would download if needed:
   Node $SPARK_NODE_VERSION from nodejs.org
-  uv $SPARK_UV_VERSION from github.com/astral-sh/uv when Python 3.11+ is missing
-  Python $SPARK_PYTHON_VERSION via uv when Python 3.11+ is missing
+  uv $SPARK_UV_VERSION from github.com/astral-sh/uv when Python >=3.11,<3.14 is missing
+  Python $SPARK_PYTHON_VERSION via uv when Python >=3.11,<3.14 is missing
   Spark CLI from $SPARK_CLI_SOURCE at $SPARK_CLI_REF
 
 Expected installer network access:
@@ -562,17 +562,53 @@ Would run:
   python -m venv "$SPARK_PREFIX/tools/spark-cli-venv"
 EOF
   if [ "$SPARK_SKIP_SETUP" != "1" ]; then
-    local setup_start_args
+    local preview_setup_cmd
     if [ "$SPARK_AUTOSTART" = "1" ]; then
-      setup_start_args='--start-now --autostart'
+      preview_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE" "--start-now" "--autostart")
     else
-      setup_start_args='--no-start-now --no-autostart'
+      preview_setup_cmd=("$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE" "--no-start-now" "--no-autostart")
+    fi
+    if [ "$SPARK_NON_INTERACTIVE_SETUP" = "1" ]; then
+      preview_setup_cmd+=("--non-interactive")
+    fi
+    if [ "$SPARK_SETUP_SKIP_INSTALL_COMMANDS" = "1" ]; then
+      preview_setup_cmd+=("--skip-install-commands")
+    fi
+    if [ "$SPARK_SETUP_SKIP_RUNTIME_CHECK" = "1" ]; then
+      preview_setup_cmd+=("--skip-runtime-check")
+    fi
+    if [ -n "$SPARK_BOT_TOKEN" ]; then
+      preview_setup_cmd+=("--bot-token" "<redacted>")
+    fi
+    if [ -n "$SPARK_ADMIN_TELEGRAM_IDS" ]; then
+      preview_setup_cmd+=("--admin-telegram-ids" "$SPARK_ADMIN_TELEGRAM_IDS")
     fi
     if [ -n "$SPARK_LLM_PROVIDER" ]; then
-      printf '  "%s/bin/spark" setup "%s" %s --llm-provider "%s"\n' "$SPARK_PREFIX" "$SPARK_BUNDLE" "$setup_start_args" "$SPARK_LLM_PROVIDER"
-    else
-      printf '  "%s/bin/spark" setup "%s" %s\n' "$SPARK_PREFIX" "$SPARK_BUNDLE" "$setup_start_args"
+      preview_setup_cmd+=("--llm-provider" "$SPARK_LLM_PROVIDER")
     fi
+    if [ -n "$SPARK_ZAI_API_KEY" ]; then
+      preview_setup_cmd+=("--zai-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_OPENAI_API_KEY" ]; then
+      preview_setup_cmd+=("--openai-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_ANTHROPIC_API_KEY" ]; then
+      preview_setup_cmd+=("--anthropic-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_MINIMAX_API_KEY" ]; then
+      preview_setup_cmd+=("--minimax-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_SETUP_ARGS" ]; then
+      # shellcheck disable=SC2206
+      local setup_words=($SPARK_SETUP_ARGS)
+      preview_setup_cmd+=("${setup_words[@]}")
+    fi
+    if [ "${#extra_setup_args[@]}" -gt 0 ]; then
+      preview_setup_cmd+=("${extra_setup_args[@]}")
+    fi
+    printf '  '
+    printf '%q ' "${preview_setup_cmd[@]}"
+    printf '\n'
   fi
 }
 

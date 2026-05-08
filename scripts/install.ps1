@@ -60,7 +60,7 @@ function Require-Command {
 
 function Test-PythonCompatible {
     param([string]$PythonExe)
-    & $PythonExe -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>$null | Out-Null
+    & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
 }
 
@@ -189,7 +189,7 @@ function Invoke-Preflight {
         $versionText = (& $Script:PythonExe --version 2>$null)
         Write-SparkLog "Python runtime: $versionText at $Script:PythonExe"
     } else {
-        Write-SparkLog "Python runtime: Python 3.11+ not found; pinned uv $UvVersion will be downloaded after confirmation"
+        Write-SparkLog "Python runtime: Python >=3.11,<3.14 not found; pinned uv $UvVersion will be downloaded after confirmation"
     }
     Require-Command git
     Write-SparkLog "Install prefix: $Script:SparkPrefix"
@@ -246,7 +246,7 @@ function Show-DryRunPlan {
     Write-Host "  Node platform:       win-x64"
     Write-Host "  Node version:        $NodeVersion"
     Write-Host "  Python version:      $PythonVersion"
-    Write-Host "  Python source:       existing Python 3.11+ or pinned uv $UvVersion if needed"
+    Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
     Write-Host "  Managed Node forced: $ManagedNode"
     Write-Host "  CLI source:          $Source"
     Write-Host "  CLI release:         $SparkCliReleaseName"
@@ -269,8 +269,8 @@ function Show-DryRunPlan {
     Write-Host ""
     Write-Host "Would download if needed:"
     Write-Host "  Node $NodeVersion from nodejs.org"
-    Write-Host "  uv $UvVersion from github.com/astral-sh/uv when Python 3.11+ is missing"
-    Write-Host "  Python $PythonVersion via uv when Python 3.11+ is missing"
+    Write-Host "  uv $UvVersion from github.com/astral-sh/uv when Python >=3.11,<3.14 is missing"
+    Write-Host "  Python $PythonVersion via uv when Python >=3.11,<3.14 is missing"
     Write-Host "  Spark CLI from $Source at $Ref"
     Write-Host ""
     Write-Host "Expected installer network access:"
@@ -281,12 +281,28 @@ function Show-DryRunPlan {
     Write-Host "Would run:"
     Write-Host "  python -m venv `"$Script:SparkPrefix\tools\spark-cli-venv`""
     if (-not $SkipSetup) {
-        $setupStartArgs = if ($NoAutostart) { "--no-start-now --no-autostart" } else { "--start-now --autostart" }
-        if ($LlmProvider) {
-            Write-Host "  `"$Script:SparkPrefix\bin\spark.cmd`" setup `"$Bundle`" $setupStartArgs --llm-provider `"$LlmProvider`""
-        } else {
-            Write-Host "  `"$Script:SparkPrefix\bin\spark.cmd`" setup `"$Bundle`" $setupStartArgs"
+        function Format-SetupPreviewArg {
+            param([string]$Value)
+            if ($Value -match '[\s"]') {
+                return '"' + $Value.Replace('"', '\"') + '"'
+            }
+            return $Value
         }
+        $setupPreviewArgs = @()
+        $setupPreviewArgs += if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }
+        if ($NonInteractiveSetup) { $setupPreviewArgs += "--non-interactive" }
+        if ($SetupSkipInstallCommands) { $setupPreviewArgs += "--skip-install-commands" }
+        if ($SetupSkipRuntimeCheck) { $setupPreviewArgs += "--skip-runtime-check" }
+        if ($BotToken) { $setupPreviewArgs += @("--bot-token", "<redacted>") }
+        if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
+        if ($LlmProvider) { $setupPreviewArgs += @("--llm-provider", $LlmProvider) }
+        if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }
+        if ($OpenAIApiKey) { $setupPreviewArgs += @("--openai-api-key", "<redacted>") }
+        if ($AnthropicApiKey) { $setupPreviewArgs += @("--anthropic-api-key", "<redacted>") }
+        if ($MiniMaxApiKey) { $setupPreviewArgs += @("--minimax-api-key", "<redacted>") }
+        $setupPreviewArgs += $SetupArg
+        $setupPreview = ($setupPreviewArgs | ForEach-Object { Format-SetupPreviewArg $_ }) -join " "
+        Write-Host "  `"$Script:SparkPrefix\bin\spark.cmd`" setup `"$Bundle`" $setupPreview"
     }
 }
 

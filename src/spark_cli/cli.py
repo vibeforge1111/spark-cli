@@ -15,6 +15,7 @@ import secrets as py_secrets
 import shlex
 import shutil
 import signal
+import ssl
 import stat
 import subprocess
 import sys
@@ -1196,7 +1197,7 @@ def hosted_installer_sha256(name: str, url: str) -> str:
             "Accept": "text/plain,*/*",
         },
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with installer_urlopen(request, timeout=20) as response:
         payload = response.read()
     return sha256_bytes(payload)
 
@@ -1209,7 +1210,7 @@ def hosted_installer_checksums() -> dict[str, str]:
             "Accept": "text/plain,*/*",
         },
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
     checksums: dict[str, str] = {}
     for line in payload.splitlines():
@@ -1229,10 +1230,25 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
             "Accept": "application/json,*/*",
         },
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
     parsed = json.loads(payload)
     return parsed if isinstance(parsed, dict) else {}
+
+
+def installer_ssl_context() -> ssl.SSLContext | None:
+    try:
+        import certifi  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def installer_urlopen(request: urllib.request.Request, *, timeout: int):
+    context = installer_ssl_context()
+    if context is None:
+        return urllib.request.urlopen(request, timeout=timeout)
+    return urllib.request.urlopen(request, timeout=timeout, context=context)
 
 
 def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, Any]:
@@ -1296,7 +1312,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             url = HOSTED_INSTALLER_URLS[name]
             expected_hosted = hosted_expected.get(name, "")
             if hosted_metadata_error:
-                hosted_hash = ""
+                hosted_hash = "<fetch failed>"
                 hosted_ok = False
                 detail = f"Could not fetch hosted installer checksum metadata: {hosted_metadata_error}"
             else:
@@ -1305,7 +1321,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_ok = bool(expected_hosted) and hosted_hash == expected_hosted
                     detail = f"{url} matches hosted checksum metadata." if hosted_ok else f"{url} does not match hosted checksum metadata."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
-                    hosted_hash = ""
+                    hosted_hash = "<fetch failed>"
                     hosted_ok = False
                     detail = f"Could not fetch {url}: {exc}"
             checks.append(
@@ -1320,7 +1336,11 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "detail": (
                         detail
                         if hosted_ok and expected_hosted == expected
-                        else f"{url} or hosted checksum metadata is not synced to the committed installer manifest."
+                        else (
+                            f"{detail} Expected manifest sha {expected}; "
+                            f"hosted metadata sha {expected_hosted or '<missing>'}; "
+                            f"hosted byte sha {hosted_hash}."
+                        )
                     ),
                 }
             )
@@ -1368,6 +1388,14 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and str(source.get("ref", "")).lower() == expected_ref
                 and command_hashes == expected_hashes
             )
+            commands_detail = "Hosted command metadata matches installer hashes and release pins."
+            if not commands_ok:
+                commands_detail = (
+                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                    f"Expected hashes {expected_hashes}; hosted hashes {command_hashes}; "
+                    f"expected release/ref {expected_release}@{expected_ref}; "
+                    f"hosted release/ref {source.get('releaseName')}@{str(source.get('ref', '')).lower()}."
+                )
             checks.append(
                 {
                     "name": "hosted_commands_metadata",
@@ -1377,11 +1405,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "expected_ref": expected_ref,
                     "actual_ref": str(source.get("ref", "")).lower(),
                     "url": HOSTED_INSTALLER_COMMANDS_URL,
-                    "detail": (
-                        "Hosted command metadata matches installer hashes and release pins."
-                        if commands_ok
-                        else "Hosted command metadata is stale or does not match installer hashes and release pins."
-                    ),
+                    "detail": commands_detail,
                 }
             )
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
@@ -5610,9 +5634,58 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
-        print("Spark CLI spike doctor")
-        print(json.dumps(payload, indent=2))
+        print_plain_doctor(payload)
     return 0 if payload.get("ok") else 1
+
+
+def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
+    module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
+    if not module:
+        return f"- {label}: not installed"
+    healthy = module.get("healthy")
+    state = "ready" if healthy else "not checked" if healthy is None else "needs attention"
+    detail = str(module.get("detail") or "").strip()
+    if detail:
+        return f"- {label}: {state} - {detail}"
+    return f"- {label}: {state}"
+
+
+def print_plain_doctor(payload: dict[str, Any]) -> None:
+    print("Spark doctor")
+    print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
+    print("")
+    modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+    llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
+    provider = llm_state.get("provider") or "not configured"
+    if provider == "not_configured":
+        provider = "not configured"
+    model = llm_state.get("model") or "default"
+    print("Core")
+    print(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
+    print(f"- LLM: {provider} ({model})")
+    print(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
+    print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
+    print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
+    print("")
+    profiles = payload.get("telegram_profiles")
+    if isinstance(profiles, list) and profiles:
+        running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
+        stopped = sum(1 for item in profiles if isinstance(item, dict) and not item.get("running"))
+        print("Runtime")
+        print(f"- Telegram profiles: {running} running, {stopped} stopped")
+        print("")
+    hints = payload.get("repair_hints") if isinstance(payload.get("repair_hints"), list) else []
+    if hints:
+        print("Fix next")
+        for hint in hints[:5]:
+            print(f"- {hint}")
+        if len(hints) > 5:
+            print(f"- {len(hints) - 5} more repair hint(s); run `spark status --json` for details.")
+        print("")
+    print("Useful")
+    print("- spark live status")
+    print("- spark providers status")
+    print("- spark verify --onboarding")
 
 
 def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
