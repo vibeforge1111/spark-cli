@@ -2581,7 +2581,7 @@ def read_generated_env(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip()] = value
+        values[key.strip().lstrip("\ufeff")] = value
     return values
 
 
@@ -6301,6 +6301,7 @@ SENSITIVE_VALUE_PATTERNS = [
 SECRET_SURFACE_ENV_PATTERN = re.compile(
     r"(?im)^\s*([A-Z][A-Z0-9_]*(?:API_KEY|BOT_TOKEN|TOKEN|SECRET|PASSWORD|AUTHORIZATION))\s*=\s*([^\r\n#]+)"
 )
+SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES = {"TELEGRAM_RELAY_SECRET"}
 SECRET_SURFACE_TOKEN_PATTERNS = [
     re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
@@ -6326,6 +6327,9 @@ def secret_surface_file_findings(path: Path) -> dict[str, int]:
 
     env_hits = 0
     for match in SECRET_SURFACE_ENV_PATTERN.finditer(text):
+        secret_name = match.group(1)
+        if path.suffix == ".env" and secret_name in SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES:
+            continue
         if not secret_surface_value_is_redacted(match.group(2)):
             env_hits += 1
 
@@ -9141,7 +9145,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
     )
     spawner_ok = (
         bool(spawner_env.get("MISSION_CONTROL_WEBHOOK_URLS"))
-        and bool(spawner_runtime_env.get("TELEGRAM_RELAY_SECRET"))
+        and bool(spawner_env.get("TELEGRAM_RELAY_SECRET") or spawner_runtime_env.get("TELEGRAM_RELAY_SECRET"))
         and bool(mission_provider)
         and mission_provider not in {"none", "not_configured"}
     )

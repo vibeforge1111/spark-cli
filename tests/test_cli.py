@@ -1549,7 +1549,7 @@ class SparkCliTests(unittest.TestCase):
             config_dir.mkdir(parents=True)
             log_dir.mkdir()
             (config_dir / "spawner-ui.env").write_text(
-                "DEFAULT_MISSION_PROVIDER=codex\nTELEGRAM_RELAY_SECRET=plain-relay-secret\n",
+                "DEFAULT_MISSION_PROVIDER=codex\nTELEGRAM_RELAY_SECRET=local-relay-secret\nOPENAI_API_KEY=plain-api-key\n",
                 encoding="utf-8",
             )
             (log_dir / "safe.log").write_text("BOT_TOKEN=<redacted>\n", encoding="utf-8")
@@ -1560,6 +1560,23 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(len(payload["findings"]), 1)
         self.assertIn("spawner-ui.env", payload["findings"][0]["path"])
         self.assertEqual(payload["findings"][0]["counts"]["env_secret_assignments"], 1)
+
+    def test_secret_surface_payload_allows_local_relay_secret_in_generated_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config_dir = root / "config" / "modules"
+            log_dir = root / "logs"
+            config_dir.mkdir(parents=True)
+            log_dir.mkdir()
+            (config_dir / "spawner-ui.env").write_text(
+                "TELEGRAM_RELAY_SECRET=local-relay-secret\n",
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.MODULE_CONFIG_DIR", config_dir), \
+                 patch("spark_cli.cli.LOG_DIR", log_dir):
+                payload = collect_secret_surface_payload()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["findings"], [])
 
     def test_secret_surface_payload_ignores_redacted_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1577,6 +1594,14 @@ class SparkCliTests(unittest.TestCase):
                 payload = collect_secret_surface_payload()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["findings"], [])
+
+    def test_read_generated_env_strips_utf8_bom_from_first_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "module.env"
+            path.write_text("\ufeffMISSION_CONTROL_WEBHOOK_URLS=http://127.0.0.1:8789/spawner-events\n", encoding="utf-8")
+            values = read_generated_env(path)
+        self.assertIn("MISSION_CONTROL_WEBHOOK_URLS", values)
+        self.assertNotIn("\ufeffMISSION_CONTROL_WEBHOOK_URLS", values)
 
     def test_redact_secret_surface_logs_redacts_only_log_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
