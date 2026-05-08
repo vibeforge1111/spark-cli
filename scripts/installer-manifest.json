@@ -3,16 +3,16 @@
   "source": {
     "repository": "https://github.com/vibeforge1111/spark-cli",
     "releaseName": "spark-cli-launch-2026-05-09",
-    "ref": "34ff2f7d39b8ba0974666ec777ba3d2fd2a1c2f5"
+    "ref": "eddc18b80f03e133ef9b7cac586c3d93abe7fbf1"
   },
   "installers": {
     "install.sh": {
       "path": "scripts/install.sh",
-      "sha256": "d321707132989989850fc0e053f906fdc135de31ed5eac41e288aa05829e55ce"
+      "sha256": "4b7d60a864ff0e3cda550f9a052982ef8256bb21f7a7ddbfc1381b037165b839"
     },
     "install.ps1": {
       "path": "scripts/install.ps1",
-      "sha256": "c4177bed902a13d9232b2311d3154b2a05c8a1b37d4da6c47544889e6909ad22"
+      "sha256": "bcbe0d17ef50f96c70830faed62778ff7a3d73f4b1ea77093cbde2ffb914268c"
     }
   }
 }
