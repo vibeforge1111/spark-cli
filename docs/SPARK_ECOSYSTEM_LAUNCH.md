@@ -58,8 +58,20 @@ After `spark setup` and `spark start spark-telegram-bot`, a configured operator 
 - use Builder-backed memory/research when the Builder bridge is available
 - run `/diagnose` to see Telegram, LLM, Builder, memory, and mission relay state
 - run `/run <goal>` to create a Spawner mission
+- run local recursive Builder chip loops with `/recursive start <chipKey> rounds <n>`
+- inspect local recursive loops with `/recursive sessions`, `/recursive report`, and `/recursive trace`
 - use `/board` and `/mission <status|pause|resume|kill> <missionId>`
 - use the installed Researcher and domain-chip-memory repos for local research and memory/chip work
+
+## Public Labs Outside The Starter Bundle
+
+Some public Spark labs are intentionally not installed by default until they expose the same installable module contract as the starter modules:
+
+- `spark-domain-chip-labs`: creator standards for domain chips, benchmark packs, specialization paths, autoloop policies, and review packets.
+- `spark-personality-chip-labs`: portable personality chip schemas and experiments.
+- `spark-voice-comms`: voice communication hooks, profiles, and provider examples.
+
+These labs are usable for builders, but Spark CLI should not tell public users that Spark Swarm, hosted Workspace review, or network submission is required for local experiments.
 
 ## Not In This Launch
 
@@ -68,6 +80,8 @@ After `spark setup` and `spark start spark-telegram-bot`, a configured operator 
 - no Telegram webhook listener
 - no public network exposure for Spawner control APIs
 - no third-party untrusted module marketplace
+- no public Spark Swarm Workspace/network-submission dependency
+- no automatic install of every public lab repo
 
 ## Verification
 

@@ -27,6 +27,8 @@ That default setup installs:
 - `spawner-ui`
 - `spark-telegram-bot`
 
+Public builder labs such as `spark-domain-chip-labs`, `spark-personality-chip-labs`, and `spark-voice-comms` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
+
 If another `spark` binary is already on your PATH, use `spark-local`. The package exposes both names to the same entrypoint.
 
 ## What Spark CLI Does
