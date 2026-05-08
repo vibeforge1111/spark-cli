@@ -4,6 +4,8 @@ param(
     [string]$SparkLiveService = "spark-live",
     [string]$TelegramBotService = "spark-telegram-bot",
     [string]$PublicUrl = "https://spark-live-production.up.railway.app",
+    [int]$RetryCount = 6,
+    [int]$RetryDelaySeconds = 10,
     [switch]$Help
 )
 
@@ -55,6 +57,39 @@ function Invoke-Check {
     }
 }
 
+function Assert-RemoteMarker {
+    param(
+        [string]$Name,
+        [string[]]$Output
+    )
+    $text = $Output -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name remote command exited with $LASTEXITCODE. $($text.Trim())"
+    }
+    if ($text -notmatch "__SPARK_SMOKE_OK__") {
+        throw "$Name remote command did not emit completion marker. $($text.Trim())"
+    }
+    $Output | Where-Object { $_ -notmatch "__SPARK_SMOKE_OK__" }
+}
+
+function Invoke-WithRetry {
+    param(
+        [scriptblock]$Block
+    )
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        try {
+            return & $Block
+        } catch {
+            $lastError = $_.Exception.Message
+            if ($attempt -lt $RetryCount) {
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
+        }
+    }
+    throw $lastError
+}
+
 $botProbe = @'
 node - <<'NODE'
 const base = process.env.SPAWNER_UI_URL;
@@ -69,6 +104,7 @@ for (const path of ['/api/health/live', '/api/providers', '/api/mission-control/
   if (!res.ok) throw new Error(`${path} returned ${res.status}: ${text.slice(0, 160)}`);
   console.log(`${path} ${res.status}`);
 }
+console.log('__SPARK_SMOKE_OK__');
 NODE
 '@
 
@@ -83,37 +119,47 @@ commit = spawner.get('registry_commit')
 if not commit:
     raise SystemExit('spawner-ui registry_commit missing')
 print('spawner-ui registry_commit=' + commit)
+print('__SPARK_SMOKE_OK__')
 PY
 '@
 
 $checks = @(
     Invoke-Check "public_health" {
-        $health = Invoke-WebRequest -UseBasicParsing "$($PublicUrl.TrimEnd('/'))/api/health/live" -TimeoutSec 20
-        if ($health.StatusCode -ne 200) { throw "Expected HTTP 200, got $($health.StatusCode)" }
-        "HTTP $($health.StatusCode) $($health.Content)"
+        Invoke-WithRetry {
+            $health = Invoke-WebRequest -UseBasicParsing "$($PublicUrl.TrimEnd('/'))/api/health/live" -TimeoutSec 20
+            if ($health.StatusCode -ne 200) { throw "Expected HTTP 200, got $($health.StatusCode)" }
+            "HTTP $($health.StatusCode) $($health.Content)"
+        }
     }
     Invoke-Check "spark_live_status" {
-        Invoke-InCwd $SparkLiveCwd {
+        Invoke-WithRetry {
+          Invoke-InCwd $SparkLiveCwd {
             $json = railway ssh --service $SparkLiveService "spark live status --json"
             $status = $json | ConvertFrom-Json
             if (-not $status.ok) { throw "spark live status reported ok=false" }
             "spark live status ok"
+          }
         }
     }
     Invoke-Check "spawner_registry_pin" {
         Invoke-InCwd $SparkLiveCwd {
-            railway ssh --service $SparkLiveService $pinProbe
+            $output = railway ssh --service $SparkLiveService $pinProbe 2>&1
+            Assert-RemoteMarker "spawner_registry_pin" $output
         }
     }
     Invoke-Check "bot_runtime_health" {
         Invoke-InCwd $TelegramBotCwd {
-            railway ssh --service $TelegramBotService "npm run health:runtime"
+            $output = railway ssh --service $TelegramBotService "npm run health:runtime && echo __SPARK_SMOKE_OK__" 2>&1
+            Assert-RemoteMarker "bot_runtime_health" $output
             "bot runtime health ok"
         }
     }
     Invoke-Check "bot_to_spawner_api" {
-        Invoke-InCwd $TelegramBotCwd {
-            railway ssh --service $TelegramBotService $botProbe
+        Invoke-WithRetry {
+          Invoke-InCwd $TelegramBotCwd {
+              $output = railway ssh --service $TelegramBotService $botProbe 2>&1
+              Assert-RemoteMarker "bot_to_spawner_api" $output
+          }
         }
     }
 )
