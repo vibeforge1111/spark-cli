@@ -38,14 +38,14 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "5623b116781a7cb90e93fdb748c11b654e2cc0f0",
+      "commit": "78a3436933a91ab75c7dacab693663248164ec1b",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "5623b116781a7cb90e93fdb748c11b654e2cc0f0"
+        "commit": "78a3436933a91ab75c7dacab693663248164ec1b"
       }
     },
     "domain-chip-memory": {
@@ -58,6 +58,18 @@
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-memory",
         "commit": "75888efbd949e1e15d092f61f2f3d9c08cfd1882"
+      }
+    },
+    "spark-voice-comms": {
+      "source": "https://github.com/vibeforge1111/spark-voice-comms",
+      "commit": "20eeba3ac41726fcd88803b07f048ea8033bb560",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/spark-voice-comms",
+        "commit": "20eeba3ac41726fcd88803b07f048ea8033bb560"
       }
     },
     "spawner-ui": {
@@ -84,6 +96,18 @@
         "spark-telegram-bot"
       ],
       "summary": "Researcher + character runtime + Builder runtime + default memory + Spawner execution plane + Telegram gateway"
+    },
+    "telegram-voice-starter": {
+      "modules": [
+        "spark-researcher",
+        "spark-character",
+        "spark-intelligence-builder",
+        "domain-chip-memory",
+        "spark-voice-comms",
+        "spawner-ui",
+        "spark-telegram-bot"
+      ],
+      "summary": "Telegram starter plus Spark Voice Comms for speech I/O onboarding, transcription, and spoken replies"
     }
   }
 }

@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import (
     append_process_log,
+    apply_setup_feature_aliases,
     atomic_write_json,
     build_module_repair_hints,
     build_llm_env,
@@ -3748,7 +3749,13 @@ class SparkCliTests(unittest.TestCase):
             for name, entry in registry.get("modules", {}).items()
             if isinstance(entry, dict)
         }
-        self.assertEqual(set(sources), set(registry.get("bundles", {}).get("telegram-starter", {}).get("modules", [])))
+        bundled_modules = {
+            str(module_name)
+            for bundle in registry.get("bundles", {}).values()
+            if isinstance(bundle, dict)
+            for module_name in bundle.get("modules", [])
+        }
+        self.assertEqual(set(sources), bundled_modules)
         for name, source in sources.items():
             with self.subTest(module=name):
                 self.assertTrue(source.startswith("https://github.com/vibeforge1111/"))
@@ -4927,8 +4934,12 @@ class SparkCliTests(unittest.TestCase):
             (package_root / "attachments.py").write_text(
                 "\n".join(
                     [
-                        "def add_attachment_root(*args, **kwargs): pass",
-                        "def activate_chip(*args, **kwargs): pass",
+                        "def add_attachment_root(config_manager, *, target, root):",
+                        "    config_manager.config.setdefault('attachment_roots', {}).setdefault(target, []).append(root)",
+                        "    config_manager._persist()",
+                        "def activate_chip(config_manager, *, chip_key):",
+                        "    config_manager.config.setdefault('active_chips', []).append(chip_key)",
+                        "    config_manager._persist()",
                         "def sync_attachment_snapshot(*args, **kwargs): pass",
                     ]
                 ),
@@ -5017,6 +5028,13 @@ class SparkCliTests(unittest.TestCase):
                 path=memory_root,
                 manifest={"module": {"name": "domain-chip-memory", "version": "0.1.0"}},
             )
+            voice_root = tmp / "spark-voice-comms"
+            voice_root.mkdir()
+            voice = Module(
+                name="spark-voice-comms",
+                path=voice_root,
+                manifest={"module": {"name": "spark-voice-comms", "version": "0.1.0"}},
+            )
             spark_home = tmp / "spark-home"
             state_dir = spark_home / "state"
             saved_modules = {
@@ -5029,7 +5047,7 @@ class SparkCliTests(unittest.TestCase):
             try:
                 with patch.multiple("spark_cli.cli", SPARK_HOME=spark_home, STATE_DIR=state_dir):
                     notes = initialize_builder_runtime_home(
-                        {"spark-intelligence-builder": builder, "domain-chip-memory": memory},
+                        {"spark-intelligence-builder": builder, "domain-chip-memory": memory, "spark-voice-comms": voice},
                         {"telegram.bot_token": "123456:test-token", "telegram.admin_ids": "111,222"},
                         {
                             "memory_sidecars": {
@@ -5049,16 +5067,113 @@ class SparkCliTests(unittest.TestCase):
                 sys.modules.update(saved_modules)
 
             self.assertIn("configured Builder telegram channel (allowlist, 2 admin IDs)", notes)
+            self.assertIn(f"activated spark-voice-comms at {voice_root}", notes)
             env_file = state_dir / "spark-intelligence" / ".env"
             self.assertEqual(env_file.read_text(encoding="utf-8"), "TELEGRAM_BOT_TOKEN=123456:test-token\n")
             builder_home = state_dir / "spark-intelligence"
             config = json.loads((builder_home / "config.json").read_text(encoding="utf-8"))
+            self.assertIn(str(voice_root), config["attachment_roots"]["chips"])
+            self.assertIn("spark-voice-comms", config["active_chips"])
+            self.assertTrue(config["spark"]["voice"]["enabled"])
+            self.assertEqual(config["spark"]["voice"]["comms_root"], str(voice_root))
             graphiti = config["spark"]["memory"]["sidecars"]["graphiti"]
             self.assertTrue(graphiti["enabled"])
             self.assertEqual(graphiti["backend"], "kuzu")
             self.assertEqual(graphiti["group_id"], "spark-memory")
             self.assertEqual(graphiti["db_path"], str(builder_home / "sidecars" / "graphiti" / "kuzu" / "graphiti.kuzu"))
             self.assertTrue((builder_home / "sidecars" / "graphiti" / "kuzu").exists())
+
+    def test_voice_setup_secret_is_keychain_backed_for_builder_runtime(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "telegram-voice-starter",
+                "--non-interactive",
+                "--no-start-now",
+                "--no-autostart",
+                "--skip-telegram-token-check",
+                "--bot-token",
+                "123456:abcdefghijklmnopqrstuvwxyz",
+                "--admin-telegram-ids",
+                "111",
+                "--elevenlabs-api-key",
+                "eleven-secret",
+            ]
+        )
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.elevenlabs.api_key"])
+        builder.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
+        voice = make_module("spark-voice-comms", ["spark.voice"], ["voice.elevenlabs.api_key"])
+        voice.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
+        modules = {
+            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"], ["telegram.bot_token", "telegram.admin_ids", "telegram.relay_secret"]),
+            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
+            "spark-intelligence-builder": builder,
+            "spark-researcher": make_module("spark-researcher", ["spark.research"]),
+            "spark-character": make_module("spark-character", ["spark.character"]),
+            "domain-chip-memory": make_module("domain-chip-memory", ["spark.memory.substrate"]),
+            "spark-voice-comms": voice,
+        }
+        secret_values = {
+            "telegram.bot_token": "123456:abcdefghijklmnopqrstuvwxyz",
+            "telegram.admin_ids": "111",
+            "telegram.relay_secret": "relay",
+            "voice.elevenlabs.api_key": "eleven-secret",
+        }
+
+        envs = build_module_envs(args, modules, secret_values)
+        builder_env = envs["spark-intelligence-builder"]
+        self.assertEqual(builder_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
+        self.assertEqual(builder_env["ELEVENLABS_API_KEY"], "eleven-secret")
+        self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
+
+        persisted_builder_env = strip_keychain_env_vars(builder_env, builder)
+        self.assertNotIn("ELEVENLABS_API_KEY", persisted_builder_env)
+        self.assertEqual(persisted_builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"], "ELEVENLABS_API_KEY")
+
+    def test_voice_setup_state_records_telegram_checks(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "telegram-voice-starter",
+                "--non-interactive",
+                "--no-start-now",
+                "--no-autostart",
+                "--skip-telegram-token-check",
+                "--bot-token",
+                "123456:abcdefghijklmnopqrstuvwxyz",
+                "--admin-telegram-ids",
+                "111",
+                "--elevenlabs-api-key",
+                "eleven-secret",
+            ]
+        )
+        bundle = [
+            make_module("spark-telegram-bot", ["telegram.ingress"], ["telegram.bot_token", "telegram.admin_ids", "telegram.relay_secret"]),
+            make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.elevenlabs.api_key"]),
+            make_module("spawner-ui", ["mission.execution"]),
+            make_module("spark-voice-comms", ["spark.voice"], ["voice.elevenlabs.api_key"]),
+        ]
+
+        with patch("spark_cli.cli.fetch_secret", return_value=None):
+            secret_values, setup_state = collect_setup_configuration(
+                args,
+                bundle,
+                bundle[0],
+                interactive=False,
+            )
+
+        self.assertEqual(secret_values["voice.elevenlabs.api_key"], "eleven-secret")
+        self.assertEqual(setup_state["bundle"], "telegram-voice-starter")
+        self.assertTrue(setup_state["voice"]["enabled"])
+        self.assertTrue(setup_state["voice"]["elevenlabs_secret_configured"])
+        self.assertIn("/voice self-test", setup_state["voice"]["telegram_checks"])
+
+    def test_with_voice_setup_alias_uses_voice_starter_bundle(self) -> None:
+        args = build_parser().parse_args(["setup", "--with-voice", "--non-interactive"])
+
+        apply_setup_feature_aliases(args)
+
+        self.assertEqual(args.bundle, "telegram-voice-starter")
 
     def test_ensure_generated_setup_secrets_adds_relay_secret_for_gateway(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"], secrets=["telegram.relay_secret"])

@@ -91,6 +91,8 @@ MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
 DEFAULT_GRAPHITI_GROUP_ID = "spark-memory"
+VOICE_MODULE_NAME = "spark-voice-comms"
+TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 SAFE_PARENT_ENV_KEYS = {
     "APPDATA",
     "COMSPEC",
@@ -1844,6 +1846,7 @@ def collect_secret_values(
         "llm.huggingface.api_key": getattr(args, "huggingface_api_key", None),
         "llm.kimi.api_key": getattr(args, "kimi_api_key", None),
         "llm.minimax.api_key": getattr(args, "minimax_api_key", None),
+        "voice.elevenlabs.api_key": getattr(args, "elevenlabs_api_key", None),
     }
     for key, value in legacy_map.items():
         if value:
@@ -3418,6 +3421,14 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         builder_env["SPARK_CHARACTER_ROOT"] = str(character.path)
     if memory is not None:
         builder_env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory.path)
+    voice = modules_by_name.get(VOICE_MODULE_NAME)
+    if voice is not None:
+        builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
+        if secret_values.get("voice.elevenlabs.api_key"):
+            builder_env["ELEVENLABS_API_KEY"] = secret_values["voice.elevenlabs.api_key"]
+            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
+            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
+            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
     return {
         gateway.name: gateway_env,
@@ -3652,6 +3663,15 @@ def initialize_builder_runtime_home(
             elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
                 config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
                 notes.append("disabled optional Graphiti memory sidecar")
+
+        voice = modules_by_name.get(VOICE_MODULE_NAME)
+        if voice is not None:
+            add_attachment_root(config_manager, target="chips", root=str(voice.path))
+            config_manager.set_path("spark.voice.enabled", True)
+            config_manager.set_path("spark.voice.comms_root", str(voice.path))
+            activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
+            sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
+            notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
 
         setup_secrets = secret_values or {}
         telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
@@ -4808,6 +4828,16 @@ def print_setup_next_steps(
                 f"  - {role}: {role_state.get('provider', provider)} "
                 f"({role_state.get('model', model)}, auth={role_state.get('auth_mode', llm_state.get('auth_mode', 'unknown'))})"
             )
+    voice_state = setup_state.get("voice") if isinstance(setup_state, dict) else None
+    if isinstance(voice_state, dict) and voice_state.get("enabled"):
+        print("")
+        print("Voice:")
+        if voice_state.get("elevenlabs_secret_configured"):
+            print("  ElevenLabs key is stored in Spark secrets and injected into Builder at runtime.")
+        else:
+            print("  Voice chip is installed; choose hosted or local/private setup from Telegram.")
+        print("  In Telegram, send: /voice self-test")
+        print("  Then say: Guide me through ElevenLabs voice setup")
     print("")
     print("Checks:")
     print("  spark verify --onboarding")
@@ -4842,6 +4872,30 @@ def resolve_setup_bundle_plan(args: argparse.Namespace) -> SetupBundlePlan:
         ingress_owner=ingress_owner,
         installed_modules=installed_modules,
     )
+
+
+def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
+    if not getattr(args, "with_voice", False):
+        return
+    if getattr(args, "bundle", "telegram-starter") == "telegram-starter":
+        registry = load_registry_definition()
+        if TELEGRAM_VOICE_BUNDLE not in registry.get("bundles", {}):
+            raise SystemExit(f"`--with-voice` requires the `{TELEGRAM_VOICE_BUNDLE}` bundle in registry.json.")
+        setattr(args, "bundle", TELEGRAM_VOICE_BUNDLE)
+        return
+    if VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
+        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{VOICE_MODULE_NAME}`.")
+
+
+def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_values: dict[str, str]) -> dict[str, Any] | None:
+    if not any(module.name == VOICE_MODULE_NAME for module in bundle):
+        return None
+    return {
+        "enabled": True,
+        "module": VOICE_MODULE_NAME,
+        "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
+        "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
+    }
 
 
 def collect_setup_configuration(
@@ -4891,6 +4945,9 @@ def collect_setup_configuration(
     sidecar_state = memory_sidecar_setup_state(args, existing_setup if isinstance(existing_setup, dict) else None)
     if sidecar_state is not None:
         setup_state["memory_sidecars"] = sidecar_state
+    voice_state = voice_setup_state(args, bundle, secret_values)
+    if voice_state is not None:
+        setup_state["voice"] = voice_state
     if isinstance(preserved_profiles, dict) and preserved_profiles:
         setup_state["telegram_profiles"] = preserved_profiles
     if isinstance(preserved_primary_profile, str) and preserved_primary_profile.strip():
@@ -5045,12 +5102,14 @@ def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
         return configure_telegram_profile(args)
+    apply_setup_feature_aliases(args)
     setup_state: dict[str, Any] | None = None
     pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
     if pending:
         pending_bundle = str(pending.get("bundle") or "").strip()
         if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
             setattr(args, "bundle", pending_bundle)
+        apply_setup_feature_aliases(args)
         print("Resuming pending Spark setup.")
         print(f"Last stop: {pending.get('detail') or pending.get('stage') or 'unknown'}")
     try:
@@ -9121,6 +9180,36 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "repair": "spark setup telegram-starter",
         }
     )
+    voice_expected = VOICE_MODULE_NAME in expected_modules or bool(
+        isinstance(setup_state, dict)
+        and isinstance(setup_state.get("voice"), dict)
+        and setup_state["voice"].get("enabled")
+    )
+    if voice_expected:
+        voice_secret_expected = bool(
+            isinstance(setup_state, dict)
+            and isinstance(setup_state.get("voice"), dict)
+            and setup_state["voice"].get("elevenlabs_secret_configured")
+        )
+        voice_ok = (
+            VOICE_MODULE_NAME in installed_names
+            and bool(builder_env.get("SPARK_VOICE_COMMS_ROOT"))
+            and "ELEVENLABS_API_KEY" not in builder_env
+            and (not voice_secret_expected or "voice.elevenlabs.api_key" in secret_keys)
+        )
+        checks.append(
+            {
+                "name": "builder_voice_bridge",
+                "ok": voice_ok,
+                "required": True,
+                "detail": (
+                    "Builder has the voice chip root, and any ElevenLabs key stays in Spark secrets."
+                    if voice_ok
+                    else "Voice chip install, Builder voice root, or voice secret hygiene needs repair."
+                ),
+                "repair": f"spark setup {TELEGRAM_VOICE_BUNDLE}",
+            }
+        )
     if deep:
         smoke = collect_builder_memory_direct_smoke(
             installed=installed,
@@ -12204,6 +12293,10 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "module": "spawner-ui",
                 "role": "Local mission control. Creates and tracks missions, projects, and execution workflows.",
             },
+            {
+                "module": "spark-voice-comms",
+                "role": "Optional in telegram-voice-starter. Handles speech I/O hooks for transcription, voice setup, and spoken replies.",
+            },
         ],
         "setup": {
             "interactive": "spark setup",
@@ -12231,6 +12324,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "spark setup --llm-provider minimax --minimax-api-key <MINIMAX_API_KEY>",
                 "spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>",
                 "spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model gpt-5.5",
+                "spark setup --with-voice --elevenlabs-api-key @clipboard",
                 "spark setup --agent-llm-provider zai --mission-llm-provider codex",
                 "spark setup --chat-llm-provider openai --builder-llm-provider openai --memory-llm-provider ollama --mission-llm-provider minimax",
             ],
@@ -12322,11 +12416,13 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark logs spawner-ui", "use": "Read mission-control logs." },
             { "command": "spark secrets list", "use": "Confirm configured secret ids without printing secret values." },
             { "command": "spark setup", "use": "Rerun onboarding safely when changing bot, admin ids, or LLM provider." },
+            { "command": "spark setup --with-voice", "use": "Install and attach Spark Voice Comms, then finish voice setup from Telegram with /voice self-test." },
         ],
         "command_reference": [
             { "command": "spark list", "use": "List local Spark modules with manifests." },
             { "command": "spark install <target>", "use": "Install a module by registry name, local path, or git URL." },
             { "command": "spark setup [bundle]", "use": "Configure a starter bundle; installs login autostart by default unless --no-autostart is passed." },
+            { "command": "spark setup --with-voice", "use": "Alias for the Telegram voice starter bundle; optional ElevenLabs key can be passed with --elevenlabs-api-key." },
             { "command": "spark onboard [bundle]", "use": "Resume setup or restart onboarding until the Telegram first-message bridge is confirmed." },
             { "command": "spark status [--json]", "use": "Run module healthchecks with repair hints." },
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
@@ -12465,6 +12561,11 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed bundle modules without prompting")
     setup_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
     setup_parser.add_argument(
+        "--with-voice",
+        action="store_true",
+        help=f"Install and attach the voice chip by using the {TELEGRAM_VOICE_BUNDLE} bundle.",
+    )
+    setup_parser.add_argument(
         "--non-interactive",
         action="store_true",
         help="Skip interactive preflight and secret prompts (require --secret for every required secret).",
@@ -12589,6 +12690,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--minimax-api-key", help="MiniMax API key, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--minimax-base-url", default="https://api.minimax.io/v1")
     setup_parser.add_argument("--minimax-model", default="MiniMax-M2.7")
+    setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
     setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
     setup_parser.add_argument("--codex-model", default="gpt-5.5")

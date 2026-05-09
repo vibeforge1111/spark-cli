@@ -27,7 +27,21 @@ That default setup installs:
 - `spawner-ui`
 - `spark-telegram-bot`
 
-Public builder labs such as `spark-domain-chip-labs`, `spark-personality-chip-labs`, and `spark-voice-comms` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
+Voice is available as an opt-in starter path:
+
+```bash
+spark setup --with-voice
+```
+
+or directly:
+
+```bash
+spark setup telegram-voice-starter
+```
+
+Add `--elevenlabs-api-key @clipboard` if you want hosted ElevenLabs TTS configured during setup. The key is stored in Spark secrets and injected into Builder at runtime; it is not written into Telegram config.
+
+Public builder labs such as `spark-domain-chip-labs` and `spark-personality-chip-labs` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
 
 If another `spark` binary is already on your PATH, use `spark-local`. The package exposes both names to the same entrypoint.
 
@@ -173,6 +187,20 @@ spark setup --resume --memory-sidecars graphiti-kuzu
 
 This writes Builder config for `spark.memory.sidecars.graphiti.*`, installs `domain-chip-memory[graphiti-kuzu]` unless `--skip-install-commands` is present, and keeps current-state/entity-state memory authoritative until the sidecar has evidence.
 
+To install Spark with Telegram voice onboarding, run:
+
+```bash
+spark setup --with-voice
+```
+
+For hosted ElevenLabs voice during setup:
+
+```bash
+spark setup --with-voice --elevenlabs-api-key @clipboard
+```
+
+After setup, open Telegram and send `/voice self-test`. Then say `Guide me through ElevenLabs voice setup` or `I care more about local/private`.
+
 Use `--memory-sidecars none` to explicitly disable the optional Graphiti sidecar profile.
 
 By default, one provider powers everything:
@@ -283,6 +311,7 @@ Setup writes the shared env that makes the pieces talk to each other:
 - Telegram receives `SPARK_BUILDER_HOME`, `SPARK_BUILDER_REPO`, and `SPARK_BUILDER_BRIDGE_MODE=required`, so memory commands go through Builder instead of a local no-op adapter.
 - Telegram, Spawner, and Builder get selected non-secret LLM provider metadata for chat, builder, memory, and mission roles.
 - Builder is initialized with `spark-character`, memory enabled, `shadow_mode=false`, `domain-chip-memory` active, and `spark-researcher` connected.
+- `spark setup --with-voice` uses the `telegram-voice-starter` bundle, installs `spark-voice-comms`, and activates it in Builder through the same attachment system as memory.
 - Cloud API keys are stored through Spark's secret backend and are not written into generated module env files. OpenAI can also use a signed-in Codex CLI, and Anthropic can use Claude Code through `claude -p`, when those CLIs are installed and signed in.
 
 The older dashboard/resonance API is intentionally not part of the launch starter path. Fresh installs should not require `SPARK_API_URL`, `SPARK_DASHBOARD_URL`, or a local service on port `8787`.
