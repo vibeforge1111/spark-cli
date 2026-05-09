@@ -26,14 +26,14 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "31d472ed80be9854e8fe73811027ecb23091a04c",
+      "commit": "060829b0389bb66e3113512da8af9a0798c7bcdf",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "31d472ed80be9854e8fe73811027ecb23091a04c"
+        "commit": "060829b0389bb66e3113512da8af9a0798c7bcdf"
       }
     },
     "spark-intelligence-builder": {
@@ -50,14 +50,14 @@
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "75888efbd949e1e15d092f61f2f3d9c08cfd1882",
+      "commit": "11631081970ad597eb7c1e66710c1bd393dfe511",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-memory",
-        "commit": "75888efbd949e1e15d092f61f2f3d9c08cfd1882"
+        "commit": "11631081970ad597eb7c1e66710c1bd393dfe511"
       }
     },
     "spark-voice-comms": {
