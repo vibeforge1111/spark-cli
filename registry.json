@@ -14,26 +14,26 @@
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "6c004d47ffe025e3481f26a672605991d7a0d2e8",
+      "commit": "5792faef54b37954857ebdb0d4a1c8695df085dd",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "6c004d47ffe025e3481f26a672605991d7a0d2e8"
+        "commit": "5792faef54b37954857ebdb0d4a1c8695df085dd"
       }
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "a3cd103633f27594d936c84959ee42787cbc7346",
+      "commit": "31d472ed80be9854e8fe73811027ecb23091a04c",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "a3cd103633f27594d936c84959ee42787cbc7346"
+        "commit": "31d472ed80be9854e8fe73811027ecb23091a04c"
       }
     },
     "spark-intelligence-builder": {
@@ -74,14 +74,14 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "37e67551a667d53c5d00da295813d10a29783004",
+      "commit": "9fd7e7ec0f0d238768cbf75d4fd08d2a734ed121",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "37e67551a667d53c5d00da295813d10a29783004"
+        "commit": "9fd7e7ec0f0d238768cbf75d4fd08d2a734ed121"
       }
     }
   },
