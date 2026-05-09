@@ -1,0 +1,7 @@
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:aws-access-token:385
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:aws-access-token:396
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:generic-api-key:387
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:generic-api-key:958
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:generic-api-key:1091
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:gitlab-pat:388
+899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:gitlab-pat:399

@@ -368,10 +368,11 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["toxic_findings"])
 
     def test_sandbox_output_strips_controls_redacts_and_bounds(self) -> None:
-        raw = "\x1b[31mOPENAI_API_KEY=sk-1234567890abcdef\x1b[0m\n" + "\n".join(f"line-{idx}" for idx in range(8))
+        fake_openai_key = "sk-" + "1234567890abcdef"
+        raw = f"\x1b[31mOPENAI_API_KEY={fake_openai_key}\x1b[0m\n" + "\n".join(f"line-{idx}" for idx in range(8))
         bounded = bound_sandbox_output(raw, max_bytes=80, max_lines=3)
         self.assertNotIn("\x1b", bounded.text)
-        self.assertNotIn("sk-1234567890abcdef", bounded.text)
+        self.assertNotIn(fake_openai_key, bounded.text)
         self.assertIn("[output truncated]", bounded.text)
         self.assertTrue(bounded.truncated)
 
@@ -382,11 +383,14 @@ class SparkCliTests(unittest.TestCase):
 
     def test_sandbox_redaction_catches_common_cloud_and_header_tokens(self) -> None:
         slack_token = "xox" + "b-1234567890-" + "abcdefghijklmnopqrstuvwxyz"
+        aws_key = "AKIA" + "1234567890ABCDEF"
+        google_key = "AIzaSy" + "A1234567890abcdefghijklmnopq"
+        gitlab_token = "glpat-" + "abcdefghijklmnopqrstuvwxyz123456"
         samples = [
-            "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+            f"AWS_ACCESS_KEY_ID={aws_key}",
             "HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz123456",
-            "GOOGLE_API_KEY=AIzaSyA1234567890abcdefghijklmnopq",
-            "GITLAB_TOKEN=glpat-abcdefghijklmnopqrstuvwxyz123456",
+            f"GOOGLE_API_KEY={google_key}",
+            f"GITLAB_TOKEN={gitlab_token}",
             f"SLACK_TOKEN={slack_token}",
             "X-Api-Key: custom-header-secret-value",
             "Cookie: sessionid=private-cookie-value",
@@ -394,10 +398,10 @@ class SparkCliTests(unittest.TestCase):
         ]
         text = redact_sandbox_text("\n".join(samples))
         for leaked in [
-            "AKIA1234567890ABCDEF",
+            aws_key,
             "hf_abcdefghijklmnopqrstuvwxyz123456",
-            "AIzaSyA1234567890abcdefghijklmnopq",
-            "glpat-abcdefghijklmnopqrstuvwxyz123456",
+            google_key,
+            gitlab_token,
             slack_token,
             "custom-header-secret-value",
             "sessionid=private-cookie-value",
@@ -625,6 +629,7 @@ class SparkCliTests(unittest.TestCase):
             home = Path(tmpdir)
             key = home / "spark_key"
             key.write_text("not a real key", encoding="utf-8")
+            key.chmod(0o600)
             target, warnings = add_ssh_target(
                 name="odyssey-vps",
                 host="Example.TEST",
@@ -946,6 +951,7 @@ class SparkCliTests(unittest.TestCase):
             home = Path(tmpdir)
             key = home / "spark_key"
             key.write_text("not a real key", encoding="utf-8")
+            key.chmod(0o600)
             target, _warnings = add_ssh_target(
                 name="odyssey-vps",
                 host="example.test",
@@ -956,13 +962,13 @@ class SparkCliTests(unittest.TestCase):
             completed = subprocess.CompletedProcess(
                 ["ssh"],
                 0,
-                stdout="SPARK_SSH_OK\n1000\nOPENAI_API_KEY=sk-1234567890abcdef",
+                stdout="SPARK_SSH_OK\n1000\nOPENAI_API_KEY=" + "sk-" + "1234567890abcdef",
                 stderr="",
             )
             with patch("spark_cli.sandbox.ssh.subprocess.run", return_value=completed) as run:
                 payload = run_ssh_fixed_probe(target, "connection", home=home)
             self.assertTrue(payload["ok"])
-            self.assertNotIn("sk-1234567890abcdef", payload["output"]["text"])
+            self.assertNotIn("sk-" + "1234567890abcdef", payload["output"]["text"])
             self.assertNotIn("OPENAI_API_KEY", run.call_args.kwargs["env"])
 
     def test_ssh_doctor_remote_probe_skips_without_trust(self) -> None:
@@ -1036,6 +1042,7 @@ class SparkCliTests(unittest.TestCase):
             home = Path(tmpdir)
             key = home / "spark_key"
             key.write_text("not a real key", encoding="utf-8")
+            key.chmod(0o600)
             target, _warnings = add_ssh_target(
                 name="odyssey-vps",
                 host="example.test",
@@ -1089,7 +1096,7 @@ class SparkCliTests(unittest.TestCase):
             execute = subprocess.CompletedProcess(
                 ["ssh"],
                 0,
-                stdout=f"SPARK_SSH_SMOKE_OK\nprobe_sha256={probe_hash}\nOPENAI_API_KEY=sk-1234567890abcdef",
+                stdout=f"SPARK_SSH_SMOKE_OK\nprobe_sha256={probe_hash}\nOPENAI_API_KEY=" + "sk-" + "1234567890abcdef",
                 stderr="",
             )
             with patch("spark_cli.sandbox.ssh.subprocess.run", side_effect=[upload, execute]) as run:
@@ -1099,7 +1106,7 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("cat > /tmp/spark-sandbox-smoke-odyssey-vps-", run.call_args_list[0].args[0][-1])
             self.assertIn("trap cleanup EXIT", run.call_args_list[1].args[0][-1])
             self.assertNotIn("OPENAI_API_KEY", run.call_args_list[0].kwargs["env"])
-            self.assertNotIn("sk-1234567890abcdef", payload["output"]["text"])
+            self.assertNotIn("sk-" + "1234567890abcdef", payload["output"]["text"])
 
     def test_ssh_smoke_collect_requires_trusted_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
