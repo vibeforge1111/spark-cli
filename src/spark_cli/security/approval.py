@@ -143,6 +143,8 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
+    if first == "spark" and lowered[1:3] == ["access", "status"]:
+        return _decision(parts, ctx, "none", "none", "`spark access status` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
     if first == "spark" and lowered[1:3] == ["providers", "status"]:
@@ -360,6 +362,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command may upload local data to a network endpoint.",
             target_display=parts[0],
             confirmation_phrase="approve network upload",
+        )
+
+    if first == "spark" and second == "access":
+        level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "critical" if level5_requested else "high",
+            "Command changes Spark access or high-agency runner configuration.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve level 5 access" if level5_requested else "approve access change",
         )
 
     if first == "spark" and (

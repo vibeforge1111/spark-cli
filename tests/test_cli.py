@@ -1199,10 +1199,26 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(decision.requires_approval)
         self.assertEqual(decision.action_class, "none")
 
+    def test_approval_classifier_allows_access_status(self) -> None:
+        decision = approval_required_for_command(["spark", "access", "status"], CommandContext(non_interactive=True))
+        self.assertFalse(decision.requires_approval)
+        self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_autostart_install(self) -> None:
         decision = approval_required_for_command(["spark", "autostart", "install"], CommandContext())
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
+
+    def test_approval_classifier_blocks_level5_access_mutation_non_interactively(self) -> None:
+        decision = approval_required_for_command(
+            ["spark", "access", "setup", "--level", "5", "--enable-high-agency"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "identity_access_mutation")
+        self.assertEqual(decision.risk, "critical")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.confirmation_phrase, "approve level 5 access")
 
     def test_approval_classifier_flags_setup_default_autostart(self) -> None:
         decision = approval_required_for_command(["spark", "setup", "telegram-starter"], CommandContext())

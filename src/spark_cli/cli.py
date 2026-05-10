@@ -7458,6 +7458,17 @@ def print_access_payload(payload: dict[str, Any]) -> None:
         print(str(recommended["user_message"]))
     if recommended.get("os_hint"):
         print(str(recommended["os_hint"]))
+    workspace_preflight = payload.get("workspace_preflight") if isinstance(payload.get("workspace_preflight"), dict) else {}
+    if workspace_preflight:
+        print(f"Workspace preflight: {'writable' if workspace_preflight.get('writable') else 'not writable'}")
+    level5 = payload.get("level5") if isinstance(payload.get("level5"), dict) else {}
+    if int(payload.get("access_level") or 0) >= 5:
+        if level5.get("enabled"):
+            print("Level 5 guardrails: active")
+        elif level5.get("restart_required"):
+            print("Level 5 guardrails: configured, restart Spark to activate")
+        else:
+            print("Level 5 guardrails: blocked until explicitly enabled")
     print("")
     print("Available lanes:")
     for lane in payload.get("lanes", []):
@@ -7471,7 +7482,17 @@ def print_access_payload(payload: dict[str, Any]) -> None:
 
 
 def cmd_access(args: argparse.Namespace) -> int:
-    from .sandbox.access import access_lane_payload
+    from .sandbox.access import access_lane_payload, level5_disable_payload
+
+    if getattr(args, "access_command", "") == "disable-level5":
+        payload = level5_disable_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print("Spark Level 5 guardrails disabled.")
+        print("Restart Spark so Telegram and Spawner reload the safer access state.")
+        print(f"Next: {payload.get('next')}")
+        return 0 if payload.get("ok") else 1
 
     requested_lane = str(getattr(args, "with_lane", "") or "")
     goal = str(getattr(args, "goal", "") or "")
@@ -7481,6 +7502,7 @@ def cmd_access(args: argparse.Namespace) -> int:
         level=int(getattr(args, "level", 4) or 4),
         goal=goal,
         setup=getattr(args, "access_command", "") == "setup",
+        enable_high_agency=bool(getattr(args, "enable_high_agency", False)),
     )
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
@@ -12490,6 +12512,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional SSH/Modal sandbox readiness." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
+            { "command": "spark access status|setup|disable-level5", "use": "Prepare and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
@@ -12884,8 +12907,19 @@ def build_parser() -> argparse.ArgumentParser:
     access_setup_parser.add_argument("--level", type=int, choices=[4, 5], default=4)
     access_setup_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
     access_setup_parser.add_argument("--with", dest="with_lane", choices=["docker", "ssh", "modal"], help="Prefer a guided optional lane after the workspace is ready")
+    access_setup_parser.add_argument(
+        "--enable-high-agency",
+        action="store_true",
+        help="For --level 5 only: write local guardrail env so Spark can use whole-computer operator mode after restart",
+    )
     access_setup_parser.add_argument("--json", action="store_true")
     access_setup_parser.set_defaults(func=cmd_access)
+    access_disable_parser = access_subparsers.add_parser(
+        "disable-level5",
+        help="Disable whole-computer operator guardrails and return to sandbox-first access after restart",
+    )
+    access_disable_parser.add_argument("--json", action="store_true")
+    access_disable_parser.set_defaults(func=cmd_access)
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
