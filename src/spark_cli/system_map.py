@@ -937,6 +937,39 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     "select count(distinct trace_ref) from builder_events where trace_ref is not null and trim(trace_ref) != ''"
                 ).fetchone()[0]
                 out["trace_group_count"] = int(trace_group_count)
+                group_columns = [
+                    column
+                    for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
+                    if column in columns
+                ]
+                if group_columns:
+                    expressions = [
+                        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
+                        for column in group_columns
+                    ]
+                    group_by = ", ".join(f'"{column}"' for column in group_columns)
+                    rows = conn.execute(
+                        f"""
+                        select {", ".join(expressions)}, count(*) as event_count
+                        from builder_events
+                        where trace_ref is null or trim(trace_ref) = ''
+                        group by {group_by}
+                        order by event_count desc
+                        limit 30
+                        """
+                    ).fetchall()
+                    out["missing_trace_ref_sources"] = {
+                        "group_by": group_columns,
+                        "limit": 30,
+                        "redaction": "aggregate counts grouped by allowlisted event metadata only",
+                        "rows": [
+                            {
+                                **{column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)},
+                                "event_count": int(row[len(group_columns)] or 0),
+                            }
+                            for row in rows
+                        ],
+                    }
             if {"severity", "status"}.issubset(columns):
                 high_open = conn.execute(
                     """

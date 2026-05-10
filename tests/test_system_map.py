@@ -286,6 +286,8 @@ class SparkSystemMapTests(unittest.TestCase):
                         event_type text,
                         status text,
                         severity text,
+                        component text,
+                        target_surface text,
                         request_id text,
                         trace_ref text,
                         parent_event_id text,
@@ -295,18 +297,18 @@ class SparkSystemMapTests(unittest.TestCase):
                     """
                 )
                 rows = [
-                    ("evt-parent", "recorded", "medium", "req-1", "trace-1", None),
-                    ("evt-child", "recorded", "medium", "req-1", "trace-1", "evt-parent"),
-                    ("evt-orphan", "recorded", "medium", "req-2", "trace-2", "missing-parent"),
-                    ("evt-open", "open", "high", None, None, None),
+                    ("evt-parent", "recorded", "medium", "router", "telegram", "req-1", "trace-1", None),
+                    ("evt-child", "recorded", "medium", "router", "telegram", "req-1", "trace-1", "evt-parent"),
+                    ("evt-orphan", "recorded", "medium", "router", "telegram", "req-2", "trace-2", "missing-parent"),
+                    ("evt-open", "open", "high", "answer", "telegram", None, None, None),
                 ]
-                for event_id, status, severity, request_id, trace_ref, parent_id in rows:
+                for event_id, status, severity, component, target_surface, request_id, trace_ref, parent_id in rows:
                     conn.execute(
                         """
                         insert into builder_events(
                             event_id, created_at, event_type, status, severity,
-                            request_id, trace_ref, parent_event_id, summary, facts_json
-                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            component, target_surface, request_id, trace_ref, parent_event_id, summary, facts_json
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             event_id,
@@ -314,6 +316,8 @@ class SparkSystemMapTests(unittest.TestCase):
                             "route_selected",
                             status,
                             severity,
+                            component,
+                            target_surface,
                             request_id,
                             trace_ref,
                             parent_id,
@@ -333,6 +337,8 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(health["trace_group_count"], 2)
         self.assertEqual(health["orphan_parent_event_id_count"], 1)
         self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["component"], "answer")
+        self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["event_count"], 1)
         self.assertIn("missing_trace_refs", health["health_flags"])
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
