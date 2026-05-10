@@ -13,6 +13,8 @@ from spark_cli.system_map import (
     build_memory_movement_index,
     count_safe_jsonl,
     inspect_builder_event_samples,
+    inspect_builder_trace_groups,
+    safe_builder_event_value,
     summarize_pids,
     summarize_setup,
 )
@@ -190,6 +192,84 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("private user message", encoded)
         self.assertNotIn("secret", encoded)
         self.assertNotIn("facts_json", encoded)
+
+    def test_builder_trace_groups_omit_event_bodies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        request_id text,
+                        trace_ref text,
+                        correlation_id text,
+                        parent_event_id text,
+                        target_surface text,
+                        evidence_lane text,
+                        truth_kind text,
+                        summary text,
+                        facts_json text,
+                        provenance_json text
+                    )
+                    """
+                )
+                rows = [
+                    ("evt-1", "2026-05-10T13:00:00Z", "intent_committed", "recorded", "info", "frame", "req-1", "trace-1"),
+                    ("evt-2", "2026-05-10T13:01:00Z", "route_selected", "succeeded", "info", "router", "req-1", "trace-1"),
+                    ("evt-3", "2026-05-10T13:02:00Z", "final_answer_checked", "succeeded", "info", "answer", "req-2", "trace-2"),
+                ]
+                for row in rows:
+                    conn.execute(
+                        """
+                        insert into builder_events(
+                            event_id, created_at, event_type, status, severity, component,
+                            request_id, trace_ref, correlation_id, parent_event_id,
+                            target_surface, evidence_lane, truth_kind, summary, facts_json, provenance_json
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            *row,
+                            "corr",
+                            None,
+                            "telegram",
+                            "route",
+                            "observed",
+                            "private trace summary",
+                            json.dumps({"message": "private trace body"}),
+                            json.dumps({"source": "private provenance"}),
+                        ),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+            groups = inspect_builder_trace_groups(builder_home, group_limit=2, events_per_trace=5)
+
+        encoded = json.dumps(groups)
+        by_trace = {group["trace_ref"]: group for group in groups["groups"]}
+        self.assertEqual(groups["group_count"], 2)
+        self.assertEqual(by_trace["trace-1"]["event_count"], 2)
+        self.assertEqual([event["event_id"] for event in by_trace["trace-1"]["events"]], ["evt-1", "evt-2"])
+        self.assertNotIn("private trace summary", encoded)
+        self.assertNotIn("private trace body", encoded)
+        self.assertNotIn("provenance_json", encoded)
+
+    def test_builder_event_identifiers_redact_identity_bearing_refs(self) -> None:
+        raw = "trace:agent:human:telegram:8319079055:telegram:13152322"
+        redacted = safe_builder_event_value("trace_ref", raw)
+
+        self.assertIsInstance(redacted, str)
+        self.assertTrue(str(redacted).startswith("trace_ref:redacted:"))
+        self.assertNotIn("8319079055", str(redacted))
+        self.assertEqual(safe_builder_event_value("trace_ref", "trace-1"), "trace-1")
 
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

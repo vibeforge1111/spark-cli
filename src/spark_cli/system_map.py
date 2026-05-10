@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -93,6 +94,13 @@ SAFE_BUILDER_EVENT_SAMPLE_COLUMNS = (
     "evidence_lane",
     "truth_kind",
 )
+
+BUILDER_EVENT_IDENTIFIER_COLUMNS = {
+    "request_id",
+    "trace_ref",
+    "correlation_id",
+    "parent_event_id",
+}
 
 RAW_MEMORY_KEY_HINTS = (
     "content",
@@ -510,6 +518,31 @@ def safe_short_string(value: str, limit: int = 240) -> str:
     return cleaned[: limit - 3] + "..."
 
 
+def sensitive_identifier(value: str) -> bool:
+    lowered = value.lower()
+    return bool(
+        re.search(r"(human|telegram|user|chat):", lowered)
+        or re.search(r"\d{7,}", lowered)
+        or re.search(r"(?i)(token|secret|api[_-]?key)", lowered)
+    )
+
+
+def redacted_identifier(column: str, value: str) -> str:
+    digest = hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return f"{column}:redacted:{digest}"
+
+
+def safe_builder_event_value(column: str, value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (int, float, bool)):
+        return value
+    text = str(value)
+    if column in BUILDER_EVENT_IDENTIFIER_COLUMNS and sensitive_identifier(text):
+        return redacted_identifier(column, text)
+    return safe_short_string(text, limit=160)
+
+
 def key_has_raw_memory_hint(key: Any) -> bool:
     lowered = str(key).lower()
     return any(hint in lowered for hint in RAW_MEMORY_KEY_HINTS)
@@ -761,13 +794,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
             for row in rows:
                 event: dict[str, Any] = {}
                 for column in selected:
-                    value = row[column]
-                    if value is None:
-                        event[column] = None
-                    elif isinstance(value, (int, float, bool)):
-                        event[column] = value
-                    else:
-                        event[column] = safe_short_string(str(value), limit=160)
+                    event[column] = safe_builder_event_value(column, row[column])
                 trace_ref = str(event.get("trace_ref") or "").strip()
                 trace_counts[trace_ref or "[missing]"] += 1
                 events.append(event)
@@ -779,6 +806,97 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 if trace_ref != "[missing]"
             ]
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
+        finally:
+            conn.close()
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def selected_builder_event_columns(columns: list[str]) -> list[str]:
+    return [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
+
+
+def sanitize_builder_event_row(row: sqlite3.Row, selected: list[str]) -> dict[str, Any]:
+    event: dict[str, Any] = {}
+    for column in selected:
+        event[column] = safe_builder_event_value(column, row[column])
+    return event
+
+
+def inspect_builder_trace_groups(
+    builder_home: Path,
+    *,
+    group_limit: int = 12,
+    events_per_trace: int = 12,
+) -> dict[str, Any]:
+    db_path = builder_home / "state.db"
+    out: dict[str, Any] = {
+        "source": "builder_events",
+        "path": str(db_path),
+        "exists": db_path.exists(),
+        "group_limit": group_limit,
+        "events_per_trace": events_per_trace,
+        "redaction": "trace grouping over allowlisted event metadata only; summaries, facts JSON, and provenance JSON omitted",
+    }
+    if not db_path.exists():
+        return out
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+            if "builder_events" not in tables:
+                out["table_exists"] = False
+                return out
+            out["table_exists"] = True
+            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            if "trace_ref" not in columns:
+                out["trace_ref_column_exists"] = False
+                return out
+            selected = selected_builder_event_columns(columns)
+            if not selected:
+                out["groups"] = []
+                out["group_count"] = 0
+                return out
+
+            group_rows = conn.execute(
+                """
+                select trace_ref, count(*) as event_count, min(created_at) as first_seen_at, max(created_at) as last_seen_at
+                from builder_events
+                where trace_ref is not null and trim(trace_ref) != ''
+                group by trace_ref
+                order by max(created_at) desc
+                limit ?
+                """,
+                (max(0, min(int(group_limit), 50)),),
+            ).fetchall()
+            quoted = ", ".join(f'"{column}"' for column in selected)
+            groups = []
+            for group_row in group_rows:
+                trace_ref = str(group_row["trace_ref"] or "")
+                event_rows = conn.execute(
+                    f"""
+                    select {quoted}
+                    from builder_events
+                    where trace_ref = ?
+                    order by created_at asc
+                    limit ?
+                    """,
+                    (trace_ref, max(0, min(int(events_per_trace), 50))),
+                ).fetchall()
+                groups.append(
+                    {
+                        "trace_ref": safe_builder_event_value("trace_ref", trace_ref),
+                        "event_count": int(group_row["event_count"] or 0),
+                        "first_seen_at": group_row["first_seen_at"],
+                        "last_seen_at": group_row["last_seen_at"],
+                        "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
+                    }
+                )
+            out["groups"] = groups
+            out["group_count"] = len(groups)
         finally:
             conn.close()
     except Exception as exc:
@@ -943,6 +1061,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
         "redaction": "aggregate metadata only; no raw event summaries, mission responses, logs, or message text",
         "builder_events": inspect_builder_event_trace(builder_home),
         "builder_event_samples": inspect_builder_event_samples(builder_home),
+        "builder_trace_groups": inspect_builder_trace_groups(builder_home),
         "telegram_final_answer_gate": count_safe_jsonl(telegram_state / "final-answer-gate-audit.jsonl"),
         "telegram_outbound_audit": count_safe_jsonl(telegram_state / "node-outbound-audit.jsonl"),
         "spawner_mission_control_shape": inspect_json_shape(spawner_state / "mission-control.json"),
@@ -1156,6 +1275,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     memory_index = as_dict(compiled["memory_movement_index"])
     builder_events = as_dict(trace_index.get("builder_events"))
     builder_event_samples = as_dict(trace_index.get("builder_event_samples"))
+    builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
     return {
@@ -1172,6 +1292,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         },
         "builder_event_rows": builder_events.get("row_count"),
         "builder_event_samples": builder_event_samples.get("sample_count"),
+        "builder_trace_groups": builder_trace_groups.get("group_count"),
         "memory_movement_status": memory_status.get("status"),
         "memory_movement_rows": memory_status.get("row_count"),
         "builder_memory_table_count": builder_memory_tables.get("table_count"),
