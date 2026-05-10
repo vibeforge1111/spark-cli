@@ -375,6 +375,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark setup [bundle]` | Interactive preflight and secret prompts for a bundle; defaults to `telegram-starter` |
 | `spark setup --profile <name>` | Add a named Telegram bot profile |
 | `spark status [--json]` | Run module healthchecks with repair hints |
+| `spark os compile [--json]` | Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, and gaps report |
 | `spark doctor [--json]` | Diagnostic variant of status |
 | `spark doctor llm "<problem>"` | Ask the configured LLM for a redacted local repair plan |
 | `spark support bundle` | Create a local redacted support bundle |

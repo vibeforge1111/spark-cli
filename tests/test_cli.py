@@ -2341,6 +2341,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(["support", "bundle"]).support_command, "bundle")
         self.assertEqual(parser.parse_args(["security", "audit"]).security_command, "audit")
         self.assertEqual(parser.parse_args(["security", "revoke-all", "--dry-run"]).security_command, "revoke-all")
+        self.assertEqual(parser.parse_args(["os", "compile"]).os_command, "compile")
         self.assertEqual(parser.parse_args(["providers", "test", "--role", "memory"]).providers_command, "test")
         self.assertEqual(parser.parse_args(["fix", "spawner"]).target, "spawner")
 

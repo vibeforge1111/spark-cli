@@ -36,6 +36,7 @@ from .runtime_policy import run_runtime_command, runtime_command_argv, split_sin
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
+from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -5487,6 +5488,30 @@ def collect_status_payload() -> dict[str, Any]:
         "config_dir": public_local_path_ref(CONFIG_DIR),
         "repair_hints": repair_hints,
     }
+
+
+def cmd_os_compile(args: argparse.Namespace) -> int:
+    desktop = Path(args.desktop).expanduser()
+    spark_home = Path(args.spark_home).expanduser()
+    registry_path = Path(args.registry).expanduser()
+    out_dir = Path(args.out).expanduser()
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    written = write_compiled_outputs(out_dir, compiled)
+    summary = compile_summary(compiled, written)
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+
+    print("Spark OS system map compiled")
+    print(f"- modules: {summary['modules']}")
+    print(f"- discovered repos: {summary['repos']}")
+    print(f"- chip manifests: {summary['chip_manifests']}")
+    print(f"- skill graphs: {summary['skill_graphs']}")
+    print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+    print(f"- gaps: {summary['gaps']}")
+    print(f"- output: {out_dir}")
+    print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -12554,6 +12579,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
+            { "command": "spark os compile", "use": "Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, and gaps report." },
             { "command": "spark doctor llm \"<problem>\" --save-report", "use": "Ask the user's configured LLM for a redacted repair plan." },
             { "command": "spark autostart on --now", "use": "Turn on the Telegram agent now and every time this computer logs in." },
             { "command": "spark autostart status", "use": "Check whether login autostart is installed and points at the current Spark home." },
@@ -12574,6 +12600,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark setup --with-voice", "use": "Alias for the Telegram voice starter bundle; optional ElevenLabs key can be passed with --elevenlabs-api-key." },
             { "command": "spark onboard [bundle]", "use": "Resume setup or restart onboarding until the Telegram first-message bridge is confirmed." },
             { "command": "spark status [--json]", "use": "Run module healthchecks with repair hints." },
+            { "command": "spark os compile [--json]", "use": "Write read-only Spark OS system-map, authority, capability, trace, and gap reports under ~/.spark/state/system-map." },
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
@@ -12869,6 +12896,16 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_wait_group.add_argument("--no-wait-first-message", dest="wait_first_message", action="store_false", help="Do not wait for the first Telegram message")
     onboard_parser.add_argument("--wait-first-message-seconds", type=int, default=None, help="Override the first-message wait timeout")
     onboard_parser.set_defaults(func=cmd_onboard)
+
+    os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
+    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+    os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
+    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
+    os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
+    os_compile_parser.set_defaults(func=cmd_os_compile)
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")
