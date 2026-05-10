@@ -341,6 +341,83 @@ def access_guide_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def access_automation_payload(
+    *,
+    level: int,
+    next_action: str,
+    recommended_id: str,
+    level5_activation_state: str,
+    docker_ready: bool,
+) -> dict[str, Any]:
+    level5_configured = level >= 5 and level5_activation_state in {"active", "restart_required", "session_only"}
+    return {
+        "no_terminal_required": True,
+        "ui_contract": "Spark UI/Telegram/installer surfaces may run these fixed Spark CLI actions for nontechnical users after showing the policy-authored confirmation text.",
+        "recommended_action": next_action,
+        "recommended_lane": recommended_id,
+        "actions": [
+            {
+                "id": "workspace_setup",
+                "command": "spark access setup",
+                "run_policy": "auto_safe",
+                "confirmation": "none",
+                "user_message": "Spark can create or repair the safe workspace automatically.",
+                "rollback": "No rollback needed; this only creates Spark-owned workspace folders.",
+            },
+            {
+                "id": "docker_doctor",
+                "command": "spark sandbox docker doctor --json",
+                "run_policy": "auto_read_only",
+                "confirmation": "none",
+                "user_message": "Spark can check Docker readiness without changing the computer.",
+                "available": docker_ready,
+            },
+            {
+                "id": "docker_smoke",
+                "command": "spark sandbox docker smoke --json",
+                "run_policy": "confirm_once",
+                "confirmation": "Run Docker sandbox test",
+                "user_message": "Spark can run a no-secret Docker smoke after confirmation. It may build/pull a local image, but it must not mount the Docker socket, home folder, or Spark secrets.",
+                "rollback": "Docker smoke uses an ephemeral container; remove the local image only with explicit cleanup approval.",
+            },
+            {
+                "id": "level5_enable",
+                "command": "spark access setup --level 5 --enable-high-agency",
+                "run_policy": "explicit_opt_in",
+                "confirmation": "Enable whole-computer operator mode",
+                "user_message": (
+                    "Level 5 is already configured or active."
+                    if level5_configured
+                    else "Spark must ask before enabling Level 5. It writes guardrail env files, records an audit event, and then requires Spark restart."
+                ),
+                "rollback": "spark access disable-level5",
+            },
+            {
+                "id": "level5_disable",
+                "command": "spark access disable-level5",
+                "run_policy": "confirm_once",
+                "confirmation": "Return to workspace sandbox",
+                "user_message": "Spark can disable Level 5 guardrails and return to sandbox-first mode after restart.",
+                "rollback": "spark access setup --level 5 --enable-high-agency",
+            },
+        ],
+        "level5_runtime_policy": {
+            "routine_actions_after_activation": "allowed_without_repeated_confirmation",
+            "destructive_actions_after_activation": "still_approval_required",
+            "secret_reveal_or_export": "still_approval_required",
+            "public_publish_or_deploy": "still_approval_required",
+            "why": "Level 5 removes the normal workspace boundary, but it must not remove deletion, secret, or publish safety layers.",
+        },
+        "deletion_safety": {
+            "default": "do_not_delete",
+            "safe_workspace_cleanup": "prefer_quarantine_or_trash_then_explicit_empty",
+            "outside_workspace": "exact-target approval required",
+            "broad_recursive_delete": "blocked unless a policy classifier and explicit confirmation approve it",
+            "backup_first": "required for user data, secrets, and stateful Spark homes",
+        },
+    }
+
+
 def access_lane_payload(
     *,
     level: int = 4,
@@ -556,6 +633,13 @@ def access_lane_payload(
         "recommended": recommended,
         "lanes": lanes,
         "next": next_action,
+        "automation": access_automation_payload(
+            level=level,
+            next_action=next_action,
+            recommended_id=str(recommended.get("id") or ""),
+            level5_activation_state=level5_activation_state,
+            docker_ready=docker_ready,
+        ),
         "guide": access_guide_payload({
             "access_level": level,
             "os_family": family,

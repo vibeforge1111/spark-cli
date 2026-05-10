@@ -75,6 +75,17 @@ class AccessSetupTests(unittest.TestCase):
             self.assertFalse(payload["guide"]["default"]["whole_computer_access"])
             self.assertEqual(payload["guide"]["stronger_sandbox_order"], ["docker", "modal", "ssh"])
             self.assertIn("not a hardened container", payload["guide"]["security_note"])
+            self.assertTrue(payload["automation"]["no_terminal_required"])
+            actions = {action["id"]: action for action in payload["automation"]["actions"]}
+            self.assertEqual(actions["workspace_setup"]["run_policy"], "auto_safe")
+            self.assertEqual(actions["docker_doctor"]["run_policy"], "auto_read_only")
+            self.assertEqual(actions["docker_smoke"]["run_policy"], "confirm_once")
+            self.assertEqual(actions["level5_enable"]["run_policy"], "explicit_opt_in")
+            self.assertEqual(payload["automation"]["deletion_safety"]["default"], "do_not_delete")
+            self.assertEqual(
+                payload["automation"]["level5_runtime_policy"]["destructive_actions_after_activation"],
+                "still_approval_required",
+            )
 
     def test_access_guide_is_plain_language_and_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -134,6 +145,10 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["effective_access_level"], 4)
         self.assertFalse(payload["state_machine"]["can_operate_whole_computer"])
         self.assertEqual(payload["next"], "spark restart")
+        self.assertEqual(payload["automation"]["recommended_action"], "spark restart")
+        actions = {action["id"]: action for action in payload["automation"]["actions"]}
+        self.assertEqual(actions["level5_enable"]["confirmation"], "Enable whole-computer operator mode")
+        self.assertEqual(actions["level5_enable"]["rollback"], "spark access disable-level5")
         self.assertIn("SPARK_ALLOW_HIGH_AGENCY_WORKERS=1", spawner_env)
         self.assertIn("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1", spawner_env)
         self.assertIn("SPARK_CODEX_SANDBOX=danger-full-access", spawner_env)
@@ -243,6 +258,10 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["recommended"]["id"], "docker")
         self.assertEqual(payload["recommended"]["setup_mode"], "automatic")
+        self.assertEqual(payload["automation"]["recommended_lane"], "docker")
+        actions = {action["id"]: action for action in payload["automation"]["actions"]}
+        self.assertTrue(actions["docker_doctor"]["available"])
+        self.assertIn("no-secret Docker smoke", actions["docker_smoke"]["user_message"])
 
     def test_docker_doctor_reports_missing_cli_without_installing_anything(self) -> None:
         with patch("spark_cli.sandbox.docker.shutil.which", return_value=None):
