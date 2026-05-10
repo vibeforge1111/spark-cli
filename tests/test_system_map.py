@@ -449,6 +449,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             self.assertEqual(view["default_access_level_hint"], 4)
             self.assertEqual(view["cli_access"]["default_sandbox_lane"], "spark_workspace")
             self.assertEqual(view["cli_capability_policy"]["toxic_pair_count"], 1)
+            self.assertEqual(view["telegram_profile_count"], 5)
+            self.assertEqual(view["configured_telegram_profile_count"], 1)
             self.assertIn("developer", view["telegram_access_policy"]["allow_matrix"]["operating_system"])
             self.assertEqual(view["spawner_execution_policy"]["confirmation_gated_action_count"], 1)
             self.assertEqual(view["browser_authority"]["risk_class_counts"]["high_risk_action"], 1)

@@ -2255,13 +2255,16 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[s
     browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
     public_output_authority = inspect_public_output_authority(desktop)
 
+    access_profile_count = len(as_list(telegram_policy.get("profiles")))
+
     return {
         "schema_version": AUTHORITY_VIEW_SCHEMA,
         "generated_at": utc_now(),
         "authority": "observability_non_authoritative",
         "observed_sources": observed_sources,
         "default_access_level_hint": cli_access.get("default_access_level"),
-        "telegram_profile_count": setup_summary.get("telegram_profile_count"),
+        "telegram_profile_count": access_profile_count,
+        "configured_telegram_profile_count": setup_summary.get("telegram_profile_count"),
         "primary_telegram_profile": setup_summary.get("primary_telegram_profile"),
         "cli_access": cli_access,
         "cli_capability_policy": cli_capability_policy,
