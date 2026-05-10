@@ -224,9 +224,42 @@ class SparkSystemMapTests(unittest.TestCase):
                     """
                 )
                 rows = [
-                    ("evt-1", "2026-05-10T13:00:00Z", "intent_committed", "recorded", "info", "frame", "req-1", "trace-1"),
-                    ("evt-2", "2026-05-10T13:01:00Z", "route_selected", "succeeded", "info", "router", "req-1", "trace-1"),
-                    ("evt-3", "2026-05-10T13:02:00Z", "final_answer_checked", "succeeded", "info", "answer", "req-2", "trace-2"),
+                    (
+                        "evt-1",
+                        "2026-05-10T13:00:00Z",
+                        "intent_committed",
+                        "recorded",
+                        "info",
+                        "frame",
+                        "req-1",
+                        "trace-1",
+                        "corr",
+                        None,
+                    ),
+                    (
+                        "evt-2",
+                        "2026-05-10T13:01:00Z",
+                        "route_selected",
+                        "succeeded",
+                        "info",
+                        "router",
+                        "req-1",
+                        "trace-1",
+                        "corr",
+                        "evt-1",
+                    ),
+                    (
+                        "evt-3",
+                        "2026-05-10T13:02:00Z",
+                        "final_answer_checked",
+                        "succeeded",
+                        "info",
+                        "answer",
+                        "req-2",
+                        "trace-2",
+                        "corr",
+                        "missing-parent",
+                    ),
                 ]
                 for row in rows:
                     conn.execute(
@@ -239,8 +272,6 @@ class SparkSystemMapTests(unittest.TestCase):
                         """,
                         (
                             *row,
-                            "corr",
-                            None,
                             "telegram",
                             "route",
                             "observed",
@@ -260,6 +291,13 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(groups["group_count"], 2)
         self.assertEqual(by_trace["trace-1"]["event_count"], 2)
         self.assertEqual([event["event_id"] for event in by_trace["trace-1"]["events"]], ["evt-1", "evt-2"])
+        self.assertEqual(by_trace["trace-1"]["topology"]["root_event_count"], 1)
+        self.assertEqual(by_trace["trace-1"]["topology"]["parent_link_count"], 1)
+        self.assertEqual(by_trace["trace-1"]["topology"]["orphan_parent_event_count"], 0)
+        self.assertEqual(by_trace["trace-1"]["topology"]["edge_sample"][0]["parent_event_id"], "evt-1")
+        self.assertEqual(by_trace["trace-1"]["topology"]["edge_sample"][0]["child_event_id"], "evt-2")
+        self.assertEqual(by_trace["trace-2"]["topology"]["orphan_parent_event_count"], 1)
+        self.assertFalse(by_trace["trace-2"]["topology"]["edge_sample"][0]["parent_exists"])
         self.assertNotIn("private trace summary", encoded)
         self.assertNotIn("private trace body", encoded)
         self.assertNotIn("provenance_json", encoded)
@@ -339,6 +377,8 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(health["trace_group_count"], 2)
         self.assertEqual(health["orphan_parent_event_id_count"], 1)
         self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["orphan_parent_event_sources"]["rows"][0]["component"], "router")
+        self.assertEqual(health["orphan_parent_event_sources"]["rows"][0]["event_count"], 1)
         self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["component"], "answer")
         self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["event_count"], 1)
         self.assertEqual(health["recent_windows"][0]["row_count"], 4)

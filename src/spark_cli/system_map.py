@@ -829,6 +829,7 @@ def inspect_builder_trace_groups(
     *,
     group_limit: int = 12,
     events_per_trace: int = 12,
+    edge_sample_limit: int = 24,
 ) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
@@ -837,7 +838,11 @@ def inspect_builder_trace_groups(
         "exists": db_path.exists(),
         "group_limit": group_limit,
         "events_per_trace": events_per_trace,
-        "redaction": "trace grouping over allowlisted event metadata only; summaries, facts JSON, and provenance JSON omitted",
+        "edge_sample_limit": edge_sample_limit,
+        "redaction": (
+            "trace grouping over allowlisted event metadata only; summaries, facts JSON, "
+            "provenance JSON, and raw event bodies omitted"
+        ),
     }
     if not db_path.exists():
         return out
@@ -892,6 +897,13 @@ def inspect_builder_trace_groups(
                         "event_count": int(group_row["event_count"] or 0),
                         "first_seen_at": group_row["first_seen_at"],
                         "last_seen_at": group_row["last_seen_at"],
+                        "topology": builder_trace_topology(
+                            conn,
+                            columns,
+                            trace_ref=trace_ref,
+                            event_count=int(group_row["event_count"] or 0),
+                            edge_sample_limit=edge_sample_limit,
+                        ),
                         "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
                     }
                 )
@@ -902,6 +914,96 @@ def inspect_builder_trace_groups(
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+def builder_trace_topology(
+    conn: sqlite3.Connection,
+    columns: list[str],
+    *,
+    trace_ref: str,
+    event_count: int,
+    edge_sample_limit: int,
+) -> dict[str, Any]:
+    if not {"event_id", "parent_event_id"}.issubset(columns):
+        return {"available": False, "reason": "event_id_or_parent_event_id_missing"}
+
+    parent_link_count = conn.execute(
+        """
+        select count(*)
+        from builder_events
+        where trace_ref = ?
+          and parent_event_id is not null
+          and trim(parent_event_id) != ''
+        """,
+        (trace_ref,),
+    ).fetchone()[0]
+    root_event_count = conn.execute(
+        """
+        select count(*)
+        from builder_events
+        where trace_ref = ?
+          and (parent_event_id is null or trim(parent_event_id) = '')
+        """,
+        (trace_ref,),
+    ).fetchone()[0]
+    orphan_parent_count = conn.execute(
+        """
+        select count(*)
+        from builder_events child
+        where child.trace_ref = ?
+          and child.parent_event_id is not null
+          and trim(child.parent_event_id) != ''
+          and not exists (
+            select 1 from builder_events parent where parent.event_id = child.parent_event_id
+          )
+        """,
+        (trace_ref,),
+    ).fetchone()[0]
+    order_expr = 'child."created_at"' if "created_at" in columns else "child.rowid"
+    child_event_type_expr = 'child."event_type"' if "event_type" in columns else "null"
+    child_component_expr = 'child."component"' if "component" in columns else "null"
+    parent_event_type_expr = 'parent."event_type"' if "event_type" in columns else "null"
+    edge_rows = conn.execute(
+        f"""
+        select
+          child.event_id as child_event_id,
+          child.parent_event_id as parent_event_id,
+          {child_event_type_expr} as child_event_type,
+          {child_component_expr} as child_component,
+          {parent_event_type_expr} as parent_event_type,
+          case when parent.event_id is null then 0 else 1 end as parent_exists,
+          case when parent.event_id is not null and parent.trace_ref = child.trace_ref then 1 else 0 end as parent_in_same_trace
+        from builder_events child
+        left join builder_events parent on parent.event_id = child.parent_event_id
+        where child.trace_ref = ?
+          and child.parent_event_id is not null
+          and trim(child.parent_event_id) != ''
+        order by {order_expr} asc
+        limit ?
+        """,
+        (trace_ref, max(0, min(int(edge_sample_limit), 50))),
+    ).fetchall()
+    return {
+        "available": True,
+        "event_count": int(event_count or 0),
+        "root_event_count": int(root_event_count or 0),
+        "parent_link_count": int(parent_link_count or 0),
+        "orphan_parent_event_count": int(orphan_parent_count or 0),
+        "edge_sample_count": len(edge_rows),
+        "edge_sample": [
+            {
+                "parent_event_id": safe_builder_event_value("parent_event_id", row["parent_event_id"]),
+                "child_event_id": safe_builder_event_value("event_id", row["child_event_id"]),
+                "parent_event_type": safe_builder_event_value("event_type", row["parent_event_type"]),
+                "child_event_type": safe_builder_event_value("event_type", row["child_event_type"]),
+                "child_component": safe_builder_event_value("component", row["child_component"]),
+                "parent_exists": bool(row["parent_exists"]),
+                "parent_in_same_trace": bool(row["parent_in_same_trace"]),
+            }
+            for row in edge_rows
+        ],
+        "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+    }
 
 
 def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
@@ -993,6 +1095,16 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     """
                 ).fetchone()[0]
                 out["orphan_parent_event_id_count"] = int(orphaned)
+                orphan_columns = [
+                    column
+                    for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
+                    if column in columns
+                ]
+                if orphan_columns:
+                    out["orphan_parent_event_sources"] = builder_trace_orphan_parent_sources(
+                        conn,
+                        orphan_columns,
+                    )
             flags = []
             if int(out.get("missing_trace_ref_count") or 0):
                 flags.append("missing_trace_refs")
@@ -1006,6 +1118,40 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+def builder_trace_orphan_parent_sources(conn: sqlite3.Connection, group_columns: list[str]) -> dict[str, Any]:
+    expressions = [
+        f"coalesce(nullif(trim(child.\"{column}\"), ''), '[missing]') as \"{column}\""
+        for column in group_columns
+    ]
+    group_by = ", ".join(f'"{column}"' for column in group_columns)
+    rows = conn.execute(
+        f"""
+        select {", ".join(expressions)}, count(*) as event_count
+        from builder_events child
+        where child.parent_event_id is not null
+          and trim(child.parent_event_id) != ''
+          and not exists (
+            select 1 from builder_events parent where parent.event_id = child.parent_event_id
+          )
+        group by {group_by}
+        order by event_count desc
+        limit 30
+        """
+    ).fetchall()
+    return {
+        "group_by": group_columns,
+        "limit": 30,
+        "redaction": "aggregate orphan-parent counts grouped by allowlisted event metadata only",
+        "rows": [
+            {
+                **{column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)},
+                "event_count": int(row[len(group_columns)] or 0),
+            }
+            for row in rows
+        ],
+    }
 
 
 def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
