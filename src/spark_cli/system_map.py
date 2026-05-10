@@ -15,6 +15,7 @@ import tomllib
 SYSTEM_MAP_SCHEMA = "spark.system_map.compiled.v0"
 AUTHORITY_VIEW_SCHEMA = "spark.authority_view.compiled.v0"
 CAPABILITY_CATALOG_SCHEMA = "spark.capability_catalog.compiled.v0"
+CAPABILITY_CARD_SCHEMA = "spark.capability_card.v1"
 TRACE_INDEX_SCHEMA = "spark.trace_index.compiled.v0"
 MEMORY_MOVEMENT_INDEX_SCHEMA = "spark.memory_movement_index.compiled.v0"
 
@@ -1080,6 +1081,130 @@ def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | No
     }
 
 
+def bool_count(items: dict[str, Any]) -> int:
+    return sum(1 for item in items.values() if as_dict(item).get("exists") is True)
+
+
+def capability_card_status_from_labs(surface: dict[str, Any]) -> str:
+    artifacts = as_dict(surface.get("creator_run_artifacts"))
+    schema_inventory = as_dict(surface.get("schema_inventory"))
+    if int(artifacts.get("run_count") or 0) > 0:
+        return "local-artifacts"
+    if int(schema_inventory.get("schema_count") or 0) > 0:
+        return "schema-shaped"
+    return "seen"
+
+
+def capability_card_status_from_specialization(surface: dict[str, Any]) -> str:
+    config = as_dict(surface.get("config"))
+    artifacts = as_dict(surface.get("collective_artifacts"))
+    schema_inventory = as_dict(surface.get("schema_inventory"))
+    if int(artifacts.get("promotion_packet_count") or 0) > 0:
+        return "local-artifacts"
+    if int(config.get("path_count") or 0) > 0 or int(schema_inventory.get("schema_count") or 0) > 0:
+        return "schema-shaped"
+    return "seen"
+
+
+def build_capability_cards(
+    creator_system_surfaces: list[dict[str, Any]],
+    specialization_path_surfaces: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+
+    for surface in creator_system_surfaces:
+        repo = str(surface.get("repo") or "unknown")
+        schema_inventory = as_dict(surface.get("schema_inventory"))
+        artifacts = as_dict(surface.get("creator_run_artifacts"))
+        review_sources = as_dict(surface.get("review_and_release_sources"))
+        artifact_counts = as_dict(artifacts.get("artifact_presence_counts"))
+        cards.append(
+            {
+                "schema_version": CAPABILITY_CARD_SCHEMA,
+                "id": f"creator-system:{repo}",
+                "name": f"{repo} creator system",
+                "owner_repo": repo,
+                "surface_type": "creator-system",
+                "status": capability_card_status_from_labs(surface),
+                "requested_authority": ["local_files_read", "review_only"],
+                "memory_policy": "non_authoritative_evidence_only",
+                "evidence_summary": {
+                    "schema_count": int(schema_inventory.get("schema_count") or 0),
+                    "creator_run_count": int(artifacts.get("run_count") or 0),
+                    "artifact_presence_counts": artifact_counts,
+                },
+                "benchmark_summary": {
+                    "benchmark_manifest_count": int(artifact_counts.get("benchmark_manifest") or 0),
+                },
+                "review_summary": {
+                    "review_source_count": bool_count(review_sources),
+                    "review_sources": {
+                        key: bool(as_dict(value).get("exists")) for key, value in sorted(review_sources.items())
+                    },
+                },
+                "trace_refs": [],
+                "rollback_refs": [],
+                "privacy_boundary": "Local creator artifacts are evidence references only; raw packet bodies are not exported.",
+                "public_boundary": "Network publication is blocked unless explicit approval and proof gates pass.",
+                "blockers": [
+                    "Gate verdicts are not normalized into the card yet.",
+                    "Privacy and rollback reviews are not compiled into the card yet.",
+                    "Network publication approval is not compiled into the card yet.",
+                ],
+                "next_action": "Normalize release-gate, operator-review, product-runtime-review, privacy, and rollback verdicts.",
+            }
+        )
+
+    for surface in specialization_path_surfaces:
+        repo = str(surface.get("repo") or "unknown")
+        config = as_dict(surface.get("config"))
+        schema_inventory = as_dict(surface.get("schema_inventory"))
+        artifacts = as_dict(surface.get("collective_artifacts"))
+        governance_sources = as_dict(surface.get("publication_governance_sources"))
+        cards.append(
+            {
+                "schema_version": CAPABILITY_CARD_SCHEMA,
+                "id": f"specialization-path:{repo}",
+                "name": f"{repo} specialization path",
+                "owner_repo": repo,
+                "surface_type": "specialization-path",
+                "status": capability_card_status_from_specialization(surface),
+                "requested_authority": ["local_files_read", "review_only"],
+                "memory_policy": "selective_or_surface_defined",
+                "evidence_summary": {
+                    "configured_path_count": int(config.get("path_count") or 0),
+                    "schema_count": int(schema_inventory.get("schema_count") or 0),
+                    "promotion_packet_count": int(artifacts.get("promotion_packet_count") or 0),
+                    "evidence_ledger_count": int(artifacts.get("evidence_ledger_count") or 0),
+                },
+                "benchmark_summary": {
+                    "loop_kind_counts": as_dict(config.get("loop_kind_counts")),
+                    "benchmark_adapter_counts": as_dict(config.get("benchmark_adapter_counts")),
+                    "evolution_mode_counts": as_dict(config.get("evolution_mode_counts")),
+                    "rollback_policy_counts": as_dict(config.get("rollback_policy_counts")),
+                },
+                "review_summary": {
+                    "publication_governance_source_count": bool_count(governance_sources),
+                    "publication_governance_sources": {
+                        key: bool(as_dict(value).get("exists")) for key, value in sorted(governance_sources.items())
+                    },
+                },
+                "trace_refs": [],
+                "rollback_refs": [],
+                "privacy_boundary": "Specialization metadata is exported without commands, labels, descriptions, or packet bodies.",
+                "public_boundary": "Collective publication requires verified proof, approval gates, and rollback review.",
+                "blockers": [
+                    "Benchmark pass/fail verdicts are not compiled into the card yet.",
+                    "Publication approval verdict is not compiled into the card yet.",
+                    "Privacy and rollback reviews are not compiled into the card yet.",
+                ],
+                "next_action": "Normalize benchmark, publication-proof, privacy, and rollback verdicts into capability status.",
+            }
+        )
+
+    return cards
+
+
 def summarize_memory_kb_artifacts(builder_home: Path) -> dict[str, Any]:
     root = builder_home / "artifacts" / "spark-memory-kb"
     summary = count_files_under(root)
@@ -1754,6 +1879,7 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_sources": contract_sources,
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
+        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
     }
 
 
@@ -2040,6 +2166,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "skill_graphs": len(as_list(capability_catalog.get("skill_graphs"))),
         "creator_system_surfaces": len(as_list(capability_catalog.get("creator_system_surfaces"))),
         "specialization_path_surfaces": len(as_list(capability_catalog.get("specialization_path_surfaces"))),
+        "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
         "authority_sources": {
             key: as_dict(value).get("exists")
             for key, value in as_dict(as_dict(compiled["authority_view"]).get("observed_sources")).items()

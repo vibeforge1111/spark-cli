@@ -5514,6 +5514,47 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_os_capabilities(args: argparse.Namespace) -> int:
+    desktop = Path(args.desktop).expanduser()
+    spark_home = Path(args.spark_home).expanduser()
+    registry_path = Path(args.registry).expanduser()
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    catalog = compiled.get("capability_catalog") if isinstance(compiled, dict) else {}
+    catalog = catalog if isinstance(catalog, dict) else {}
+    cards = catalog.get("capability_cards") if isinstance(catalog.get("capability_cards"), list) else []
+    status_counts: dict[str, int] = {}
+    surface_counts: dict[str, int] = {}
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        status = str(card.get("status") or "unknown")
+        surface = str(card.get("surface_type") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        surface_counts[surface] = surface_counts.get(surface, 0) + 1
+
+    payload = {
+        "schema_version": "spark.os_capabilities.summary.v0",
+        "generated_at": catalog.get("generated_at"),
+        "card_count": len(cards),
+        "status_counts": dict(sorted(status_counts.items())),
+        "surface_counts": dict(sorted(surface_counts.items())),
+        "cards": cards,
+        "redaction": "Capability cards are compiled from metadata only; commands, packet bodies, logs, and raw evidence are omitted.",
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print("Spark OS capabilities")
+    print(f"- cards: {payload['card_count']}")
+    for surface, count in payload["surface_counts"].items():
+        print(f"- {surface}: {count}")
+    for status, count in payload["status_counts"].items():
+        print(f"- {status}: {count}")
+    print("Redaction: commands, packet bodies, logs, and raw evidence are omitted.")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if args.json:
@@ -12580,6 +12621,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
             { "command": "spark os compile", "use": "Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, memory movement index, and gaps report." },
+            { "command": "spark os capabilities", "use": "Inspect redacted capability cards for Labs and Swarm surfaces." },
             { "command": "spark doctor llm \"<problem>\" --save-report", "use": "Ask the user's configured LLM for a redacted repair plan." },
             { "command": "spark autostart on --now", "use": "Turn on the Telegram agent now and every time this computer logs in." },
             { "command": "spark autostart status", "use": "Check whether login autostart is installed and points at the current Spark home." },
@@ -12601,6 +12643,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark onboard [bundle]", "use": "Resume setup or restart onboarding until the Telegram first-message bridge is confirmed." },
             { "command": "spark status [--json]", "use": "Run module healthchecks with repair hints." },
             { "command": "spark os compile [--json]", "use": "Write read-only Spark OS system-map, authority, capability, trace, memory movement, and gap reports under ~/.spark/state/system-map." },
+            { "command": "spark os capabilities [--json]", "use": "Inspect metadata-only capability cards and promotion blockers." },
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
@@ -12906,6 +12949,12 @@ def build_parser() -> argparse.ArgumentParser:
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
     os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
     os_compile_parser.set_defaults(func=cmd_os_compile)
+    os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
+    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
+    os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")

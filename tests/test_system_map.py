@@ -287,6 +287,7 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(len(catalog["specialization_path_surfaces"]), 1)
         labs_surface = catalog["creator_system_surfaces"][0]
         swarm_surface = catalog["specialization_path_surfaces"][0]
+        cards_by_id = {card["id"]: card for card in catalog["capability_cards"]}
         self.assertEqual(labs_surface["schema_inventory"]["schema_count"], 1)
         self.assertEqual(labs_surface["creator_run_artifacts"]["run_count"], 1)
         self.assertEqual(labs_surface["creator_run_artifacts"]["artifact_presence_counts"]["created_manifest"], 1)
@@ -295,6 +296,9 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(swarm_surface["config"]["benchmark_adapter_counts"]["startup-bench"], 1)
         self.assertTrue(swarm_surface["publication_governance_sources"]["contract_types"]["exists"])
         self.assertEqual(swarm_surface["collective_artifacts"]["promotion_packet_count"], 1)
+        self.assertEqual(cards_by_id["creator-system:spark-domain-chip-labs"]["status"], "local-artifacts")
+        self.assertEqual(cards_by_id["specialization-path:spark-swarm"]["status"], "local-artifacts")
+        self.assertIn("Network publication approval", cards_by_id["creator-system:spark-domain-chip-labs"]["blockers"][2])
         self.assertNotIn("schema body should stay out", encoded)
         self.assertNotIn("run body should stay out", encoded)
         self.assertNotIn("secret command should stay out", encoded)
@@ -663,6 +667,28 @@ routes = []
             self.assertTrue((out / "memory-movement-index.json").exists())
             self.assertNotIn("telegram.bot_token", output_text)
             self.assertNotIn("webhook_url", output_text)
+
+            capability_args = build_parser().parse_args(
+                [
+                    "os",
+                    "capabilities",
+                    "--desktop",
+                    str(desktop),
+                    "--spark-home",
+                    str(spark_home),
+                    "--registry",
+                    str(registry),
+                    "--json",
+                ]
+            )
+            capability_stdout = StringIO()
+            with redirect_stdout(capability_stdout):
+                capability_exit_code = capability_args.func(capability_args)
+            capability_summary = json.loads(capability_stdout.getvalue())
+
+            self.assertEqual(capability_exit_code, 0)
+            self.assertEqual(capability_summary["schema_version"], "spark.os_capabilities.summary.v0")
+            self.assertEqual(capability_summary["card_count"], 0)
 
 
 if __name__ == "__main__":
