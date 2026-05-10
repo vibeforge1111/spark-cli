@@ -869,6 +869,50 @@ routes = []
             self.assertEqual(authority_summary["schema_version"], "spark.os_authority.summary.v0")
             self.assertIn("guardrail_summary", authority_summary)
 
+            trace_args = build_parser().parse_args(
+                [
+                    "os",
+                    "trace",
+                    "--desktop",
+                    str(desktop),
+                    "--spark-home",
+                    str(spark_home),
+                    "--registry",
+                    str(registry),
+                    "--json",
+                ]
+            )
+            trace_stdout = StringIO()
+            with redirect_stdout(trace_stdout):
+                trace_exit_code = trace_args.func(trace_args)
+            trace_summary = json.loads(trace_stdout.getvalue())
+
+            self.assertEqual(trace_exit_code, 0)
+            self.assertEqual(trace_summary["schema_version"], "spark.os_trace.summary.v0")
+            self.assertIn("cross_system_trace", trace_summary)
+
+            memory_args = build_parser().parse_args(
+                [
+                    "os",
+                    "memory",
+                    "--desktop",
+                    str(desktop),
+                    "--spark-home",
+                    str(spark_home),
+                    "--registry",
+                    str(registry),
+                    "--json",
+                ]
+            )
+            memory_stdout = StringIO()
+            with redirect_stdout(memory_stdout):
+                memory_exit_code = memory_args.func(memory_args)
+            memory_summary = json.loads(memory_stdout.getvalue())
+
+            self.assertEqual(memory_exit_code, 0)
+            self.assertEqual(memory_summary["schema_version"], "spark.os_memory.summary.v0")
+            self.assertIn("movement_counts", memory_summary)
+
 
 if __name__ == "__main__":
     unittest.main()

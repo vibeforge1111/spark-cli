@@ -5612,6 +5612,122 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
     return 0
 
 
+def _safe_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def cmd_os_trace(args: argparse.Namespace) -> int:
+    desktop = Path(args.desktop).expanduser()
+    spark_home = Path(args.spark_home).expanduser()
+    registry_path = Path(args.registry).expanduser()
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    trace_index = _safe_mapping(compiled.get("trace_index") if isinstance(compiled, dict) else {})
+    builder_events = _safe_mapping(trace_index.get("builder_events"))
+    trace_health = _safe_mapping(trace_index.get("builder_trace_health"))
+    trace_groups = _safe_mapping(trace_index.get("builder_trace_groups"))
+    spawner = _safe_mapping(trace_index.get("spawner_prd_auto_trace_samples"))
+    spawner_join = _safe_mapping(spawner.get("join_keys"))
+    spawner_request_overlap = _safe_mapping(spawner.get("builder_request_overlap"))
+    spawner_trace_overlap = _safe_mapping(spawner.get("builder_trace_ref_overlap"))
+    telegram_gate = _safe_mapping(trace_index.get("telegram_final_answer_gate_samples"))
+    telegram_join = _safe_mapping(telegram_gate.get("trace_join"))
+    payload = {
+        "schema_version": "spark.os_trace.summary.v0",
+        "generated_at": trace_index.get("generated_at"),
+        "builder_event_count": _safe_int(builder_events.get("row_count")),
+        "trace_group_count": _safe_int(trace_health.get("trace_group_count") or trace_groups.get("group_count")),
+        "missing_trace_ref_count": _safe_int(trace_health.get("missing_trace_ref_count")),
+        "high_severity_open_count": _safe_int(trace_health.get("high_severity_open_count")),
+        "orphan_parent_event_id_count": _safe_int(trace_health.get("orphan_parent_event_id_count")),
+        "health_flags": _safe_list(trace_health.get("health_flags")),
+        "recent_windows": _safe_list(trace_health.get("recent_windows")),
+        "top_missing_trace_ref_sources": _safe_list(
+            _safe_mapping(trace_health.get("missing_trace_ref_sources")).get("rows")
+        )[:10],
+        "cross_system_trace": {
+            "spawner_request_id_count": _safe_int(spawner_join.get("request_id_count")),
+            "spawner_derived_trace_ref_count": _safe_int(spawner_join.get("derived_trace_ref_count")),
+            "spawner_builder_request_overlap_count": _safe_int(
+                spawner_request_overlap.get("matched_builder_request_id_count")
+            ),
+            "spawner_builder_trace_ref_overlap_count": _safe_int(
+                spawner_trace_overlap.get("matched_builder_trace_ref_count")
+            ),
+            "telegram_final_answer_trace_join_status": telegram_join.get("status") or "unknown",
+        },
+        "trace_index": trace_index,
+        "redaction": trace_index.get("redaction"),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    cross_system = payload["cross_system_trace"]
+    print("Spark OS trace")
+    print(f"- Builder events: {payload['builder_event_count']}")
+    print(f"- trace groups: {payload['trace_group_count']}")
+    print(f"- missing trace refs: {payload['missing_trace_ref_count']}")
+    print(f"- open high-severity events: {payload['high_severity_open_count']}")
+    print(
+        "- Spawner request overlaps: "
+        f"{cross_system['spawner_builder_request_overlap_count']}/{cross_system['spawner_request_id_count']}"
+    )
+    print(f"- Telegram final-answer join: {cross_system['telegram_final_answer_trace_join_status']}")
+    print("Redaction: aggregate trace metadata only; raw event bodies and message text are omitted.")
+    return 0
+
+
+def cmd_os_memory(args: argparse.Namespace) -> int:
+    desktop = Path(args.desktop).expanduser()
+    spark_home = Path(args.spark_home).expanduser()
+    registry_path = Path(args.registry).expanduser()
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    memory_index = _safe_mapping(compiled.get("memory_movement_index") if isinstance(compiled, dict) else {})
+    safe_status = _safe_mapping(memory_index.get("safe_status_export"))
+    status = _safe_mapping(safe_status.get("status"))
+    kb_artifacts = _safe_mapping(memory_index.get("memory_kb_artifacts"))
+    current_state = _safe_mapping(_safe_mapping(kb_artifacts.get("lane_counts")).get("current_state"))
+    payload = {
+        "schema_version": "spark.os_memory.summary.v0",
+        "generated_at": memory_index.get("generated_at"),
+        "status": status.get("status") or "unknown",
+        "authority": status.get("authority") or memory_index.get("authority"),
+        "row_count": _safe_int(status.get("row_count")),
+        "movement_counts": _safe_mapping(status.get("movement_counts")),
+        "authority_counts": _safe_mapping(status.get("authority_counts")),
+        "source_family_counts": _safe_mapping(status.get("source_family_counts")),
+        "record_counts": _safe_mapping(status.get("record_counts")),
+        "kb_file_count": _safe_int(kb_artifacts.get("file_count")),
+        "current_state_file_count": _safe_int(current_state.get("file_count")),
+        "memory_movement_index": memory_index,
+        "redaction": memory_index.get("redaction"),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print("Spark OS memory movement")
+    print(f"- status: {payload['status']}")
+    print(f"- rows: {payload['row_count']}")
+    print(f"- movement: {payload['movement_counts']}")
+    print(f"- authority: {payload['authority_counts']}")
+    print(f"- records: {payload['record_counts']}")
+    print(f"- KB files: {payload['kb_file_count']}")
+    print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if args.json:
@@ -12680,6 +12796,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark os compile", "use": "Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, memory movement index, and gaps report." },
             { "command": "spark os authority", "use": "Inspect redacted access, sandbox, browser approval, and publication authority contracts." },
             { "command": "spark os capabilities", "use": "Inspect redacted capability cards for Labs and Swarm surfaces." },
+            { "command": "spark os trace", "use": "Inspect redacted trace health, repair gaps, and cross-system join shape." },
+            { "command": "spark os memory", "use": "Inspect redacted memory movement counts and authority buckets." },
             { "command": "spark doctor llm \"<problem>\" --save-report", "use": "Ask the user's configured LLM for a redacted repair plan." },
             { "command": "spark autostart on --now", "use": "Turn on the Telegram agent now and every time this computer logs in." },
             { "command": "spark autostart status", "use": "Check whether login autostart is installed and points at the current Spark home." },
@@ -12703,6 +12821,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark os compile [--json]", "use": "Write read-only Spark OS system-map, authority, capability, trace, memory movement, and gap reports under ~/.spark/state/system-map." },
             { "command": "spark os authority [--json]", "use": "Inspect metadata-only authority levels, sandbox lanes, guarded actions, browser approvals, and publication gates." },
             { "command": "spark os capabilities [--json]", "use": "Inspect metadata-only capability cards and promotion blockers." },
+            { "command": "spark os trace [--json]", "use": "Inspect metadata-only trace health, missing refs, high-severity open events, and cross-system joins." },
+            { "command": "spark os memory [--json]", "use": "Inspect metadata-only memory movement, authority buckets, record counts, and KB artifact counts." },
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
@@ -13020,6 +13140,18 @@ def build_parser() -> argparse.ArgumentParser:
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
     os_authority_parser.set_defaults(func=cmd_os_authority)
+    os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
+    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
+    os_trace_parser.set_defaults(func=cmd_os_trace)
+    os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
+    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
+    os_memory_parser.set_defaults(func=cmd_os_memory)
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")
