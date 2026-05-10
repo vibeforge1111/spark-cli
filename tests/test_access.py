@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import build_parser, cmd_access
 from spark_cli.cli import cmd_sandbox
-from spark_cli.sandbox.docker import collect_docker_doctor_payload
+from spark_cli.sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
 
 
 DOCKER_NOT_READY = {
@@ -172,6 +173,59 @@ class AccessSetupTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["backend"], "docker")
         collect.assert_called_once_with()
+
+    def test_docker_smoke_builds_and_runs_with_safe_container_flags(self) -> None:
+        completed = subprocess.CompletedProcess(["docker"], 0, stdout="28.5.1\n", stderr="")
+        with patch("spark_cli.sandbox.docker.shutil.which", return_value="docker"), \
+             patch("spark_cli.sandbox.docker.subprocess.run", side_effect=[completed, completed, completed]) as run:
+            payload = collect_docker_smoke_payload(image="spark-test:local")
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "smoke")
+        self.assertEqual(payload["network"], "none")
+        build_args = run.call_args_list[1].args[0]
+        run_args = run.call_args_list[2].args[0]
+        self.assertEqual(build_args[:3], ["docker", "build", "-f"])
+        self.assertIn("spark-test:local", build_args)
+        self.assertIn("--network", run_args)
+        self.assertIn("none", run_args)
+        self.assertIn("--read-only", run_args)
+        self.assertIn("--cap-drop", run_args)
+        self.assertIn("ALL", run_args)
+        self.assertIn("no-new-privileges", run_args)
+        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", run_args)
+        self.assertNotIn("/var/run/docker.sock", " ".join(run_args))
+        self.assertEqual(payload["checks"][0]["repair"], "")
+
+    def test_sandbox_docker_smoke_cli_json_runs_payload(self) -> None:
+        args = build_parser().parse_args(["sandbox", "docker", "smoke", "--image", "spark-test:local", "--no-build", "--json"])
+        stdout = StringIO()
+        with patch("spark_cli.sandbox.docker.collect_docker_smoke_payload", return_value={
+            "ok": True,
+            "backend": "docker",
+            "command": "smoke",
+            "checks": [],
+            "capabilities": {},
+            "next": "done",
+        }) as collect, redirect_stdout(stdout):
+            exit_code = cmd_sandbox(args)
+        payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "smoke")
+        collect.assert_called_once_with(build=False, image="spark-test:local", network=False)
+
+    def test_docker_sandbox_wrappers_pass_args_and_create_writable_sandbox_tmpfs(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        ps1 = (repo / "scripts" / "docker-sandbox-run.ps1").read_text(encoding="utf-8")
+        sh = (repo / "scripts" / "docker-sandbox-run.sh").read_text(encoding="utf-8")
+
+        self.assertIn("PositionalBinding=$false", ps1)
+        self.assertIn("ValueFromRemainingArguments", ps1)
+        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", ps1)
+        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", sh)
+        self.assertIn("--network \"${network}\"", sh)
 
 
 if __name__ == "__main__":

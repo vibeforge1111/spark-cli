@@ -1,3 +1,4 @@
+[CmdletBinding(PositionalBinding=$false)]
 param(
     [string]$Image = "spark-cli-sandbox:local",
     [switch]$NoBuild,
@@ -27,6 +28,6 @@ docker run --rm `
     --cap-drop ALL `
     --security-opt no-new-privileges `
     --tmpfs /tmp:rw,noexec,nosuid,size=256m `
-    --tmpfs /sandbox:rw,nosuid,size=512m `
+    --tmpfs /sandbox:rw,nosuid,uid=1000,gid=1000,size=512m `
     $Image `
     @SparkArgs

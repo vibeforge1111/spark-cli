@@ -7551,7 +7551,7 @@ def cmd_access(args: argparse.Namespace) -> int:
 
 def cmd_sandbox(args: argparse.Namespace) -> int:
     from .sandbox.capabilities import CapabilityManifest
-    from .sandbox.docker import collect_docker_doctor_payload
+    from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
     from .sandbox.modal import collect_modal_doctor_payload, collect_modal_smoke_payload
     from .sandbox.ssh import (
         add_ssh_target,
@@ -7699,14 +7699,21 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
             print(payload["next"])
         return exit_code
 
-    if backend == "docker" and command == "doctor":
-        payload = collect_docker_doctor_payload()
+    if backend == "docker" and command in {"doctor", "smoke"}:
+        if command == "doctor":
+            payload = collect_docker_doctor_payload()
+        else:
+            payload = collect_docker_smoke_payload(
+                build=not bool(getattr(args, "no_build", False)),
+                image=getattr(args, "image", "") or None,
+                network=bool(getattr(args, "network", False)),
+            )
         exit_code = 0 if payload.get("ok") else 1
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
         else:
             status = "OK" if payload.get("ok") else "needs attention"
-            print(f"Spark Docker sandbox doctor: {status}")
+            print(f"Spark Docker sandbox {command}: {status}")
             for check in payload.get("checks", []):
                 marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
                 print(f"  [{marker}] {check['name']}: {check['detail']}")
@@ -9407,6 +9414,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
 
 
 def collect_sandbox_verify_payload() -> dict[str, Any]:
+    from .sandbox.docker import collect_docker_doctor_payload
     from .sandbox.modal import collect_modal_doctor_payload
     from .sandbox.ssh import collect_ssh_doctor_payload, load_ssh_targets
 
@@ -9428,6 +9436,16 @@ def collect_sandbox_verify_payload() -> dict[str, Any]:
             "repair": "Restore the remote sandbox docs before publishing sandbox integrations.",
         }
     ]
+
+    docker = collect_docker_doctor_payload(timeout=3)
+    checks.append({
+        "name": "docker_doctor",
+        "ok": bool(docker.get("ok")),
+        "required": False,
+        "level": "info" if docker.get("ok") else "warning",
+        "detail": "Docker sandbox doctor is ready." if docker.get("ok") else "Docker is optional and not fully available.",
+        "repair": "" if docker.get("ok") else "spark sandbox docker doctor --json",
+    })
 
     ssh_targets: list[dict[str, Any]] = []
     try:
@@ -9485,9 +9503,12 @@ def collect_sandbox_verify_payload() -> dict[str, Any]:
         "ok": required_ok,
         "summary": "Spark remote sandbox verification",
         "checks": checks,
+        "docker_doctor": docker,
         "ssh_targets": ssh_targets,
         "modal_doctor": modal,
         "next_commands": [
+            "spark sandbox docker doctor --json",
+            "spark sandbox docker smoke --json",
             "spark sandbox ssh doctor <name> --remote-probe --json",
             "spark sandbox ssh smoke <name> --json",
             "spark sandbox modal doctor --json",
@@ -12456,7 +12477,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "cloud": "Modal is for disposable cloud/GPU work and starts with no Spark secrets or project files by default.",
             "remote": "SSH is for a machine the user owns and controls; it is not a sandbox by itself.",
             "level5": "Level 5 whole-computer mode is explicit opt-in with spark access setup --level 5 --enable-high-agency.",
-            "commands": ["spark access guide", "spark access setup", "spark sandbox docker doctor"],
+            "commands": ["spark access guide", "spark access setup", "spark sandbox docker doctor", "spark sandbox docker smoke"],
         },
         "quick_start": [
             {"title": "Get your Telegram bot ready", "steps": [
@@ -12556,14 +12577,14 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
-            { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional SSH/Modal sandbox readiness." },
+            { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark access status|guide|setup|disable-level5", "use": "Prepare, explain, and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
-            { "command": "spark sandbox ssh|modal", "use": "Manage SSH targets, host-key trust, fixed remote probes, hashed SSH smoke, and explicit no-secret Modal smoke." },
+            { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
             { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
@@ -12989,6 +13010,12 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
     sandbox_docker_doctor_parser.add_argument("--json", action="store_true")
     sandbox_docker_doctor_parser.set_defaults(func=cmd_sandbox)
+    sandbox_docker_smoke_parser = sandbox_docker_subparsers.add_parser("smoke", help="Run a no-secret Docker sandbox smoke")
+    sandbox_docker_smoke_parser.add_argument("--json", action="store_true")
+    sandbox_docker_smoke_parser.add_argument("--image", default="", help="Docker image tag to build/run")
+    sandbox_docker_smoke_parser.add_argument("--no-build", action="store_true", help="Use an existing sandbox image instead of building")
+    sandbox_docker_smoke_parser.add_argument("--network", action="store_true", help="Allow bridge networking for this explicit smoke")
+    sandbox_docker_smoke_parser.set_defaults(func=cmd_sandbox)
 
     sandbox_ssh_parser = sandbox_subparsers.add_parser("ssh", help="Manage SSH remote sandbox targets")
     sandbox_ssh_subparsers = sandbox_ssh_parser.add_subparsers(dest="ssh_command", required=True)

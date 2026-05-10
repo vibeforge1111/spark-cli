@@ -4660,7 +4660,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark approval classify -- <command>", command_reference)
         self.assertIn("spark autostart install|on|uninstall|off|profile|status", command_reference)
         self.assertIn("spark verify [--onboarding|--deep|--installers|--sandboxes]", command_reference)
-        sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox ssh|modal")
+        sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox docker|ssh|modal")
+        self.assertIn("Docker doctor", sandbox_entry["use"])
         self.assertIn("host-key trust", sandbox_entry["use"])
         self.assertIn("Modal smoke", sandbox_entry["use"])
 

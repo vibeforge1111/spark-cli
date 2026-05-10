@@ -466,10 +466,17 @@ bash scripts/docker-dev-smoke.sh
 Restricted sandbox run:
 
 ```bash
-bash scripts/docker-sandbox-run.sh --help
+spark sandbox docker doctor --json
+spark sandbox docker smoke --json
+bash scripts/docker-sandbox-run.sh status --help
 ```
 
-Windows PowerShell wrappers are available at `scripts/docker-dev-smoke.ps1` and `scripts/docker-sandbox-run.ps1`.
+Windows PowerShell wrappers are available at `scripts/docker-dev-smoke.ps1` and `scripts/docker-sandbox-run.ps1`; for example:
+
+```powershell
+.\scripts\docker-sandbox-run.ps1 status --help
+```
+
 See [docs/OPTIONAL_DOCKER_WORKBENCH.md](./docs/OPTIONAL_DOCKER_WORKBENCH.md) for the full opt-in workflow and safety rules.
 
 Realtime hosted sandbox agents can use the Spark Live container lane:

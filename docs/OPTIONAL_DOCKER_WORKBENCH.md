@@ -1,6 +1,6 @@
 # Optional Docker Workbench
 
-Last updated: 2026-04-26
+Last updated: 2026-05-10
 
 Docker is optional Spark infrastructure. It is useful for clean testing and future sandbox experiments, but Spark setup, Telegram, Builder, Memory, Character, and normal local runtime flows must continue to work without Docker.
 
@@ -87,6 +87,20 @@ SPARK_DOCKER_DEV_CMD="spark --help" bash scripts/docker-dev-smoke.sh
 ## Sandbox Lane
 
 Use this for low-trust CLI experiments:
+
+```powershell
+python -m spark_cli.cli sandbox docker doctor --json
+python -m spark_cli.cli sandbox docker smoke --json
+```
+
+```bash
+spark sandbox docker doctor --json
+spark sandbox docker smoke --json
+```
+
+The smoke command builds the sandbox image if needed, then runs `spark status
+--help` with network off, no real Spark secrets, a read-only root filesystem,
+all Linux capabilities dropped, and only tmpfs scratch space.
 
 ```powershell
 .\scripts\docker-sandbox-run.ps1 status --help
