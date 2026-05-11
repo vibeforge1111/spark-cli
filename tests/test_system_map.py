@@ -22,6 +22,7 @@ from spark_cli.system_map import (
     inspect_builder_event_samples,
     inspect_builder_trace_health,
     inspect_builder_trace_groups,
+    inspect_spawner_authority_verdicts,
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
     parse_branch_status,
@@ -221,6 +222,26 @@ class SparkSystemMapTests(unittest.TestCase):
                                 "timeoutMs": 1000,
                             }
                         ),
+                        json.dumps(
+                            {
+                                "ts": "2026-05-10T13:00:03Z",
+                                "event": "authority_verdict_evaluated",
+                                "requestId": "req-1",
+                                "traceRef": "trace:spawner-prd:mission-1",
+                                "authorityVerdict": {
+                                    "schema_version": "spark.authority_verdict.v1",
+                                    "traceRef": "trace:spawner-prd:mission-1",
+                                    "actionFamily": "mission_execution",
+                                    "sourcePolicy": "spawner_policy",
+                                    "verdict": "allowed",
+                                    "confirmationRequired": False,
+                                    "scope": "local_spawner_prd_auto_analysis",
+                                    "sourceRepo": "spawner-ui",
+                                    "reasonCode": "auto_provider_codex_started",
+                                    "prompt": "private prompt should stay out",
+                                },
+                            }
+                        ),
                     ]
                 ),
                 encoding="utf-8",
@@ -228,8 +249,9 @@ class SparkSystemMapTests(unittest.TestCase):
 
             final_summary = inspect_telegram_final_answer_gate(final_gate)
             spawner_summary = inspect_spawner_prd_auto_trace(spawner_trace, builder_home=builder_home)
+            authority_summary = inspect_spawner_authority_verdicts(spawner_trace)
 
-        encoded = json.dumps({"final": final_summary, "spawner": spawner_summary})
+        encoded = json.dumps({"final": final_summary, "spawner": spawner_summary, "authority": authority_summary})
         self.assertEqual(final_summary["sample_count"], 1)
         self.assertEqual(final_summary["samples"][0]["outcome"], "delivered")
         self.assertEqual(final_summary["trace_join"]["status"], "missing_join_key")
@@ -238,17 +260,22 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("user_id", final_summary["top_keys"])
         self.assertEqual(spawner_summary["join_keys"]["request_id_count"], 2)
         self.assertEqual(spawner_summary["join_keys"]["mission_id_count"], 1)
-        self.assertEqual(spawner_summary["join_keys"]["trace_ref_count"], 0)
+        self.assertEqual(spawner_summary["join_keys"]["trace_ref_count"], 1)
         self.assertEqual(spawner_summary["join_keys"]["derived_trace_ref_count"], 1)
         self.assertEqual(spawner_summary["derived_trace_contract"]["status"], "derived_available")
         self.assertEqual(spawner_summary["builder_request_overlap"]["matched_builder_request_id_count"], 1)
         self.assertEqual(spawner_summary["builder_trace_ref_overlap"]["matched_builder_trace_ref_count"], 1)
         self.assertEqual(spawner_summary["samples"][0]["requestId"], "req-1")
+        self.assertEqual(authority_summary["verdict_count"], 1)
+        self.assertEqual(authority_summary["verdict_counts"]["allowed"], 1)
+        self.assertEqual(authority_summary["items"][0]["action_family"], "mission_execution")
+        self.assertTrue(str(authority_summary["items"][0]["request_id"]).startswith("request_id:redacted:"))
         self.assertNotIn("private answer", encoded)
         self.assertNotIn("token=secret", encoded)
         self.assertNotIn("telegram:123456789", encoded)
         self.assertNotIn("C:/private/path", encoded)
         self.assertNotIn("private project", encoded)
+        self.assertNotIn("private prompt should stay out", encoded)
 
     def test_process_summary_omits_raw_command_args(self) -> None:
         summary = summarize_pids(

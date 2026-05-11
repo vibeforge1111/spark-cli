@@ -5654,6 +5654,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     spawner_trace_overlap = _safe_mapping(spawner.get("builder_trace_ref_overlap"))
     telegram_gate = _safe_mapping(trace_index.get("telegram_final_answer_gate_samples"))
     telegram_join = _safe_mapping(telegram_gate.get("trace_join"))
+    authority_verdicts = _safe_mapping(trace_index.get("authority_verdicts"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
         "schema_version": "spark.os_trace.summary.v0",
@@ -5663,6 +5664,8 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         "missing_trace_ref_count": _safe_int(trace_health.get("missing_trace_ref_count")),
         "high_severity_open_count": _safe_int(trace_health.get("high_severity_open_count")),
         "orphan_parent_event_id_count": _safe_int(trace_health.get("orphan_parent_event_id_count")),
+        "authority_verdict_count": _safe_int(authority_verdicts.get("verdict_count")),
+        "authority_verdict_counts": _safe_mapping(authority_verdicts.get("verdict_counts")),
         "health_flags": _safe_list(trace_health.get("health_flags")),
         "recent_windows": _safe_list(trace_health.get("recent_windows")),
         "top_missing_trace_ref_sources": _safe_list(
@@ -5694,6 +5697,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     print(f"- trace groups: {payload['trace_group_count']}")
     print(f"- missing trace refs: {payload['missing_trace_ref_count']}")
     print(f"- open high-severity events: {payload['high_severity_open_count']}")
+    print(f"- authority verdicts: {payload['authority_verdict_count']}")
     print(
         "- Spawner request overlaps: "
         f"{cross_system['spawner_builder_request_overlap_count']}/{cross_system['spawner_request_id_count']}"

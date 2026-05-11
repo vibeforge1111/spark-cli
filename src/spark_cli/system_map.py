@@ -947,6 +947,80 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
     return out
 
 
+def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "source": "spawner_prd_auto_trace",
+        "path": str(path),
+        "exists": path.exists(),
+        "schema_version": "spark.authority_verdict_index.v0",
+        "redaction": "authority verdict metadata only; prompts, mission bodies, provider output, and raw request identifiers omitted",
+        "verdict_count": 0,
+        "verdict_counts": {},
+        "action_family_counts": {},
+        "source_policy_counts": {},
+        "items": [],
+    }
+    if not path.exists():
+        return out
+
+    verdict_counts: Counter[str] = Counter()
+    action_family_counts: Counter[str] = Counter()
+    source_policy_counts: Counter[str] = Counter()
+    items: deque[dict[str, Any]] = deque(maxlen=40)
+    parsed_count = parse_errors = 0
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    payload = json.loads(line)
+                except Exception:
+                    parse_errors += 1
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                parsed_count += 1
+                if payload.get("event") != "authority_verdict_evaluated":
+                    continue
+                verdict = as_dict(payload.get("authorityVerdict"))
+                verdict_name = str(verdict.get("verdict") or "unknown")
+                action_family = str(verdict.get("actionFamily") or "unknown")
+                source_policy = str(verdict.get("sourcePolicy") or "unknown")
+                verdict_counts[verdict_name] += 1
+                action_family_counts[action_family] += 1
+                source_policy_counts[source_policy] += 1
+                trace_ref = verdict.get("traceRef") or payload.get("traceRef") or payload.get("trace_ref")
+                request_id = payload.get("requestId")
+                items.append(
+                    {
+                        "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
+                        "ts": safe_jsonl_sample_value("ts", payload.get("ts"), identifier_fields={}),
+                        "request_id": redacted_identifier("request_id", request_id) if isinstance(request_id, str) else None,
+                        "trace_ref": redacted_identifier("trace_ref", trace_ref) if isinstance(trace_ref, str) else None,
+                        "action_family": action_family,
+                        "source_policy": source_policy,
+                        "verdict": verdict_name,
+                        "confirmation_required": bool(verdict.get("confirmationRequired")),
+                        "scope": safe_short_string(str(verdict.get("scope") or "unknown"), limit=120),
+                        "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
+                        "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
+                    }
+                )
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
+
+    out["parsed_count"] = parsed_count
+    out["parse_errors"] = parse_errors
+    out["verdict_count"] = sum(verdict_counts.values())
+    out["verdict_counts"] = dict(verdict_counts.most_common(20))
+    out["action_family_counts"] = dict(action_family_counts.most_common(20))
+    out["source_policy_counts"] = dict(source_policy_counts.most_common(20))
+    out["items"] = list(items)
+    return out
+
+
 def inspect_json_shape(path: Path) -> dict[str, Any]:
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
@@ -2935,6 +3009,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
             spawner_state / "prd-auto-trace.jsonl",
             builder_home=builder_home,
         ),
+        "authority_verdicts": inspect_spawner_authority_verdicts(spawner_state / "prd-auto-trace.jsonl"),
         "next_required_bridges": [
             "Map Spawner mission ids to Builder mission_changed_state events.",
             "Map Telegram final-answer gate checks to final_answer_checked black-box events.",
@@ -3214,6 +3289,7 @@ def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
                 "schema_version": trace_index.get("schema_version"),
                 "builder_event_count": as_dict(trace_index.get("builder_events")).get("row_count"),
                 "trace_repair_candidate_count": len(as_list(trace_index.get("trace_repair_queue"))),
+                "authority_verdict_count": as_dict(trace_index.get("authority_verdicts")).get("verdict_count"),
             },
             "capability_catalog": {
                 "schema_version": capability_catalog.get("schema_version"),
@@ -3236,6 +3312,7 @@ def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
         },
         "action_boundary": "Read-only until high-agency actions carry AuthorityVerdictV1 trace evidence.",
         "trace_repair_queue": as_list(trace_index.get("trace_repair_queue"))[:5],
+        "authority_verdicts": as_list(as_dict(trace_index.get("authority_verdicts")).get("items"))[:5],
         "memory_review_queue": as_list(
             as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get("items")
         )[:5],
