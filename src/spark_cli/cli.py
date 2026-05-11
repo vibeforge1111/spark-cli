@@ -3464,6 +3464,24 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     }
 
 
+def should_preserve_level5_guardrails(module_name: str) -> bool:
+    if module_name not in {"spawner-ui", "spark-telegram-bot"}:
+        return False
+    from .sandbox.access import LEVEL5_ENV, level5_guardrails_configured_by_audit
+
+    existing = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+    already_enabled = all(existing.get(key) == value for key, value in LEVEL5_ENV.items())
+    return already_enabled or level5_guardrails_configured_by_audit(home=SPARK_HOME)
+
+
+def preserve_level5_guardrails(module_name: str, env_values: dict[str, str]) -> dict[str, str]:
+    if not should_preserve_level5_guardrails(module_name):
+        return env_values
+    from .sandbox.access import LEVEL5_ENV
+
+    return {**env_values, **LEVEL5_ENV}
+
+
 def split_telegram_admin_ids(raw_admin_ids: str | None) -> list[str]:
     if not raw_admin_ids:
         return []
@@ -5074,6 +5092,7 @@ def write_setup_runtime_config(
     generated_envs = build_module_envs(args, modules, secret_values)
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
+        env_values = preserve_level5_guardrails(module.name, env_values)
         generated_path = generated_module_env_path(module)
         write_generated_env(generated_path, env_values)
         env_path = module_env_path(module)

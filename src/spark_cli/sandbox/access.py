@@ -217,6 +217,11 @@ def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | N
     return configured_at
 
 
+def level5_guardrails_configured_by_audit(*, home: Path | None = None) -> bool:
+    """Return true when Level 5 was explicitly enabled and not later disabled."""
+    return _latest_level5_configure_timestamp(home=home) is not None
+
+
 def level5_service_guardrail_state(
     *,
     home: Path | None = None,
