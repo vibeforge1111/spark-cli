@@ -15,6 +15,7 @@ from spark_cli.system_map import (
     build_capability_catalog,
     build_memory_movement_index,
     build_repo_board,
+    build_trace_current_health,
     build_trace_repair_queue,
     build_voice_surface_view,
     collect_repo_metadata,
@@ -177,6 +178,9 @@ class SparkSystemMapTests(unittest.TestCase):
             {
                 "builder_trace_health": {
                     "high_severity_open_count": 2,
+                    "recent_windows": [
+                        {"window": "24h", "row_count": 3, "missing_trace_ref_count": 1},
+                    ],
                     "missing_trace_ref_sources": {
                         "rows": [
                             {
@@ -214,6 +218,37 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(queue[2]["missing_field"], "trace_ref")
         self.assertNotIn("private user wording", encoded)
         self.assertNotIn("chat_id", encoded)
+
+    def test_trace_repair_queue_marks_clean_recent_window_as_historical_backlog(self) -> None:
+        trace_index = {
+            "builder_trace_health": {
+                "missing_trace_ref_count": 50,
+                "recent_windows": [
+                    {"window": "1h", "row_count": 0, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
+                    {"window": "24h", "row_count": 3, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
+                    {"window": "7d", "row_count": 100, "missing_trace_ref_count": 50, "missing_trace_ref_ratio": 0.5},
+                ],
+                "missing_trace_ref_sources": {
+                    "rows": [
+                        {
+                            "component": "memory_orchestrator",
+                            "event_type": "memory_read_requested",
+                            "event_count": 50,
+                        }
+                    ]
+                },
+            }
+        }
+        health = build_trace_current_health(trace_index)
+        trace_index["trace_current_health"] = health
+        queue = build_trace_repair_queue(trace_index)
+
+        self.assertEqual(health["status"], "current_clean_historical_backlog")
+        self.assertEqual(health["window"], "24h")
+        self.assertEqual(queue[0]["priority"], "medium")
+        self.assertEqual(queue[0]["temporal_scope"], "historical_backlog")
+        self.assertEqual(queue[0]["current_window_missing_trace_ref_count"], 0)
+        self.assertIn("historical", queue[0]["rank_reason"])
 
     def test_cross_system_trace_samples_keep_join_metadata_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

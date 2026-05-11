@@ -5655,6 +5655,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     telegram_gate = _safe_mapping(trace_index.get("telegram_final_answer_gate_samples"))
     telegram_join = _safe_mapping(telegram_gate.get("trace_join"))
     authority_verdicts = _safe_mapping(trace_index.get("authority_verdicts"))
+    trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
         "schema_version": "spark.os_trace.summary.v0",
@@ -5668,6 +5669,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         "authority_verdict_counts": _safe_mapping(authority_verdicts.get("verdict_counts")),
         "health_flags": _safe_list(trace_health.get("health_flags")),
         "recent_windows": _safe_list(trace_health.get("recent_windows")),
+        "trace_current_health": trace_current_health,
         "top_missing_trace_ref_sources": _safe_list(
             _safe_mapping(trace_health.get("missing_trace_ref_sources")).get("rows")
         )[:10],
@@ -5696,6 +5698,15 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     print(f"- Builder events: {payload['builder_event_count']}")
     print(f"- trace groups: {payload['trace_group_count']}")
     print(f"- missing trace refs: {payload['missing_trace_ref_count']}")
+    current_health = _safe_mapping(payload.get("trace_current_health"))
+    if current_health:
+        print(
+            "- current trace health: "
+            f"{current_health.get('status') or 'unknown'} "
+            f"({current_health.get('window') or 'unknown'} "
+            f"{_safe_int(current_health.get('missing_trace_ref_count'))}/"
+            f"{_safe_int(current_health.get('row_count'))} missing)"
+        )
     print(f"- open high-severity events: {payload['high_severity_open_count']}")
     print(f"- authority verdicts: {payload['authority_verdict_count']}")
     print(
@@ -5708,7 +5719,8 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         print(
             "- next repair: "
             f"{next_repair.get('owner_repo')} / {next_repair.get('event_producer_family')} "
-            f"needs {next_repair.get('missing_field')}"
+            f"needs {next_repair.get('missing_field')} "
+            f"({next_repair.get('temporal_scope') or 'current_or_unknown'})"
         )
     print("Redaction: aggregate trace metadata only; raw event bodies and message text are omitted.")
     return 0

@@ -2888,9 +2888,69 @@ def trace_repair_owner(component: str) -> dict[str, str]:
     }
 
 
+def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
+    trace_health = as_dict(trace_index.get("builder_trace_health"))
+    recent_windows = [as_dict(row) for row in as_list(trace_health.get("recent_windows"))]
+    total_missing = int(trace_health.get("missing_trace_ref_count") or 0)
+    current_window = next(
+        (
+            row
+            for label in ("1h", "24h")
+            for row in recent_windows
+            if row.get("window") == label and int(row.get("row_count") or 0)
+        ),
+        None,
+    )
+    if current_window is None and recent_windows:
+        current_window = recent_windows[0]
+
+    if not current_window:
+        status = "unknown"
+        row_count = 0
+        missing_count = 0
+        ratio = 0.0
+        window = "unknown"
+    else:
+        window = str(current_window.get("window") or "unknown")
+        row_count = int(current_window.get("row_count") or 0)
+        missing_count = int(current_window.get("missing_trace_ref_count") or 0)
+        ratio = float(current_window.get("missing_trace_ref_ratio") or 0.0)
+        if row_count and missing_count:
+            status = "current_missing_trace_refs"
+        elif row_count and total_missing:
+            status = "current_clean_historical_backlog"
+        elif row_count:
+            status = "current_clean"
+        elif total_missing:
+            status = "no_recent_events_historical_backlog"
+        else:
+            status = "clean"
+
+    return {
+        "schema_version": "spark.trace_current_health.v0",
+        "status": status,
+        "window": window,
+        "row_count": row_count,
+        "missing_trace_ref_count": missing_count,
+        "missing_trace_ref_ratio": ratio,
+        "total_missing_trace_ref_count": total_missing,
+        "historical_missing_trace_ref_count": max(total_missing - missing_count, 0),
+        "repair_scope": (
+            "current"
+            if status == "current_missing_trace_refs"
+            else "historical_backlog"
+            if status in {"current_clean_historical_backlog", "no_recent_events_historical_backlog"}
+            else status
+        ),
+        "redaction": "aggregate recency metadata only; no raw event text or identifiers",
+    }
+
+
 def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]]:
     queue: list[dict[str, Any]] = []
     trace_health = as_dict(trace_index.get("builder_trace_health"))
+    current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
+    historical_scope = str(current_health.get("repair_scope") or "") == "historical_backlog"
     telegram_gate = as_dict(trace_index.get("telegram_final_answer_gate_samples"))
     telegram_join = as_dict(telegram_gate.get("trace_join"))
     spawner = as_dict(trace_index.get("spawner_prd_auto_trace_samples"))
@@ -2939,18 +2999,29 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
         component = str(row.get("component") or "unknown")
         event_type = str(row.get("event_type") or "unknown")
         owner = trace_repair_owner(component)
+        rank_reason = "largest Builder producer bucket missing trace_ref"
+        safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
+        if historical_scope:
+            rank_reason = "historical Builder backlog missing trace_ref; recent trace window is clean"
+            safe_fix = (
+                "Verify whether this historical bucket still reproduces; new traffic may already carry trace refs."
+            )
         queue.append(
             {
                 "id": trace_repair_id("builder", component, event_type, "missing-trace-ref"),
-                "priority": "high",
-                "rank_reason": "largest Builder producer bucket missing trace_ref",
+                "priority": "medium" if historical_scope else "high",
+                "rank_reason": rank_reason,
                 "owner_repo": owner.get("owner_repo"),
                 "source_module": owner.get("source_module"),
                 "event_producer_family": component,
                 "event_type": event_type,
                 "missing_field": "trace_ref",
                 "observed_event_count": int(row.get("event_count") or 0),
-                "safe_fix": "Thread the active request_id/trace_ref into this event producer before recording black-box events.",
+                "temporal_scope": "historical_backlog" if historical_scope else "current_or_unknown",
+                "current_health_status": current_health.get("status"),
+                "current_window": current_health.get("window"),
+                "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
+                "safe_fix": safe_fix,
                 "verification_command": "spark os trace --json",
             }
         )
@@ -3016,6 +3087,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
             "Emit Telegram request_id or trace_ref join keys from final-answer gate checks.",
         ],
     }
+    trace_index["trace_current_health"] = build_trace_current_health(trace_index)
     trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
     return trace_index
 
