@@ -500,6 +500,15 @@ def git_board_status(path: Path) -> dict[str, Any]:
     }
 
 
+def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
+    if not branch:
+        return None
+    code, commit = run_git(path, ["rev-parse", f"refs/remotes/origin/{branch}"])
+    if code == 0 and commit:
+        return commit.strip()
+    return None
+
+
 def collect_repo_metadata(path: Path) -> dict[str, Any]:
     record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
     if not path.exists():
@@ -4434,30 +4443,52 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                 registry_source = str(installed.get("registry_source") or registry_entry.get("source") or "").strip()
                 head_commit = str(installed_git.get("head_commit") or "").strip().lower()
                 if registry_commit and head_commit and registry_commit != head_commit:
+                    branch = str(installed_git.get("branch") or "").strip()
+                    remote_branch_head = str(git_remote_branch_head(installed_path, branch) or "").strip().lower()
+                    release_branch_published = bool(
+                        branch.startswith("release/stability-") and remote_branch_head and remote_branch_head == head_commit
+                    )
+                    classification = (
+                        "release_branch_pending_registry_batch"
+                        if release_branch_published
+                        else "runtime_ahead_of_registry_pin"
+                    )
+                    severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
+                    evidence = (
+                        "Running installed source is clean and its HEAD is already present on the release branch, "
+                        "but the public registry commit still points at the previous installer batch. "
+                        "This is an intentional release metadata decision, not dirty local file drift."
+                        if release_branch_published
+                        else "Running installed source is clean but its git HEAD differs from the registry commit. "
+                        "This is release metadata drift, not dirty local file drift."
+                    )
+                    next_safe_action = (
+                        "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
+                        "current public registry pin if the batch is deferred."
+                        if release_branch_published
+                        else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
+                        "installed source classified as a local runtime test artifact."
+                    )
                     items.append(
                         duplicate_truth_item(
                             item_id=f"{module_id}-runtime-registry-pin-drift",
                             fact=f"{fact} release pin",
-                            classification="runtime_ahead_of_registry_pin",
-                            severity="critical" if module_id == "spark-telegram-bot" else "warning",
+                            classification=classification,
+                            severity=severity,
                             owner_repo=module_id,
                             canonical_path=str(installed_path),
                             duplicate_path=registry_source,
-                            evidence=(
-                                "Running installed source is clean but its git HEAD differs from the registry commit. "
-                                "This is release metadata drift, not dirty local file drift."
-                            ),
+                            evidence=evidence,
                             risk="Spark start/restart/update can warn or move operators back to older public installer truth.",
-                            next_safe_action=(
-                                "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
-                                "installed source classified as a local runtime test artifact."
-                            ),
+                            next_safe_action=next_safe_action,
                             verification_command="spark status --json; git status --short --branch; git rev-parse HEAD",
                             rollback="Keep the current public registry pin until the newer runtime commit has source-owner release proof.",
                             evidence_details={
                                 "installed_head": head_commit[:12],
                                 "registry_commit": registry_commit[:12],
-                                "branch": installed_git.get("branch"),
+                                "branch": branch,
+                                "remote_branch_head": remote_branch_head[:12] if remote_branch_head else None,
+                                "release_branch_published": release_branch_published,
                                 "runtime_dirty_tracked_count": dirty,
                                 "runtime_untracked_count": untracked,
                             },

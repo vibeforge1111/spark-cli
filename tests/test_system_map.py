@@ -360,6 +360,47 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertIn("non-authoritative backlog", item["evidence"])
         self.assertTrue(item["evidence_details"]["installed_runtime"]["clean"])
 
+    def test_published_release_runtime_pin_drift_is_batch_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / ".spark" / "modules" / "spark-telegram-bot" / "source"
+            runtime.mkdir(parents=True)
+            head = init_git_repo(runtime)
+            subprocess.run(["git", "checkout", "-b", "release/stability-2026-05-09"], cwd=runtime, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "update-ref", "refs/remotes/origin/release/stability-2026-05-09", head],
+                cwd=runtime,
+                check=True,
+                capture_output=True,
+            )
+
+            duplicate_truths = build_duplicate_truths(
+                {
+                    "installed_modules": {
+                        "spark-telegram-bot": {
+                            "path": str(runtime),
+                            "source": str(runtime),
+                            "registry_commit": "0" * 40,
+                            "registry_source": "https://example.test/telegram",
+                        }
+                    },
+                    "registry_modules": {
+                        "spark-telegram-bot": {
+                            "commit": "0" * 40,
+                            "source": "https://example.test/telegram",
+                        }
+                    },
+                }
+            )
+
+        item = next(
+            item for item in duplicate_truths["items"] if item["id"] == "spark-telegram-bot-runtime-registry-pin-drift"
+        )
+        self.assertEqual(item["classification"], "release_branch_pending_registry_batch")
+        self.assertEqual(item["severity"], "decision")
+        self.assertTrue(item["evidence_details"]["release_branch_published"])
+        self.assertIn("installer metadata batch", item["next_safe_action"])
+
     def test_voice_surface_uses_sanitized_runtime_state_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
