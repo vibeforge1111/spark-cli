@@ -1375,7 +1375,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     expected_release = str(manifest_source.get("releaseName", "")) if isinstance(manifest_source, dict) else ""
     expected_ref = str(manifest_source.get("ref", "")).lower() if isinstance(manifest_source, dict) else ""
     expected_hosted_release = expected_release
-    expected_hosted_ref = current_git_commit() or expected_ref
+    expected_hosted_ref = expected_ref
     local_source = installer_release_pins()
     checks: list[dict[str, Any]] = []
     source_ok = (
@@ -1404,6 +1404,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     hosted_expected: dict[str, str] = {}
     hosted_metadata_error = ""
     hosted_release_ref = ""
+    committed_expected: dict[str, str] = {}
     if hosted:
         try:
             hosted_expected = hosted_installer_checksums()
@@ -1413,6 +1414,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
         expected = ""
         if isinstance(installers, dict) and isinstance(installers.get(name), dict):
             expected = str(installers[name].get("sha256", "")).lower()
+        committed_expected[name] = expected
         actual = sha256_file(path).lower() if path.exists() else ""
         local_ok = bool(expected) and actual == expected
         checks.append(
@@ -1442,7 +1444,12 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = (
+                        bool(expected_hosted)
+                        and bool(expected)
+                        and hosted_hash == expected_hosted
+                        and expected_hosted == expected
+                    )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
@@ -1524,6 +1531,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_ref == expected_hosted_ref
                 and (not hosted_release_ref or command_ref == hosted_release_ref)
                 and command_hashes == hosted_expected
+                and command_hashes == committed_expected
             )
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
