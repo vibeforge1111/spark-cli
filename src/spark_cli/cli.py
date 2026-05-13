@@ -1401,8 +1401,14 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             else:
                 try:
                     hosted_hash = hosted_installer_sha256(name, url).lower()
-                    hosted_ok = bool(expected_hosted) and hosted_hash == expected_hosted
-                    detail = f"{url} matches hosted checksum metadata." if hosted_ok else f"{url} does not match hosted checksum metadata."
+                    hosted_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_manifest_ok = bool(expected) and expected_hosted == expected
+                    hosted_ok = hosted_checksum_ok and hosted_manifest_ok
+                    detail = (
+                        f"{url} matches hosted checksum metadata and the committed installer manifest."
+                        if hosted_ok
+                        else f"{url} does not match hosted checksum metadata or the committed installer manifest."
+                    )
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1418,8 +1424,6 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "checksum_url": HOSTED_INSTALLER_CHECKSUMS_URL,
                     "detail": (
                         detail
-                        if hosted_ok and expected_hosted == expected
-                        else f"{detail} Hosted metadata and hosted bytes agree; local installer manifest has a different release artifact hash."
                         if hosted_ok
                         else (
                             f"{detail} Expected manifest sha {expected}; "
@@ -1434,7 +1438,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             release_manifest = hosted_json_payload(HOSTED_RELEASE_MANIFEST_URL)
             spark_cli = release_manifest.get("sparkCli") if isinstance(release_manifest.get("sparkCli"), dict) else {}
             hosted_release_ref = str(spark_cli.get("commit", "")).lower()
-            release_ok = spark_cli.get("releaseName") == expected_release and bool(hosted_release_ref)
+            release_ok = spark_cli.get("releaseName") == expected_release and hosted_release_ref == expected_ref
             checks.append(
                 {
                     "name": "hosted_release_manifest",
@@ -1445,9 +1449,9 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "actual_ref": hosted_release_ref,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
                     "detail": (
-                        "Hosted release manifest has the current release name and a pinned Spark CLI commit."
+                        "Hosted release manifest has the current release name and expected Spark CLI commit."
                         if release_ok
-                        else "Hosted release manifest is stale or does not include a pinned Spark CLI commit."
+                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
                     ),
                 }
             )
@@ -1464,11 +1468,15 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             commands = hosted_json_payload(HOSTED_INSTALLER_COMMANDS_URL)
             source = commands.get("source") if isinstance(commands.get("source"), dict) else {}
             command_hashes = commands.get("checksums", {}).get("sha256", {}) if isinstance(commands.get("checksums"), dict) else {}
-            expected_hashes = hosted_expected
+            expected_hashes = {
+                name: str(installers.get(name, {}).get("sha256", "")).lower()
+                for name in INSTALLER_SCRIPT_PATHS
+                if isinstance(installers, dict) and isinstance(installers.get(name), dict)
+            }
             command_ref = str(source.get("ref", "")).lower()
             commands_ok = (
                 source.get("releaseName") == expected_release
-                and bool(command_ref)
+                and command_ref == expected_ref
                 and (not hosted_release_ref or command_ref == hosted_release_ref)
                 and command_hashes == expected_hashes
             )
