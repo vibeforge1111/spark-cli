@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "913b9b50785d815b6a16a696248fd030bc9a632a",
+      "commit": "9a55caf43cc40acc99a449ddcbcf28b2038cbecc",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,7 +34,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "913b9b50785d815b6a16a696248fd030bc9a632a"
+        "commit": "9a55caf43cc40acc99a449ddcbcf28b2038cbecc"
       }
     },
     "spark-intelligence-builder": {
