@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "0d264dd511a2137e6851c3d2d95b027f6bb74f4c",
+      "commit": "da2e2afa119b6349a26e0aaeb2db7b2780a5f2f6",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,7 +34,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "0d264dd511a2137e6851c3d2d95b027f6bb74f4c"
+        "commit": "da2e2afa119b6349a26e0aaeb2db7b2780a5f2f6"
       }
     },
     "spark-intelligence-builder": {
@@ -75,7 +75,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "2c727278d1b9ae1d488122a3fc6f4e194dd5d8d2",
+      "commit": "7db8ca249752c0f859f2190c8cd89d21d64b3dad",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -83,7 +83,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "2c727278d1b9ae1d488122a3fc6f4e194dd5d8d2"
+        "commit": "7db8ca249752c0f859f2190c8cd89d21d64b3dad"
       }
     }
   },
