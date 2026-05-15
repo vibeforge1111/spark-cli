@@ -13676,6 +13676,7 @@ def cmd_update(args: argparse.Namespace) -> int:
                     "or reinstall once the module source is clean. Then run `spark update --continue`."
                 )
                 return 1
+            module = load_module(module.path)
         with pid_file_lock():
             pids = load_pids()
             process_keys = tracked_process_keys_for_module(pids, module.name)

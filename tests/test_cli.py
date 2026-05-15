@@ -8365,6 +8365,51 @@ class SparkCliTests(unittest.TestCase):
         save.assert_called_once_with({})
         install.assert_called_once_with(module)
 
+    def test_cmd_update_reloads_manifest_after_git_update_before_install_commands(self) -> None:
+        stale = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
+                "install": {"dev": {"commands": ["npm ci"]}},
+            },
+        )
+        refreshed = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
+                "install": {"dev": {"commands": ["npm ci", "npm run build"]}},
+            },
+        )
+
+        class Args:
+            target = None
+            skip_install_commands = False
+            skip_dirty = False
+            stash_local_runtime = False
+            continue_update = False
+            no_live_restart = True
+
+        with patch("spark_cli.cli.resolve_installed_target_modules", return_value=[stale]), \
+             patch("spark_cli.cli.print_install_summary"), \
+             patch("spark_cli.cli.dirty_update_modules", return_value=[]), \
+             patch("spark_cli.cli.module_is_git_managed", return_value=True), \
+             patch("spark_cli.cli.update_module_source", return_value=(True, "checked out pinned commit old..new")), \
+             patch("spark_cli.cli.load_module", return_value=refreshed), \
+             patch("spark_cli.cli.load_pids", return_value={}), \
+             patch("spark_cli.cli.execute_install_commands") as install, \
+             patch("spark_cli.cli.run_module_hook") as hook, \
+             patch("spark_cli.cli.load_json", return_value={"spark-telegram-bot": {"installed_via": {"kind": "git", "target": "repo"}}}), \
+             patch("spark_cli.cli.install_module_record") as record, \
+             patch("spark_cli.cli.sync_generated_env_to_module"):
+            self.assertEqual(cmd_update(Args()), 0)
+
+        install.assert_called_once_with(refreshed)
+        hook.assert_called_once_with(refreshed, "post_install")
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[0], refreshed)
+
     def test_cmd_update_restarts_live_when_autostart_enabled(self) -> None:
         module = Module(
             name="spawner-ui",
@@ -8497,6 +8542,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.dirty_update_modules", return_value=[(dirty, "M src/index.ts")]), \
              patch("spark_cli.cli.module_is_git_managed", return_value=True), \
              patch("spark_cli.cli.update_module_source", side_effect=fake_update), \
+             patch("spark_cli.cli.load_module", return_value=clean), \
              patch("spark_cli.cli.tracked_process_keys_for_module", return_value=[]), \
              patch("spark_cli.cli.run_module_hook") as hook, \
              patch("spark_cli.cli.load_json", return_value={"spark-intelligence-builder": {"installed_via": {"kind": "git", "target": "repo"}}}), \
@@ -8568,6 +8614,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.stash_module_local_changes", return_value=(True, "Saved working directory")), \
              patch("spark_cli.cli.module_is_git_managed", return_value=True), \
              patch("spark_cli.cli.update_module_source", return_value=(True, "already at pinned commit abc123")), \
+             patch("spark_cli.cli.load_module", return_value=dirty), \
              patch("spark_cli.cli.tracked_process_keys_for_module", return_value=[]), \
              patch("spark_cli.cli.run_module_hook") as hook, \
              patch("spark_cli.cli.load_json", return_value={"spark-telegram-bot": {"installed_via": {"kind": "git", "target": "repo"}}}), \
