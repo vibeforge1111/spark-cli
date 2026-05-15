@@ -75,7 +75,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "161aa15afb9107a6066b2f79c2647fa15547bcfd",
+      "commit": "6941693ad1e936cb4eaa2f60fed0ada7ea63d9c5",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -83,7 +83,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "161aa15afb9107a6066b2f79c2647fa15547bcfd"
+        "commit": "6941693ad1e936cb4eaa2f60fed0ada7ea63d9c5"
       }
     }
   },
