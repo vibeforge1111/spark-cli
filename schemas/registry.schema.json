@@ -40,10 +40,36 @@
           "type": "boolean"
         },
         "attestation": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "source", "commit"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "commit": {
+                  "$ref": "#/$defs/sha1"
+                }
+              }
+            }
+          ]
+        },
+        "attestation_ref": {
           "type": "string",
           "minLength": 1
         },
-        "attestation_ref": {
+        "verify_ref": {
           "type": "string",
           "minLength": 1
         },
