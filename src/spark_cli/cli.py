@@ -19,6 +19,7 @@ import ssl
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -9052,7 +9053,61 @@ def llm_cli_cwd() -> str:
     return str(SPARK_HOME if SPARK_HOME.exists() else Path.cwd())
 
 
-def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
+def stop_process_tree(process: subprocess.Popen[Any]) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            text=True,
+            creationflags=llm_cli_creationflags(),
+        )
+        return
+    process.kill()
+
+
+def run_llm_cli_probe_command(
+    command: list[str],
+    *,
+    provider_label: str,
+    timeout_seconds: int = 90,
+) -> subprocess.CompletedProcess[str]:
+    stdout_path: Path | None = None
+    stderr_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as stdout_file, tempfile.NamedTemporaryFile(delete=False) as stderr_file:
+            stdout_path = Path(stdout_file.name)
+            stderr_path = Path(stderr_file.name)
+            process = subprocess.Popen(
+                command,
+                cwd=llm_cli_cwd(),
+                stdout=stdout_file,
+                stderr=stderr_file,
+                creationflags=llm_cli_creationflags(),
+                env=shell_command_env(filtered=True),
+            )
+            try:
+                returncode = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                stop_process_tree(process)
+                process.wait(timeout=5)
+                raise SystemExit(
+                    f"{provider_label} CLI did not finish within {timeout_seconds}s. "
+                    "Check that it is signed in and can run non-interactively, then retry."
+                )
+        stdout = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path else ""
+        stderr = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path else ""
+        return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr=stderr)
+    finally:
+        for path in (stdout_path, stderr_path):
+            if path:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+
+
+def codex_cli_completion(target: dict[str, Any], prompt: str, *, timeout_seconds: int = 90) -> str:
     codex_path = str(target.get("cli_path") or shutil.which("codex") or "codex")
     command = [
         codex_path,
@@ -9066,16 +9121,10 @@ def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
     if model:
         command.extend(["--model", model])
     command.append(prompt)
-    result = subprocess.run(
+    result = run_llm_cli_probe_command(
         command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
+        provider_label="Codex",
+        timeout_seconds=timeout_seconds,
     )
     output = (result.stdout or "").strip()
     if result.returncode != 0:
@@ -9086,7 +9135,7 @@ def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
     return output
 
 
-def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
+def claude_cli_completion(target: dict[str, Any], prompt: str, *, timeout_seconds: int = 90) -> str:
     claude_path = str(target.get("cli_path") or shutil.which("claude") or "claude")
     if os.name == "nt" and claude_path.lower().endswith(".ps1"):
         command = [
@@ -9106,16 +9155,10 @@ def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
     if model:
         command.extend(["--model", model])
     command.append(prompt)
-    result = subprocess.run(
+    result = run_llm_cli_probe_command(
         command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
+        provider_label="Claude",
+        timeout_seconds=timeout_seconds,
     )
     output = (result.stdout or "").strip()
     if result.returncode != 0:
@@ -9126,7 +9169,7 @@ def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
     return output
 
 
-def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
+def call_llm_doctor(target: dict[str, Any], prompt: str, *, timeout_seconds: int = 90) -> str:
     if target.get("unsupported"):
         provider = target.get("provider")
         raise SystemExit(
@@ -9136,12 +9179,12 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
     provider = target["provider"]
     if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
         if target.get("auth_mode") == "codex_oauth":
-            return codex_cli_completion(target, prompt)
+            return codex_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
         return openai_compatible_chat_completion(target, prompt)
     if provider == "codex":
-        return codex_cli_completion(target, prompt)
+        return codex_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
     if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
+        return claude_cli_completion(target, prompt, timeout_seconds=timeout_seconds)
     if provider == "ollama":
         return ollama_chat_completion(target, prompt)
     raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
@@ -9931,7 +9974,7 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
         }
     prompt = "Reply with exactly PING_OK. No extra words."
     try:
-        response = call_llm_doctor(target, prompt).strip()
+        response = call_llm_doctor(target, prompt, timeout_seconds=30).strip()
     except (SystemExit, urllib.error.URLError, TimeoutError, OSError) as exc:
         return {
             "ok": False,
