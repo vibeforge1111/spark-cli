@@ -4825,6 +4825,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Docker is the first stronger local sandbox", output)
         self.assertIn("Choose one provider for Agent and Mission", output)
         self.assertIn("@clipboard", output)
+        self.assertIn("quote it as '@clipboard'", output)
         self.assertIn("Turn Spark on", output)
         self.assertIn("spark live start", output)
         self.assertIn("spark live status", output)

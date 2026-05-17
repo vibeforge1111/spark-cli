@@ -14009,6 +14009,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "Choose one provider for Agent and Mission unless you already know you want a split.",
                 "OpenAI Codex, Claude Code, Ollama, and LM Studio can use local sign-in or local services; API providers ask for a key.",
                 "If paste is awkward, copy the value first and type @clipboard when Spark asks.",
+                "When passing @clipboard as a PowerShell command argument, quote it as '@clipboard' so PowerShell does not treat it as splatting syntax.",
             ]},
             {"title": "Connect Telegram", "steps": [
                 "Open Telegram and message @BotFather.",
@@ -14045,7 +14046,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "Use named profiles when you want one or more Telegram bots on the same Spark install.",
             "Each profile gets its own bot token, local relay port, pid, and log file.",
             "Profiles still share the same local Builder, memory, LLM roles, and Spawner unless you intentionally split those later.",
-            "Example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "PowerShell example: spark setup --profile qa-bot --bot-token '@clipboard' --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "macOS/Linux example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
             "Then run: spark start spark-telegram-bot --profile qa-bot",
         ],
         "access_levels": [
