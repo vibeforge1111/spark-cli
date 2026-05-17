@@ -90,6 +90,8 @@ OWNER_SURFACES = {
     "spark-intelligence-builder": "AOC, black box, memory orchestration, operating-panel read model",
     "spark-telegram-bot": "Telegram field console",
     "spawner-ui": "mission execution and mission trace",
+    "spark-researcher": "research, advisory, memory packet, and domain-chip authoring runtime",
+    "spark-character": "persona, voice consistency, scoring, and character evolution runtime",
     "spark-command-center": "Spark Operating Cockpit shell",
     "spark-memory-quality-dashboard": "Cockpit memory review source module",
     "domain-chip-memory": "durable memory substrate and movement discipline",
