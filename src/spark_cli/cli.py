@@ -522,6 +522,21 @@ def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed
         raise SystemExit(f"git checkout mismatch for {name}: expected {commit}, got {resolved}")
 
 
+def ensure_git_origin(name: str, target: Path, url: str) -> None:
+    remote = subprocess.run(
+        git_command("-C", str(target), "remote", "get-url", "origin"),
+        capture_output=True,
+        text=True,
+    )
+    if remote.returncode == 0:
+        current_url = (remote.stdout or "").strip()
+        if current_url == url:
+            return
+        run_git_or_exit(name, ["-C", str(target), "remote", "set-url", "origin", url])
+        return
+    run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+
+
 @dataclass
 class ModuleProvenanceResult:
     name: str
@@ -642,7 +657,7 @@ def clone_module_source(
     if pinned_commit:
         target.mkdir(parents=True, exist_ok=True)
         run_git_or_exit(name, ["-C", str(target), "init", "-q"])
-        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+        ensure_git_origin(name, target, url)
         run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
         verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
         return target
