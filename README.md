@@ -8,14 +8,17 @@ The public launch stack is documented in [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs
 
 On any machine with Python 3.11+ and git on PATH:
 
+Ubuntu/Debian minimal installs may need `python3-venv` before running the install commands:
+
+```bash
+sudo apt update && sudo apt install -y python3-venv
+```
+
 ```bash
 git clone https://github.com/vibeforge1111/spark-cli
 cd spark-cli
 pip install -e .
-
 spark setup
-spark autostart on --now
-spark status
 ```
 
 That default setup installs:
