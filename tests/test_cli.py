@@ -3459,6 +3459,26 @@ class SparkCliTests(unittest.TestCase):
             "2 normalized contracts | 1 official adapters | 1 shadow adapters",
         )
 
+    def test_os_compile_json_reports_write_permission_failure_without_traceback(self) -> None:
+        output_dir = STATE_DIR / "system-map"
+        args = build_parser().parse_args(["os", "compile", "--json", "--out", str(output_dir)])
+        error = PermissionError(13, "Permission denied", str(output_dir / "system-map.json"))
+
+        with patch("spark_cli.cli.compile_system_map", return_value={"system_map": {}}), \
+            patch("spark_cli.cli.write_compiled_outputs", side_effect=error), \
+            redirect_stdout(StringIO()) as stdout:
+            code = args.func(args)
+
+        text = stdout.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["output"], "<spark-home>/state/system-map")
+        self.assertIn("--out <writable-directory>", payload["repair"])
+        self.assertIn("<spark-home>", payload["error"])
+        self.assertNotIn(str(Path.home()), json.dumps(payload))
+        self.assertNotIn("Traceback", text)
+
     def test_write_runtime_shim_reuses_matching_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             shim_path = Path(tmp_dir) / "python.cmd"
