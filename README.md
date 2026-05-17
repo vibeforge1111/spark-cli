@@ -6,16 +6,13 @@ The public launch stack is documented in [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs
 
 ## Quick Start
 
-On any machine with Python 3.11+ and git on PATH:
+On any machine with Python 3.11+ and git on PATH. The starter stack also requires **Node.js >=22**. The shell installer (`install.sh`) downloads a managed Node automatically. If you use the pip path directly, ensure `node --version` reports v22 or later:
 
 ```bash
 git clone https://github.com/vibeforge1111/spark-cli
 cd spark-cli
 pip install -e .
-
 spark setup
-spark autostart on --now
-spark status
 ```
 
 That default setup installs:
@@ -88,6 +85,7 @@ The CLI does not own:
 | Dependency | Why |
 |---|---|
 | Python 3.11+ | The CLI itself |
+| Node.js >=22 | Required by starter modules when using the direct pip install path. The shell installer can download a managed Node automatically. |
 | `git` on PATH | To clone git-sourced modules and pull updates |
 | OS keychain | Windows Credential Manager, macOS Keychain, or libsecret for `storage = "keychain"` secrets. Falls back to a mode-0600 file when no keychain is available. |
 
