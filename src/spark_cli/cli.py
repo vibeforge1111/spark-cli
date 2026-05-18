@@ -9758,7 +9758,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider openai --openai-api-key <key>",
+                "setup": "spark setup --llm-provider openai --openai-api-key @clipboard",
             },
             {
                 "id": "codex",
@@ -9782,7 +9782,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider openrouter --openrouter-api-key <key> --openrouter-model <model>",
+                "setup": "spark setup --llm-provider openrouter --openrouter-api-key @clipboard --openrouter-model <model>",
             },
             {
                 "id": "zai",
@@ -9790,7 +9790,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider zai --zai-api-key <key>",
+                "setup": "spark setup --llm-provider zai --zai-api-key @clipboard",
             },
             {
                 "id": "kimi",
@@ -9798,7 +9798,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory", "mission"],
-                "setup": "spark setup --llm-provider kimi --kimi-api-key <key> --kimi-model <model>",
+                "setup": "spark setup --llm-provider kimi --kimi-api-key @clipboard --kimi-model <model>",
             },
             {
                 "id": "huggingface",
@@ -9806,7 +9806,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider huggingface --huggingface-api-key <key> --huggingface-model <model>",
+                "setup": "spark setup --llm-provider huggingface --huggingface-api-key @clipboard --huggingface-model <model>",
             },
             {
                 "id": "lmstudio",
@@ -9822,7 +9822,7 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider minimax --minimax-api-key <key>",
+                "setup": "spark setup --llm-provider minimax --minimax-api-key @clipboard",
             },
             {
                 "id": "ollama",
