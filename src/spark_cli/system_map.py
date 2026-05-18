@@ -1395,10 +1395,17 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3] + "..."
+    cleaned = value.strip()
+    if len(cleaned) > limit:
+        cleaned = cleaned[:limit] + "..."
+    cleaned = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password|passwd|credential|private[_-]?key|auth)"
+        r"([=:\s]+)(\S+)",
+        r"\1\2[redacted]",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)(Bearer|Basic)\s+\S+", r"\1 [redacted]", cleaned)
+    return cleaned
 
 
 def sensitive_identifier(value: str) -> bool:
@@ -2570,8 +2577,11 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
             out["table_count"] = len(memory_tables)
             out["tables"] = {}
             for table in memory_tables:
-                count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
-                out["tables"][table] = {"row_count": int(count)}
+                safe_name = re.sub(r'[^a-zA-Z0-9_]', '', table)
+                if safe_name != table:
+                    continue
+                count = conn.execute(f'select count(*) from "{safe_name}"').fetchone()[0]
+                out["tables"][safe_name] = {"row_count": int(count)}
             if "memory_lane_records" in memory_tables:
                 out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
         finally:
