@@ -275,6 +275,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve hosted secret change",
         )
+    if (
+        (first == "gcloud" and lowered[1:3] == ["auth", "print-access-token"])
+        or (first == "az" and lowered[1:3] == ["account", "get-access-token"])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Cloud CLI command can reveal a live access token.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloud token reveal",
+        )
     if first == "gh" and (
         lowered[1:3] in [["secret", "set"], ["variable", "set"]]
         or lowered[1:3] in [["pr", "merge"], ["release", "create"], ["release", "upload"]]
