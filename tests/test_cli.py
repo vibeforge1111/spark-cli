@@ -8583,6 +8583,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.build_status_repair_hints", return_value=[]):
                 payload = collect_status_payload()
 
+            self.assertEqual(payload["summary"], "Spark runtime status")
             self.assertEqual(payload["config_dir"], "<spark-home>/config")
             installed = payload["modules"][0]["installed"]
             self.assertEqual(installed["path"], "<spark-home>/modules/spawner-ui/source")
