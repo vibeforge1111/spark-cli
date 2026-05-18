@@ -14542,9 +14542,17 @@ def build_parser() -> argparse.ArgumentParser:
     security_audit_parser.set_defaults(func=cmd_security)
     security_revoke_parser = security_subparsers.add_parser(
         "revoke-all",
-        help="Panic button: stop Spark, rotate local control keys, remove local secrets, and write a support bundle",
+        help="Plan or run full local credential revocation; start with --dry-run to review blast radius",
+        description=(
+            "Plan or run Spark's full local credential revocation response. "
+            "Start with --dry-run to review the blast radius before changing local state."
+        ),
     )
-    security_revoke_parser.add_argument("--dry-run", action="store_true", help="Report what would change without mutating local state")
+    security_revoke_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report the planned stops, secret removals, key rotations, mission pauses, and support bundle without mutating local state",
+    )
     security_revoke_parser.add_argument("--include-logs", action="store_true", help="Include redacted logs in the support bundle")
     security_revoke_parser.add_argument("--json", action="store_true")
     security_revoke_parser.set_defaults(func=cmd_security)
