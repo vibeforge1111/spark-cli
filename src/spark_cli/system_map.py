@@ -644,7 +644,10 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
                 if table not in tables:
                     out["tables_of_interest"][table] = {"exists": False}
                     continue
-                count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
+                safe_name = re.sub(r'[^a-zA-Z0-9_]', '', table)
+                if safe_name != table:
+                    continue
+                count = conn.execute(f'select count(*) from "{safe_name}"').fetchone()[0]
                 out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
         finally:
             conn.close()

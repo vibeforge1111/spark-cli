@@ -12,7 +12,7 @@ RUN apt-get update \
         python3 \
         python3-venv \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --shell /bin/bash spark \
+    && useradd --uid 1001 --create-home --shell /bin/bash spark \
     && mkdir -p /opt/spark-cli /opt/spark-venv /data/spark/codex \
     && chown -R spark:spark /opt/spark-cli /opt/spark-venv /data/spark
 
