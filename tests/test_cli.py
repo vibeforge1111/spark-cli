@@ -1365,6 +1365,26 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_distinguishes_curl_fail_from_form_upload(self) -> None:
+        read_only = approval_required_for_command(["curl", "-f", "https://example.test/health"], CommandContext())
+        self.assertFalse(read_only.requires_approval)
+
+        upload = approval_required_for_command(["curl", "-F", "file=@support.zip", "https://example.test/upload"], CommandContext())
+        self.assertTrue(upload.requires_approval)
+        self.assertEqual(upload.action_class, "network_exfiltration")
+        self.assertEqual(upload.confirmation_phrase, "approve network upload")
+
+        clustered_upload = approval_required_for_command(["curl", "-fd", "file=@support.zip", "https://example.test/upload"], CommandContext())
+        self.assertTrue(clustered_upload.requires_approval)
+        self.assertEqual(clustered_upload.action_class, "network_exfiltration")
+
+        wget_debug = approval_required_for_command(["wget", "-d", "https://example.test/health"], CommandContext())
+        self.assertFalse(wget_debug.requires_approval)
+
+        wget_upload = approval_required_for_command(["wget", "--post-file=support.txt", "https://example.test/upload"], CommandContext())
+        self.assertTrue(wget_upload.requires_approval)
+        self.assertEqual(wget_upload.action_class, "network_exfiltration")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

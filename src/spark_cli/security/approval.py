@@ -95,6 +95,39 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_network_upload_option(command: str, parts: list[str]) -> bool:
+    curl_upload_long_options = {
+        "--data",
+        "--data-ascii",
+        "--data-binary",
+        "--data-raw",
+        "--data-urlencode",
+        "--form",
+        "--form-string",
+        "--json",
+        "--post-data",
+        "--post-file",
+        "--upload-file",
+    }
+    wget_upload_long_options = {
+        "--body-data",
+        "--body-file",
+        "--post-data",
+        "--post-file",
+        "--upload-file",
+    }
+    upload_long_options = curl_upload_long_options if command == "curl" else wget_upload_long_options
+    for part in parts:
+        lowered = part.lower()
+        if lowered in upload_long_options or any(lowered.startswith(f"{option}=") for option in upload_long_options):
+            return True
+        if command == "curl" and part.startswith("-") and not part.startswith("--") and any(
+            flag in part[1:] for flag in {"F", "T", "d"}
+        ):
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -353,7 +386,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
         )
-    if first in {"curl", "wget"} and _contains_any(lowered, {"-t", "--upload-file", "-f", "--form", "--data", "--data-binary"}):
+    if first in {"curl", "wget"} and _has_network_upload_option(first, parts):
         return _decision(
             parts,
             ctx,
