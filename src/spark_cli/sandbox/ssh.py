@@ -278,7 +278,7 @@ def load_ssh_targets(*, home: Path | None = None) -> dict[str, SshTarget]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
-        raise ValueError("SSH target store is not valid JSON.") from error
+        raise ValueError(f"SSH target store is corrupt or not valid JSON: {error}") from error
     if not isinstance(payload, dict) or payload.get("schema_version") != SSH_TARGETS_SCHEMA_VERSION:
         raise ValueError("Unsupported SSH target store schema.")
     targets = payload.get("targets")
