@@ -824,10 +824,32 @@ checkout_cli() {
   else
     log "Cloning spark-cli from $SPARK_CLI_SOURCE"
     rm -rf "$target"
+    local clone_exit=0
     if printf '%s' "$SPARK_CLI_REF" | grep -Eq '^[0-9a-f]{40}$'; then
-      git clone "$SPARK_CLI_SOURCE" "$target"
+      git clone "$SPARK_CLI_SOURCE" "$target" || clone_exit=$?
     else
-      git clone --depth=1 "$SPARK_CLI_SOURCE" "$target"
+      git clone --depth=1 "$SPARK_CLI_SOURCE" "$target" || clone_exit=$?
+    fi
+    
+    if [ "$clone_exit" -ne 0 ]; then
+      cat >&2 <<EOF
+
+Spark CLI clone failed.
+
+This usually means:
+  - Network is temporarily unavailable
+  - GitHub is experiencing issues
+  - DNS resolution failed
+
+Next steps:
+  1. Check your network connection
+  2. Wait a moment and retry the installer
+  3. If the issue persists, check https://www.githubstatus.com
+
+The installer will exit now. Your system is unchanged.
+Run the installer again when network is available.
+EOF
+      exit 1
     fi
   fi
   checkout_cli_ref "$target"
