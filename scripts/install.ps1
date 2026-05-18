@@ -106,7 +106,7 @@ function Test-PythonCompatible {
 }
 
 function Find-SystemPython {
-    foreach ($name in @("python", "python3")) {
+    foreach ($name in @("python3.11", "python", "python3")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd -and (Test-PythonCompatible $cmd.Source)) {
             $Script:PythonExe = $cmd.Source
@@ -338,7 +338,7 @@ function Show-DryRunPlan {
         if ($SetupSkipInstallCommands) { $setupPreviewArgs += "--skip-install-commands" }
         if ($SetupSkipRuntimeCheck) { $setupPreviewArgs += "--skip-runtime-check" }
         if ($BotToken) { $setupPreviewArgs += @("--bot-token", "<redacted>") }
-        if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
+        if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", "<redacted>") }
         if ($LlmProvider) { $setupPreviewArgs += @("--llm-provider", $LlmProvider) }
         if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }
         if ($OpenAIApiKey) { $setupPreviewArgs += @("--openai-api-key", "<redacted>") }

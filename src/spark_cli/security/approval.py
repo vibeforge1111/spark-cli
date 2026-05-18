@@ -143,7 +143,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
-    if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"]):
+    if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"], ["access", "help"]):
         return _decision(parts, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
@@ -179,7 +179,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         "filter-repo" in lowered
         or "--force" in lowered
         or "--force-with-lease" in lowered
-        or "-f" in lowered and second in {"push", "tag"}
+        or any(arg == "-f" or (arg.startswith("-f") and len(arg) > 2) for arg in lowered) and second in {"push", "tag"}
         or second in {"rebase", "reset"}
     ):
         return _decision(
@@ -242,7 +242,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     if first == "docker" and (
         "--privileged" in lowered
         or "--network=host" in lowered
-        or ("--network" in lowered and "host" in lowered)
+        or _has_option_value(lowered, {"--network"}, {"host"})
         or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
     ):
         return _decision(
