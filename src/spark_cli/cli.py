@@ -694,6 +694,9 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if current_commit == pinned_commit:
         return True, f"already at pinned commit {pinned_commit[:12]}"
 
+    # Save rollback point before mutating the checkout
+    rollback_commit = current_commit
+
     fetch = subprocess.run(
         git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
@@ -717,6 +720,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         text=True,
     )
     if checkout.returncode != 0:
+        # Rollback to the previous commit on failure
+        subprocess.run(git_command("-C", str(module.path), "checkout", "--detach", rollback_commit), capture_output=True, text=True)
         return False, summarize_command_output(checkout)
 
     resolved = subprocess.run(
@@ -727,6 +732,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if resolved.returncode != 0:
         return False, summarize_command_output(resolved)
     if resolved.stdout.strip().lower() != pinned_commit:
+        # Rollback to the previous commit on mismatch
+        subprocess.run(git_command("-C", str(module.path), "checkout", "--detach", rollback_commit), capture_output=True, text=True)
         return False, f"checkout mismatch: expected {pinned_commit}, got {resolved.stdout.strip()}"
     return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}"
 
