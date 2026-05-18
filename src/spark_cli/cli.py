@@ -2007,8 +2007,23 @@ def resolve_secret_input(value: str) -> str:
         secret_path = stripped[6:].strip()
         if not secret_path:
             raise SystemExit("Invalid secret reference: @file: requires a path.")
+        resolved = Path(secret_path).expanduser().resolve()
+        _DENIED_READ_PREFIXES: tuple[Path, ...] = (
+            Path("/etc/shadow"),
+            Path("/etc/ssh"),
+            Path.home() / ".ssh",
+            Path.home() / ".aws",
+            Path.home() / ".gnupg",
+            Path.home() / ".config" / "gh",
+        )
+        for denied in _DENIED_READ_PREFIXES:
+            try:
+                resolved.relative_to(denied)
+                raise SystemExit(f"Refusing to read from sensitive path: {secret_path}")
+            except ValueError:
+                pass
         try:
-            return Path(secret_path).expanduser().read_text(encoding="utf-8").strip()
+            return resolved.read_text(encoding="utf-8").strip()
         except OSError as exc:
             raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
     return value
