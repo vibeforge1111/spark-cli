@@ -132,27 +132,36 @@ def parse_command_text(command: str) -> list[str]:
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
-    parts = [part for part in argv if part != "--"]
+    # Strip privilege-elevating prefixes so they cannot bypass approval checks.
+    # Without this, "sudo rm -rf /" passes through as "none" because "sudo"
+    # is the first token and no rule matches it.
+    PRIV_PREFIXES = {"sudo", "doas", "pkexec", "run0", "gosu", "su"}
+    stripped = list(argv)
+    while stripped and stripped[0].lower() in PRIV_PREFIXES:
+        stripped = stripped[1:]
+    if not stripped:
+        return _decision(argv, ctx, "none", "none", "Privilege prefix with no command.")
+    parts = [part for part in stripped if part != "--"]
     lowered = _lower_parts(parts)
     if not lowered:
-        return _decision(parts, ctx, "none", "none", "Empty command.")
+        return _decision(argv, ctx, "none", "none", "Empty command.")
 
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
 
     if first == "spark" and second in {"status", "guide"}:
-        return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
+        return _decision(argv, ctx, "none", "none", f"`spark {second}` is read-only.")
     if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"]):
-        return _decision(parts, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
+        return _decision(argv, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
-        return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
+        return _decision(argv, ctx, "none", "none", "`spark verify` without --deep is report-only.")
     if first == "spark" and lowered[1:3] == ["providers", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark providers status` is read-only.")
+        return _decision(argv, ctx, "none", "none", "`spark providers status` is read-only.")
 
     if first == "spark" and second == "uninstall" and "--purge-home" in lowered:
         return _decision(
-            parts,
+            argv,
             ctx,
             "destructive_filesystem",
             "critical",
@@ -166,7 +175,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
         target = _target_after(parts, destructive_bins)
         return _decision(
-            parts,
+            argv,
             ctx,
             "destructive_filesystem",
             "critical" if recursive_or_force else "high",
@@ -183,7 +192,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or second in {"rebase", "reset"}
     ):
         return _decision(
-            parts,
+            argv,
             ctx,
             "git_history_mutation",
             "critical",
@@ -194,7 +203,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "credential_mutation",
             "high",
@@ -204,7 +213,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"set"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "credential_mutation",
             "high",
@@ -214,9 +223,9 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first == "spark" and lowered[1:3] == ["security", "revoke-all"]:
         if "--dry-run" in lowered:
-            return _decision(parts, ctx, "none", "none", "`spark security revoke-all --dry-run` is report-only.")
+            return _decision(argv, ctx, "none", "none", "`spark security revoke-all --dry-run` is report-only.")
         return _decision(
-            parts,
+            argv,
             ctx,
             "credential_mutation",
             "critical",
@@ -230,7 +239,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         joined,
     ):
         return _decision(
-            parts,
+            argv,
             ctx,
             "remote_code_execution",
             "critical",
@@ -246,7 +255,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
     ):
         return _decision(
-            parts,
+            argv,
             ctx,
             "container_privilege_escalation",
             "critical",
@@ -257,7 +266,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "external_publish",
             "high",
@@ -267,7 +276,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "credential_mutation",
             "high",
@@ -281,7 +290,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     ):
         action = "credential_mutation" if "secret" in lowered or "variable" in lowered else "external_publish"
         return _decision(
-            parts,
+            argv,
             ctx,
             action,
             "high",
@@ -291,7 +300,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first in {"kubectl", "helm", "terraform"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "external_publish",
             "critical" if "destroy" in lowered or "delete" in lowered else "high",
@@ -301,7 +310,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if (first == "git" and second == "push") or (first == "npm" and second == "publish") or joined.startswith("gh release create"):
         return _decision(
-            parts,
+            argv,
             ctx,
             "external_publish",
             "high",
@@ -311,10 +320,10 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
+        return _decision(argv, ctx, "none", "none", "`spark autostart status` is read-only.")
     if first == "spark" and second == "setup" and "--no-autostart" not in lowered:
         return _decision(
-            parts,
+            argv,
             ctx,
             "process_autostart_mutation",
             "medium",
@@ -324,7 +333,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first == "spark" and second == "autostart":
         return _decision(
-            parts,
+            argv,
             ctx,
             "process_autostart_mutation",
             "medium",
@@ -334,7 +343,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first in {"schtasks", "setx", "reg", "systemctl", "launchctl"}:
         return _decision(
-            parts,
+            argv,
             ctx,
             "process_autostart_mutation",
             "high",
@@ -345,7 +354,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second == "doctor" and "--include-logs" in lowered:
         return _decision(
-            parts,
+            argv,
             ctx,
             "network_exfiltration",
             "medium",
@@ -355,7 +364,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
     if first in {"curl", "wget"} and _contains_any(lowered, {"-t", "--upload-file", "-f", "--form", "--data", "--data-binary"}):
         return _decision(
-            parts,
+            argv,
             ctx,
             "network_exfiltration",
             "medium",
@@ -367,7 +376,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     if first == "spark" and second == "access":
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
         return _decision(
-            parts,
+            argv,
             ctx,
             "identity_access_mutation",
             "critical" if level5_requested else "high",
@@ -383,7 +392,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or ("--access" in lowered)
     ):
         return _decision(
-            parts,
+            argv,
             ctx,
             "identity_access_mutation",
             "high",
@@ -394,7 +403,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second == "verify" and "--deep" in lowered:
         return _decision(
-            parts,
+            argv,
             ctx,
             "high_cost_execution",
             "medium",
@@ -403,4 +412,4 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
-    return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
+    return _decision(argv, ctx, "none", "none", "No sensitive action class matched.")
