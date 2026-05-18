@@ -381,7 +381,7 @@ class Module:
 
     @property
     def telegram_profile(self) -> dict[str, Any]:
-        return dict(self.manifest.get("profiles", {}).get("telegram_starter", {}))
+        return dict(self.manifest.get("profiles", {}).get("telegram-starter", {}))
 
     @property
     def needed_secrets(self) -> list[str]:
