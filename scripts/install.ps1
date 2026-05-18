@@ -106,7 +106,7 @@ function Test-PythonCompatible {
 }
 
 function Find-SystemPython {
-    foreach ($name in @("python", "python3")) {
+    foreach ($name in @("python3.11", "python", "python3")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd -and (Test-PythonCompatible $cmd.Source)) {
             $Script:PythonExe = $cmd.Source
