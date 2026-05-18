@@ -9019,7 +9019,7 @@ class SparkCliTests(unittest.TestCase):
             [],
             {"llm": {"provider": "zai", "api_key_configured": False}},
         )
-        self.assertIn("LLM provider uses Z.AI GLM but is missing an API key. Re-run `spark setup --llm-provider zai --zai-api-key <key>`.", hints)
+        self.assertIn("LLM provider uses Z.AI GLM but is missing an API key. Re-run `spark setup --llm-provider zai --zai-api-key @clipboard`.", hints)
 
     def test_build_status_repair_hints_reports_missing_starter_runtime_process(self) -> None:
         spawner = Module(
@@ -9074,7 +9074,7 @@ class SparkCliTests(unittest.TestCase):
                 {"llm": {"provider": "openai", "api_key_configured": False, "auth_mode": "not_configured"}},
             )
         self.assertIn(
-            "LLM provider uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup --llm-provider openai --openai-api-key <key>`, or use `spark setup --llm-provider codex` for OpenAI Codex sign-in.",
+            "LLM provider uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup --llm-provider openai --openai-api-key @clipboard`, or use `spark setup --llm-provider codex` for OpenAI Codex sign-in.",
             hints,
         )
 
