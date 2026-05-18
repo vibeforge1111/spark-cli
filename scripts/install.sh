@@ -703,13 +703,32 @@ start_install_log() {
 }
 
 install_node() {
-  local required_major actual_version actual_major
+  local required_major actual_version actual_major actual_minor
   if [ "$SPARK_MANAGED_NODE" != "1" ] && command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
     required_major="${SPARK_NODE_VERSION%%.*}"
     actual_version="$(node -v 2>/dev/null || true)"
     actual_major="${actual_version#v}"
     actual_major="${actual_major%%.*}"
-    if [ -n "$actual_major" ] && [ "$actual_major" -ge "$required_major" ] 2>/dev/null; then
+    
+    # Extract minor version for v22.x validation
+    local version_without_v="${actual_version#v}"
+    local major_minor="${version_without_v%.*}"
+    actual_minor="${major_minor#*.}"
+    
+    # Reject Node v23.x (incompatible with spawner-ui)
+    if [ "$actual_major" = "23" ]; then
+      log "Node v23.x is not compatible with Spark spawner-ui."
+      log "Spark requires Node v22.12+ or v24+."
+      log "Use --managed-node to download compatible Node $SPARK_NODE_VERSION."
+      # Fall through to managed Node installation
+    # Accept Node v22.12+
+    elif [ "$actual_major" = "22" ] && [ -n "$actual_minor" ] && [ "$actual_minor" -ge "12" ] 2>/dev/null; then
+      SPARK_NODE_BIN_DIR="$(dirname "$(command -v node)")"
+      log "Using system Node $actual_version at $SPARK_NODE_BIN_DIR"
+      log "Use --managed-node to force Spark's verified managed Node download."
+      return
+    # Accept Node v24+
+    elif [ -n "$actual_major" ] && [ "$actual_major" -ge "24" ] 2>/dev/null; then
       SPARK_NODE_BIN_DIR="$(dirname "$(command -v node)")"
       log "Using system Node $actual_version at $SPARK_NODE_BIN_DIR"
       log "Use --managed-node to force Spark's verified managed Node download."
@@ -805,10 +824,32 @@ checkout_cli() {
   else
     log "Cloning spark-cli from $SPARK_CLI_SOURCE"
     rm -rf "$target"
+    local clone_exit=0
     if printf '%s' "$SPARK_CLI_REF" | grep -Eq '^[0-9a-f]{40}$'; then
-      git clone "$SPARK_CLI_SOURCE" "$target"
+      git clone "$SPARK_CLI_SOURCE" "$target" || clone_exit=$?
     else
-      git clone --depth=1 "$SPARK_CLI_SOURCE" "$target"
+      git clone --depth=1 "$SPARK_CLI_SOURCE" "$target" || clone_exit=$?
+    fi
+    
+    if [ "$clone_exit" -ne 0 ]; then
+      cat >&2 <<EOF
+
+Spark CLI clone failed.
+
+This usually means:
+  - Network is temporarily unavailable
+  - GitHub is experiencing issues
+  - DNS resolution failed
+
+Next steps:
+  1. Check your network connection
+  2. Wait a moment and retry the installer
+  3. If the issue persists, check https://www.githubstatus.com
+
+The installer will exit now. Your system is unchanged.
+Run the installer again when network is available.
+EOF
+      exit 1
     fi
   fi
   checkout_cli_ref "$target"
