@@ -7598,6 +7598,17 @@ class SparkCliTests(unittest.TestCase):
             if os.name == "nt":
                 self.assertNotEqual(load_json(file_path, {})["llm.zai.api_key"], "clip-secret")
 
+    def test_secrets_set_help_points_to_secret_sentinels(self) -> None:
+        with patch("sys.stdout", new_callable=StringIO) as stdout, self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["secrets", "set", "--help"])
+        self.assertEqual(raised.exception.code, 0)
+        output = stdout.getvalue()
+        self.assertIn("@clipboard", output)
+        self.assertIn("@env:NAME", output)
+        self.assertIn("@file:path", output)
+        self.assertIn("omit to paste securely when prompted", output)
+        self.assertNotIn("Pass the value directly", output)
+
     def test_prompt_for_secret_uses_visible_input_for_admin_ids(self) -> None:
         with patch("builtins.input", return_value="123,456"), \
              patch("spark_cli.cli.getpass.getpass") as getpass_mock:
