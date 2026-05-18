@@ -317,11 +317,17 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, (tuple, set, frozenset)):
+        return list(value)
+    return []
 
 
 def as_dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    if isinstance(value, dict):
+        return value
+    return {}
 
 
 def first_string(*values: Any) -> str:
