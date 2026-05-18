@@ -27,7 +27,7 @@ COPY --chown=spark:spark docker/live/entrypoint.sh /usr/local/bin/spark-live-ent
 RUN python3 -m venv /opt/spark-venv \
     && /opt/spark-venv/bin/python -m pip install --upgrade pip \
     && /opt/spark-venv/bin/python -m pip install -e . \
-    && npm install -g @openai/codex \
+    && npm install -g @openai/codex@0.1.2505092 \
     && npm cache clean --force \
     && chown -R spark:spark /opt/spark-cli /opt/spark-venv /data/spark /home/spark \
     && chmod +x /usr/local/bin/spark-live-entrypoint
