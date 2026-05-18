@@ -254,6 +254,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
         )
+    if first == "docker" and second in {"login", "logout"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Docker command can store, change, or remove registry credentials.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve docker credential change",
+        )
 
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
