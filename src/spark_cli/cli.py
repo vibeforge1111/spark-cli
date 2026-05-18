@@ -1979,7 +1979,11 @@ def extract_telegram_bot_token(value: str) -> str:
         return matches[0]
     if len(matches) > 1:
         raise SystemExit("Found more than one Telegram bot token. Copy or paste only the token for the bot you want to connect.")
-    return stripped
+    raise SystemExit(
+        "The provided value does not match the expected Telegram bot token format "
+        "(digits:alphanumeric, e.g., 123456789:AbCdEf...). "
+        "Please copy the token from BotFather."
+    )
 
 
 def telegram_token_repair_command(secret_id: str) -> str:
