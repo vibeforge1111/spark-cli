@@ -30,8 +30,8 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(glpat-[A-Za-z0-9_\-]{20,})\b"),
     re.compile(r"\b(npm_[A-Za-z0-9]{10,})\b"),
     re.compile(r"\b(xox[baprs]-[A-Za-z0-9-]{20,})\b"),
-    re.compile(r"\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
-    re.compile(r"\b(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
+    re.compile(r"\bbot\d{6,}:[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"(?<!bot)(?<!\d)(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
 )
 
 
