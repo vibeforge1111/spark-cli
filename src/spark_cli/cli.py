@@ -8257,10 +8257,17 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
 
     status_payload = collect_status_payload()
     repair_hints = status_payload.get("repair_hints") if isinstance(status_payload, dict) else []
+    runtime_ok = bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False
+    if runtime_ok:
+        runtime_detail = "Spark runtime health is clean."
+    elif repair_hints:
+        runtime_detail = "; ".join(str(item) for item in repair_hints[:3])
+    else:
+        runtime_detail = "Spark runtime is not running or modules are not installed."
     checks.append(security_check(
         "runtime_health",
-        bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False,
-        "Spark runtime health is clean." if not repair_hints else "; ".join(str(item) for item in repair_hints[:3]),
+        runtime_ok,
+        runtime_detail,
         "spark live status",
         severity="medium",
     ))
