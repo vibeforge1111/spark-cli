@@ -6539,9 +6539,11 @@ def cmd_live_status(args: argparse.Namespace) -> int:
         stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
         print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
-    for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
-        module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
-        if not module:
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        name = module.get("name")
+        if not name:
             continue
         healthy = module.get("healthy")
         marker = "[OK]" if healthy else "[SKIP]" if healthy is None else "[FIX]"
