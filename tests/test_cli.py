@@ -1359,6 +1359,23 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_password_manager_secret_reads(self) -> None:
+        cases = [
+            ["op", "read", "op://Private/GitHub/token"],
+            ["op", "item", "get", "GitHub token", "--fields", "password"],
+            ["pass", "show", "github/token"],
+            ["pass", "otp", "github/token"],
+            ["security", "find-generic-password", "-a", "spark", "-w"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve password reveal")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
