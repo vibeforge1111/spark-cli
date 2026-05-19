@@ -9627,7 +9627,11 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
             "detail": (
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
-                else "One or more installed autostart hook(s) look stale or writable by other local users."
+                else (
+                    "No autostart hooks are currently installed."
+                    if not installed
+                    else "One or more installed autostart hook(s) look stale or writable by other local users."
+                )
             ),
             "repair": "spark autostart on --now",
         },
