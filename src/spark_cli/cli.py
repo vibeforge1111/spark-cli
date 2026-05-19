@@ -13623,9 +13623,15 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
         healthcheck = "node -e \\\"console.log('ok')\\\""
     else:
         raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
+    # Escape double quotes and backslashes in user-provided fields so
+    # the generated TOML remains valid.  Without this, a description
+    # like 'say "hello"' would produce invalid TOML:
+    #   description = "say "hello""
+    safe_name = name.replace("\\", "\\\\").replace('"', '\\"')
+    safe_description = description.replace("\\", "\\\\").replace('"', '\\"')
     return INIT_SPARK_TOML_TEMPLATE.format(
-        name=name,
-        description=description,
+        name=safe_name,
+        description=safe_description,
         runtime_kind=runtime_kind,
         runtime_version=runtime_version,
         healthcheck_command=healthcheck,
