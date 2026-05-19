@@ -64,6 +64,10 @@ def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
+def _has_shell_control_token(parts: list[str]) -> bool:
+    return any(part in {"&&", "||", "|", ";", "&"} for part in parts)
+
+
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
         if part.lower() in command_names and index + 1 < len(parts):
@@ -331,6 +335,22 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command changes login/startup behavior for this computer or host.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve autostart change",
+        )
+    if (
+        not _has_shell_control_token(parts)
+        and (
+            (first == "reg" and second == "query")
+            or (first == "schtasks" and "/query" in lowered)
+            or (first == "systemctl" and second in {"status", "is-active", "is-enabled", "show", "list-units", "list-unit-files"})
+            or (first == "launchctl" and second in {"list", "print"})
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "none",
+            "none",
+            "Command inspects OS startup or service state without changing it.",
         )
     if first in {"schtasks", "setx", "reg", "systemctl", "launchctl"}:
         return _decision(
