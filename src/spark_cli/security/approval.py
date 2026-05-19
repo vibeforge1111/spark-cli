@@ -275,6 +275,24 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve hosted secret change",
         )
+    if first == "aws" and (
+        lowered[1:3] == ["ecr", "get-login-password"]
+        or (
+            lowered[1:3] == ["configure", "get"]
+            and len(lowered) > 3
+            and any("secret_access_key" in part or "session_token" in part or "security_token" in part for part in lowered[3:])
+        )
+        or lowered[1:3] == ["sts", "get-session-token"]
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "AWS CLI command can reveal registry passwords or cloud credentials.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve aws credential reveal",
+        )
     if first == "gh" and (
         lowered[1:3] in [["secret", "set"], ["variable", "set"]]
         or lowered[1:3] in [["pr", "merge"], ["release", "create"], ["release", "upload"]]
