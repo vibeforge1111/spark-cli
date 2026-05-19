@@ -254,6 +254,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
         )
+    if first in {"docker", "podman"} and second == "push":
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish a container image to a registry.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve image publish",
+        )
 
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(

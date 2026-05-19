@@ -1351,6 +1351,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_container_image_publish(self) -> None:
+        for command in (
+            ["docker", "push", "ghcr.io/example/spark-live:latest"],
+            ["podman", "push", "ghcr.io/example/spark-live:latest"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve image publish")
+
+        pull = approval_required_for_command(["docker", "pull", "ghcr.io/example/spark-live:latest"], CommandContext(non_interactive=True))
+        self.assertFalse(pull.requires_approval)
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
