@@ -242,7 +242,7 @@ CHIP_SCAN_PATTERNS = (
     (
         "embedded-private-key",
         "critical",
-        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
         "private key material is embedded in the module",
     ),
     (
