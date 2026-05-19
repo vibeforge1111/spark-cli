@@ -1357,6 +1357,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_rust_crate_publish(self) -> None:
+        decision = approval_required_for_command(["cargo", "publish"], CommandContext(non_interactive=True))
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "external_publish")
+        self.assertEqual(decision.risk, "high")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.confirmation_phrase, "approve rust crate publish")
+
+        package = approval_required_for_command(["cargo", "package"], CommandContext(non_interactive=True))
+        self.assertFalse(package.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
