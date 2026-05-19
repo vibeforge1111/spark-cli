@@ -95,6 +95,18 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _option_value(parts: list[str], option_names: set[str]) -> str:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if name in option_names:
+                return value
+        elif part in option_names and index + 1 < len(lowered):
+            return lowered[index + 1]
+    return ""
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -363,6 +375,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )
+    if first in {"iwr", "irm", "invoke-webrequest", "invoke-restmethod"}:
+        method = _option_value(parts, {"-method"})
+        has_upload_input = _contains_any(lowered, {"-body", "-infile", "-form", "-formdata"})
+        if has_upload_input or method in {"post", "put", "patch"}:
+            return _decision(
+                parts,
+                ctx,
+                "network_exfiltration",
+                "medium",
+                "PowerShell web command may upload local data to a network endpoint.",
+                target_display=parts[0],
+                confirmation_phrase="approve network upload",
+            )
 
     if first == "spark" and second == "access":
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
