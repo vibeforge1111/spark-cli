@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import hashlib
 import os
 import re
 import shlex
 import shutil
+import socket
 import stat
 import subprocess
 import tempfile
@@ -140,7 +142,54 @@ def validate_ssh_host(host: str) -> str:
         raise ValueError("SSH host contains unsupported characters.")
     if value in {"169.254.169.254", "metadata.google.internal"}:
         raise ValueError("SSH host must not point at a cloud metadata service.")
+
+    # Block non-canonical IP representations that resolve to metadata or
+    # loopback addresses (e.g. 0xa9fea9fe → 169.254.169.254).
+    _ip = _parse_host_ip(value)
+    if _ip is not None:
+        if _ip in _METADATA_IPS or _ip.is_link_local:
+            raise ValueError("SSH host must not point at a cloud metadata service.")
+        if _ip.is_loopback:
+            raise ValueError("SSH host must not point at a loopback address.")
+
     return value
+
+
+def _parse_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Try to resolve a hostname to an IP, handling non-canonical forms.
+
+    ipaddress.ip_address() rejects octal/hex/decimal IP forms, but the
+    OS resolver still accepts them.  Resolve via getaddrinfo so that
+    representations like ``0xa9fea9fe`` (169.254.169.254) are caught.
+    """
+    # Fast path: literal IP accepted by ipaddress
+    try:
+        addr = ipaddress.ip_address(host)
+        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+            return addr.ipv4_mapped
+        return addr
+    except ValueError:
+        pass
+    # Slow path: resolve via DNS for non-canonical forms
+    try:
+        results = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except (socket.gaierror, OSError, ValueError):
+        return None
+    for _family, _type, _proto, _canon, sockaddr in results:
+        raw = sockaddr[0]
+        try:
+            addr = ipaddress.ip_address(raw)
+            if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+                addr = addr.ipv4_mapped
+            return addr
+        except ValueError:
+            continue
+    return None
+
+
+_METADATA_IPS = {
+    ipaddress.ip_address("169.254.169.254"),
+}
 
 
 def validate_ssh_user(user: str) -> str:
