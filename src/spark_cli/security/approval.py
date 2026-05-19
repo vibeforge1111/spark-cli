@@ -49,6 +49,7 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
+SENSITIVE_ENV_NAME_PATTERN = re.compile(r"(?i)(token|secret|api[_-]?key|password|passwd|credential|auth)")
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -93,6 +94,10 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
         ):
             return True
     return False
+
+
+def _looks_like_sensitive_env_name(value: str) -> bool:
+    return bool(SENSITIVE_ENV_NAME_PATTERN.search(value))
 
 
 def _decision(
@@ -223,6 +228,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command stops Spark, rotates local control keys, removes local secrets, and writes incident state.",
             target_display="spark security revoke-all",
             confirmation_phrase="revoke spark access",
+        )
+
+    if (
+        (first == "env" and len(parts) == 1)
+        or (
+            first == "printenv"
+            and (len(parts) == 1 or any(_looks_like_sensitive_env_name(part) for part in parts[1:]))
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can print environment variables that may contain secrets.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve environment secret read",
         )
 
     if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
