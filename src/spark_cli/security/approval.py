@@ -175,6 +175,33 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
         )
 
+    # Privilege escalation commands (sudo, doas) always require approval
+    # because they run with elevated permissions and can bypass Spark's
+    # filesystem and network safety guardrails.
+    if first in {"sudo", "doas"}:
+        # If the sub-command is itself destructive or a privilege escalation
+        # shell, escalate the risk level.
+        inner = second if second else ""
+        privilege_shells = {"bash", "sh", "zsh", "fish", "csh", "tcsh", "dash", "ksh", "-i", "-s"}
+        if inner in privilege_shells:
+            risk: ApprovalRisk = "critical"
+            reason = "Command opens an elevated privileged shell."
+        elif inner in destructive_bins:
+            risk = "critical"
+            reason = "Command runs a destructive operation with elevated privileges."
+        else:
+            risk = "high"
+            reason = "Command runs with elevated privileges, bypassing Spark safety guardrails."
+        return _decision(
+            parts,
+            ctx,
+            "container_privilege_escalation",
+            risk,
+            reason,
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve elevated privilege",
+        )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "--force" in lowered
