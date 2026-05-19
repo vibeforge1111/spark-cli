@@ -7232,7 +7232,7 @@ def execute_security_revoke_all(*, dry_run: bool = False, include_logs: bool = F
     else:
         payload["actions"]["support_bundle"] = {"ok": True, "planned": True, "path": None}
 
-    critical_actions = ("secrets", "local_keys", "custom_mcp", "missions", "support_bundle")
+    critical_actions = ("processes", "secrets", "local_keys", "custom_mcp", "missions", "support_bundle")
     payload["ok"] = all(bool(payload["actions"].get(name, {}).get("ok")) for name in critical_actions)
     return payload
 
