@@ -261,6 +261,10 @@ def add_ssh_target(
     targets = load_ssh_targets(home=home)
     now = _timestamp()
     existing = targets.get(safe_name)
+    if existing:
+        warnings.append(
+            f"Overwriting existing SSH target (was {existing.user}@{existing.host}:{existing.port})"
+        )
     target = SshTarget(
         name=safe_name,
         host=safe_host,
