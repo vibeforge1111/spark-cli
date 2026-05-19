@@ -5258,7 +5258,6 @@ def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_val
         "enabled": True,
         "module": VOICE_MODULE_NAME,
         "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
-        "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
     }
 
 
