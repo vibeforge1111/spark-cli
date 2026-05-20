@@ -2020,7 +2020,10 @@ def parse_secret_pairs(raw_pairs: list[str] | None) -> dict[str, str]:
         if "=" not in raw:
             raise SystemExit(f"Invalid --secret value: {raw}. Expected KEY=VALUE.")
         key, value = raw.split("=", 1)
-        secrets[key.strip()] = resolve_secret_input(value)
+        key = key.strip()
+        if not key:
+            raise SystemExit(f"Invalid --secret value: {raw}. Key cannot be empty.")
+        secrets[key] = resolve_secret_input(value)
     return secrets
 
 
