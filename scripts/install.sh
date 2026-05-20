@@ -727,6 +727,12 @@ install_node() {
 
   need_cmd curl
   need_cmd tar
+  # Node archives use .tar.xz — verify xz decompression is available
+  if ! tar --help 2>&1 | grep -qi 'xz\|lzma' && ! command -v xz >/dev/null 2>&1; then
+    echo "ERROR: xz decompression support is required to extract Node archives." >&2
+    echo "Install it with: apt install xz-utils (Debian/Ubuntu) or yum install xz (RHEL/CentOS)" >&2
+    exit 1
+  fi
   mkdir -p "$tools_dir"
   local archive="$tools_dir/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM.tar.xz"
   local shasums="$tools_dir/node-v$SPARK_NODE_VERSION-SHASUMS256.txt"
