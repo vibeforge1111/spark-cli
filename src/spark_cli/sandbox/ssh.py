@@ -407,7 +407,20 @@ def trust_ssh_target_host_key(
             if raw_line.strip() and not raw_line.startswith(f"{alias} "):
                 lines.append(raw_line)
     lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to temp file then rename to avoid corruption on crash
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{known_hosts.name}.", suffix=".tmp", dir=str(known_hosts.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp_path, str(known_hosts))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     try:
         known_hosts.chmod(0o600)
     except OSError:
