@@ -1404,6 +1404,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_helm_chart_publish(self) -> None:
+        for command in (
+            ["helm", "push", "chart-0.1.0.tgz", "oci://registry.example.test/charts"],
+            ["helm", "chart", "push", "registry.example.test/charts/app:0.1.0"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve helm chart publish")
+
+        lint = approval_required_for_command(["helm", "lint", "charts/app"], CommandContext(non_interactive=True))
+        self.assertFalse(lint.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
