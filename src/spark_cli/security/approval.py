@@ -144,6 +144,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+    executable = first.replace("\\", "/").rsplit("/", 1)[-1]
 
     if first in {"sudo", "doas"}:
         nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
@@ -441,6 +442,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can publish code, packages, releases, or tags outside this machine.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve publish",
+        )
+    if (executable in {"mvn", "mvnw"} and "deploy" in lowered[1:]) or (
+        executable in {"gradle", "gradlew"} and any(part == "publish" or part.startswith("publishallpublications") for part in lowered[1:])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish Java package artifacts to a package registry.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve java package publish",
         )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
