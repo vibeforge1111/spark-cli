@@ -309,6 +309,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve publish",
         )
+    if first in {"yarn", "pnpm"} and second == "publish":
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish JavaScript package artifacts to a package registry.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve javascript package publish",
+        )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
         return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
