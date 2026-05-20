@@ -4277,6 +4277,10 @@ def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
+    if not modules:
+        print("No installed Spark modules recorded.")
+        print("Run `spark setup telegram-starter` to install the starter bundle.")
+        return 0
     for module in modules.values():
         metadata = registry.get("modules", {}).get(module.name, {})
         blessed = "yes" if metadata.get("blessed") else "no"
