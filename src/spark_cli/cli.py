@@ -13837,7 +13837,9 @@ def cmd_update(args: argparse.Namespace) -> int:
         if not args.skip_install_commands:
             execute_install_commands(module)
         run_module_hook(module, "post_install")
-        existing_record = load_json(REGISTRY_PATH, {}).get(module.name, {})
+        existing_record = load_json(REGISTRY_PATH, {}).get(module.name) or {}
+        if not isinstance(existing_record, dict):
+            existing_record = {}
         installed_via = dict(existing_record.get("installed_via", {}))
         install_module_record(
             module,
