@@ -385,6 +385,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve hosted deploy",
         )
+    if first in {"serverless", "sls"} and second == "deploy":
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish or redeploy hosted serverless infrastructure.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve hosted deploy",
+        )
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
         return _decision(
             parts,
