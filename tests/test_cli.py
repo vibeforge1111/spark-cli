@@ -9283,6 +9283,25 @@ class SparkCliTests(unittest.TestCase):
             payload["repair_hints"],
         )
 
+    def test_provider_status_payload_reports_unconfigured_roles_for_clean_home(self) -> None:
+        with patch("spark_cli.cli.load_json", return_value={}):
+            payload = provider_status_payload()
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["configured"])
+        self.assertEqual(set(payload["roles"]), {"chat", "builder", "memory", "mission"})
+        for role_state in payload["roles"].values():
+            self.assertEqual(role_state["provider"], "not_configured")
+            self.assertEqual(role_state["auth_mode"], "not_configured")
+            self.assertFalse(role_state["ready"])
+        self.assertIn(
+            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider.",
+            payload["repair_hints"],
+        )
+        self.assertIn(
+            "LLM role `chat` is not configured. Run `spark setup --chat-llm-provider codex` for OpenAI Codex sign-in, or choose anthropic, zai, kimi, openrouter, huggingface, minimax, lmstudio, ollama, or openai.",
+            payload["repair_hints"],
+        )
+
     def test_provider_status_payload_reports_minimax_secret_readiness(self) -> None:
         setup_state = {
             "secret_keys": ["llm.minimax.api_key"],
