@@ -3872,11 +3872,15 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[s
         "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
         "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
     }
+    spark_tools = Path("~/.spark/tools").expanduser()
     def _resolve_source(key: str) -> Path:
         desktop_path = _desktop_files[key]
         if desktop_path.exists():
             return desktop_path
         repo, suffix = _installed_suffixes[key]
+        tools_path = spark_tools / repo / suffix
+        if tools_path.exists():
+            return tools_path
         installed_path = spark_modules / repo / "source" / suffix
         if installed_path.exists():
             return installed_path
