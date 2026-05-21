@@ -419,6 +419,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
+    if first == "kubectl" and (
+        lowered[1:3] == ["rollout", "restart"]
+        or second in {"patch", "scale", "cordon", "drain", "annotate", "label"}
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can mutate live Kubernetes resources.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve infrastructure change",
+        )
     if (
         (first == "git" and second == "push")
         or (first in {"npm", "pnpm", "yarn"} and second == "publish")
