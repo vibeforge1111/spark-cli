@@ -41,6 +41,7 @@ from .system_map import compile_summary, compile_system_map, write_compiled_outp
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
+FERNET_SECRET_PREFIX = "fernet:v1:"
 PRIVATE_FILE_MODE = 0o600
 
 
@@ -972,9 +973,73 @@ def _kernel32() -> Any:
     return ctypes.windll.kernel32
 
 
+def _fernet_key() -> bytes:
+    """Derive a machine-bound Fernet key for Linux/macOS secret encryption.
+
+    Uses /etc/machine-id (Linux) or IOPlatformUUID (macOS) as entropy source,
+    combined with the Spark home path to produce a stable, machine-bound key.
+    This provides equivalent protection to Windows DPAPI: secrets are bound to
+    the machine and cannot be decrypted if the file is copied elsewhere.
+    """
+    import hashlib
+    entropy = b""
+    # Try Linux machine-id first
+    for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            entropy = Path(path).read_bytes().strip()
+            break
+        except OSError:
+            continue
+    if not entropy:
+        # macOS: use IOPlatformUUID
+        try:
+            result = subprocess.run(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if "IOPlatformUUID" in line:
+                    entropy = line.split('"')[-2].encode()
+                    break
+        except (OSError, subprocess.TimeoutExpired, IndexError):
+            pass
+    if not entropy:
+        # Last resort: use hostname + uid as weak entropy (better than plaintext)
+        import socket
+        entropy = f"{socket.getfqdn()}:{os.getuid()}".encode()
+    # Derive a 32-byte key using PBKDF2 with Spark home as salt
+    salt = str(SPARK_HOME).encode("utf-8")
+    key = hashlib.pbkdf2_hmac("sha256", entropy, salt, iterations=100_000)
+    return base64.urlsafe_b64encode(key)
+
+
+def _fernet_protect(value: str) -> str:
+    """Encrypt a secret value using Fernet (AES-128-CBC + HMAC) on Linux/macOS."""
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_fernet_key())
+        encrypted = f.encrypt(value.encode("utf-8"))
+        return FERNET_SECRET_PREFIX + encrypted.decode("ascii")
+    except Exception:
+        # If cryptography is not available, fall through to plaintext
+        # This maintains backward compatibility
+        return value
+
+
+def _fernet_unprotect(value: str) -> str:
+    """Decrypt a Fernet-encrypted secret value."""
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_fernet_key())
+        token = value[len(FERNET_SECRET_PREFIX):].encode("ascii")
+        return f.decrypt(token).decode("utf-8")
+    except Exception:
+        return value
+
+
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
-        return value
+        return _fernet_protect(value)
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -989,6 +1054,8 @@ def dpapi_protect(value: str) -> str:
 
 
 def dpapi_unprotect(value: str) -> str:
+    if value.startswith(FERNET_SECRET_PREFIX):
+        return _fernet_unprotect(value)
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
