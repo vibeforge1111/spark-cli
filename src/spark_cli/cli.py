@@ -6409,6 +6409,8 @@ def cmd_live(args: argparse.Namespace) -> int:
         args.allow_boot_warnings = False
         start_code = cmd_start(args)
         if command == "run":
+            if start_code != 0:
+                return start_code
             print("")
             print("Spark Live is running. Press Ctrl+C to stop watching logs; services keep running.")
             print("To turn Spark off, run: spark live stop")
