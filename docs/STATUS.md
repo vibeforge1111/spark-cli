@@ -393,3 +393,9 @@ python -m spark_cli.cli sandbox ssh smoke <name> --json
 python -m spark_cli.cli sandbox modal doctor --json
 python -m spark_cli.cli sandbox modal smoke --json
 ```
+## Known Issue: Missing Reset Confirmation Dialog
+
+**Bug:** The reset conversation action in the Spark Telegram bot executes immediately with no confirmation prompt. Users lose their entire chat session accidentally.
+**Impact:** Destructive action with no recovery path.
+**Expected:** A confirmation gate — "Are you sure? This cannot be undone." — before executing reset.
+**Reported by:** @Geh0x1 via Spark Compete bug hunt.
