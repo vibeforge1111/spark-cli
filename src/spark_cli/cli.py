@@ -1093,8 +1093,12 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as _keychain_exc:
+            logging.warning(
+                "Keychain write failed for %r; falling back to file storage. "
+                "Run `spark secrets set %s` to migrate once keyring is available. Error: %s",
+                secret_id, secret_id, _keychain_exc,
+            )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     try:
         file_secrets[secret_id] = dpapi_protect(value)
