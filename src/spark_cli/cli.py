@@ -7514,16 +7514,44 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     return errors
 
 
+def _spawner_bind_host_is_public(host: str) -> bool:
+    """Return True if the bind host exposes the spawner beyond localhost."""
+    if not host:
+        return False
+    normalized = host.strip().lower()
+    if normalized in {"", "localhost", "127.0.0.1", "::1"}:
+        return False
+    if normalized in {"0.0.0.0", "::", "*"}:
+        return True
+    # Treat any non-loopback IP (including LAN/private) as public enough to warn
+    try:
+        addr = ipaddress.ip_address(normalized.split(":")[0].split("%")[0])
+        return not addr.is_loopback
+    except ValueError:
+        # Hostnames (other than localhost) are treated as potentially public
+        return True
+
+
 def local_control_surface_errors() -> list[str]:
     errors: list[str] = []
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    spawner_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
+    env_file_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
+    # The runtime uses os.environ (via module_runtime_env / shell_command_env), so check both
+    runtime_host = (os.environ.get("SPARK_SPAWNER_HOST") or os.environ.get("HOST") or env_file_host).strip()
     allowed_hosts = [host.strip() for host in (spawner_env.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+
+    # Catch discrepancy: .env says localhost but os.environ overrides to something else
+    if env_file_host and runtime_host != env_file_host:
+        errors.append(
+            f"Spawner bind-host mismatch: env file has {env_file_host!r}, but runtime will use {runtime_host!r} from process environment. "
+            "Unset the environment override or align both values."
+        )
+
+    public_bind = _spawner_bind_host_is_public(runtime_host) or bool(allowed_hosts)
     if public_bind:
         errors.extend(hosted_allowed_host_errors(allowed_hosts))
-        if not allowed_hosts:
-            errors.append("Spawner appears publicly bound but SPARK_ALLOWED_HOSTS is not configured.")
+        if not allowed_hosts and _spawner_bind_host_is_public(runtime_host):
+            errors.append(f"Spawner appears publicly bound to {runtime_host!r} but SPARK_ALLOWED_HOSTS is not configured.")
         ui_key = spawner_env.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_UI_API_KEY") or ""
         bridge_key = spawner_env.get("SPARK_BRIDGE_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY") or ""
         errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))

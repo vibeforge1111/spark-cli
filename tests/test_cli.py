@@ -94,6 +94,8 @@ from spark_cli.cli import (
     long_path_aware,
     module_log_path,
     live_log_targets,
+    local_control_surface_errors,
+    local_secret_file_permission_errors,
     module_process_key,
     module_runtime_command_argv,
     module_runtime_env,
@@ -1960,6 +1962,40 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertFalse(checks["control_surface"]["ok"])
         self.assertIn("SPARK_ALLOWED_HOSTS", checks["control_surface"]["detail"])
+
+    def test_local_control_surface_catches_env_override_mismatch(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "127.0.0.1"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {"SPARK_SPAWNER_HOST": "192.168.1.100"}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertTrue(any("mismatch" in e.lower() for e in errors), f"Expected mismatch error, got: {errors}")
+        self.assertTrue(any("publicly bound" in e.lower() for e in errors), f"Expected public bind error, got: {errors}")
+
+    def test_local_control_surface_catches_lan_ip_as_public(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "10.0.0.5"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertTrue(any("publicly bound" in e.lower() for e in errors), f"Expected public bind error for LAN IP, got: {errors}")
+
+    def test_local_control_surface_allows_localhost(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "127.0.0.1"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertEqual(errors, [])
 
     def test_security_audit_can_include_hosted_checks(self) -> None:
         hosted_payload = {
