@@ -2269,15 +2269,35 @@ def setup_is_interactive(args: argparse.Namespace) -> bool:
     return stdin_is_tty()
 
 
+def windows_claude_exe_from_npm_shim(path: str | None) -> str | None:
+    if os.name != "nt" or not path:
+        return None
+    candidate = Path(path)
+    if candidate.name.lower() not in {"claude.cmd", "claude.ps1"}:
+        return None
+    exe = candidate.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    return str(exe) if exe.exists() else None
+
+
 def detect_claude_code() -> dict[str, Any]:
     if os.name == "nt":
         for raw_dir in os.environ.get("PATH", "").split(os.pathsep):
             if not raw_dir:
                 continue
+            cmd_candidate = Path(raw_dir) / "claude.cmd"
+            exe_candidate = windows_claude_exe_from_npm_shim(str(cmd_candidate))
+            if exe_candidate:
+                return {"present": True, "path": exe_candidate}
             candidate = Path(raw_dir) / "claude.ps1"
             if candidate.exists():
+                exe_candidate = windows_claude_exe_from_npm_shim(str(candidate))
+                if exe_candidate:
+                    return {"present": True, "path": exe_candidate}
                 return {"present": True, "path": str(candidate)}
     path = shutil.which("claude")
+    exe_path = windows_claude_exe_from_npm_shim(path)
+    if exe_path:
+        return {"present": True, "path": exe_path}
     return {"present": bool(path), "path": path}
 
 
@@ -3552,6 +3572,10 @@ def build_llm_env(args: argparse.Namespace, secret_values: dict[str, str]) -> tu
             codex = detect_codex_cli()
             if codex["present"]:
                 env["CODEX_PATH"] = str(codex["path"])
+        if provider_name == "anthropic":
+            claude = detect_claude_code()
+            if claude["present"] and claude.get("path"):
+                env["CLAUDE_PATH"] = str(claude["path"])
         base_url_arg = provider_spec.get("base_url_arg")
         if base_url_arg:
             base_url = getattr(args, base_url_arg, None) or provider_spec["base_url_default"]
@@ -3720,6 +3744,8 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         spawner_env["SPAWNER_PRD_AUTO_PROVIDER"] = "codex"
         if llm_env.get("CODEX_PATH"):
             spawner_env["CODEX_PATH"] = llm_env["CODEX_PATH"]
+    if mission_provider == "claude" and llm_env.get("CLAUDE_PATH"):
+        spawner_env["CLAUDE_PATH"] = llm_env["CLAUDE_PATH"]
     spawner_env["TELEGRAM_RELAY_SECRET"] = relay_secret
 
     builder_env = {
