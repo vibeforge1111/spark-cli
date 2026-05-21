@@ -2437,6 +2437,12 @@ def write_denied_paths(home: Path | None = None) -> list[Path]:
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
     candidate = resolve_policy_path(path)
+    # SPARK_HOME is always allowed — modules, state, and config live there.
+    # Without this exemption, running as root makes /root/.spark/* unreachable
+    # because /root is in WRITE_DENIED_POSIX_PREFIXES.
+    spark_home_resolved = resolve_policy_path(SPARK_HOME)
+    if policy_path_is_same_or_child(candidate, spark_home_resolved):
+        return False, ""
     for denied_path in write_denied_paths():
         if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
             return True, str(denied_path)
