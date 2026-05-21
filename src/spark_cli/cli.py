@@ -11650,7 +11650,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 print(f"      warning: {warning}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "installers", False):
+    if getattr(args, "installers", False) or getattr(args, "hosted_installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
