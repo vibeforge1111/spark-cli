@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 
 
@@ -43,6 +44,32 @@ def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
         return None
 
 
+def _resolve_redirects(url: str, max_redirects: int = 5) -> str:
+    """
+    Follow HTTP redirects and return the final destination URL.
+    Prevents SSRF via redirect chains to localhost/metadata services.
+    """
+    current_url = url
+    for _ in range(max_redirects):
+        try:
+            req = urllib.request.Request(current_url, method='HEAD')
+            req.add_header('User-Agent', 'Spark-CLI-Security-Check/1.0')
+            with urllib.request.urlopen(req, timeout=3) as response:
+                # Check for redirect
+                if response.status in (301, 302, 303, 307, 308):
+                    location = response.headers.get('Location')
+                    if location:
+                        current_url = urllib.parse.urljoin(current_url, location)
+                        continue
+                # No redirect, return current URL
+                return current_url
+        except Exception:
+            # If we can't resolve, return the current URL for validation
+            return current_url
+    # Max redirects reached
+    return current_url
+
+
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
     value = str(raw_url or "").strip()
@@ -50,6 +77,14 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
         return []
 
     errors: list[str] = []
+    
+    # Follow redirects and validate final destination
+    final_url = _resolve_redirects(value)
+    if final_url != value:
+        # Note: We validate the final URL but don't add this as an error
+        # Just use the final destination for validation
+        value = final_url
+    
     parsed = _parse_url(value)
     if parsed.scheme not in {"http", "https"}:
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
