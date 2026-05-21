@@ -568,9 +568,9 @@ def ssh_smoke_execute_argv(
     quoted_path = shlex.quote(remote_path)
     quoted_hash = shlex.quote(probe_hash)
     cleanup = (
-        "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
-        if keep_debug_files
-        else "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
+        "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
+        if not keep_debug_files
+        else "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
     )
     command = (
         f"file={quoted_path}; expected={quoted_hash}; {cleanup}; "
@@ -898,27 +898,4 @@ def collect_ssh_smoke_payload(
                 repair="Check SSH reachability, remote /tmp write access, sha256sum, and non-root shell availability.",
             ))
 
-    ok = all(check.ok for check in checks if check.level != "warning")
-    audit_event = {
-        "action_id": "ssh_smoke",
-        "ok": ok,
-        "keep_debug_files": keep_debug_files,
-        "probe_hash": smoke_payload.get("probe_hash") if smoke_payload else "",
-        "returncode": smoke_payload.get("returncode") if smoke_payload else None,
-        "cleanup_requested": smoke_payload.get("cleanup_requested") if smoke_payload else False,
-    }
-    write_audit_event("ssh", safe_name, audit_event, home=home)
-    payload = {
-        "ok": ok,
-        "backend": "ssh",
-        "command": "smoke",
-        "target": target.to_public_dict() if target is not None else safe_name,
-        "mode": "remote_temp_probe",
-        "capabilities": capabilities.to_dict(),
-        "checks": [check.to_dict() for check in checks],
-        "audit": sandbox_audit_ref("ssh", safe_name),
-        "next": "SSH smoke passed; prepare/deploy remain intentionally unimplemented." if ok else "Fix failed smoke checks, then rerun `spark sandbox ssh smoke <name>`.",
-    }
-    if smoke_payload is not None:
-        payload["probe"] = smoke_payload
-    return payload
+    ok =
