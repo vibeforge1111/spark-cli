@@ -4488,7 +4488,9 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def remove_managed_env_block(path: Path) -> None:
