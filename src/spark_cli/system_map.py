@@ -1038,7 +1038,9 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
                         "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
                         "ts": safe_jsonl_sample_value("ts", payload.get("ts"), identifier_fields={}),
                         "request_id": redacted_identifier("request_id", request_id) if isinstance(request_id, str) else None,
+                        "request_id_hash": identifier_hash(request_id) if isinstance(request_id, str) else None,
                         "trace_ref": redacted_identifier("trace_ref", trace_ref) if isinstance(trace_ref, str) else None,
+                        "trace_ref_hash": identifier_hash(trace_ref) if isinstance(trace_ref, str) else None,
                         "action_family": action_family,
                         "source_policy": source_policy,
                         "verdict": verdict_name,
@@ -1413,6 +1415,19 @@ def sensitive_identifier(value: str) -> bool:
 def redacted_identifier(column: str, value: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
     return f"{column}:redacted:{digest}"
+
+
+def identifier_hash(value: Optional[str]) -> Optional[str]:
+    """Return a stable opaque hash for joining redacted identifiers across rows.
+
+    The hash uses the same SHA-256-12 prefix as ``redacted_identifier`` but
+    without the column tag, so two rows that reference the same raw identifier
+    produce the same ``*_hash`` value. This preserves linkability for
+    ``builder_trace_health_flags`` consumers without exposing the raw id.
+    """
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
 
 
 def safe_builder_event_value(column: str, value: Any) -> Any:
