@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent.sparkswarm.ai/schemas/spark-skill-manifest.v1.schema.json",
+  "title": "Spark Skill Graph Manifest",
+  "description": "Declares the skill categories and routing metadata for a Spark specialist library. Placed at the root of any repo that acts as a skill graph source. The OS compiler reads this file to populate the capability catalog and enable specialist routing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "stats",
+    "categories"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "spark-skill-manifest.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO-8601 UTC timestamp of when this manifest was generated.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "stats": {
+      "type": "object",
+      "description": "Aggregate counts for quick compiler inspection.",
+      "additionalProperties": false,
+      "required": ["skill_count", "category_count"],
+      "properties": {
+        "skill_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "category_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "categories": {
+      "type": "object",
+      "description": "Map of category name to its skill entries. Each key is a category slug; each value lists the skills it contains.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "skills"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "description"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Unique skill identifier within this manifest.",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{1,63}$"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "routing_tags": {
+                  "type": "array",
+                  "description": "Optional tags used by the Spark router to match incoming tasks to this skill.",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "benchmark": {
+                  "type": "string",
+                  "description": "Optional benchmark identifier used to score and promote this skill."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
