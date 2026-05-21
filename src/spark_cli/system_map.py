@@ -42,6 +42,7 @@ CONTRACT_FILE_HINTS = (
     "spark-skill-manifest.json",
     "spark-chip.json",
     "spark.toml",
+    "AGENTS.md",
 )
 
 BUILDER_TABLES_OF_INTEREST = (
@@ -537,6 +538,8 @@ def collect_repo_metadata(path: Path) -> dict[str, Any]:
             "claimed_route_count": len(as_list(claims.get("routes"))),
             "profile_names": sorted(profiles.keys()),
         }
+        if module.get("name"):
+            record["name"] = module["name"]
     elif toml_error != "missing":
         record["spark_toml_error"] = toml_error
 
