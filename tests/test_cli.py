@@ -8433,6 +8433,38 @@ class SparkCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.assertEqual(tail_log_lines(Path(tmp_dir) / "missing.log", 50), [])
 
+    def test_tail_log_lines_large_file_efficient(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = Path(tmp_dir) / "big.log"
+            # Write a 2MB log file (1000-byte lines)
+            line = "X" * 999 + "\n"
+            lines_needed = (2 * 1024 * 1024) // len(line.encode())
+            with log_path.open("w", encoding="utf-8") as f:
+                for i in range(lines_needed):
+                    f.write(f"{i:08d}{line[8:]}")
+            result = tail_log_lines(log_path, 5)
+            self.assertEqual(len(result), 5)
+            # Verify we got the last lines
+            self.assertTrue(result[-1].startswith(f"{lines_needed - 1:08d}"))
+
+    def test_append_process_log_rotates_when_oversized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir)
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_BYTES", 1024):
+                # Write enough to exceed 1KB limit
+                for i in range(50):
+                    append_process_log("test-module", f"line {i} " + "X" * 50)
+                main_log = log_dir / "test-module" / "process.log"
+                rotated = main_log.with_suffix(".log.1")
+                # Either main exists and is under limit, or rotated was created
+                if rotated.exists():
+                    self.assertTrue(rotated.stat().st_size > 1024)
+                    self.assertTrue(main_log.exists())
+                    self.assertLessEqual(main_log.stat().st_size, 2048)
+                else:
+                    self.assertLessEqual(main_log.stat().st_size, 2048)
+
     def test_module_log_path_points_under_spark_log_dir(self) -> None:
         path = module_log_path("spark-telegram-bot")
         self.assertEqual(path.name, "process.log")
