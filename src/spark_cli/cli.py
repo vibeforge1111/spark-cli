@@ -14766,6 +14766,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+    guide_parser.add_argument("topic", nargs="?", help="Optional topic hint (install, setup, telegram, providers, voice, security, update); currently shows the full guide")
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
     guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
     guide_parser.set_defaults(func=cmd_guide)
