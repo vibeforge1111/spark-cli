@@ -3846,7 +3846,19 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
 
 def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[str, Any]:
-    source_files = {
+    spark_modules = Path("~/.spark/modules").expanduser()
+    _installed_suffixes: dict[str, tuple[str, Path]] = {
+        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
+        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
+        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
+        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
+        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
+        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
+        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
+        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
+        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
+    }
+    _desktop_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
         "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
@@ -3857,13 +3869,25 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[s
         "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
         "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
     }
+    def _resolve_source(key: str) -> Path:
+        desktop_path = _desktop_files[key]
+        if desktop_path.exists():
+            return desktop_path
+        repo, suffix = _installed_suffixes[key]
+        installed_path = spark_modules / repo / "source" / suffix
+        if installed_path.exists():
+            return installed_path
+        return desktop_path
+    source_files = {key: _resolve_source(key) for key in _desktop_files}
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
-    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
+    _spawner_root = (spark_modules / "spawner-ui" / "source") if (spark_modules / "spawner-ui" / "source").exists() else (desktop / "spawner-ui")
+    _browser_root = (spark_modules / "spark-browser-extension" / "source") if (spark_modules / "spark-browser-extension" / "source").exists() else (desktop / "spark-browser-extension")
+    spawner_execution_policy = inspect_spawner_access_sources(_spawner_root)
+    browser_authority = inspect_browser_authority(_browser_root)
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
