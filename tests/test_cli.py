@@ -1961,6 +1961,31 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["control_surface"]["ok"])
         self.assertIn("SPARK_ALLOWED_HOSTS", checks["control_surface"]["detail"])
 
+    def test_security_audit_supply_chain_hints_setup_when_no_modules(self) -> None:
+        """module_supply_chain repair must say `spark setup` when no modules are installed."""
+        with patch(
+                "spark_cli.cli.module_supply_chain_errors",
+                return_value=["No installed module registry was found; run `spark setup` before launch."],
+             ), \
+             patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean"}), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True, "summary": "providers ready"}), \
+             patch("spark_cli.cli.read_generated_env", return_value={"TELEGRAM_GATEWAY_MODE": "polling"}), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "repair_hints": []}), \
+             patch("spark_cli.cli.spark_home_boundary_errors", return_value=[]), \
+             patch("spark_cli.cli.spark_home_write_errors", return_value=[]), \
+             patch("spark_cli.cli.local_secret_file_permission_errors", return_value=[]), \
+             patch("spark_cli.cli.hosted_cloud_credential_env_errors", return_value=[]), \
+             patch("spark_cli.cli.local_control_surface_errors", return_value=[]), \
+             patch("spark_cli.cli.telegram_polling_conflict_errors", return_value=[]), \
+             patch("spark_cli.cli.pid_registry_errors", return_value=[]):
+            payload = collect_security_audit_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        supply_chain = checks["module_supply_chain"]
+        self.assertFalse(supply_chain["ok"])
+        self.assertIn("spark setup", supply_chain["repair"].lower())
+        self.assertNotIn("spark update", supply_chain["repair"].lower())
+
     def test_security_audit_can_include_hosted_checks(self) -> None:
         hosted_payload = {
             "ok": False,
