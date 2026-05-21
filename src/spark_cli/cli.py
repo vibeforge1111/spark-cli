@@ -1886,11 +1886,10 @@ def atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     try:
-        temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
+        # Create file with restrictive permissions atomically to prevent TOCTOU race
+        fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(payload, indent=2) + "\n")
         os.replace(temp_path, path)
         try:
             os.chmod(path, PRIVATE_FILE_MODE)
