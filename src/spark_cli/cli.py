@@ -9212,7 +9212,27 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
     target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        response = call_llm_doctor(target, prompt)
+    except urllib.error.HTTPError as exc:
+        provider = target.get("provider", "unknown")
+        if exc.code == 401:
+            raise SystemExit(
+                f"[FIX] Provider {provider} returned 401 Unauthorized.\n"
+                f"  Check that your API key is valid: spark secrets list\n"
+                f"  Reconfigure: spark setup --llm-provider {provider}"
+            ) from None
+        raise SystemExit(
+            f"[FIX] Provider {provider} returned HTTP {exc.code}: {exc.reason}.\n"
+            f"  Check provider status and your API key, then retry."
+        ) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        provider = target.get("provider", "unknown")
+        raise SystemExit(
+            f"[FIX] Could not reach provider {provider}: {exc}\n"
+            f"  Check network connectivity and provider status, then retry.\n"
+            f"  Repair: spark providers test --role chat"
+        ) from None
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
