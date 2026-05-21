@@ -6539,6 +6539,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(spawner_env["SPARK_ALLOWED_HOSTS"], "spark-live-production.up.railway.app")
         self.assertNotIn("OPENAI_API_KEY", spawner_env)
 
+    def test_build_module_envs_writes_secrets_file(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+
+        envs = build_module_envs(
+            Args(),
+            {gateway.name: gateway, builder.name: builder, spawner.name: spawner},
+            {"telegram.bot_token": "abc", "telegram.relay_secret": "secret123"},
+        )
+        # SPARK_SECRETS_FILE should be set for modules with sensitive secrets
+        self.assertIn("SPARK_SECRETS_FILE", envs["spark-telegram-bot"])
+        secrets_path = Path(envs["spark-telegram-bot"]["SPARK_SECRETS_FILE"])
+        self.assertTrue(secrets_path.exists())
+        secrets = json.loads(secrets_path.read_text(encoding="utf-8"))
+        self.assertEqual(secrets.get("BOT_TOKEN"), "abc")
+
+    def test_build_module_envs_strips_sensitive_in_secure_mode(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+
+        with patch.dict(os.environ, {"SPARK_SECURE_MODULE_SECRETS": "1"}, clear=False):
+            envs = build_module_envs(
+                Args(),
+                {gateway.name: gateway, builder.name: builder, spawner.name: spawner},
+                {"telegram.bot_token": "abc", "telegram.relay_secret": "secret123"},
+            )
+        # In secure mode, sensitive keys should be removed from env
+        self.assertNotIn("BOT_TOKEN", envs["spark-telegram-bot"])
+        self.assertIn("SPARK_SECRETS_FILE", envs["spark-telegram-bot"])
+
     def test_pid_is_running_detects_current_process(self) -> None:
         self.assertTrue(pid_is_running(os.getpid()))
 

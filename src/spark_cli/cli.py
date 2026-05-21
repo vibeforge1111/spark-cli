@@ -3655,6 +3655,40 @@ HOSTED_SPAWNER_PARENT_ENV_KEYS = (
     "SPARK_ALLOWED_HOSTS",
 )
 
+# Sensitive env keys that should be passed via file instead of raw env vars
+SENSITIVE_ENV_KEYS = {
+    "BOT_TOKEN",
+    "TELEGRAM_RELAY_SECRET",
+    "SPARK_UI_API_KEY",
+    "SPARK_BRIDGE_API_KEY",
+    "OPENAI_API_KEY",
+    "ELEVENLABS_API_KEY",
+    "MCP_API_KEY",
+    "EVENTS_API_KEY",
+}
+
+
+def write_module_secrets_file(module_name: str, env: dict[str, str]) -> Path | None:
+    """Write sensitive secrets to a restricted file and return its path."""
+    secrets = {k: v for k, v in env.items() if k.upper() in {sk.upper() for sk in SENSITIVE_ENV_KEYS}}
+    if not secrets:
+        return None
+    secrets_dir = SPARK_HOME / "secrets"
+    secrets_dir.mkdir(parents=True, exist_ok=True)
+    # Restrict permissions: owner read/write only (0o600)
+    if os.name != "nt":
+        os.chmod(secrets_dir, 0o700)
+    secrets_path = secrets_dir / f"{module_name}.secrets.json"
+    atomic_write_json(secrets_path, secrets)
+    if os.name != "nt":
+        os.chmod(secrets_path, 0o600)
+    return secrets_path
+
+
+def strip_sensitive_env_keys(env: dict[str, str]) -> dict[str, str]:
+    """Remove sensitive keys from module environment (they should be in secrets file)."""
+    return {k: v for k, v in env.items() if k.upper() not in {sk.upper() for sk in SENSITIVE_ENV_KEYS}}
+
 
 def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str]) -> dict[str, dict[str, str]]:
     gateway = modules_by_name["spark-telegram-bot"]
@@ -3744,11 +3778,24 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
             builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
             builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
-    return {
+    result = {
         gateway.name: gateway_env,
         spawner.name: spawner_env,
         builder.name: builder_env,
     }
+    # Write sensitive secrets to a restricted file for secure retrieval.
+    # When SPARK_SECURE_MODULE_SECRETS is set, remove raw secrets from env vars
+    # to prevent process environment leakage (other processes can read /proc/<pid>/environ).
+    secure_mode = os.environ.get("SPARK_SECURE_MODULE_SECRETS", "").strip().lower() in {"1", "true", "yes"}
+    for module_name, env in result.items():
+        secrets_path = write_module_secrets_file(module_name, env)
+        if secrets_path:
+            env["SPARK_SECRETS_FILE"] = str(secrets_path)
+            if secure_mode:
+                for key in list(env.keys()):
+                    if key.upper() in {sk.upper() for sk in SENSITIVE_ENV_KEYS}:
+                        del env[key]
+    return result
 
 
 def should_preserve_level5_guardrails(module_name: str) -> bool:
@@ -8290,6 +8337,23 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
                 "repair": "spark verify --deep",
             }
         )
+
+    # Check if module processes are exposed to environment variable leakage
+    exposed_secrets = []
+    for module in ["spark-telegram-bot", "spawner-ui", "spark-intelligence-builder"]:
+        env_path = generated_module_env_path(Module(name=module, path=SPARK_HOME, manifest={}))
+        if env_path.exists():
+            env_values = read_generated_env(env_path)
+            for key in env_values:
+                if key.upper() in {sk.upper() for sk in SENSITIVE_ENV_KEYS}:
+                    exposed_secrets.append(f"{module}.{key}")
+    checks.append(security_check(
+        "module_secret_env_exposure",
+        not exposed_secrets,
+        "Module secrets are passed via SPARK_SECRETS_FILE (secure)." if not exposed_secrets else f"Secrets exposed in module env: {', '.join(exposed_secrets[:5])}",
+        "Set SPARK_SECURE_MODULE_SECRETS=1 and restart modules to use file-based secrets.",
+        severity="high",
+    ))
 
     findings = [check for check in checks if not check.get("ok")]
     return {
