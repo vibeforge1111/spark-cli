@@ -98,6 +98,8 @@ OWNER_SURFACES = {
     "spark-swarm": "specialization paths and publication governance",
     "spark-skill-graphs": "specialist library and routing substrate",
     "spark-intelligence-systems": "doctrine, runbook, prototype read model",
+    "spark-character": "persona, voice consistency, scoring, and character evolution runtime",
+    "spark-researcher": "research, advisory, memory packet, and domain-chip authoring runtime",
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
