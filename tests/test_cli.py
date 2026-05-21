@@ -1609,6 +1609,24 @@ class SparkCliTests(unittest.TestCase):
         text = "setup_should_run_install_commands and skip_install_commands are normal field names"
         self.assertEqual(redact_sensitive_text(text), text)
 
+    def test_redact_sensitive_text_json_quoted_secret(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('{"secret": "myappsecret12345678901234567890abcd"}'),
+            '{"secret": "[REDACTED]"}',
+        )
+
+    def test_redact_sensitive_text_json_quoted_password(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('{"password": "SuperSecret123!@#"}'),
+            '{"password": "[REDACTED]"}',
+        )
+
+    def test_redact_sensitive_text_bearer_jwt(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'),
+            'Bearer [REDACTED]',
+        )
+
     def test_collect_llm_doctor_context_defaults_to_no_logs(self) -> None:
         with patch("spark_cli.cli.collect_status_payload", return_value={"ok": False, "modules": []}), \
              patch("spark_cli.cli.provider_status_payload", return_value={"ok": True}), \

@@ -7284,8 +7284,8 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)([^\s,;\"']+)"),
-    re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{16,})"),
+    re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-/]{16,})"),
+    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)(\"?'?)(\s*[:=]\s*)(\"?'?)([^\s,;\"']+)(\"?'?)"),
 ]
 SECRET_SURFACE_ENV_PATTERN = re.compile(
     r"(?im)^\s*([A-Z][A-Z0-9_]*(?:API_KEY|BOT_TOKEN|TOKEN|SECRET|PASSWORD|AUTHORIZATION))\s*=\s*([^\r\n#]+)"
@@ -8715,7 +8715,7 @@ def redact_sensitive_text(value: str) -> str:
     redacted = str(value)
     for pattern in SENSITIVE_VALUE_PATTERNS:
         if pattern.pattern.startswith("(?i)(api"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", redacted)
+            redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}{match.group(3)}{match.group(4)}[REDACTED]{match.group(6)}", redacted)
         elif pattern.pattern.startswith("(?i)(bearer"):
             redacted = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", redacted)
         else:
