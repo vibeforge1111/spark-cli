@@ -6023,6 +6023,9 @@ def collect_status_payload() -> dict[str, Any]:
 
 def cmd_os_compile(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
+    if not desktop.exists():
+        print(f"Error: Desktop path does not exist: {desktop}", file=sys.stderr)
+        return 1
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
