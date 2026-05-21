@@ -1961,6 +1961,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["control_surface"]["ok"])
         self.assertIn("SPARK_ALLOWED_HOSTS", checks["control_surface"]["detail"])
 
+    def test_security_audit_runtime_health_msg_when_status_not_ok(self) -> None:
+        """runtime_health must not say 'clean' when status payload reports ok=False."""
+        with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean"}), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True, "summary": "providers ready"}), \
+             patch("spark_cli.cli.read_generated_env", return_value={"TELEGRAM_GATEWAY_MODE": "polling"}), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": False, "repair_hints": []}), \
+             patch("spark_cli.cli.spark_home_boundary_errors", return_value=[]), \
+             patch("spark_cli.cli.spark_home_write_errors", return_value=[]), \
+             patch("spark_cli.cli.local_secret_file_permission_errors", return_value=[]), \
+             patch("spark_cli.cli.hosted_cloud_credential_env_errors", return_value=[]), \
+             patch("spark_cli.cli.local_control_surface_errors", return_value=[]), \
+             patch("spark_cli.cli.telegram_polling_conflict_errors", return_value=[]), \
+             patch("spark_cli.cli.pid_registry_errors", return_value=[]):
+            payload = collect_security_audit_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        runtime = checks["runtime_health"]
+        self.assertFalse(runtime["ok"])
+        self.assertNotIn("clean", runtime["detail"].lower())
+        self.assertIn("spark setup", runtime["detail"].lower())
+
     def test_security_audit_can_include_hosted_checks(self) -> None:
         hosted_payload = {
             "ok": False,
