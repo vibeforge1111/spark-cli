@@ -10952,6 +10952,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark-telegram-bot", checks["runtime_processes"]["detail"])
         self.assertIn("spawner-ui", checks["runtime_processes"]["detail"])
 
+    def test_collect_verify_payload_does_not_pass_empty_runtime_process_expectation(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [],
+            "tracked_pids": {},
+            "repair_hints": [],
+        }
+        provider_payload = {"ok": False, "roles": {}}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+            patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+            patch("spark_cli.cli.load_json", return_value={}), \
+            patch("spark_cli.cli.read_generated_env", return_value={}), \
+            patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+            patch("spark_cli.cli.resolve_bundle_names", return_value=[]):
+            payload = collect_verify_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["runtime_processes"]["ok"])
+        self.assertIn("No Spark-supervised runtime processes are expected", checks["runtime_processes"]["detail"])
+        self.assertNotIn("Runtime processes are running", checks["runtime_processes"]["detail"])
+
     def test_collect_verify_payload_accepts_legacy_spawner_bot_default_provider(self) -> None:
         expected = ["spark-researcher", "spark-character", "spark-intelligence-builder", "domain-chip-memory", "spawner-ui", "spark-telegram-bot"]
         status_payload = {

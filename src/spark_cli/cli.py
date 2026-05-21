@@ -12242,6 +12242,13 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
 
 
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not module_names:
+        return (
+            False,
+            "No Spark-supervised runtime processes are expected from the current install state. "
+            "Install or repair the starter bundle first.",
+        )
+
     missing: list[str] = []
     running_names: list[str] = []
     for name in module_names:
