@@ -1137,6 +1137,7 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
     token = extract_telegram_bot_token(token)
     quoted_token = urllib.parse.quote(token, safe=":")
     url = f"https://api.telegram.org/bot{quoted_token}/getMe"
+    safe_url = f"https://api.telegram.org/bot<redacted>/getMe"  # for error messages only
     repair_command = telegram_token_repair_command(secret_id)
     try:
         with urllib.request.urlopen(url, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
@@ -1154,7 +1155,7 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
         )
     except (OSError, TimeoutError, json.JSONDecodeError) as error:
         raise SystemExit(
-            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}. "
+            f"Telegram token validation could not reach Telegram for {secret_id} ({safe_url}): {error.__class__.__name__}. "
             "Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
         )
     if not payload.get("ok"):
