@@ -9004,8 +9004,22 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_body = response.read().decode("utf-8")
+            if not response_body.strip():
+                raise SystemExit(f"LLM provider at {url} returned empty response. Check provider logs.")
+            try:
+                payload = json.loads(response_body)
+            except json.JSONDecodeError as e:
+                raise SystemExit(f"LLM provider at {url} returned non-JSON response: {response_body[:200]}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")[:500]
+        raise SystemExit(f"LLM provider HTTP {e.code} error at {url}: {error_body}")
+    except urllib.error.URLError as e:
+        raise SystemExit(f"Cannot reach LLM provider at {url}: {e.reason}")
+    except TimeoutError:
+        raise SystemExit(f"LLM provider at {url} timed out after 60 seconds.")
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
