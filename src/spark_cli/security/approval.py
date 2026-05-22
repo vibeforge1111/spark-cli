@@ -160,6 +160,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="SPARK_HOME",
             confirmation_phrase="delete spark home",
         )
+    if first == "spark" and second == "uninstall" and "--all" in lowered:
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command removes all installed Spark modules and their generated config. This cannot be undone without reinstalling.",
+            target_display="all modules",
+            confirmation_phrase="uninstall all modules",
+        )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
@@ -323,6 +333,11 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve autostart change",
         )
     if first == "spark" and second == "autostart":
+        # Bare "spark autostart" or "spark autostart status" is read-only
+        read_only_autostart = {"status", None}
+        third = lowered[2] if len(lowered) > 2 else None
+        if third in read_only_autostart:
+            return _decision(parts, ctx, "none", "none", "Bare `spark autostart` with no mutating subcommand is read-only.")
         return _decision(
             parts,
             ctx,
@@ -365,6 +380,11 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
 
     if first == "spark" and second == "access":
+        # Bare "spark access" (no subcommand) is read-only help; only subcommands that mutate require approval
+        read_only_access_subcmds = {"status", "guide"}
+        third = lowered[2] if len(lowered) > 2 else None
+        if third is None or third in read_only_access_subcmds:
+            return _decision(parts, ctx, "none", "none", "`spark access` read-only subcommands are safe.")
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
         return _decision(
             parts,
@@ -382,6 +402,9 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or ("--bot-token" in lowered)
         or ("--access" in lowered)
     ):
+        # Bare "spark telegram" with no subcommand is help-only; require approval only when a subcommand is present
+        if second == "telegram" and len(lowered) < 3:
+            return _decision(parts, ctx, "none", "none", "Bare `spark telegram` with no subcommand is read-only.")
         return _decision(
             parts,
             ctx,
