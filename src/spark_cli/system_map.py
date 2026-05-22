@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import hashlib
 import ast
 import json
@@ -3845,25 +3847,63 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
     }
 
 
-def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[str, Any]:
+
+def _resolve_authority_source(desktop_path: Path, spark_home: Path, desktop_root: Path | None = None) -> Path:
+    """Return the first existing candidate for an authority source file.
+
+    On developer workstations the file lives under ~/Desktop/<repo>/ and
+    desktop_path points there directly.  On headless servers the same repos
+    are installed under SPARK_HOME/tools/<repo>/ (for spark-cli) or
+    SPARK_HOME/modules/<repo>/source/ (for all other modules).  Try
+    desktop_path first so developer checkouts take priority; fall back to the
+    server-side locations if the desktop path is absent.
+    """
+    if desktop_path.exists():
+        return desktop_path
+
+    # Derive module name and the relative suffix within the module.
+    # desktop_path looks like: <desktop_root>/<module>/<rest/of/file>
+    try:
+        base = desktop_root if desktop_root is not None else desktop_path.parent
+        rel = desktop_path.relative_to(base)    # <module>/<rest>
+        module_name = rel.parts[0]
+        suffix = Path(*rel.parts[1:]) if len(rel.parts) > 1 else Path(".")
+    except (ValueError, IndexError):
+        return desktop_path
+
+    candidates = [
+        spark_home / "tools" / module_name / suffix,
+        spark_home / "modules" / module_name / "source" / suffix,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return desktop_path  # original (non-existing) path as last resort
+
+def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
+    _shome = spark_home if spark_home is not None else Path(os.environ.get("SPARK_HOME", str(Path.home() / ".spark"))).expanduser()
+
+    def _resolve(desktop_rel: Path) -> Path:
+        return _resolve_authority_source(desktop_rel, _shome, desktop_root=desktop)
+
     source_files = {
-        "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
-        "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
-        "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
-        "builder_aoc": desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "self_awareness" / "operating_context.py",
-        "spawner_access_lanes": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-lanes.ts",
-        "spawner_access_actions": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-actions.ts",
-        "browser_constants": desktop / "spark-browser-extension" / "src" / "protocol" / "constants.js",
-        "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
-        "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
+        "cli_access_policy": _resolve(desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py"),
+        "cli_capabilities": _resolve(desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py"),
+        "telegram_access_policy": _resolve(desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts"),
+        "builder_aoc": _resolve(desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "self_awareness" / "operating_context.py"),
+        "spawner_access_lanes": _resolve(desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-lanes.ts"),
+        "spawner_access_actions": _resolve(desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-actions.ts"),
+        "browser_constants": _resolve(desktop / "spark-browser-extension" / "src" / "protocol" / "constants.js"),
+        "browser_policy": _resolve(desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js"),
+        "swarm_sync_validation": _resolve(desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts"),
     }
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
-    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
+    spawner_execution_policy = inspect_spawner_access_sources(_resolve(desktop / "spawner-ui"))
+    browser_authority = inspect_browser_authority(_resolve(desktop / "spark-browser-extension"))
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
@@ -5365,7 +5405,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
     compiled = {
         "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary),
+        "authority_view": build_authority_view(desktop, setup_summary, spark_home=spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
