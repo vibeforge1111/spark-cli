@@ -11615,7 +11615,7 @@ def onboarding_checklist() -> list[str]:
         "Open your Spark bot in Telegram.",
         "If Telegram asks for a start code, send /start.",
         "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
-        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
+        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK. If the key is managed externally (e.g. by a host platform), skip this step and confirm readiness with spark providers status instead.",
         "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
         "Send a normal message, then try a tiny build with /run say exactly OK.",
         "When you are ready, ask Spark how it can improve for your workflows.",
@@ -14314,7 +14314,8 @@ def cmd_guide(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=False)
+    parser.set_defaults(func=lambda args: (parser.print_help(), 1) and 1)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
     list_parser.set_defaults(func=cmd_list)
@@ -14597,7 +14598,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.set_defaults(func=cmd_verify)
 
     smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
-    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=False)
+    def _cmd_smoke_help(args: argparse.Namespace) -> int:
+        print("spark smoke: choose a subcommand\n")
+        print("  spark smoke first-run   Run first-run smoke checks")
+        print("")
+        return 1
+    smoke_parser.set_defaults(func=_cmd_smoke_help)
     first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
     first_run_smoke_parser.add_argument("--json", action="store_true")
     first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
