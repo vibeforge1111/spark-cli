@@ -4273,10 +4273,25 @@ def remove_managed_env_block(path: Path) -> None:
     path.write_text((output + "\n") if output else "", encoding="utf-8")
 
 
-def cmd_list(_: argparse.Namespace) -> int:
+def cmd_list(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
+    if getattr(args, "json", False):
+        results = []
+        for module in modules.values():
+            metadata = registry.get("modules", {}).get(module.name, {})
+            results.append({
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "blessed": bool(metadata.get("blessed")),
+                "installed": module.name in installed,
+                "path": str(module.path),
+            })
+        print(json.dumps({"count": len(results), "modules": results}, indent=2))
+        return 0
     for module in modules.values():
         metadata = registry.get("modules", {}).get(module.name, {})
         blessed = "yes" if metadata.get("blessed") else "no"
@@ -9237,7 +9252,27 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
     target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        response = call_llm_doctor(target, prompt)
+    except urllib.error.HTTPError as exc:
+        provider = target.get("provider", "unknown")
+        if exc.code == 401:
+            raise SystemExit(
+                f"[FIX] Provider {provider} returned 401 Unauthorized.\n"
+                f"  Check that your API key is valid: spark secrets list\n"
+                f"  Reconfigure: spark setup --llm-provider {provider}"
+            ) from None
+        raise SystemExit(
+            f"[FIX] Provider {provider} returned HTTP {exc.code}: {exc.reason}.\n"
+            f"  Check provider status and your API key, then retry."
+        ) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        provider = target.get("provider", "unknown")
+        raise SystemExit(
+            f"[FIX] Could not reach provider {provider}: {exc}\n"
+            f"  Check network connectivity and provider status, then retry.\n"
+            f"  Repair: spark providers test --role chat"
+        ) from None
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
@@ -9653,6 +9688,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed and stale_hooks
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -11675,7 +11712,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 print(f"      warning: {warning}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "installers", False):
+    if getattr(args, "installers", False) or getattr(args, "hosted_installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
@@ -13626,6 +13663,27 @@ dist/
 npm-debug.log*
 """
 
+INIT_AGENTS_MD_TEMPLATE = """# {name} — Agent Operating Context
+
+## Repo ownership
+- Module: {name}
+- Description: {description}
+
+## Start-of-work protocol
+1. Read spark.toml to understand module capabilities and secrets.
+2. Check AGENTS.md for boundaries before editing runtime paths.
+3. Run the healthcheck before and after any change.
+
+## Key boundaries
+- Do not write outside the module home path without an approved capability claim.
+- Do not read or write secrets outside the `[claims].secrets` list in spark.toml.
+- Do not open outbound network connections not listed in `[claims].routes`.
+
+## Agent event invariants
+- All spawner missions targeting this module must emit a `mission_completed` or `mission_failed` event with a valid `request_id`.
+- Config mutations must use `record_config_mutation` with `trace_ref` and `request_id` threaded through.
+"""
+
 
 INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 
@@ -13661,6 +13719,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
+    agents_md = target_dir / "AGENTS.md"
     gitignore = target_dir / ".gitignore"
 
     spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
@@ -13674,11 +13733,15 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
+    agents_md.write_text(
+        INIT_AGENTS_MD_TEMPLATE.format(name=name, description=description),
+        encoding="utf-8",
+    )
     gitignore.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
     )
-    return [spark_toml, readme, gitignore]
+    return [spark_toml, readme, agents_md, gitignore]
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -13712,6 +13775,19 @@ def cmd_search(args: argparse.Namespace) -> int:
         if query and query not in name.lower() and query not in summary.lower():
             continue
         hits.append((name, summary, blessed, name in installed))
+
+    if getattr(args, "json", False):
+        results = [
+            {
+                "name": name,
+                "summary": summary,
+                "blessed": blessed,
+                "installed": installed_flag,
+            }
+            for name, summary, blessed, installed_flag in sorted(hits)
+        ]
+        print(json.dumps({"query": query or None, "count": len(results), "modules": results}, indent=2))
+        return 0 if hits else 1 if query else 0
 
     if not hits:
         print("No matching modules." if query else "Registry has no modules.")
@@ -13802,9 +13878,48 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     ensure_state_dirs()
+    dry_run = bool(getattr(args, "dry_run", False))
+    emit_json = bool(getattr(args, "json", False))
     modules = resolve_installed_target_modules(args.target)
     if not modules:
-        print("No installed Spark modules recorded.")
+        if emit_json:
+            print(json.dumps({"dry_run": dry_run, "module_count": 0, "updates": [], "summary": "No installed Spark modules recorded."}, indent=2))
+        else:
+            print("No installed Spark modules recorded.")
+        return 0
+    if dry_run:
+        dirty = dirty_update_modules(modules)
+        dirty_names = {m.name for m, _ in dirty}
+        updates = []
+        for module in modules:
+            git_managed = module_is_git_managed(module.path)
+            pids = load_pids()
+            process_keys = tracked_process_keys_for_module(pids, module.name)
+            running = [k for k in process_keys if pid_is_running(int((load_pids().get(k) or {}).get("pid", 0) or 0))]
+            updates.append({
+                "name": module.name,
+                "path": str(module.path),
+                "git_managed": git_managed,
+                "dirty": module.name in dirty_names,
+                "would_stop_processes": running,
+                "would_run_install_commands": not getattr(args, "skip_install_commands", False),
+            })
+        payload = {
+            "dry_run": True,
+            "module_count": len(modules),
+            "updates": updates,
+            "summary": f"Would update {len(modules)} module(s). {len(dirty_names)} dirty (would be skipped without --skip-dirty or --stash-local-runtime).",
+        }
+        if emit_json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"[DRY RUN] Would update {len(modules)} module(s):")
+            for u in updates:
+                dirty_marker = " [DIRTY - would skip]" if u["dirty"] else ""
+                stop_marker = f" [would stop: {', '.join(u['would_stop_processes'])}]" if u["would_stop_processes"] else ""
+                print(f"  - {u['name']}{dirty_marker}{stop_marker}")
+            print(f"\n{payload['summary']}")
+            print("Run without --dry-run to apply.")
         return 0
     print_install_summary(modules)
     if getattr(args, "continue_update", False):
@@ -14257,6 +14372,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+    list_parser.add_argument("--json", action="store_true", help="Emit module list as structured JSON")
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
@@ -14706,6 +14822,8 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
     update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
+    update_parser.add_argument("--dry-run", action="store_true", help="Show which modules would be updated and which processes would be stopped, without making any changes")
+    update_parser.add_argument("--json", action="store_true", help="Emit dry-run blast radius as structured JSON (requires --dry-run)")
     update_parser.set_defaults(func=cmd_update)
 
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove installed modules from Spark state and generated config")
@@ -14796,6 +14914,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+    guide_parser.add_argument("topic", nargs="?", help="Optional topic hint (install, setup, telegram, providers, voice, security, update); currently shows the full guide")
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
     guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
     guide_parser.set_defaults(func=cmd_guide)
@@ -14810,6 +14929,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
     search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+    search_parser.add_argument("--json", action="store_true", help="Emit results as structured JSON")
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
