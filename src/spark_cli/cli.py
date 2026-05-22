@@ -3899,6 +3899,22 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_telegram_status(args: argparse.Namespace) -> int:
+    payload = collect_telegram_fix_payload()
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2))
+        return 0 if payload.get("ok") else 1
+    print("Spark Telegram status")
+    print("OK" if payload.get("ok") else "Needs attention")
+    for check in payload.get("checks", []):
+        marker = "[OK]" if check.get("ok") else "[FIX]"
+        detail = check.get("detail") or ""
+        print(f"{marker} {check.get('name')}: {detail}")
+        if not check.get("ok") and check.get("repair"):
+            print(f"       Repair: {check['repair']}")
+    return 0 if payload.get("ok") else 1
+
+
 def cmd_telegram_connect(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     profile = normalize_telegram_profile(getattr(args, "profile", None) or primary_telegram_profile())
@@ -13331,7 +13347,11 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_autostart_status(_: argparse.Namespace) -> int:
+def cmd_autostart_status(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        payload = collect_autostart_fix_payload()
+        print(json.dumps(payload, indent=2))
+        return 0 if payload.get("ok") else 1
     profiles = autostart_telegram_profiles()
     profile_text = ", ".join(profiles) if profiles else "none"
     configured = configured_telegram_profiles()
@@ -14763,6 +14783,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+    telegram_status_parser = telegram_sub.add_parser("status", help="Show Telegram bot status and health checks")
+    telegram_status_parser.add_argument("--json", action="store_true", help="Emit Telegram status as structured JSON")
+    telegram_status_parser.set_defaults(func=cmd_telegram_status)
     telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
     telegram_connect_parser.add_argument(
         "profile",
@@ -14881,6 +14904,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
+    autostart_status_parser.add_argument("--json", action="store_true", help="Emit autostart status as structured JSON")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
