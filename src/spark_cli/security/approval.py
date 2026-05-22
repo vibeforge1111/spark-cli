@@ -95,6 +95,11 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_option(parts: list[str], option_names: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    return any((part.split("=", 1)[0] if "=" in part else part) in option_names for part in lowered)
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -210,6 +215,29 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "high",
             "Command can store, rotate, or overwrite Spark credentials.",
             target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve secret change",
+        )
+    setup_secret_options = {
+        "--secret",
+        "--bot-token",
+        "--telegram-relay-secret",
+        "--zai-api-key",
+        "--openai-api-key",
+        "--anthropic-api-key",
+        "--openrouter-api-key",
+        "--kimi-api-key",
+        "--huggingface-api-key",
+        "--minimax-api-key",
+        "--elevenlabs-api-key",
+    }
+    if first == "spark" and second == "setup" and _has_option(parts, setup_secret_options):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Setup arguments can store, rotate, or overwrite Spark credentials.",
+            target_display="spark setup",
             confirmation_phrase="approve secret change",
         )
     if first == "spark" and lowered[1:3] == ["security", "revoke-all"]:
