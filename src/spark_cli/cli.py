@@ -13727,8 +13727,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_secrets_list(_: argparse.Namespace) -> int:
+def cmd_secrets_list(args: argparse.Namespace) -> int:
     index = list_stored_secrets()
+    if getattr(args, "json", False):
+        secrets = [{"id": sid, "backend": backend} for sid, backend in sorted(index.items())]
+        print(json.dumps({"count": len(secrets), "secrets": secrets}, indent=2))
+        return 0
     if not index:
         print("No stored secrets.")
         return 0
@@ -14840,6 +14844,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
+    secrets_list_parser.add_argument("--json", action="store_true", help="Emit secret list as structured JSON")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
