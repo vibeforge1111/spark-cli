@@ -7205,6 +7205,16 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
             continue
         if line.startswith("> "):
             continue
+        # Filter Node.js runtime noise (deprecation/experimental warnings and their
+        # continuation hints). Without this, `spark doctor` surfaces lines like
+        # "(Use `node --trace-deprecation ...` to show where the warning was created)"
+        # as the module status detail, which confuses operators.
+        if line.startswith("(node:") and ("DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line):
+            continue
+        if line.startswith("(Use `node ") and "to show where the warning was created" in line:
+            continue
+        if line.startswith("(Use `node --") and "..." in line:
+            continue
         lines.append(line)
     if not lines:
         return "no output"
