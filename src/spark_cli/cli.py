@@ -2131,6 +2131,8 @@ def atomic_write_json(path: Path, payload: Any) -> None:
             os.chmod(temp_path, PRIVATE_FILE_MODE)
         except OSError:
             pass
+        # Re-check link status right before replace to narrow the TOCTOU window
+        assert_no_linked_write_path(path)
         os.replace(temp_path, path)
         try:
             os.chmod(path, PRIVATE_FILE_MODE)
