@@ -13609,6 +13609,13 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 
 
 def validate_init_module_name(name: str) -> None:
+    # Detect path-like inputs and provide helpful guidance
+    if "/" in name or "\\" in name:
+        raise SystemExit(
+            f"Module name cannot be a path. Got: `{name}`\n"
+            f"Use a simple module name (e.g., 'my-module') and specify location with --path:\n"
+            f"  spark init my-module --path {name}"
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
