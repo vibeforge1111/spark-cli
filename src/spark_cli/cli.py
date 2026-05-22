@@ -13623,6 +13623,27 @@ dist/
 npm-debug.log*
 """
 
+INIT_AGENTS_MD_TEMPLATE = """# {name} — Agent Operating Context
+
+## Repo ownership
+- Module: {name}
+- Description: {description}
+
+## Start-of-work protocol
+1. Read spark.toml to understand module capabilities and secrets.
+2. Check AGENTS.md for boundaries before editing runtime paths.
+3. Run the healthcheck before and after any change.
+
+## Key boundaries
+- Do not write outside the module home path without an approved capability claim.
+- Do not read or write secrets outside the `[claims].secrets` list in spark.toml.
+- Do not open outbound network connections not listed in `[claims].routes`.
+
+## Agent event invariants
+- All spawner missions targeting this module must emit a `mission_completed` or `mission_failed` event with a valid `request_id`.
+- Config mutations must use `record_config_mutation` with `trace_ref` and `request_id` threaded through.
+"""
+
 
 INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 
@@ -13658,6 +13679,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
+    agents_md = target_dir / "AGENTS.md"
     gitignore = target_dir / ".gitignore"
 
     spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
@@ -13671,11 +13693,15 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
+    agents_md.write_text(
+        INIT_AGENTS_MD_TEMPLATE.format(name=name, description=description),
+        encoding="utf-8",
+    )
     gitignore.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
     )
-    return [spark_toml, readme, gitignore]
+    return [spark_toml, readme, agents_md, gitignore]
 
 
 def cmd_init(args: argparse.Namespace) -> int:
