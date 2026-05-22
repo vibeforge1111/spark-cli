@@ -306,9 +306,12 @@ from spark_cli.sandbox.ssh import (
     ssh_management_capabilities,
     ssh_smoke_execute_argv,
     ssh_smoke_probe_hash,
+    ssh_smoke_remote_path,
+    ssh_smoke_upload_argv,
     ssh_subprocess_env,
     trust_ssh_target_host_key,
     SshHostKeyScan,
+    SshTarget,
     validate_remote_workspace,
     validate_ssh_host,
     validate_ssh_user,
@@ -1126,7 +1129,7 @@ class SparkCliTests(unittest.TestCase):
                 home=home,
             )
             probe_hash = ssh_smoke_probe_hash()
-            remote_path = f"/tmp/spark-sandbox-smoke-odyssey-vps-{probe_hash[:12]}.sh"
+            remote_path = f"/tmp/spark-sandbox-smoke-odyssey-vps-0123456789abcdef-{probe_hash[:12]}.sh"
             cleanup_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, home=home)[-1]
             keep_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, keep_debug_files=True, home=home)[-1]
             self.assertIn("trap cleanup EXIT", cleanup_command)
@@ -1134,6 +1137,50 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("sha256sum", cleanup_command)
             self.assertIn("SPARK_SSH_DEBUG_FILE", keep_command)
             self.assertNotIn("trap cleanup EXIT", keep_command)
+
+    def test_ssh_smoke_remote_path_includes_unpredictable_nonce(self) -> None:
+        target = SshTarget(
+            name="odyssey-vps",
+            host="example.test",
+            user="spark",
+            port=22,
+            identity_file="/tmp/key",
+            remote_workspace="~/spark-live",
+            host_key_status="trusted",
+            host_key_fingerprint="SHA256:test",
+            created_at="2026-05-22T00:00:00Z",
+            updated_at="2026-05-22T00:00:00Z",
+        )
+        probe_hash = ssh_smoke_probe_hash()
+
+        first = ssh_smoke_remote_path(target, probe_hash)
+        second = ssh_smoke_remote_path(target, probe_hash)
+
+        self.assertNotEqual(first, second)
+        self.assertRegex(first, rf"^/tmp/spark-sandbox-smoke-odyssey-vps-[0-9a-f]{{32}}-{probe_hash[:12]}\.sh$")
+        self.assertEqual(
+            ssh_smoke_remote_path(target, probe_hash, nonce="0123456789abcdef"),
+            f"/tmp/spark-sandbox-smoke-odyssey-vps-0123456789abcdef-{probe_hash[:12]}.sh",
+        )
+
+    def test_ssh_smoke_upload_refuses_existing_remote_path(self) -> None:
+        target = SshTarget(
+            name="odyssey-vps",
+            host="example.test",
+            user="spark",
+            port=22,
+            identity_file="/tmp/key",
+            remote_workspace="~/spark-live",
+            host_key_status="trusted",
+            host_key_fingerprint="SHA256:test",
+            created_at="2026-05-22T00:00:00Z",
+            updated_at="2026-05-22T00:00:00Z",
+        )
+        command = ssh_smoke_upload_argv(target, "/tmp/spark-sandbox-smoke-demo.sh")[-1]
+
+        self.assertIn('[ -e "$file" ] || [ -L "$file" ]', command)
+        self.assertIn("SPARK_SSH_REMOTE_PATH_EXISTS", command)
+        self.assertIn("set -C; cat >", command)
 
     def test_ssh_smoke_probe_uploads_executes_and_redacts_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1159,7 +1206,8 @@ class SparkCliTests(unittest.TestCase):
                 payload = run_ssh_smoke_probe(target, home=home)
             self.assertTrue(payload["ok"])
             self.assertEqual(run.call_count, 2)
-            self.assertIn("cat > /tmp/spark-sandbox-smoke-odyssey-vps-", run.call_args_list[0].args[0][-1])
+            self.assertRegex(run.call_args_list[0].args[0][-1], r"/tmp/spark-sandbox-smoke-odyssey-vps-[0-9a-f]{32}-[0-9a-f]{12}\.sh")
+            self.assertIn("set -C; cat >", run.call_args_list[0].args[0][-1])
             self.assertIn("trap cleanup EXIT", run.call_args_list[1].args[0][-1])
             self.assertNotIn("OPENAI_API_KEY", run.call_args_list[0].kwargs["env"])
             self.assertNotIn("sk-" + "1234567890abcdef", payload["output"]["text"])
