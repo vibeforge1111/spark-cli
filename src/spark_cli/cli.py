@@ -2414,7 +2414,10 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        posix_denied = [Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES]
+        # Do not deny writes inside SPARK_HOME even if SPARK_HOME lives under /root
+        posix_denied = [p for p in posix_denied if not policy_path_is_same_or_child(SPARK_HOME, p)]
+        denied.extend(posix_denied)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")
@@ -5978,7 +5981,18 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
                 f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
             )
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+    # Strip Node.js runtime noise (deprecation hints, experimental warnings)
+    # before returning the last meaningful line so health-check detail strings
+    # are not polluted by lines such as
+    # "(Use `node --trace-deprecation ...` to show where the warning was created)"
+    NODE_NOISE_PREFIXES = (
+        "(Use `node ",
+        "(node:",
+        "ExperimentalWarning:",
+        "DeprecationWarning:",
+    )
+    content_lines = [l for l in lines if not l.startswith(NODE_NOISE_PREFIXES)]
+    return (content_lines or lines)[-1]
 
 
 def collect_status_payload() -> dict[str, Any]:
