@@ -430,3 +430,35 @@ That kept parsing, target storage, subprocess execution, redaction, and audit
 from landing as one large risky diff. The shipped follow-up slices now cover
 SSH target records, host-key trust, doctor, remote probe, hashed smoke, Modal
 doctor/smoke, and shared `spark verify --sandboxes`.
+## Known UX Gap — Private/Ambiguous Repo Handling (Mission #32 QA, 2026-05-22)
+
+### Bug: Bot offers to read private repos directly instead of using public track
+
+**Trigger:** User sends "What should I do when the target repo is private
+or ambiguous?"
+
+**Expected:** Bot should:
+1. Direct user to the public track for submissions
+2. Tell user to prepare a proof packet
+3. Route to maintainers for private repo handling
+4. Never ask for credentials or local machine paths
+
+**Actual observed behavior:**
+- Bot asked for Level 4/5 access plus credentials
+- Bot asked for the local machine repo path
+- Bot offered to read the private repo directly
+- Never mentioned public track or maintainer routing
+- Never mentioned proof packet
+
+**Security concern:**
+Bot is offering to access private repos directly through credentials
+instead of following the safe public track handoff process. This is
+a security gap — private repo contents should never be accessed
+through chat credentials.
+
+**Fix needed:**
+When target repo is private or ambiguous bot must:
+1. Recommend the public track immediately
+2. Explain how to prepare a proof packet
+3. Route to maintainers instead of accessing directly
+4. Never request credentials or local machine paths in chat
