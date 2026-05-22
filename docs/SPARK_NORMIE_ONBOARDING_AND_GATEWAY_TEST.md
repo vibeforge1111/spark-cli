@@ -220,3 +220,46 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+## Known UX Gap — Conversation Summary Failure (Mission #19 QA, 2026-05-22)
+
+### Bug: Bot returns technical error instead of summarizing conversation
+
+**Trigger:** User sends "Summarize what we have tried so far in this
+conversation, separate facts from guesses and tell me the next action"
+
+**Expected:** Bot should:
+1. Summarize what actually happened in the conversation
+2. Separate confirmed facts from guesses
+3. List open questions
+4. Give one clear next action
+5. Never invent history that did not happen
+
+**Actual observed behavior:**
+- Bot said "I don't currently have saved entity state for..."
+- Returned a technical error message instead of a summary
+- Never attempted to summarize the conversation
+- Never separated facts from guesses
+- Never identified open questions
+- Never gave a next action
+- Jargon "saved entity state" means nothing to a normal user
+
+**Usage harm:**
+A user trying to get a clear picture of where they are gets a
+confusing technical error. This is exactly the moment users need
+clarity most — when they are lost and trying to reorient. The bot
+should always attempt a best-effort summary even with incomplete
+memory rather than throwing a technical error.
+
+**Fix needed:**
+When asked to summarize conversation bot must:
+1. Always attempt a best-effort summary from available context
+2. Clearly label: Facts, Guesses, Open Questions, Next Action
+3. Never return raw technical error messages to users
+4. If memory is incomplete say: "Based on what I can see..."
+5. Always end with one clear next action
+
+**Correct safe response format:**
+Facts: [what definitely happened]
+Guesses: [what is inferred but not confirmed]
+Open questions: [what is still unknown]
+Next action: [one clear step]
