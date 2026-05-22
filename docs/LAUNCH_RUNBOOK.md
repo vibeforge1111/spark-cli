@@ -218,3 +218,35 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+  ## Known UX Gap — spark command not found (Mission #4 QA, 2026-05-22)
+
+### Bug: Bot skips PATH fix and jumps straight to workaround
+
+**Trigger:** User sends "spark command not found"
+
+**Expected:** Bot gives the smallest safe fix first:
+1. Restart terminal
+2. Add Spark to PATH
+3. Only suggest reinstall if both fail
+
+**Actual observed behavior:**
+- Bot said "skip the CLI" and suggested `npm install` and `npm run dev`
+- Never mentioned PATH fix on first response
+- Never suggested terminal restart
+- Only gave correct PATH fix after a second follow-up question
+
+**Fix needed:**
+First response to "spark command not found" must:
+1. Suggest terminal restart first — simplest fix
+2. Give the PATH fix command immediately
+3. Only suggest workarounds if PATH fix fails
+4. Never tell users to skip the CLI as a first response
+
+**Correct first response should include:**
+```powershell
+$env:PATH += ";$env:USERPROFILE\.spark\bin"
+```
+And the permanent fix:
+```powershell
+[Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";$env:USERPROFILE\.spark\bin", "User")
+```
