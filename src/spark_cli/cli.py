@@ -173,6 +173,7 @@ TRUST_BLOCK_THRESHOLD = {
     "community": "high",
     "untrusted": "medium",
 }
+MODULE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9\-]*$")
 CHIP_SCAN_SEVERITY_RANK = {
     "low": 1,
     "medium": 2,
@@ -1772,8 +1773,17 @@ def save_json(path: Path, payload: Any) -> None:
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
     manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-    name = str(manifest.get("module", {}).get("name") or path.name)
+    name = validate_module_manifest_name(str(manifest.get("module", {}).get("name") or path.name), manifest_path)
     return Module(name=name, path=path, manifest=manifest)
+
+
+def validate_module_manifest_name(name: str, manifest_path: Path | None = None) -> str:
+    if MODULE_NAME_PATTERN.match(name):
+        return name
+    location = f" in {manifest_path}" if manifest_path else ""
+    raise SystemExit(
+        f"Module name `{name}`{location} is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
+    )
 
 
 def timestamp_now() -> str:
@@ -13602,11 +13612,8 @@ npm-debug.log*
 """
 
 
-INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
-
-
 def validate_init_module_name(name: str) -> None:
-    if not INIT_VALID_NAME.match(name):
+    if not MODULE_NAME_PATTERN.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
         )

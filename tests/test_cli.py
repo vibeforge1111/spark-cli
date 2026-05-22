@@ -1442,6 +1442,32 @@ class SparkCliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 validate_init_module_name(bad)
 
+    def test_load_module_rejects_manifest_name_path_segments(self) -> None:
+        from spark_cli.cli import load_module
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "bad-module"
+            target.mkdir()
+            (target / "spark.toml").write_text(
+                "[module]\nname = \"../outside\"\nversion = \"0.1.0\"\nkind = \"service\"\nplane = \"agent\"\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(SystemExit):
+                load_module(target)
+
+    def test_load_module_rejects_manifest_name_backslashes(self) -> None:
+        from spark_cli.cli import load_module
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "bad-module"
+            target.mkdir()
+            (target / "spark.toml").write_text(
+                "[module]\nname = \"..\\\\outside\"\nversion = \"0.1.0\"\nkind = \"service\"\nplane = \"agent\"\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(SystemExit):
+                load_module(target)
+
     def test_render_init_spark_toml_produces_parseable_manifest(self) -> None:
         import tomllib as _toml
         rendered = render_init_spark_toml("my-module", "python", "Demo module")
