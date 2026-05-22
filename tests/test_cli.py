@@ -1302,6 +1302,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "git_history_mutation")
 
+    def test_approval_classifier_flags_path_qualified_sensitive_commands(self) -> None:
+        git_decision = approval_required_for_command(
+            [r"C:\Program Files\Git\cmd\git.exe", "push", "--force-with-lease"],
+            CommandContext(),
+        )
+        self.assertTrue(git_decision.requires_approval)
+        self.assertEqual(git_decision.action_class, "git_history_mutation")
+
+        task_decision = approval_required_for_command(
+            [r"C:\Windows\System32\schtasks.exe", "/Create", "/TN", "Spark", "/TR", "calc", "/SC", "ONLOGON"],
+            CommandContext(),
+        )
+        self.assertTrue(task_decision.requires_approval)
+        self.assertEqual(task_decision.action_class, "process_autostart_mutation")
+
+    def test_approval_classifier_flags_extension_qualified_docker(self) -> None:
+        decision = approval_required_for_command(["docker.exe", "run", "--privileged", "alpine"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "container_privilege_escalation")
+        self.assertEqual(decision.risk, "critical")
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)

@@ -60,13 +60,25 @@ def _lower_parts(argv: list[str]) -> list[str]:
     return [part.lower() for part in argv]
 
 
+def _command_name(part: str) -> str:
+    name = part.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in (".exe", ".cmd", ".bat", ".ps1"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _command_parts(argv: list[str]) -> list[str]:
+    return [_command_name(part) for part in argv]
+
+
 def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
-        if part.lower() in command_names and index + 1 < len(parts):
+        if _command_name(part) in command_names and index + 1 < len(parts):
             for candidate in parts[index + 1 :]:
                 if not candidate.startswith("-"):
                     return candidate
@@ -134,12 +146,13 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     ctx = context or CommandContext()
     parts = [part for part in argv if part != "--"]
     lowered = _lower_parts(parts)
+    commands = _command_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
 
     joined = " ".join(lowered)
-    first = lowered[0]
-    second = lowered[1] if len(lowered) > 1 else ""
+    first = commands[0]
+    second = commands[1] if len(commands) > 1 else ""
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
@@ -162,7 +175,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
-    if first in destructive_bins or _contains_any(lowered, destructive_bins):
+    if first in destructive_bins or _contains_any(commands, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
         target = _target_after(parts, destructive_bins)
         return _decision(
