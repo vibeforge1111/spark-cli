@@ -13848,9 +13848,48 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     ensure_state_dirs()
+    dry_run = bool(getattr(args, "dry_run", False))
+    emit_json = bool(getattr(args, "json", False))
     modules = resolve_installed_target_modules(args.target)
     if not modules:
-        print("No installed Spark modules recorded.")
+        if emit_json:
+            print(json.dumps({"dry_run": dry_run, "module_count": 0, "updates": [], "summary": "No installed Spark modules recorded."}, indent=2))
+        else:
+            print("No installed Spark modules recorded.")
+        return 0
+    if dry_run:
+        dirty = dirty_update_modules(modules)
+        dirty_names = {m.name for m, _ in dirty}
+        updates = []
+        for module in modules:
+            git_managed = module_is_git_managed(module.path)
+            pids = load_pids()
+            process_keys = tracked_process_keys_for_module(pids, module.name)
+            running = [k for k in process_keys if pid_is_running(int((load_pids().get(k) or {}).get("pid", 0) or 0))]
+            updates.append({
+                "name": module.name,
+                "path": str(module.path),
+                "git_managed": git_managed,
+                "dirty": module.name in dirty_names,
+                "would_stop_processes": running,
+                "would_run_install_commands": not getattr(args, "skip_install_commands", False),
+            })
+        payload = {
+            "dry_run": True,
+            "module_count": len(modules),
+            "updates": updates,
+            "summary": f"Would update {len(modules)} module(s). {len(dirty_names)} dirty (would be skipped without --skip-dirty or --stash-local-runtime).",
+        }
+        if emit_json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"[DRY RUN] Would update {len(modules)} module(s):")
+            for u in updates:
+                dirty_marker = " [DIRTY - would skip]" if u["dirty"] else ""
+                stop_marker = f" [would stop: {', '.join(u['would_stop_processes'])}]" if u["would_stop_processes"] else ""
+                print(f"  - {u['name']}{dirty_marker}{stop_marker}")
+            print(f"\n{payload['summary']}")
+            print("Run without --dry-run to apply.")
         return 0
     print_install_summary(modules)
     if getattr(args, "continue_update", False):
@@ -14753,6 +14792,8 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
     update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
+    update_parser.add_argument("--dry-run", action="store_true", help="Show which modules would be updated and which processes would be stopped, without making any changes")
+    update_parser.add_argument("--json", action="store_true", help="Emit dry-run blast radius as structured JSON (requires --dry-run)")
     update_parser.set_defaults(func=cmd_update)
 
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove installed modules from Spark state and generated config")
