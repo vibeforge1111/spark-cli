@@ -6023,6 +6023,9 @@ def collect_status_payload() -> dict[str, Any]:
 
 def cmd_os_compile(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
+    if not desktop.exists():
+        print(f"Error: Desktop path does not exist: {desktop}", file=sys.stderr)
+        return 1
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
@@ -8301,6 +8304,10 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
 
 
 def cmd_security(args: argparse.Namespace) -> int:
+    # Default to audit if no subcommand provided
+    if args.security_command is None:
+        args.security_command = "audit"
+    
     if args.security_command == "revoke-all":
         payload = execute_security_revoke_all(
             dry_run=bool(getattr(args, "dry_run", False)),
@@ -9004,22 +9011,8 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            response_body = response.read().decode("utf-8")
-            if not response_body.strip():
-                raise SystemExit(f"LLM provider at {url} returned empty response. Check provider logs.")
-            try:
-                payload = json.loads(response_body)
-            except json.JSONDecodeError as e:
-                raise SystemExit(f"LLM provider at {url} returned non-JSON response: {response_body[:200]}")
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8", errors="replace")[:500]
-        raise SystemExit(f"LLM provider HTTP {e.code} error at {url}: {error_body}")
-    except urllib.error.URLError as e:
-        raise SystemExit(f"Cannot reach LLM provider at {url}: {e.reason}")
-    except TimeoutError:
-        raise SystemExit(f"LLM provider at {url} timed out after 60 seconds.")
+    with urllib.request.urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -9970,6 +9963,10 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    # Default to status if no subcommand provided
+    if args.providers_command is None:
+        args.providers_command = "status"
+    
     if args.providers_command == "recommend":
         payload = provider_recommendations_payload()
         if args.json:
@@ -13620,6 +13617,13 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 
 
 def validate_init_module_name(name: str) -> None:
+    # Detect path-like inputs and provide helpful guidance
+    if "/" in name or "\\" in name:
+        raise SystemExit(
+            f"Module name cannot be a path. Got: `{name}`\n"
+            f"Use a simple module name (e.g., 'my-module') and specify location with --path:\n"
+            f"  spark init my-module --path {name}"
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
@@ -14522,7 +14526,9 @@ def build_parser() -> argparse.ArgumentParser:
     fix_parser.set_defaults(func=cmd_fix)
 
     providers_parser = subparsers.add_parser("providers", help="Inspect Spark LLM provider choices and role wiring")
-    providers_sub = providers_parser.add_subparsers(dest="providers_command", required=True)
+    providers_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    providers_parser.set_defaults(func=cmd_providers)
+    providers_sub = providers_parser.add_subparsers(dest="providers_command", required=False)
     providers_recommend_parser = providers_sub.add_parser("recommend", help="Recommend LLM paths for paid, API-key, and local setups")
     providers_recommend_parser.add_argument("--json", action="store_true")
     providers_recommend_parser.set_defaults(func=cmd_providers)
@@ -14548,7 +14554,11 @@ def build_parser() -> argparse.ArgumentParser:
     recommend_providers_parser.set_defaults(func=cmd_recommend)
 
     security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
-    security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
+    security_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    security_parser.add_argument("--deep", action="store_true", help="Include deep verification checks")
+    security_parser.add_argument("--hosted", action="store_true", help="Include Docker/Railway hosted security checks")
+    security_parser.set_defaults(func=cmd_security)
+    security_subparsers = security_parser.add_subparsers(dest="security_command", required=False)
     security_audit_parser = security_subparsers.add_parser("audit", help="Check secrets, provider wiring, ingress mode, and runtime health")
     security_audit_parser.add_argument("--deep", action="store_true", help="Include deep verification checks")
     security_audit_parser.add_argument("--hosted", action="store_true", help="Include Docker/Railway hosted security checks")
@@ -14797,7 +14807,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
-    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
+    config_parser.set_defaults(func=cmd_config_list)
+    config_sub = config_parser.add_subparsers(dest="config_command", required=False)
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
@@ -14816,7 +14827,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_list_parser.set_defaults(func=cmd_config_list)
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
-    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
+    secrets_parser.set_defaults(func=cmd_secrets_list)
+    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=False)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
