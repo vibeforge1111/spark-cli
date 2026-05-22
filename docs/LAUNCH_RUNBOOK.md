@@ -218,3 +218,42 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+## Known UX Gap — spark update Missing Safety Information (Mission #50 QA, 2026-05-22)
+
+### Bug: Bot omits registry pins, rollback path, and dirty worktree flags
+
+**Trigger:** User sends "Is it safe to run spark update right now?"
+
+**Expected:** Bot should explain:
+1. Registry pins — update checks modules match blessed registry pins
+2. Dirty worktree warning — use --skip-dirty to skip modules with
+   local changes
+3. Rollback path — what to do if update breaks something
+4. Resume option — use --continue if update fails halfway
+5. Runtime flag — SPARK_ALLOW_DIRTY_RUNTIME for local dev overrides
+
+**Actual observed behavior:**
+- Only mentioned brief Telegram gap during restart
+- Never mentioned registry pins or release state
+- Never gave a rollback path
+- Never mentioned --skip-dirty flag
+- Never mentioned --continue flag
+- Never mentioned dirty worktree protection
+- Response was incomplete and could lead user to run update
+  without understanding the risks
+
+**Fix needed:**
+When asked if spark update is safe bot must explain:
+1. Registry pins: update checks blessed registry pins before applying
+2. --skip-dirty: skips modules with local git changes
+3. --continue: resumes a failed update without repeating clean steps
+4. Rollback: if update breaks something run spark live restart and
+   check spark logs for the affected module
+5. Dirty runtime: if modules have local edits update will warn or
+   block depending on SPARK_STRICT_RUNTIME_PINS setting
+
+**Correct safe response should include:**
+- spark update --skip-dirty (safest first run)
+- spark update --continue (if interrupted)
+- spark verify --onboarding (after update to confirm all is well)
+- spark live restart (if something breaks after update)
