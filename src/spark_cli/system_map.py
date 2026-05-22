@@ -2006,9 +2006,9 @@ def capability_trust_fields(
 def build_capability_cards(
     creator_system_surfaces: list[dict[str, Any]],
     specialization_path_surfaces: list[dict[str, Any]],
+    module_capabilities: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
-
     for surface in creator_system_surfaces:
         repo = str(surface.get("repo") or "unknown")
         schema_inventory = as_dict(surface.get("schema_inventory"))
@@ -2085,7 +2085,6 @@ def build_capability_cards(
                 "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
             }
         )
-
     for surface in specialization_path_surfaces:
         repo = str(surface.get("repo") or "unknown")
         config = as_dict(surface.get("config"))
@@ -2173,7 +2172,55 @@ def build_capability_cards(
                 "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
             }
         )
-
+    covered = {card.get("owner_repo") for card in cards}
+    for mc in as_list(module_capabilities):
+        repo = str(mc.get("module_name") or mc.get("repo") or "unknown")
+        if repo in covered:
+            continue
+        caps = as_list(mc.get("capabilities"))
+        cards.append({
+            "schema_version": CAPABILITY_CARD_SCHEMA,
+            "id": f"module:{repo}",
+            "name": f"{repo} module capabilities",
+            "owner_repo": repo,
+            "surface_type": "module",
+            "status": "seen",
+            "trust_status": "untrusted",
+            "proof_state": "proof_incomplete",
+            "trust_scope": "none",
+            "trust_basis": [],
+            "compiled_proofs": {"capabilities_declared": len(caps) > 0},
+            "proof_verdicts": {},
+            "proof_summary": {
+                "overall_status": "missing_required_verdicts",
+                "required_proofs": [],
+                "passed_proofs": [],
+                "blocked_proofs": [],
+                "unverified_proofs": [],
+                "missing_proofs": [],
+                "unsatisfied_proofs": [],
+                "status_counts": {},
+            },
+            "proof_blockers": [],
+            "missing_proofs": [],
+            "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
+            "plane": mc.get("plane"),
+            "capabilities": caps,
+            "requested_authority": ["local_files_read"],
+            "memory_policy": "non_authoritative_evidence_only",
+            "evidence_summary": {"capabilities_count": len(caps)},
+            "benchmark_summary": {},
+            "review_summary": {},
+            "trace_refs": [],
+            "rollback_refs": [],
+            "privacy_boundary": "Module capabilities are declared in spark.toml only; no proof surfaces are present.",
+            "public_boundary": "Network publication requires explicit approval and proof gates.",
+            "blockers": [
+                "No creator-system or specialization-path surface found for this module.",
+                "Capability remains untrusted until required proof domains pass.",
+            ],
+            "next_action": "Add a creator-system surface to enable proof verification for this module.",
+        })
     return cards
 
 
@@ -3491,7 +3538,9 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_sources": contract_sources,
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
-        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        "capability_cards": build_capability_cards(
+            creator_system_surfaces, specialization_path_surfaces, module_capabilities
+        ),
     }
 
 
