@@ -10,9 +10,12 @@ jobs:
   dev-smoke:
     name: dev-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Build dev image
         run: docker build -f docker/dev/Dockerfile -t spark-cli-dev:ci .
@@ -23,9 +26,12 @@ jobs:
   sandbox-smoke:
     name: sandbox-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Build sandbox image
         run: docker build -f docker/sandbox/Dockerfile -t spark-cli-sandbox:ci .
