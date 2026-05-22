@@ -224,6 +224,7 @@ from spark_cli.cli import (
     wait_for_telegram_first_message,
     wait_for_ready_check,
     write_boundary_env,
+    write_generated_env,
     write_denied_paths,
     write_denied_prefixes,
     windows_service_creationflags,
@@ -1564,6 +1565,35 @@ class SparkCliTests(unittest.TestCase):
 
             self.assertIn("linked path", str(error.exception))
             self.assertEqual(env_path.read_text(encoding="utf-8"), "KEEP=1\n")
+
+    def test_write_generated_env_refuses_symlink_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            target = root / "target.env"
+            target.write_text("SAFE=1\n", encoding="utf-8")
+            link = root / "spawner-ui.env"
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+
+            with self.assertRaises(SystemExit) as error:
+                write_generated_env(link, {"TELEGRAM_RELAY_SECRET": "new-secret"})
+
+            self.assertIn("linked path", str(error.exception))
+            self.assertEqual(target.read_text(encoding="utf-8"), "SAFE=1\n")
+
+    def test_write_generated_env_refuses_reparse_point_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / "spawner-ui.env"
+            env_path.write_text("SAFE=1\n", encoding="utf-8")
+
+            with patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda item: item == env_path):
+                with self.assertRaises(SystemExit) as error:
+                    write_generated_env(env_path, {"TELEGRAM_RELAY_SECRET": "new-secret"})
+
+            self.assertIn("linked path", str(error.exception))
+            self.assertEqual(env_path.read_text(encoding="utf-8"), "SAFE=1\n")
 
     def test_telegram_profile_helpers_scope_only_bot_processes(self) -> None:
         self.assertEqual(normalize_telegram_profile(None), "default")

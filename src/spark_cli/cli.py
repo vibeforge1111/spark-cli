@@ -2865,6 +2865,7 @@ def spark_builder_home() -> Path:
 
 
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
+    assert_no_linked_write_path(path)
     require_write_allowed(path, subject="generated module env write")
     lines = [f"{key}={value}" for key, value in values.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
