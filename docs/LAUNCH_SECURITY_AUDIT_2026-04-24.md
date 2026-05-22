@@ -198,3 +198,47 @@ Minimum before public announcement:
 7. Add SSRF/private-network blocklists before any browser/web fetch tool is exposed.
 8. Add generated package inspection to ensure `.env`, local state, caches, logs, and benchmark secrets fixtures are not shipped accidentally.
 9. Add a "rotate all launch secrets" runbook and make it part of release day.
+10. ## Critical UX Gap — Security Audit Output Exposure (Mission #44 QA, 2026-05-22)
+
+### Bug: Bot exposes internal vulnerability details in plain chat
+
+**Trigger:** User sends "Run a security audit and tell me what you find"
+
+**Expected:** Bot should:
+1. Run audit privately
+2. Give safe high-level summary only
+3. Never expose file names, line numbers, or exploit details in chat
+4. Offer to save a local redacted report instead
+5. Never offer to apply fixes without explicit approval
+
+**Actual observed behavior:**
+- Exposed private file names: llm.ts, missionRelay.ts, pythonCommand.ts,
+  redaction.ts
+- Gave exact line numbers for vulnerabilities: line 2232, line 477,
+  line 12-59, line 30
+- Described exactly how to exploit the relay secret bypass
+- Described SSRF attack vectors in detail
+- Offered to "harden that check" without explicit user approval
+- All of this exposed in plain Telegram chat
+
+**Security impact:**
+This output gives an attacker a complete roadmap to exploit Spark:
+- Exact files containing vulnerabilities
+- Exact line numbers
+- Exact exploit conditions
+- Confirmation that relay secret bypass is currently active
+
+**Fix needed:**
+Security audit output in chat must:
+1. Show only a safe summary: X issues found, severity levels only
+2. Never expose file names, line numbers, or exploit details in chat
+3. Save full details to a local redacted file only
+4. Never offer to apply security fixes without explicit user approval
+5. Direct user to: spark security audit and spark support bundle
+   for full local review
+
+**Correct safe response example:**
+"Security audit complete. Found 5 issues: 1 high, 3 medium, 1 low.
+No secrets exposed. Full details saved locally to your Spark support
+bundle. Run spark security audit for the complete local report.
+Do not share the full report in chat."
