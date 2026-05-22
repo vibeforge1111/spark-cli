@@ -220,3 +220,22 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+## Known UX Gap — Architecture Explanation (Mission #16 QA, 2026-05-22)
+
+### Bug: Bot misidentifies surface and gives incomplete first response
+
+**Trigger:** User sends "I'm confused about which AI is doing what"
+
+**Expected:** Bot explains Spark, outside LLM, Spawner, and Builder
+clearly in one response without requiring follow-up questions.
+
+**Actual observed behavior:**
+- Bot said "Claude Code" — wrong surface, user was on Telegram
+- Bot said "one AI, Claude" — skipped Spawner, Builder, memory entirely
+- Correct explanation only appeared after two follow-up questions
+
+**Fix needed:**
+First response to architecture confusion questions must:
+1. Correctly identify the surface (Telegram, not Claude Code)
+2. Cover Spark, outside LLM, Spawner, and Builder in one reply
+3. Not require follow-up to get a complete picture
