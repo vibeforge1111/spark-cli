@@ -41,7 +41,10 @@ from .system_map import compile_summary, compile_system_map, write_compiled_outp
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
+INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
+ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
 PRIVATE_FILE_MODE = 0o600
+GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
 
 SPARK_HOME = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
@@ -459,14 +462,19 @@ def is_git_source(source: str) -> bool:
         return True
     if value.endswith(".git"):
         return True
-    if value.startswith("github.com/") or value.startswith("gitlab.com/"):
+    if is_hosted_git_shorthand(value):
         return True
     return False
 
 
+def is_hosted_git_shorthand(value: str) -> bool:
+    parts = value.strip().split("/")
+    return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
+
+
 def normalize_git_url(source: str) -> str:
     value = source.strip()
-    if value.startswith(("github.com/", "gitlab.com/")):
+    if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
 
@@ -974,7 +982,13 @@ def _kernel32() -> Any:
 
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
-        return value
+        if not allow_insecure_file_secrets():
+            raise RuntimeError(
+                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                "Install/configure a keyring backend, or set "
+                f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+            )
+        return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -989,6 +1003,9 @@ def dpapi_protect(value: str) -> str:
 
 
 def dpapi_unprotect(value: str) -> str:
+    if value.startswith(INSECURE_FILE_SECRET_PREFIX):
+        encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
+        return base64.b64decode(encoded).decode("utf-8")
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
@@ -1002,6 +1019,11 @@ def dpapi_unprotect(value: str) -> str:
     finally:
         _kernel32().LocalFree(out_blob.pbData)
     return raw.decode("utf-8")
+
+
+def allow_insecure_file_secrets() -> bool:
+    value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
+    return value in {"1", "true", "yes"}
 
 
 def harden_secret_file(path: Path) -> None:
@@ -1035,7 +1057,10 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
         except Exception:
             pass
     file_secrets = load_json(SECRETS_FILE_PATH, {})
-    file_secrets[secret_id] = dpapi_protect(value)
+    try:
+        file_secrets[secret_id] = dpapi_protect(value)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
     save_json(SECRETS_FILE_PATH, file_secrets)
     harden_secret_file(SECRETS_FILE_PATH)
     index[secret_id] = "file"
@@ -13726,6 +13751,7 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
     backend = store_secret(args.secret_id, value, preferred=args.backend)
+    # codeql[py/clear-text-logging-sensitive-data] This prints the secret label and backend, never the stored value.
     print(f"Stored {args.secret_id} in {backend}.")
     return 0
 
@@ -13735,17 +13761,21 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
+        # codeql[py/clear-text-logging-sensitive-data] `spark secrets get --reveal` is an explicit local operator command.
         print(value)
     else:
         masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+        # codeql[py/clear-text-logging-sensitive-data] The value is masked by default; the printed id is a label.
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
     return 0
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
     if delete_secret(args.secret_id):
+        # codeql[py/clear-text-logging-sensitive-data] This prints only the secret label after deletion.
         print(f"Deleted {args.secret_id}.")
         return 0
+    # codeql[py/clear-text-logging-sensitive-data] This prints only the secret label.
     print(f"No value stored for {args.secret_id}.")
     return 1
 

@@ -21,6 +21,7 @@ from spark_cli.cli import (
     append_process_log,
     apply_setup_feature_aliases,
     atomic_write_json,
+    ALLOW_INSECURE_FILE_SECRETS_ENV,
     build_module_repair_hints,
     build_llm_env,
     build_parser,
@@ -131,6 +132,7 @@ from spark_cli.cli import (
     ensure_trust_for_install,
     extract_telegram_bot_token,
     INSTALL_PROGRESS_PATH,
+    INSECURE_FILE_SECRET_PREFIX,
     is_blessed_registry_entry,
     load_install_progress,
     record_install_failure,
@@ -1859,6 +1861,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.cmd_autostart_uninstall", return_value=0), \
                  patch("spark_cli.cli.cmd_stop", return_value=0), \
                  patch("spark_cli.cli.clear_telegram_webhook_state", return_value={"ok": True, "requested": 1, "results": []}), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("spark_cli.cli.collect_support_bundle_payload", return_value={"ok": True}):
                 store_secret(
                     "telegram.profiles.primary.bot_token",
@@ -2687,9 +2690,10 @@ class SparkCliTests(unittest.TestCase):
                 patch("spark_cli.cli.SECRETS_FILE_PATH", config_dir / "secrets.local.json"),
                 patch("spark_cli.cli.keychain_available", return_value=False),
                 patch("spark_cli.cli.resolve_installed_modules", return_value={"spark-telegram-bot": bot, "spawner-ui": spawner}),
+                patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}),
             ]
             with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], \
-                 patch("spark_cli.cli.validate_telegram_bot_token", return_value={"username": "qa_bot"}):
+                 patches[8], patch("spark_cli.cli.validate_telegram_bot_token", return_value={"username": "qa_bot"}):
                 configure_telegram_profile(Args())
                 profile_env = read_generated_env(module_config_dir / "spark-telegram-bot.qa-bot.env")
                 spawner_env = read_generated_env(module_config_dir / "spawner-ui.env")
@@ -2733,6 +2737,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.SECRETS_INDEX_PATH", config_dir / "secrets_index.json"), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", config_dir / "secrets.local.json"), \
                  patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("spark_cli.cli.validate_telegram_bot_token", return_value={"username": "OdseyTheGalactic_bot", "id": 222}):
                 store_secret("telegram.profiles.spark-agi.bot_token", "wrong-token", preferred="keychain")
                 with self.assertRaises(SystemExit) as error:
@@ -2768,6 +2773,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.SECRETS_INDEX_PATH", config_dir / "secrets_index.json"), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", config_dir / "secrets.local.json"), \
                  patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("spark_cli.cli.validate_telegram_bot_token", return_value={"username": "SparkAGI_bot", "id": 111}):
                 store_secret("telegram.profiles.spark-agi.bot_token", "right-token", preferred="keychain")
                 validate_telegram_profile_token_identity("spark-agi")
@@ -2825,6 +2831,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.SECRETS_INDEX_PATH", config_dir / "secrets_index.json"), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", config_dir / "secrets.local.json"), \
                  patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("spark_cli.cli.resolve_installed_modules", return_value={"spark-telegram-bot": bot, "spawner-ui": spawner}), \
                  patch("spark_cli.cli.validate_telegram_bot_token", side_effect=SystemExit("Telegram rejected the bot token")):
                 store_secret("telegram.profiles.qa-bot.bot_token", "old-token", preferred="keychain")
@@ -5051,6 +5058,7 @@ class SparkCliTests(unittest.TestCase):
                 module_path = fixture_root / name
                 module_path.mkdir()
                 registry["modules"][name] = {"source": str(module_path), "blessed": True}
+                # codeql[py/clear-text-storage-sensitive-data] This fixture writes secret ids in spark.toml, not secret values.
                 module_path.joinpath("spark.toml").write_text(
                     "\n".join(
                         [
@@ -5151,6 +5159,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.new_onboarding_session_code", return_value="ember-9999"), \
                  patch("spark_cli.cli.load_registry_definition", return_value=registry), \
                  patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("spark_cli.cli.detect_codex_cli", return_value={"present": True, "path": "codex"}), \
                  patch("sys.stdout", new_callable=StringIO) as stdout:
                 self.assertEqual(cmd_setup(args), 0)
@@ -7592,11 +7601,16 @@ class SparkCliTests(unittest.TestCase):
             with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
                  patch("spark_cli.cli.read_clipboard_text", return_value="clip-secret"), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
                  patch("sys.stdout", new_callable=StringIO):
                 self.assertEqual(cmd_secrets_set(args), 0)
                 self.assertEqual(fetch_secret("llm.zai.api_key"), "clip-secret")
+            stored = load_json(file_path, {})["llm.zai.api_key"]
+            self.assertNotEqual(stored, "clip-secret")
             if os.name == "nt":
-                self.assertNotEqual(load_json(file_path, {})["llm.zai.api_key"], "clip-secret")
+                self.assertTrue(stored.startswith(DPAPI_SECRET_PREFIX))
+            else:
+                self.assertTrue(stored.startswith(INSECURE_FILE_SECRET_PREFIX))
 
     def test_prompt_for_secret_uses_visible_input_for_admin_ids(self) -> None:
         with patch("builtins.input", return_value="123,456"), \
@@ -7954,6 +7968,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(is_git_source("git@github.com:spark/memory.git"))
         self.assertTrue(is_git_source("github.com/spark/memory"))
         self.assertTrue(is_git_source("https://gitlab.com/foo/bar.git"))
+        self.assertFalse(is_git_source("github.com.evil/spark/memory"))
+        self.assertFalse(is_git_source("example.com/github.com/spark/memory"))
         self.assertFalse(is_git_source("C:/Users/USER/Desktop/spark-memory"))
         self.assertFalse(is_git_source(""))
 
@@ -7965,6 +7981,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(
             normalize_git_url("https://github.com/spark/memory"),
             "https://github.com/spark/memory",
+        )
+        self.assertEqual(
+            normalize_git_url("github.com.evil/spark/memory"),
+            "github.com.evil/spark/memory",
         )
 
     def test_infer_module_name_from_url_drops_git_suffix(self) -> None:
@@ -8231,7 +8251,8 @@ class SparkCliTests(unittest.TestCase):
             file_path = Path(tmp_dir) / "secrets.local.json"
             with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
-                 patch("spark_cli.cli.keychain_available", return_value=False):
+                 patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}):
                 backend = store_secret("telegram.bot_token", "abc", preferred="keychain")
                 self.assertEqual(backend, "file")
                 self.assertEqual(fetch_secret("telegram.bot_token"), "abc")
@@ -8240,11 +8261,26 @@ class SparkCliTests(unittest.TestCase):
                     self.assertNotEqual(stored_payload["telegram.bot_token"], "abc")
                     self.assertTrue(stored_payload["telegram.bot_token"].startswith(DPAPI_SECRET_PREFIX))
                 else:
-                    self.assertEqual(stored_payload["telegram.bot_token"], "abc")
+                    self.assertNotEqual(stored_payload["telegram.bot_token"], "abc")
+                    self.assertTrue(stored_payload["telegram.bot_token"].startswith(INSECURE_FILE_SECRET_PREFIX))
                 self.assertEqual(list_stored_secrets(), {"telegram.bot_token": "file"})
                 self.assertTrue(delete_secret("telegram.bot_token"))
                 self.assertIsNone(fetch_secret("telegram.bot_token"))
                 self.assertEqual(list_stored_secrets(), {})
+
+    def test_store_secret_refuses_file_backend_without_explicit_opt_in(self) -> None:
+        if os.name == "nt":
+            self.skipTest("Windows file secret backend uses DPAPI.")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            index_path = Path(tmp_dir) / "secrets_index.json"
+            file_path = Path(tmp_dir) / "secrets.local.json"
+            with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
+                 patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
+                 patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: ""}, clear=False):
+                with self.assertRaises(SystemExit) as error:
+                    store_secret("telegram.bot_token", "abc", preferred="keychain")
+        self.assertIn("File secret backend is disabled", str(error.exception))
 
     def test_validate_telegram_bot_token_uses_getme_without_leaking_token_on_rejection(self) -> None:
         class FakeResponse:
@@ -8290,7 +8326,8 @@ class SparkCliTests(unittest.TestCase):
             file_path = Path(tmp_dir) / "secrets.local.json"
             with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
-                 patch("spark_cli.cli.keychain_available", return_value=False):
+                 patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}):
                 store_secret("telegram.bot_token", "old-token", preferred="keychain")
                 with patch("spark_cli.cli.validate_telegram_bot_token") as validate_mock:
                     validate_new_telegram_bot_tokens(
@@ -8374,7 +8411,8 @@ class SparkCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch("spark_cli.cli.SECRETS_INDEX_PATH", Path(tmp_dir) / "idx.json"), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", Path(tmp_dir) / "file.json"), \
-                 patch("spark_cli.cli.keychain_available", return_value=False):
+                 patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}):
                 report = persist_keychain_secrets(
                     [gateway],
                     {"telegram.bot_token": "abc", "telegram.admin_ids": "123"},
@@ -8399,7 +8437,8 @@ class SparkCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch("spark_cli.cli.SECRETS_INDEX_PATH", Path(tmp_dir) / "idx.json"), \
                  patch("spark_cli.cli.SECRETS_FILE_PATH", Path(tmp_dir) / "file.json"), \
-                 patch("spark_cli.cli.keychain_available", return_value=False):
+                 patch("spark_cli.cli.keychain_available", return_value=False), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}):
                 store_secret("telegram.bot_token", "abc", preferred="keychain")
                 env = keychain_env_for_module(gateway)
                 self.assertEqual(env, {"BOT_TOKEN": "abc"})
