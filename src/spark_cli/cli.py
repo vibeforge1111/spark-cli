@@ -9233,8 +9233,32 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         prompt_path.write_text(prompt, encoding="utf-8")
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
-    target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        target = resolve_llm_doctor_target(args)
+        response = call_llm_doctor(target, prompt)
+        probe_ok = True
+        probe_error = ""
+    except SystemExit as exc:
+        target = {}
+        response = ""
+        probe_ok = False
+        probe_error = str(exc)
+    if not probe_ok:
+        error_report = (
+            "# Spark Doctor Report (probe failed)\n\n"
+            f"Problem: {problem}\n"
+            f"Probe error: {probe_error}\n\n"
+            "The LLM probe could not run. Possible causes:\n"
+            "  - API key not found in Spark secret store or environment\n"
+            "  - No network access to provider endpoint\n"
+            "  - Provider not yet configured (run `spark setup`)\n\n"
+            "Run `spark providers status` to check provider readiness.\n"
+        )
+        if getattr(args, "save_report", False):
+            path = write_doctor_report(error_report)
+            print(f"Saved partial Spark Doctor report: {path}")
+        print(error_report)
+        return 1
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
