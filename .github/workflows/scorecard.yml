@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
   schedule:
     - cron: "43 4 * * 3"
   workflow_dispatch:
@@ -32,6 +35,7 @@ jobs:
           publish_results: false
 
       - name: Upload Scorecard SARIF
+        if: github.event_name != 'pull_request'
         uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
         with:
           sarif_file: scorecard.sarif
