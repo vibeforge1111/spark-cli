@@ -11104,7 +11104,7 @@ def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
             errors.append(f"SPARK_ALLOWED_HOSTS must not contain wildcards ({host!r}).")
         if "://" in normalized or "/" in normalized:
             errors.append(f"SPARK_ALLOWED_HOSTS must contain hostnames only, not URLs ({host!r}).")
-        if ":" in normalized and not normalized.startswith("["):
+        if normalized.count(":") == 1 and not normalized.startswith("["):
             errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
         try:
             address = ipaddress.ip_address(host_without_port)
