@@ -4180,7 +4180,7 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
     current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
     repair_queue = [as_dict(item) for item in as_list(trace_index.get("trace_repair_queue"))]
     cards: list[dict[str, Any]] = []
-
+    seen_ids: set[str] = set()
     for item in repair_queue:
         if item.get("owner_repo") != "spark-intelligence-builder" or item.get("missing_field") != "trace_ref":
             continue
@@ -4199,10 +4199,14 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
             status = "historical_backlog"
         else:
             status = "unknown"
+        card_id = item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref")
+        if card_id in seen_ids:
+            continue
+        seen_ids.add(card_id)
         cards.append(
             {
                 "schema_version": "spark.builder_trace_repair_card.v0",
-                "id": item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref"),
+                "id": card_id,
                 "category": "missing_trace_ref",
                 "title": f"Thread trace_ref into {component} / {event_type}",
                 "status": status,
