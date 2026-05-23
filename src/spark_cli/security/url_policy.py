@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 METADATA_HOSTS = {
     "169.254.169.254",
+    "169.254.170.2",
     "metadata.google.internal",
+    "metadata.amazonaws.com",
+    "metadata.azure.com",
 }
 
 UNSAFE_BIND_HOSTS = {
@@ -55,6 +58,7 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
 
     host = (parsed.hostname or "").strip().lower()
+    host = host.rstrip(".")
     if not host:
         return [f"{label} has a URL without a hostname."]
     if host in METADATA_HOSTS:
