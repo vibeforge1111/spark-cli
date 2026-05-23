@@ -140,6 +140,7 @@ from spark_cli.cli import (
     record_install_step,
     run_install_command,
     run_install_commands_with_progress,
+    run_llm_cli_probe_command,
     setup_should_run_install_commands,
     step_previously_completed,
     manifest_schema_version,
@@ -2328,7 +2329,7 @@ class SparkCliTests(unittest.TestCase):
             "auth_mode": "codex_oauth",
             "cli_path": "codex",
         }
-        with patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+        with patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=str(Path.cwd())):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
@@ -2339,6 +2340,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("--ephemeral", command)
         self.assertNotIn("--ask-for-approval", command)
         self.assertIn("gpt-5.5", command)
+        self.assertEqual(run_mock.call_args.kwargs["provider_label"], "Codex")
+        self.assertEqual(run_mock.call_args.kwargs["timeout_seconds"], 90)
+
+    def test_provider_test_codex_timeout_returns_repair_payload(self) -> None:
+        with patch("spark_cli.cli.resolve_provider_test_target", return_value={
+            "provider": "codex",
+            "role": "chat",
+            "model": "gpt-5.5",
+            "auth_mode": "codex_oauth",
+            "cli_path": "codex",
+        }), patch(
+            "spark_cli.cli.call_llm_doctor",
+            side_effect=SystemExit("Codex CLI did not finish within 90s."),
+        ) as doctor_mock:
+            payload = provider_test_payload(role="chat")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["provider"], "codex")
+        self.assertIn("did not finish", payload["detail"])
+        self.assertEqual(payload["repair"], "spark setup")
+        self.assertEqual(doctor_mock.call_args.kwargs["timeout_seconds"], 30)
+
+    def test_llm_cli_probe_command_times_out_cleanly(self) -> None:
+        command = [sys.executable, "-c", "import time; time.sleep(30)"]
+        with self.assertRaises(SystemExit) as cm:
+            run_llm_cli_probe_command(command, provider_label="TestProvider", timeout_seconds=1)
+        self.assertIn("TestProvider CLI did not finish within 1s", str(cm.exception))
 
     def test_provider_test_can_call_claude_oauth_cli(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -2354,7 +2382,7 @@ class SparkCliTests(unittest.TestCase):
             "auth_mode": "claude_oauth",
             "cli_path": "claude",
         }
-        with patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+        with patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=str(Path.cwd())):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
@@ -2362,6 +2390,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(command[:3], ["claude", "-p", "--output-format"])
         self.assertIn("--model", command)
         self.assertIn("sonnet", command)
+        self.assertEqual(run_mock.call_args.kwargs["provider_label"], "Claude")
+        self.assertEqual(run_mock.call_args.kwargs["timeout_seconds"], 90)
 
     def test_provider_test_wraps_windows_claude_powershell_shim(self) -> None:
         cwd = os.getcwd()
@@ -2379,7 +2409,7 @@ class SparkCliTests(unittest.TestCase):
             "cli_path": r"C:\nvm\nodejs\claude.ps1",
         }
         with patch("spark_cli.cli.os.name", "nt"), \
-             patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+             patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=cwd):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
