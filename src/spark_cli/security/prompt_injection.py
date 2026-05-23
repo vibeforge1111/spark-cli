@@ -23,6 +23,10 @@ PROMPT_INJECTION_PATTERNS = (
     (
         "prompt-injection-override",
         "medium",
+        # Synonym set chosen from a small adversarial corpus of context-file
+        # injection attempts (cursorrules / agents.md style). The lazy
+        # quantifier `.{0,80}?` keeps the match bounded so an attacker cannot
+        # blow up regex engine state with deeply nested context.
         re.compile(r"\b(?:ignore|disregard|forget|override|neglect|dismiss|skip|omit|discard|bypass)\b.{0,80}?\b(?:previous|prior|system|developer|higher[- ]priority)\b.{0,80}?\b(?:instructions?|prompts?|rules?)", re.IGNORECASE | re.DOTALL),
         "context file appears to tell an agent to ignore higher-priority instructions",
     ),
