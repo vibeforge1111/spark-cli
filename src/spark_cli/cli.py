@@ -14848,7 +14848,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
     secrets_set_parser.add_argument("secret_id")
-    secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
+    secrets_set_parser.add_argument(
+        "--value",
+        help="Use @clipboard, @env:NAME, @file:path, or a direct value (omit to paste securely when prompted)",
+    )
     secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
