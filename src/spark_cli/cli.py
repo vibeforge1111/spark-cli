@@ -13768,13 +13768,21 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 def cmd_secrets_get(args: argparse.Namespace) -> int:
     value = fetch_secret(args.secret_id)
     if value is None:
-        raise SystemExit(f"No value stored for {args.secret_id}.")
+        if getattr(args, "json", False):
+            print(json.dumps({"secret_id": args.secret_id, "set": False, "masked_value": None}, indent=2))
+        else:
+            raise SystemExit(f"No value stored for {args.secret_id}.")
+        return 1
+    masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+    if getattr(args, "json", False):
+        # codeql[py/clear-text-logging-sensitive-data]
+        print(json.dumps({"secret_id": args.secret_id, "set": True, "masked_value": masked}, indent=2))
+        return 0
     if args.reveal:
         # `spark secrets get --reveal` is an explicit local operator command.
         # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
-        masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
         # The value is masked by default; the printed id is a label.
         # codeql[py/clear-text-logging-sensitive-data]
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
@@ -14861,6 +14869,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
     secrets_get_parser.add_argument("secret_id")
     secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_parser.add_argument("--json", action="store_true", help="Emit result as structured JSON (always masked; use --reveal for plain text only)")
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
