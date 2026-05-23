@@ -3928,8 +3928,8 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
-    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
+    spawner_execution_policy = inspect_spawner_access_sources(_resolve("spawner-ui"))
+    browser_authority = inspect_browser_authority(_resolve("spark-browser-extension"))
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
