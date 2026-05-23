@@ -403,4 +403,26 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+    if first in {"chmod", "chown", "chgrp", "setfacl"}:
+        _sensitive_paths = {
+            "/etc/passwd", "/etc/shadow", "/etc/sudoers", "/etc/sudoers.d",
+            "/etc/ssh", "/etc/ssh/sshd_config", "/root", "/root/.ssh",
+            "/etc/hosts", "/etc/cron.d", "/etc/crontab",
+            "/var/log", "/boot", "/dev", "/proc", "/sys",
+        }
+        has_sensitive = any(
+            any(p == sp or p.startswith(sp + "/") for sp in _sensitive_paths)
+            for p in parts[1:]
+        )
+        has_recursive = _contains_any(lowered, {"-r", "-R", "--recursive"})
+        if has_sensitive or has_recursive:
+            return _decision(
+                parts, ctx,
+                "identity_access_mutation",
+                "critical" if has_sensitive else "high",
+                "Command can change permissions or ownership of sensitive system paths.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve permission mutation",
+            )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
