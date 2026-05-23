@@ -9657,6 +9657,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed and stale_hooks
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -11679,7 +11681,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 print(f"      warning: {warning}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "installers", False):
+    if getattr(args, "installers", False) or getattr(args, "hosted_installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
@@ -14805,6 +14807,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+    guide_parser.add_argument("topic", nargs="?", help="Optional topic hint (install, setup, telegram, providers, voice, security, update); currently shows the full guide")
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
     guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
     guide_parser.set_defaults(func=cmd_guide)
