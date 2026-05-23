@@ -47,6 +47,12 @@ def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
 def _resolve_redirects(url: str, max_redirects: int = 5) -> str:
     """
     Follow HTTP redirects and return the final destination URL.
+
+    Walks redirect chains with a hard depth bound (``max_redirects``) so a
+    pathological chain cannot stall the validator, uses HEAD-only requests
+    so we never download a body, and falls back to the last-known URL on
+    any network error so validation always has something concrete to scan.
+
     Prevents SSRF via redirect chains to localhost/metadata services.
     """
     current_url = url
