@@ -403,4 +403,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+    interpreters = {'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'python', 'python3', 'perl', 'ruby', 'node'}
+    if first in interpreters and second in {'-c', '-e', '--eval', '-exec'}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs arbitrary code via interpreter with inline execution flag.",
+            target_display=parts[0],
+            confirmation_phrase="approve remote code execution",
+        )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
