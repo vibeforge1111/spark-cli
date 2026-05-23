@@ -10095,6 +10095,30 @@ def prepend_pythonpath(env: dict[str, str], paths: list[Path]) -> None:
     env["PYTHONPATH"] = os.pathsep.join([*present, existing]) if existing else os.pathsep.join(present)
 
 
+def redacted_runtime_error_text(value: object) -> str:
+    redacted = redact_shareable_text(str(value))
+    for raw, label in ((str(SPARK_HOME), "<spark-home>"), (str(Path.home()), "~")):
+        if raw:
+            redacted = redacted.replace(raw.replace("\\", "\\\\"), label)
+    return redacted.replace("~\\\\.spark", "<spark-home>")
+
+
+def builder_memory_smoke_failure_detail(detail: str, returncode: int | None = None) -> str:
+    safe_detail = redacted_runtime_error_text(detail).strip()
+    lower_detail = safe_detail.lower()
+    if "calledprocesserror" in lower_detail or "icacls" in lower_detail:
+        return (
+            "Builder memory direct smoke failed while preparing the local Builder memory home. "
+            "Rerun `spark setup telegram-starter --resume` from a terminal that can update "
+            "<spark-home>/state/spark-intelligence, or repair Builder state directory permissions."
+        )
+    if safe_detail:
+        return safe_detail
+    if returncode is not None:
+        return f"Builder memory direct smoke failed with exit {returncode}."
+    return "Builder memory direct smoke failed."
+
+
 def collect_builder_memory_direct_smoke(
     *,
     installed: object,
@@ -10155,7 +10179,7 @@ def collect_builder_memory_direct_smoke(
         return {
             "ok": False,
             "ran": True,
-            "detail": f"Builder memory direct smoke could not complete: {exc}",
+            "detail": f"Builder memory direct smoke could not complete: {redacted_runtime_error_text(exc)}",
             "repair": "spark setup telegram-starter",
         }
     detail = summarize_command_output(result)
@@ -10169,7 +10193,7 @@ def collect_builder_memory_direct_smoke(
     return {
         "ok": False,
         "ran": True,
-        "detail": detail or f"Builder memory direct smoke failed with exit {result.returncode}.",
+        "detail": builder_memory_smoke_failure_detail(detail, result.returncode),
         "repair": "spark setup telegram-starter",
     }
 

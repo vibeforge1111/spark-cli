@@ -33,6 +33,7 @@ from spark_cli.cli import (
     collect_secret_surface_payload,
     collect_security_audit_payload,
     collect_specialization_loop_payload,
+    collect_builder_memory_direct_smoke,
     collect_support_bundle_payload,
     collect_secret_values,
     collect_installer_integrity_payload,
@@ -10670,6 +10671,35 @@ class SparkCliTests(unittest.TestCase):
         command = run_mock.call_args.args[0]
         self.assertIn("direct-smoke", command)
         self.assertIn("--sdk-module", command)
+
+    def test_builder_memory_direct_smoke_redacts_permission_command_failure(self) -> None:
+        builder = Path("C:/spark/modules/spark-intelligence-builder")
+        memory = Path("C:/spark/modules/domain-chip-memory")
+        builder_home = SPARK_HOME / "state" / "spark-intelligence"
+        raw_detail = (
+            "subprocess.CalledProcessError: Command '['icacls', "
+            f"'{builder_home / '.env'}', '/inheritance:r', '/grant:r', "
+            "'giwaov\\\\dell:(R,W)']' returned non-zero exit status 5."
+        )
+        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=raw_detail, stderr="")
+        with patch("spark_cli.cli.Path.exists", return_value=True), \
+            patch("spark_cli.cli.subprocess.run", return_value=completed):
+            payload = collect_builder_memory_direct_smoke(
+                installed={
+                    "spark-intelligence-builder": {"path": str(builder)},
+                    "domain-chip-memory": {"path": str(memory)},
+                },
+                builder_home=str(builder_home),
+                builder_env={},
+            )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("Builder memory direct smoke failed while preparing", payload["detail"])
+        self.assertIn("<spark-home>/state/spark-intelligence", payload["detail"])
+        self.assertNotIn("icacls", payload["detail"])
+        self.assertNotIn("CalledProcessError", payload["detail"])
+        self.assertNotIn("giwaov", payload["detail"])
+        self.assertNotIn(str(Path.home()), payload["detail"])
 
     def test_collect_specialization_loop_payload_reports_missing_surfaces(self) -> None:
         with patch.dict(os.environ, {}, clear=True), \
