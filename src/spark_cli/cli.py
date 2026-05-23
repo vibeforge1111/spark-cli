@@ -2462,6 +2462,11 @@ def write_denied_paths(home: Path | None = None) -> list[Path]:
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
     candidate = resolve_policy_path(path)
+    # SPARK_HOME and its children are always allowed even if they fall
+    # under a broad denied prefix (e.g. /root when home is /root).
+    spark_home_resolved = resolve_policy_path(SPARK_HOME)
+    if policy_path_is_same_or_child(candidate, spark_home_resolved):
+        return False, ""
     for denied_path in write_denied_paths():
         if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
             return True, str(denied_path)

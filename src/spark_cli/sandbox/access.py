@@ -676,7 +676,7 @@ def access_lane_payload(
     docker_configured = bool(docker_readiness.get("configured"))
     docker_ready = bool(docker_readiness.get("ok"))
     trusted_ssh_targets = [
-        target for target in ssh_targets
+        target for target in ssh_targets.values()
         if target.host_key_status == "trusted" and bool(target.host_key_fingerprint) and bool(target.identity_file)
     ]
     ssh_ready = bool(trusted_ssh_targets)
