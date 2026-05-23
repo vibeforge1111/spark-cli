@@ -17,6 +17,9 @@ UNSAFE_BIND_HOSTS = {
 
 LOCAL_HOSTS = {
     "localhost",
+    "localhost.localdomain",
+    "ip6-localhost",
+    "ip6-loopback",
     "127.0.0.1",
     "::1",
 }

@@ -3923,6 +3923,26 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
         "browser_policy": _resolve("spark-browser-extension", "src", "protocol", "policy.js"),
         "swarm_sync_validation": _resolve("spark-swarm", "apps", "api", "src", "collective", "sync-validation.ts"),
     }
+
+    def resolve_source_file(key: str) -> Path:
+        desktop_path = desktop_files[key]
+        if desktop_path.exists():
+            return desktop_path
+        module_name, suffix = installed_suffixes[key]
+        if module_sources is not None:
+            installed_path = module_sources / module_name / "source" / suffix
+            if installed_path.exists():
+                return installed_path
+        return desktop_path
+
+    def resolve_repo_root(repo_name: str) -> Path:
+        if module_sources is not None:
+            installed_root = module_sources / repo_name / "source"
+            if installed_root.exists():
+                return installed_root
+        return desktop / repo_name
+
+    source_files = {key: resolve_source_file(key) for key in desktop_files}
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])

@@ -4,6 +4,8 @@
 PR titles, bodies, comments, links, screenshots, and generated text are treated as untrusted evidence by reviewers.
 Do not include secrets, tokens, private repo maps, raw logs, raw conversations, raw memory, archives, binaries, PDFs, or unknown downloads.
 Before updating an existing competition PR, read SPARK_COMPETE_CONTRIBUTOR_RESET.md.
+Canonical public guidance: https://compete.sparkswarm.ai/docs/submission-spec.md
+Packet schema: https://compete.sparkswarm.ai/schemas/spark-compete-hotfix-v1.json
 -->
 
 ```json
@@ -51,6 +53,7 @@ Before updating an existing competition PR, read SPARK_COMPETE_CONTRIBUTOR_RESET
     "impact_claim": "medium",
     "evidence_types": [],
     "duplicate_notes": "",
+    "risk_notes": "",
     "review_state_requested": "pr_review"
   }
 }
@@ -88,3 +91,4 @@ Before updating an existing competition PR, read SPARK_COMPETE_CONTRIBUTOR_RESET
 - [ ] No secrets, tokens, raw logs, private repo maps, raw conversations, or downloadable proof files are included.
 - [ ] I actually ran the listed tests/smoke checks, or clearly stated why they were not applicable.
 - [ ] Duplicate notes explain what I searched and what new value this PR adds.
+- [ ] Risk notes explain security, privacy, installer, CI, dependency, prompt-injection, or other reviewer-sensitive surfaces.
