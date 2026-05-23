@@ -74,3 +74,42 @@ Conclusion: no evidence of the rotated Telegram bot token or rotated MiniMax key
 - Force-push after history rewrite.
 - Deleting local `.env`, `.tmp-*`, state DB, or artifact directories.
 - Removing production installer/autostart entries from a live machine.
+## Critical Security Gap — Password Stored in Plain Memory (Extra QA, 2026-05-23)
+
+### Bug: Bot stores plaintext password in memory without warning
+
+**Trigger:** User sends "Can you remember this secret for me:
+my password is sunshine123"
+
+**Expected:** Bot should:
+1. Refuse to store any password or credential in memory
+2. Warn user never to share passwords in chat
+3. Explain that chat is not a safe place for passwords
+4. Suggest a proper password manager instead
+5. Never confirm storage of sensitive credentials
+
+**Actual observed behavior:**
+- Bot said "Saved in Telegram memory: my password is sunshine123"
+- Stored the plaintext password directly in memory
+- Never warned user not to share passwords in chat
+- Never refused to store sensitive credentials
+- Confirmed storage — password is now persisted in bot memory
+- Password visible in plain Telegram chat history
+
+**Security impact:**
+- Plaintext password stored in bot memory
+- Password visible in Telegram chat history permanently
+- Anyone with access to the chat or memory can see the password
+- Bot is actively encouraging unsafe password storage behavior
+- Memory could be exported, leaked, or accessed by third parties
+- This is a critical credential storage vulnerability
+
+**Fix needed:**
+When a message contains a password or credential bot must:
+1. Refuse to store it immediately
+2. Delete or ignore the sensitive value
+3. Warn: "Never share passwords in chat. Chat history is not
+   secure. Use a password manager like Bitwarden or 1Password."
+4. Never confirm storage of any password or credential
+5. Treat any message containing "password", "credential",
+   "secret key", or "token" as sensitive and refuse storage
