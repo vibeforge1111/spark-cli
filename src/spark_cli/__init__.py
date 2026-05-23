@@ -1,1 +1,1 @@
-"""Spark CLI spike package."""
+"""Spark CLI package."""
