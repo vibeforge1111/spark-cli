@@ -13788,7 +13788,14 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 def cmd_logs(args: argparse.Namespace) -> int:
     installed = resolve_installed_modules()
     if args.target not in installed:
-        raise SystemExit(f"Unknown installed module: {args.target}")
+        # Check if module is available but not installed
+        available = discover_modules()
+        if args.target in available:
+            raise SystemExit(
+                f"Module '{args.target}' is available but not installed.\n"
+                f"Install it first with: spark install {args.target}"
+            )
+        raise SystemExit(f"Unknown module: {args.target}")
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
         raise SystemExit("--profile only applies to spark-telegram-bot logs.")
