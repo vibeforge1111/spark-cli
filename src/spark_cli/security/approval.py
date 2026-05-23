@@ -95,6 +95,21 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _is_cloud_storage_uri(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith(("s3://", "gs://", "az://", "abfs://", "abfss://"))
+
+
+def _cloud_storage_upload_target(parts: list[str], source_start: int) -> str:
+    positionals = [part for part in parts if not part.startswith("-")]
+    if len(positionals) <= source_start + 1:
+        return ""
+    target = positionals[-1]
+    if _is_cloud_storage_uri(target) and any(not _is_cloud_storage_uri(source) for source in positionals[source_start:-1]):
+        return target
+    return ""
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -363,6 +378,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )
+    if (first == "aws" and lowered[1:3] in (["s3", "cp"], ["s3", "sync"])) or (
+        first == "gsutil" and second in {"cp", "rsync"}
+    ):
+        cloud_target = _cloud_storage_upload_target(parts, 3 if first == "aws" else 2)
+        if cloud_target:
+            return _decision(
+                parts,
+                ctx,
+                "network_exfiltration",
+                "medium",
+                "Command can upload local files to cloud storage.",
+                target_display=cloud_target,
+                confirmation_phrase="approve cloud storage upload",
+            )
 
     if first == "spark" and second == "access":
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
