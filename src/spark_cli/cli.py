@@ -13515,8 +13515,14 @@ def coerce_config_value(raw: str) -> Any:
 def cmd_config_get(args: argparse.Namespace) -> int:
     value = dotted_get(load_user_config(), args.key)
     if value is None:
-        print(f"{args.key} is not set")
+        if getattr(args, "json", False):
+            print(json.dumps({"key": args.key, "value": None, "set": False}, indent=2))
+        else:
+            print(f"{args.key} is not set")
         return 1
+    if getattr(args, "json", False):
+        print(json.dumps({"key": args.key, "value": value, "set": True}, indent=2))
+        return 0
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
     else:
@@ -14824,6 +14830,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
+    config_get_parser.add_argument("--json", action="store_true", help="Emit value as structured JSON")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
@@ -14836,6 +14843,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_unset_parser.set_defaults(func=cmd_config_unset)
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
+    config_list_parser.add_argument("--json", action="store_true", help="Emit config as JSON (default behavior; flag accepted for scripting compatibility)")
     config_list_parser.set_defaults(func=cmd_config_list)
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
