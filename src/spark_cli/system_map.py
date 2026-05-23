@@ -510,7 +510,8 @@ def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
 
 
 def collect_repo_metadata(path: Path) -> dict[str, Any]:
-    record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
+    repo_name = path.name if path.name != "source" else path.parent.name
+    record: dict[str, Any] = {"name": repo_name, "path": str(path), "exists": path.exists()}
     if not path.exists():
         return record
 
