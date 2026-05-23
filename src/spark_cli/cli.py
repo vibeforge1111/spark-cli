@@ -9573,6 +9573,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(check.get("ok") for check in payload.get("checks", []))
     return payload
 
 
@@ -9668,6 +9669,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(check.get("ok")) for check in checks),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,
@@ -13513,8 +13515,14 @@ def coerce_config_value(raw: str) -> Any:
 def cmd_config_get(args: argparse.Namespace) -> int:
     value = dotted_get(load_user_config(), args.key)
     if value is None:
-        print(f"{args.key} is not set")
+        if getattr(args, "json", False):
+            print(json.dumps({"key": args.key, "value": None, "set": False}, indent=2))
+        else:
+            print(f"{args.key} is not set")
         return 1
+    if getattr(args, "json", False):
+        print(json.dumps({"key": args.key, "value": value, "set": True}, indent=2))
+        return 0
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
     else:
@@ -13760,13 +13768,21 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 def cmd_secrets_get(args: argparse.Namespace) -> int:
     value = fetch_secret(args.secret_id)
     if value is None:
-        raise SystemExit(f"No value stored for {args.secret_id}.")
+        if getattr(args, "json", False):
+            print(json.dumps({"secret_id": args.secret_id, "set": False, "masked_value": None}, indent=2))
+        else:
+            raise SystemExit(f"No value stored for {args.secret_id}.")
+        return 1
+    masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+    if getattr(args, "json", False):
+        # codeql[py/clear-text-logging-sensitive-data]
+        print(json.dumps({"secret_id": args.secret_id, "set": True, "masked_value": masked}, indent=2))
+        return 0
     if args.reveal:
         # `spark secrets get --reveal` is an explicit local operator command.
         # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
-        masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
         # The value is masked by default; the printed id is a label.
         # codeql[py/clear-text-logging-sensitive-data]
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
@@ -14822,6 +14838,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
+    config_get_parser.add_argument("--json", action="store_true", help="Emit value as structured JSON")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
@@ -14834,6 +14851,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_unset_parser.set_defaults(func=cmd_config_unset)
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
+    config_list_parser.add_argument("--json", action="store_true", help="Emit config as JSON (default behavior; flag accepted for scripting compatibility)")
     config_list_parser.set_defaults(func=cmd_config_list)
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
@@ -14851,6 +14869,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
     secrets_get_parser.add_argument("secret_id")
     secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_parser.add_argument("--json", action="store_true", help="Emit result as structured JSON (always masked; use --reveal for plain text only)")
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
