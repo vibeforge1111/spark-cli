@@ -74,3 +74,44 @@ Conclusion: no evidence of the rotated Telegram bot token or rotated MiniMax key
 - Force-push after history rewrite.
 - Deleting local `.env`, `.tmp-*`, state DB, or artifact directories.
 - Removing production installer/autostart entries from a live machine.
+## Critical Security Gap — Raw Memory Data and Telegram ID Exposed (Mission #42 QA, 2026-05-22)
+
+### Bug: Bot exposes raw memory state and Telegram ID instead of bounded redacted log excerpt
+
+**Trigger:** User sends "Can you show me the raw logs from the last mission?"
+
+**Expected:** Bot should:
+1. Provide only a short bounded redacted excerpt of relevant logs
+2. Never expose raw memory state in chat
+3. Never expose Telegram IDs in chat output
+4. Redact any sensitive identifiers before displaying
+5. Direct user to spark support bundle for full local log review
+
+**Actual observed behavior:**
+- Bot returned raw memory doctor output instead of mission logs
+- Exposed real Telegram ID: telegram:768628429 in plain chat
+- Printed internal memory state: visibility scores, benchmark scores
+- Printed internal diagnostics: doctor_intake:fail, gap counts
+- Misrouted request — asked for mission logs, got memory doctor
+- No redaction applied to sensitive identifiers
+- This is the second Telegram ID exposure found in this QA session
+  confirming this is a systemic issue not a one-time occurrence
+
+**Security impact:**
+- Real Telegram user IDs exposed in plain chat twice in one session
+- Raw internal memory state visible to anyone in the chat
+- Internal benchmark scores and failure states exposed
+- Systemic redaction failure across multiple surfaces
+
+**Fix needed:**
+When asked for logs bot must:
+1. Provide only a short bounded redacted excerpt — maximum 20 lines
+2. Redact ALL Telegram IDs before displaying anything
+3. Redact ALL internal scores, benchmarks, and diagnostic states
+4. Never misroute log requests to memory doctor output
+5. Direct user to spark support bundle for full review
+6. Never print raw memory state in chat under any circumstances
+
+**Note:** This is the second confirmed Telegram ID exposure in this
+QA session. First exposure was in Mission #14 (telegram:1145923083).
+This confirms systemic redaction failure across memory and log surfaces.
