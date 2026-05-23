@@ -36,11 +36,12 @@ def validate_target_name(name: str) -> str:
 
 
 def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
-    root_resolved = root.expanduser().resolve()
+    root_path = root.expanduser()
+    root_resolved = root_path.resolve()
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
-        candidate = root_resolved / candidate
+        candidate = root_path / candidate
     resolved = candidate.resolve()
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ValueError(f"Path must stay inside {root_resolved}.")
-    return resolved
+    return candidate

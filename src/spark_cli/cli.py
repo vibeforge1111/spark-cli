@@ -1244,6 +1244,14 @@ def _path_is_reparse_point(path: Path) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
+def _is_platform_root_alias(path: Path) -> bool:
+    try:
+        parent = path.parent
+    except RuntimeError:
+        return False
+    return path.is_absolute() and parent == Path(path.anchor)
+
+
 def assert_no_linked_write_path(path: Path) -> None:
     expanded = path.expanduser()
     chain = [*reversed(expanded.parent.parents), expanded.parent]
@@ -1253,6 +1261,8 @@ def assert_no_linked_write_path(path: Path) -> None:
         if not item.exists() and not item.is_symlink():
             continue
         if _path_is_reparse_point(item):
+            if item != expanded and _is_platform_root_alias(item):
+                continue
             raise SystemExit(f"Refusing private write through linked path: {item}")
 
 
@@ -2419,7 +2429,7 @@ def resolve_policy_path(path: Path) -> Path:
 
 def policy_home_path(home: Path | None = None) -> Path:
     if home is not None:
-        return resolve_policy_path(home)
+        return home.expanduser()
     try:
         return resolve_policy_path(Path.home())
     except RuntimeError:
@@ -2452,18 +2462,19 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
             value = os.environ.get(key)
             if value:
                 denied.append(path_type(value))
-    return [resolve_policy_path(path) for path in denied]
+    return denied
 
 
 def write_denied_paths(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
-    return [resolve_policy_path(home_path / relative) for relative in WRITE_DENIED_HOME_PATHS]
+    return [home_path / relative for relative in WRITE_DENIED_HOME_PATHS]
 
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
     candidate = resolve_policy_path(path)
     for denied_path in write_denied_paths():
-        if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
+        resolved_denied_path = resolve_policy_path(denied_path)
+        if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(resolved_denied_path))):
             return True, str(denied_path)
     for denied_prefix in write_denied_prefixes():
         if policy_path_is_same_or_child(candidate, denied_prefix):
