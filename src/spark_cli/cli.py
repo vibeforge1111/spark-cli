@@ -245,7 +245,7 @@ CHIP_SCAN_PATTERNS = (
     (
         "embedded-private-key",
         "critical",
-        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
         "private key material is embedded in the module",
     ),
     (
@@ -9577,6 +9577,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(bool(check.get("ok")) for check in payload.get("checks", []))
     return payload
 
 
@@ -9657,6 +9658,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -9672,6 +9675,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(check.get("ok")) for check in checks),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,

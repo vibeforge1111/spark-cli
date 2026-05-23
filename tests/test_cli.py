@@ -41,6 +41,7 @@ from spark_cli.cli import (
     collect_sandbox_verify_payload,
     collect_setup_configuration,
     collect_simple_fix_payload,
+    collect_autostart_fix_payload,
     collect_status_payload,
     collect_hosted_security_payload,
     collect_llm_doctor_context,
@@ -2296,6 +2297,17 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
 
+    def test_url_policy_treats_loopback_host_aliases_as_local(self) -> None:
+        for host in ("localhost.localdomain", "ip6-localhost", "ip6-loopback"):
+            with self.subTest(host=host):
+                self.assertEqual(validate_url_safety(f"http://{host}:1234/v1", label="local provider"), [])
+                errors = validate_url_safety(
+                    f"http://{host}:1234/v1",
+                    label="hosted provider",
+                    policy=UrlPolicy(allow_local=False),
+                )
+                self.assertTrue(any("local-only host" in error for error in errors))
+
     def test_url_policy_can_block_local_targets_for_hosted_tools(self) -> None:
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
@@ -2926,6 +2938,19 @@ class SparkCliTests(unittest.TestCase):
             module_path = Path(tmp_dir)
             (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
             (module_path / "keys.txt").write_text("-----BEGIN PRIVATE KEY-----\nabc\n", encoding="utf-8")
+            module = Module(
+                name="thirdparty",
+                path=module_path,
+                manifest={"module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            findings = scan_module_trust(module, trust_tier="community")
+        self.assertTrue(any(finding.category == "embedded-private-key" for finding in findings))
+
+    def test_scan_module_trust_finds_encrypted_private_key_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
+            (module_path / "keys.txt").write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nabc\n", encoding="utf-8")
             module = Module(
                 name="thirdparty",
                 path=module_path,
@@ -4468,6 +4493,23 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("Systemd service current command: yes", text)
             self.assertIn("Systemd service current Spark home: yes", text)
             self.assertNotIn("Systemd service warning: autostart command does not match", text)
+
+    def test_autostart_fix_payload_reports_missing_hook_as_not_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
+                 patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
+                 patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
+                 patch("spark_cli.cli.load_json", return_value={}):
+                payload = collect_autostart_fix_payload()
+
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["current startup target"]["ok"])
+        self.assertIn("No autostart hook is installed", checks["current startup target"]["detail"])
 
     def test_autostart_install_macos_replaces_existing_launch_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -9217,6 +9259,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.provider_status_payload", return_value=provider_payload):
             payload = collect_simple_fix_payload("spawner")
 
+        self.assertFalse(payload["ok"])
         route_context = payload["route_context"]
         self.assertEqual(route_context["schema_version"], "spark.repair_route_context.v1")
         self.assertEqual(route_context["candidate_route"], "spark.repair")

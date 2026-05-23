@@ -1431,6 +1431,29 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             self.assertEqual(view["guardrail_summary"]["publication_checks_required"], 2)
             self.assertNotIn("telegram.bot_token", encoded)
 
+    def test_authority_view_uses_installed_module_sources_when_desktop_repo_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            desktop.mkdir()
+            cli_access = spark_home / "modules" / "spark-cli" / "source" / "src" / "spark_cli" / "sandbox" / "access.py"
+            spawner_lanes = spark_home / "modules" / "spawner-ui" / "source" / "src" / "lib" / "server" / "access-execution-lanes.ts"
+            browser_policy = spark_home / "modules" / "spark-browser-extension" / "source" / "src" / "protocol" / "policy.js"
+            for path in (cli_access, spawner_lanes, browser_policy):
+                path.parent.mkdir(parents=True)
+                path.write_text("// source marker\n", encoding="utf-8")
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        observed = view["observed_sources"]
+        self.assertEqual(observed["cli_access_policy"]["path"], str(cli_access))
+        self.assertTrue(observed["cli_access_policy"]["exists"])
+        self.assertEqual(observed["spawner_access_lanes"]["path"], str(spawner_lanes))
+        self.assertTrue(observed["spawner_access_lanes"]["exists"])
+        self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
+        self.assertTrue(observed["browser_policy"]["exists"])
+
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             builder_home = Path(tmp) / "spark-intelligence"
