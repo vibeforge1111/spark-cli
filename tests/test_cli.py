@@ -148,6 +148,7 @@ from spark_cli.cli import (
     parse_secret_pairs,
     parse_version_constraint,
     parse_version_tuple,
+    provider_catalog_payload,
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
@@ -7823,6 +7824,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+
+    def test_provider_catalog_uses_clipboard_for_secret_setup_commands(self) -> None:
+        payload = provider_catalog_payload()
+        providers = {provider["id"]: provider for provider in payload["providers"]}
+        api_key_providers = ["openai", "openrouter", "zai", "kimi", "huggingface", "minimax"]
+        for provider_id in api_key_providers:
+            setup = providers[provider_id]["setup"]
+            self.assertIn("@clipboard", setup)
+            self.assertNotIn("<key>", setup)
+        self.assertIn("--kimi-model <model>", providers["kimi"]["setup"])
+        self.assertIn("--openrouter-model <model>", providers["openrouter"]["setup"])
+        self.assertIn("--huggingface-model <model>", providers["huggingface"]["setup"])
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])
