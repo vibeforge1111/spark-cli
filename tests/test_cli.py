@@ -8101,6 +8101,51 @@ class SparkCliTests(unittest.TestCase):
                 ).stdout.strip()
                 self.assertEqual(head, first_commit)
 
+    def test_clone_module_source_recovers_partial_pinned_checkout_with_existing_origin(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            work = tmp / "work"
+            work.mkdir()
+            subprocess.run(["git", "-C", str(work), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+            subprocess.run(["git", "-C", str(work), "config", "user.name", "t"], check=True)
+            (work / "spark.toml").write_text(
+                '[module]\nname = "git-demo"\nversion = "0.1.0"\nkind = "service"\nplane = "execution"\n',
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(work), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(work), "commit", "-q", "-m", "init"], check=True)
+            first_commit = subprocess.run(
+                ["git", "-C", str(work), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            bare = tmp / "remote.git"
+            subprocess.run(["git", "clone", "-q", "--bare", str(work), str(bare)], check=True)
+
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", str(bare)], check=True)
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                cloned = clone_module_source("git-demo", str(bare), commit=first_commit)
+
+            self.assertEqual(cloned, partial)
+            self.assertTrue((cloned / "spark.toml").exists())
+            head = subprocess.run(
+                ["git", "-C", str(cloned), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(head, first_commit)
+
     def test_update_module_source_fetches_pinned_commit_for_detached_clone(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git not available on PATH")
