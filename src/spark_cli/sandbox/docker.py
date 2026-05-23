@@ -195,6 +195,9 @@ def collect_docker_smoke_payload(
             "512m",
             "--cpus",
             "1.0",
+            # tmpfs: noexec blocks dropped binaries, nosuid blocks setuid
+            # escalation, size caps prevent disk-fill DoS, and uid=1000 keeps
+            # the mount writable by the same UID we run the container with.
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=256m",
             "--tmpfs",
