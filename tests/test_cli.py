@@ -110,9 +110,12 @@ from spark_cli.cli import (
     check_runtime_version_for_module,
     clear_install_progress,
     coerce_config_value,
+    cmd_config_set,
+    cmd_config_unset,
     dotted_get,
     dotted_set,
     dotted_unset,
+    is_blocked_config_key,
     render_init_spark_toml,
     scaffold_module_files,
     save_json,
@@ -1495,6 +1498,49 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(coerce_config_value('"hello"'), "hello")
         self.assertEqual(coerce_config_value("[1,2,3]"), [1, 2, 3])
         self.assertEqual(coerce_config_value("sonnet"), "sonnet")
+
+    def test_is_blocked_config_key_blocks_exact_security_keys(self) -> None:
+        for key in ("trust_tier", "auto_approve", "bypass", "skip_approval", "skip_security", "override_trust"):
+            self.assertTrue(is_blocked_config_key(key), f"expected {key} to be blocked")
+
+    def test_is_blocked_config_key_blocks_prefixed_keys(self) -> None:
+        for key in ("secrets.telegram_token", "credentials.api_key", "approval.mode", "token.bot"):
+            self.assertTrue(is_blocked_config_key(key), f"expected {key} to be blocked")
+
+    def test_is_blocked_config_key_allows_normal_keys(self) -> None:
+        for key in ("theme", "default_model", "editor.font_size", "telegram.default_profile"):
+            self.assertFalse(is_blocked_config_key(key), f"expected {key} to be allowed")
+
+    def test_cmd_config_set_rejects_blocked_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_dir = Path(tmp_dir) / "config"
+            config_dir.mkdir()
+            with patch("spark_cli.cli.USER_CONFIG_PATH", config_dir / "config.json"):
+                args = Namespace(key="trust_tier", value='"community"')
+                with patch("spark_cli.cli.load_user_config", return_value={}):
+                    with patch("spark_cli.cli.save_user_config") as mock_save:
+                        rc = cmd_config_set(args)
+                        self.assertEqual(rc, 1)
+                        mock_save.assert_not_called()
+
+    def test_cmd_config_set_allows_normal_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_dir = Path(tmp_dir) / "config"
+            config_dir.mkdir()
+            config_path = config_dir / "config.json"
+            with patch("spark_cli.cli.USER_CONFIG_PATH", config_path):
+                args = Namespace(key="theme", value='"dark"')
+                rc = cmd_config_set(args)
+                self.assertEqual(rc, 0)
+                self.assertEqual(load_json(config_path, {}), {"theme": "dark"})
+
+    def test_cmd_config_unset_rejects_blocked_keys(self) -> None:
+        args = Namespace(key="secrets.telegram_token")
+        with patch("spark_cli.cli.load_user_config", return_value={}):
+            with patch("spark_cli.cli.save_user_config") as mock_save:
+                rc = cmd_config_unset(args)
+                self.assertEqual(rc, 1)
+                mock_save.assert_not_called()
 
     def test_load_json_accepts_utf8_bom_from_windows_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
