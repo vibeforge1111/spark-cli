@@ -9237,7 +9237,7 @@ class SparkCliTests(unittest.TestCase):
             ],
             "telegram_profiles": [{"profile": "default", "running": False}],
             "llm": {"provider": "zai", "model": "glm-5.1"},
-            "repair_hints": ["Run `spark setup --bot-token <BOTFATHER_TOKEN>`."],
+            "repair_hints": ["Run `spark setup --bot-token @clipboard`."],
         }
         args = build_parser().parse_args(["doctor"])
         with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
@@ -9283,7 +9283,16 @@ class SparkCliTests(unittest.TestCase):
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["bot_token"]["ok"])
         self.assertIn("Telegram rejected it", checks["bot_token"]["detail"])
-        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token <BOTFATHER_TOKEN>")
+        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token @clipboard")
+
+    def test_autostart_profile_missing_profile_uses_clipboard_for_bot_token(self) -> None:
+        args = build_parser().parse_args(["autostart", "profile", "qa-bot", "on"])
+        with patch("spark_cli.cli.load_json", return_value={"telegram_profiles": {}}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        output = stdout.getvalue()
+        self.assertIn("spark setup --profile qa-bot --bot-token @clipboard", output)
+        self.assertNotIn("<BOTFATHER_TOKEN>", output)
 
     def test_collect_telegram_fix_payload_reports_polling_conflict_from_logs(self) -> None:
         status_payload = {
