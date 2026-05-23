@@ -493,8 +493,19 @@ def is_hosted_git_shorthand(value: str) -> bool:
 
 def normalize_git_url(source: str) -> str:
     value = source.strip()
+    # Reject empty / whitespace-only inputs explicitly so downstream git
+    # commands cannot be invoked with a missing positional argument.
+    if not value:
+        raise SystemExit("Invalid git URL: source is empty.")
     if is_hosted_git_shorthand(value):
         return f"https://{value}"
+    # Defense-in-depth: reject URLs that look like git flags so they cannot be
+    # reinterpreted as command-line options on older git versions (< 2.30)
+    # or when '--' separator is missing on the call site.
+    if value.startswith("-"):
+        raise SystemExit(
+            f"Invalid git URL: {value!r}. URLs cannot start with '-' (potential flag injection)."
+        )
     return value
 
 
@@ -674,7 +685,9 @@ def clone_module_source(
         verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
         return target
     result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
+        # Use '--' separator so an attacker-controlled URL cannot be
+        # reinterpreted as a git option even on older git versions.
+        git_command("clone", "--depth=1", "--", url, str(target)),
         capture_output=True,
         text=True,
     )
@@ -1778,7 +1791,10 @@ REMOTE_GIT_REF_ATTEMPTS = 2
 
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    # Use '--' separator so an attacker-controlled URL cannot be reinterpreted
+    # as a git option even on older git versions; the same hardening rule we
+    # apply on the clone path (PR #164) also belongs on this ls-remote path.
+    command = git_command("ls-remote", "--", normalize_git_url(source), remote_ref)
     last_timeout: subprocess.TimeoutExpired | None = None
     for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
         try:
