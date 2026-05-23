@@ -95,6 +95,41 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _remote_copy_positionals(parts: list[str]) -> list[str]:
+    value_options = {"-i", "-o", "-e", "--rsh", "--rsync-path", "--password-file", "--exclude-from", "--include-from"}
+    lowered = _lower_parts(parts)
+    positionals: list[str] = []
+    skip_next = False
+    for index, part in enumerate(parts[1:], start=1):
+        lowered_part = lowered[index]
+        if skip_next:
+            skip_next = False
+            continue
+        if lowered_part in value_options:
+            skip_next = True
+            continue
+        if lowered_part.startswith("-"):
+            continue
+        positionals.append(part)
+    return positionals
+
+
+def _is_remote_copy_spec(value: str) -> bool:
+    if re.match(r"^[A-Za-z]:[\\/]", value):
+        return False
+    return value.startswith("rsync://") or bool(re.match(r"^[^:]+:.+", value))
+
+
+def _remote_upload_target(parts: list[str]) -> str:
+    positionals = _remote_copy_positionals(parts)
+    if len(positionals) < 2:
+        return ""
+    target = positionals[-1]
+    if _is_remote_copy_spec(target) and any(not _is_remote_copy_spec(source) for source in positionals[:-1]):
+        return target
+    return ""
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -363,6 +398,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )
+    if first in {"scp", "rsync"}:
+        remote_target = _remote_upload_target(parts)
+        if remote_target:
+            return _decision(
+                parts,
+                ctx,
+                "network_exfiltration",
+                "medium",
+                "Command can copy local files to a remote host.",
+                target_display=remote_target,
+                confirmation_phrase="approve remote file upload",
+            )
 
     if first == "spark" and second == "access":
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
