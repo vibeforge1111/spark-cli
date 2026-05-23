@@ -2439,6 +2439,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(["providers", "test", "--role", "memory"]).providers_command, "test")
         self.assertEqual(parser.parse_args(["fix", "spawner"]).target, "spawner")
 
+    def test_security_revoke_all_help_recommends_dry_run_first(self) -> None:
+        with patch("sys.stdout", new_callable=StringIO) as stdout, self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["security", "revoke-all", "--help"])
+        self.assertEqual(raised.exception.code, 0)
+        output = stdout.getvalue()
+        normalized = " ".join(output.split())
+        self.assertIn("Start with --dry-run", normalized)
+        self.assertIn("review the blast radius", normalized)
+        self.assertIn("without mutating local state", normalized)
+        self.assertIn("secret removals", normalized)
+        self.assertNotIn("Panic button", normalized)
+
     def test_resolve_llm_doctor_target_uses_configured_builder_api_key(self) -> None:
         setup_state = {
             "llm": {
