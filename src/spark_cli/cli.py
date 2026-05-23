@@ -2934,7 +2934,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     },
     "huggingface": {
         "api_key_secret": "llm.huggingface.api_key",
-        "api_key_env": "HF_TOKEN",
+        "api_key_env": "HUGGINGFACE_API_KEY",
         "base_url_arg": "huggingface_base_url",
         "base_url_env": "HUGGINGFACE_BASE_URL",
         "base_url_default": "https://router.huggingface.co/v1",
@@ -3056,7 +3056,7 @@ LLM_PROVIDER_AUTH_HINTS = {
     "codex": "OpenAI Codex CLI OAuth",
     "anthropic": "Anthropic Claude Code `claude -p` sign-in path",
     "openrouter": "OPENROUTER_API_KEY",
-    "huggingface": "HF_TOKEN",
+    "huggingface": "HF_TOKEN or HUGGINGFACE_API_KEY",
     "kimi": "KIMI_API_KEY or MOONSHOT_API_KEY",
     "lmstudio": "local LM Studio server",
     "zai": "ZAI_API_KEY",
