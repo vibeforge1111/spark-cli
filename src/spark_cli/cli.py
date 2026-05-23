@@ -13518,6 +13518,34 @@ def coerce_config_value(raw: str) -> Any:
         return raw
 
 
+CONFIG_SET_BLOCKED_KEYS = frozenset({
+    "auto_approve",
+    "bypass",
+    "override_trust",
+    "skip_approval",
+    "skip_security",
+    "trust_tier",
+})
+CONFIG_SET_BLOCKED_PREFIXES = (
+    "approval.",
+    "bypass.",
+    "credentials.",
+    "secrets.",
+    "security_override.",
+    "skip_approval.",
+    "token.",
+    "trust_override.",
+)
+
+
+def is_blocked_config_key(key: str) -> bool:
+    """Return True when *key* must not be writable via ``spark config set``."""
+    top_level = key.split(".")[0]
+    if top_level in CONFIG_SET_BLOCKED_KEYS:
+        return True
+    return any(key.startswith(prefix) for prefix in CONFIG_SET_BLOCKED_PREFIXES)
+
+
 def cmd_config_get(args: argparse.Namespace) -> int:
     value = dotted_get(load_user_config(), args.key)
     if value is None:
@@ -13531,6 +13559,9 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
+    if is_blocked_config_key(args.key):
+        print(f"Error: {args.key} is a security-critical key and cannot be set via config set")
+        return 1
     config = load_user_config()
     value = coerce_config_value(args.value)
     dotted_set(config, args.key, value)
@@ -13540,6 +13571,9 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
+    if is_blocked_config_key(args.key):
+        print(f"Error: {args.key} is a security-critical key and cannot be unset via config unset")
+        return 1
     config = load_user_config()
     if not dotted_unset(config, args.key):
         print(f"{args.key} was not set")
