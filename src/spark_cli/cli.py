@@ -5993,7 +5993,12 @@ def collect_status_payload() -> dict[str, Any]:
             "modules": [],
         }
 
-    modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    modules: dict[str, Module] = {}
+    for name, data in installed.items():
+        try:
+            modules[name] = load_module(Path(data["path"]))
+        except (OSError, KeyError, ValueError, tomllib.TOMLDecodeError):
+            continue
     module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
     module_results_by_name = {item["name"]: item for item in module_results}
     for item in module_results:
