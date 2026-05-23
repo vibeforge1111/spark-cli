@@ -6889,6 +6889,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             secret_values,
             setup_state,
         )
+        save_json(CONFIG_PATH, setup_state)
         clear_pending_setup_state()
         start_now = bool(getattr(args, "start_now", True))
         start_ok = False
