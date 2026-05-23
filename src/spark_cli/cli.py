@@ -4441,6 +4441,15 @@ def public_diagnostic_payload(value: Any) -> Any:
     return value
 
 
+def public_error_text(value: BaseException | str) -> str:
+    redacted = str(public_diagnostic_payload(str(value)))
+    for raw, label in ((str(SPARK_HOME), "<spark-home>"), (str(Path.home()), "~")):
+        if raw:
+            redacted = redacted.replace(raw.replace("\\", "\\\\"), label)
+    redacted = redacted.replace("~\\\\.spark", "<spark-home>")
+    return redacted
+
+
 def remove_module_record(module_name: str) -> None:
     installed = load_json(REGISTRY_PATH, {})
     installed.pop(module_name, None)
@@ -6056,7 +6065,31 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    written = write_compiled_outputs(out_dir, compiled)
+    try:
+        written = write_compiled_outputs(out_dir, compiled)
+    except OSError as exc:
+        safe_error = public_error_text(exc)
+        detail = f"Could not write Spark OS compile outputs to {public_local_path_ref(out_dir)}: {safe_error}"
+        repair = "Rerun with `spark os compile --out <writable-directory>` or repair permissions for the default Spark state directory."
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "summary": "Spark OS system map compile could not write outputs.",
+                        "output": public_local_path_ref(out_dir),
+                        "error": safe_error,
+                        "repair": repair,
+                        "boundary": "The compiler reads redacted metadata only; no raw secrets, logs, conversations, memory evidence, or private repo maps are printed in this failure packet.",
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"[FIX] {detail}")
+            print(f"Repair: {repair}")
+            print("Redaction: no raw secrets, logs, conversations, memory evidence, or private repo maps are printed.")
+        return 1
     summary = compile_summary(compiled, written)
     if args.json:
         print(json.dumps(summary, indent=2))
