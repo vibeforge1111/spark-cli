@@ -49,6 +49,10 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
+REMOTE_DOWNLOAD_PATTERN = re.compile(r"\b(?:curl(?:\.exe)?|wget(?:\.exe)?|iwr|irm|invoke-webrequest|invoke-restmethod)\b")
+REMOTE_DOWNLOAD_COMMANDS = {"curl", "curl.exe", "wget", "wget.exe", "iwr", "irm", "invoke-webrequest", "invoke-restmethod"}
+REMOTE_EXECUTOR_PATTERN = re.compile(r"\b(?:bash|sh|iex|invoke-expression|python|node)\b")
+REMOTE_SHELL_EXECUTOR_PATTERN = re.compile(r"\b(?:powershell|pwsh)\b")
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -225,10 +229,11 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="revoke spark access",
         )
 
-    if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
-        r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
-        joined,
-    ):
+    has_remote_download = bool(REMOTE_DOWNLOAD_PATTERN.search(joined))
+    has_remote_executor = bool(REMOTE_EXECUTOR_PATTERN.search(joined)) or (
+        first in REMOTE_DOWNLOAD_COMMANDS and bool(REMOTE_SHELL_EXECUTOR_PATTERN.search(joined))
+    )
+    if has_remote_download and has_remote_executor:
         return _decision(
             parts,
             ctx,
