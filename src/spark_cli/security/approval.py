@@ -309,6 +309,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve publish",
         )
+    if first == "gem" and second == "push":
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish Ruby gem artifacts to a package registry.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve ruby gem publish",
+        )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
         return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
