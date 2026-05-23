@@ -7814,6 +7814,14 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("opus", providers["anthropic"]["recommended_models"])
         self.assertIn("google/gemma-4-31B-it:fastest", providers["huggingface"]["recommended_models"])
         self.assertEqual(providers["lmstudio"]["lane"], "local/free after download")
+        self.assertIn("--zai-api-key @clipboard", providers["zai"]["getting_started"])
+        api_key_paths = [
+            provider["getting_started"]
+            for provider in providers.values()
+            if "api-key" in provider["getting_started"] or "API key" in provider["getting_started"] or "token" in provider["getting_started"]
+        ]
+        self.assertTrue(any("@clipboard" in path for path in api_key_paths))
+        self.assertFalse(any("<key>" in path for path in api_key_paths))
 
     def test_cmd_providers_recommend_prints_normie_paths(self) -> None:
         args = build_parser().parse_args(["providers", "recommend"])
@@ -7823,6 +7831,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+        self.assertIn("--zai-api-key @clipboard", output)
+        self.assertIn("quote @clipboard as '@clipboard'", output)
+        self.assertNotIn("--zai-api-key <key>", output)
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])

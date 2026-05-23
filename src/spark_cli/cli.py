@@ -3075,7 +3075,7 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
         "lane": "api/paid",
         "best_for": "OpenAI API users who specifically want an API-key route instead of OpenAI Codex CLI sign-in.",
         "recommended_models": ["gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"],
-        "getting_started": "Create an OpenAI API key, then run `spark setup --llm-provider openai --openai-api-key <key>`.",
+        "getting_started": "Create an OpenAI API key, copy it locally, then run `spark setup --llm-provider openai --openai-api-key @clipboard`.",
         "notes": "Most non-technical ChatGPT users should start with `codex`; this route is for API billing/accounts.",
     },
     "anthropic": {
@@ -3089,35 +3089,35 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
         "lane": "api/paid gateway",
         "best_for": "Trying many commercial/open models behind one API key.",
         "recommended_models": ["openai/gpt-5.5", "anthropic/claude-sonnet-4"],
-        "getting_started": "Create an OpenRouter key, then run `spark setup --llm-provider openrouter --openrouter-api-key <key>`.",
+        "getting_started": "Create an OpenRouter key, copy it locally, then run `spark setup --llm-provider openrouter --openrouter-api-key @clipboard`.",
         "notes": "Good if you want one billing/gateway surface and model fallback experiments.",
     },
     "zai": {
         "lane": "api/paid",
         "best_for": "Strong API-key path for users who already have Z.AI GLM access and want one provider for Agent and Mission.",
         "recommended_models": ["glm-5.1"],
-        "getting_started": "Create a Z.AI GLM key, then run `spark setup --llm-provider zai --zai-api-key <key>`.",
+        "getting_started": "Create a Z.AI GLM key, copy it locally, then run `spark setup --llm-provider zai --zai-api-key @clipboard`.",
         "notes": "Good default when you already have a Z.AI GLM key. Spark keeps this explicit so old Ollama/local settings cannot hijack the route.",
     },
     "kimi": {
         "lane": "api/paid",
         "best_for": "Moonshot/Kimi users who want an OpenAI-compatible Kimi route for Agent and Mission.",
         "recommended_models": ["kimi-k2.6", "moonshot-v1-128k"],
-        "getting_started": "Create a Moonshot/Kimi key, then run `spark setup --llm-provider kimi --kimi-api-key <key>`.",
+        "getting_started": "Create a Moonshot/Kimi key, copy it locally, then run `spark setup --llm-provider kimi --kimi-api-key @clipboard`.",
         "notes": "Uses Moonshot's OpenAI-compatible endpoint at https://api.moonshot.ai/v1. You can override the model with --kimi-model.",
     },
     "minimax": {
         "lane": "api/paid",
         "best_for": "MiniMax users who already have a MiniMax API key and want an OpenAI-compatible route.",
         "recommended_models": ["MiniMax-M2.7"],
-        "getting_started": "Create a MiniMax key, then run `spark setup --llm-provider minimax --minimax-api-key <key>`.",
+        "getting_started": "Create a MiniMax key, copy it locally, then run `spark setup --llm-provider minimax --minimax-api-key @clipboard`.",
         "notes": "Best as a choose-your-provider route, not a forced default.",
     },
     "huggingface": {
         "lane": "api/token gateway",
         "best_for": "Trying hosted open models through Hugging Face's OpenAI-compatible router.",
         "recommended_models": ["google/gemma-4-26B-A4B-it:fastest", "google/gemma-4-31B-it:fastest"],
-        "getting_started": "Create a Hugging Face token, then run `spark setup --llm-provider huggingface --huggingface-api-key <key>`.",
+        "getting_started": "Create a Hugging Face token, copy it locally, then run `spark setup --llm-provider huggingface --huggingface-api-key @clipboard`.",
         "notes": "Gemma 4 26B is the chat default; 31B is the heavier mission recommendation.",
     },
     "lmstudio": {
@@ -10049,8 +10049,9 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
     print("  Anthropic Claude subscription: spark setup --llm-provider anthropic")
     print('     Verify first with:          claude -p "hello"')
     print("")
-    print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key <key>")
-    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key <key>")
+    print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key @clipboard")
+    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key @clipboard")
+    print("     PowerShell: quote @clipboard as '@clipboard'")
     print("  Local/private desktop route:   spark setup --llm-provider lmstudio")
     print("  Local/private terminal:        spark setup --llm-provider ollama")
     print("")
