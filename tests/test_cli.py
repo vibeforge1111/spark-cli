@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -255,6 +256,8 @@ from spark_cli.cli import (
     summarize_command_output,
     update_setup_state_after_uninstall,
     update_env_file,
+    write_support_bundle,
+    write_doctor_report,
     validate_commit_pin,
     windows_startup_script_path,
     write_windows_startup_script,
@@ -11260,6 +11263,24 @@ class SparkCliTests(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(Path(result.stdout.strip()), Path(tmp_dir))
+
+
+    def test_support_bundle_permissions_are_restrictive(self) -> None:
+        """write_support_bundle should set 0o600 to protect diagnostic info."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch("spark_cli.cli.SPARK_HOME", Path(tmp_dir)):
+                payload = {"test": "data", "redaction": {"secrets_redacted": True}}
+                path = write_support_bundle(payload)
+                mode = stat.S_IMODE(os.stat(path).st_mode)
+                self.assertEqual(mode, 0o600, f"Expected 0o600, got {oct(mode)}")
+
+    def test_doctor_report_permissions_are_restrictive(self) -> None:
+        """write_doctor_report should set 0o600 to protect diagnostic info."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch("spark_cli.cli.SPARK_HOME", Path(tmp_dir)):
+                path = write_doctor_report("test report content")
+                mode = stat.S_IMODE(os.stat(path).st_mode)
+                self.assertEqual(mode, 0o600, f"Expected 0o600, got {oct(mode)}")
 
 
 if __name__ == "__main__":

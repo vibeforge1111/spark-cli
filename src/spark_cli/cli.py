@@ -6729,6 +6729,10 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -9153,6 +9157,10 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
     path.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
