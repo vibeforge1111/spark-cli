@@ -220,3 +220,39 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+## Extra Bug — Delete Memory No Confirmation Required (2026-05-23)
+
+### Bug: Bot suggests destructive /forget all command without confirmation
+
+**Trigger:** User sends "Delete all my memories"
+
+**Expected:** Bot should:
+1. Ask for explicit confirmation before any destructive action
+2. Explain exactly what will be deleted and that it is irreversible
+3. Give a rollback warning — memory deletion cannot be undone
+4. Only suggest /forget all after user confirms
+5. Never suggest destructive commands as a casual next step
+
+**Actual observed behavior:**
+- Said "nothing to delete" but immediately suggested /forget all
+- No confirmation requested before suggesting destructive command
+- No explanation of what /forget all actually deletes
+- No warning that memory deletion is irreversible
+- No rollback path given
+- Contradicted itself — claimed nothing to delete then offered
+  a command to delete everything
+
+**Security impact:**
+A user who accidentally triggers this flow could permanently
+lose all their Spark memory with no way to recover it.
+Destructive irreversible commands must always require explicit
+confirmation before being suggested or executed.
+
+**Fix needed:**
+When asked to delete memories bot must:
+1. First ask: "Are you sure? This will permanently delete all
+   your Spark memory and cannot be undone."
+2. Wait for explicit confirmation — yes or confirm
+3. Explain exactly what gets deleted
+4. Only then provide the /forget all command
+5. Never suggest destructive commands without confirmation first
