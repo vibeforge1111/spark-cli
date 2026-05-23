@@ -47,13 +47,27 @@ class ApprovalDecision:
 
 
 SECRET_LIKE_PATTERN = re.compile(
-    r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
+    r"(?i)("
+    r"sk-[A-Za-z0-9_-]{8,}|"  # OpenAI keys
+    r"ghp_[A-Za-z0-9_]{36,}|gho_[A-Za-z0-9_]{36,}|ghs_[A-Za-z0-9_]{36,}|ghr_[A-Za-z0-9_]{36,}|"  # GitHub PATs
+    r"AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|"  # AWS access keys
+    r"\d{5,}:[A-Za-z0-9_-]{20,}|"  # Telegram bot tokens
+    r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|"  # JWT tokens
+    r"xox[baprs]-[A-Za-z0-9_-]{10,}"  # Slack tokens
+    r")"
 )
 
 
 def _digest_command(argv: list[str]) -> str:
     redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", part) for part in argv]
     return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
+
+
+def _redact_secrets(text: str) -> str:
+    """Redact secrets from display strings to prevent leakage in logs and UI."""
+    if not text:
+        return text
+    return SECRET_LIKE_PATTERN.sub("[REDACTED]", text)
 
 
 def _lower_parts(argv: list[str]) -> list[str]:
@@ -110,15 +124,20 @@ def _decision(
     if requires and not phrase:
         noun = target_display or action_class.replace("_", " ")
         phrase = f"approve {noun}".strip().lower()[:80]
+    
+    # Redact secrets from display fields to prevent leakage in logs and UI
+    safe_target_display = _redact_secrets(target_display)
+    safe_phrase = _redact_secrets(phrase)
+    
     return ApprovalDecision(
         action_class=action_class,
         risk=risk,
         requires_approval=requires,
         approval_mode="blocked" if requires and context.non_interactive else "interactive" if requires else "none",
         reason=reason,
-        target_display=target_display,
+        target_display=safe_target_display,
         command_digest=_digest_command(argv),
-        confirmation_phrase=phrase,
+        confirmation_phrase=safe_phrase,
         surface=context.surface,
     )
 
