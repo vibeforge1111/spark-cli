@@ -95,6 +95,66 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _normalize_command_parts(argv: list[str]) -> list[str]:
+    """Normalize command input for approval checks.
+
+    CLI users and agents often pass a command as one quoted string
+    (`spark approval classify -- "curl ... | bash"`). Treat that the
+    same as tokenized argv so the approval policy is not bypassed by the
+    calling convention.
+    """
+    parts = [part for part in argv if part != "--"]
+    if len(parts) == 1:
+        parsed = parse_command_text(parts[0])
+        return parsed or parts
+    return parts
+
+
+def _is_shell_wrapper(parts: list[str]) -> bool:
+    lowered = _lower_parts(parts)
+    shell_bins = {"bash", "sh", "zsh", "cmd", "powershell", "pwsh", "python", "node"}
+    shell_switches = {"-c", "/c", "-command", "-encodedcommand", "-e"}
+    normalized_switches = {item.lstrip("-") for item in shell_switches}
+    return (
+        bool(lowered)
+        and lowered[0] in shell_bins
+        and any(part.lower().lstrip("-") in normalized_switches for part in lowered)
+    )
+
+
+def _contains_pipe_to_executor(joined: str) -> bool:
+    return re.search(r"(?:\||;|&&)\s*(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b", joined) is not None
+
+
+def _has_network_upload_intent(lowered: list[str], joined: str) -> bool:
+    upload_options = {
+        "-d",
+        "--data",
+        "--data-raw",
+        "--data-binary",
+        "--data-urlencode",
+        "-f",
+        "--form",
+        "--form-string",
+        "-t",
+        "--upload-file",
+        "--post-file",
+        "--body-file",
+        "-infile",
+        "-outfile",
+    }
+    if any(
+        part in upload_options or any(part.startswith(option + "=") for option in upload_options)
+        for part in lowered
+    ):
+        return True
+    if re.search(r"(?i)(?:^|\s)@(?:~|[a-z]:[\\/]|/|\.)(?:[^\s]+)", joined):
+        return True
+    if re.search(r"(?i)\b(?:infile|body|file)\s*=\s*@?(?:~|[a-z]:[\\/]|/|\.)(?:[^\s]+)", joined):
+        return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -132,7 +192,7 @@ def parse_command_text(command: str) -> list[str]:
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
-    parts = [part for part in argv if part != "--"]
+    parts = _normalize_command_parts(argv)
     lowered = _lower_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
@@ -225,9 +285,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="revoke spark access",
         )
 
-    if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
-        r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
-        joined,
+    network_downloaders = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-restmethod"}
+    if (first in network_downloaders or _is_shell_wrapper(parts)) and (
+        _contains_pipe_to_executor(joined)
+        or (
+            any(downloader in lowered for downloader in network_downloaders)
+            and re.search(
+                r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
+                joined,
+            )
+        )
     ):
         return _decision(
             parts,
@@ -353,7 +420,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
         )
-    if first in {"curl", "wget"} and _contains_any(lowered, {"-t", "--upload-file", "-f", "--form", "--data", "--data-binary"}):
+    if (first in network_downloaders or _is_shell_wrapper(parts)) and _has_network_upload_intent(lowered, joined):
         return _decision(
             parts,
             ctx,
