@@ -3,6 +3,9 @@ name: Optional Docker Workbench
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   contents: read
 
@@ -10,9 +13,12 @@ jobs:
   dev-smoke:
     name: dev-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Build dev image
         run: docker build -f docker/dev/Dockerfile -t spark-cli-dev:ci .
@@ -23,9 +29,12 @@ jobs:
   sandbox-smoke:
     name: sandbox-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Build sandbox image
         run: docker build -f docker/sandbox/Dockerfile -t spark-cli-sandbox:ci .

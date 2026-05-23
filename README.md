@@ -6,7 +6,16 @@ The public launch stack is documented in [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs
 
 ## Quick Start
 
-On any machine with Python 3.11+ and git on PATH:
+On any machine with Python 3.11+, git on PATH, and Node.js >=22:
+
+Ubuntu/Debian minimal installs may need Python venv support before the direct pip path:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv
+```
+
+The shell installer downloads a managed Node runtime automatically. If you use the direct pip path, verify `node --version` reports v22 or later before setup:
 
 ```bash
 git clone https://github.com/vibeforge1111/spark-cli
@@ -98,6 +107,7 @@ The CLI does not own:
 | Dependency | Why |
 |---|---|
 | Python 3.11+ | The CLI itself |
+| Node.js >=22 | Required by starter modules when using the direct pip install path. The shell installer can download a managed Node automatically. |
 | `git` on PATH | To clone git-sourced modules and pull updates |
 | OS keychain | Windows Credential Manager, macOS Keychain, or libsecret for `storage = "keychain"` secrets. Falls back to a mode-0600 file when no keychain is available. |
 
@@ -391,7 +401,7 @@ If you are an LLM agent installing Spark for a user:
 6. Never print or commit bot tokens, provider API keys, `.env`, `.env.*`, or `~/.spark/config/secrets.local.json`.
 7. Confirm Telegram's generated env points at Builder with `SPARK_BUILDER_HOME`, and confirm Builder has memory enabled with `domain-chip-memory` active.
 8. If `/remember` replies with `Working Memory`, generic memory text, or a false success while recall fails, rerun `spark setup`, restart `spark-telegram-bot`, then inspect Builder memory state before editing bot code. The launch starter should fail visibly if Builder is unreachable, not silently fall back.
-9. If a module fails healthcheck, read `spark status` repair hints before editing code.
+9. If a trusted module healthcheck or `spark status` repair hint asks for a Node module command such as `npm run health:polling`, run it from `~/.spark/modules/<name>/source/`, not from the module parent directory. Do not run module-provided scripts from untrusted branches or unreviewed modules outside Spark's approved healthcheck/repair flow.
 10. Do not add the deferred dashboard/port `8787` path back into launch onboarding.
 
 ## Commands

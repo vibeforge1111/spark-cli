@@ -41,7 +41,10 @@ from .system_map import compile_summary, compile_system_map, write_compiled_outp
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
+INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
+ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
 PRIVATE_FILE_MODE = 0o600
+GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
 
 SPARK_HOME = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
@@ -242,7 +245,7 @@ CHIP_SCAN_PATTERNS = (
     (
         "embedded-private-key",
         "critical",
-        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
         "private key material is embedded in the module",
     ),
     (
@@ -459,14 +462,19 @@ def is_git_source(source: str) -> bool:
         return True
     if value.endswith(".git"):
         return True
-    if value.startswith("github.com/") or value.startswith("gitlab.com/"):
+    if is_hosted_git_shorthand(value):
         return True
     return False
 
 
+def is_hosted_git_shorthand(value: str) -> bool:
+    parts = value.strip().split("/")
+    return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
+
+
 def normalize_git_url(source: str) -> str:
     value = source.strip()
-    if value.startswith(("github.com/", "gitlab.com/")):
+    if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
 
@@ -974,7 +982,13 @@ def _kernel32() -> Any:
 
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
-        return value
+        if not allow_insecure_file_secrets():
+            raise RuntimeError(
+                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                "Install/configure a keyring backend, or set "
+                f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+            )
+        return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -989,6 +1003,9 @@ def dpapi_protect(value: str) -> str:
 
 
 def dpapi_unprotect(value: str) -> str:
+    if value.startswith(INSECURE_FILE_SECRET_PREFIX):
+        encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
+        return base64.b64decode(encoded).decode("utf-8")
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
@@ -1002,6 +1019,11 @@ def dpapi_unprotect(value: str) -> str:
     finally:
         _kernel32().LocalFree(out_blob.pbData)
     return raw.decode("utf-8")
+
+
+def allow_insecure_file_secrets() -> bool:
+    value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
+    return value in {"1", "true", "yes"}
 
 
 def harden_secret_file(path: Path) -> None:
@@ -1035,7 +1057,10 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
         except Exception:
             pass
     file_secrets = load_json(SECRETS_FILE_PATH, {})
-    file_secrets[secret_id] = dpapi_protect(value)
+    try:
+        file_secrets[secret_id] = dpapi_protect(value)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
     save_json(SECRETS_FILE_PATH, file_secrets)
     harden_secret_file(SECRETS_FILE_PATH)
     index[secret_id] = "file"
@@ -4252,6 +4277,10 @@ def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
+    if not modules:
+        print("No installed Spark modules recorded.")
+        print("Run `spark setup telegram-starter` to install the starter bundle.")
+        return 0
     for module in modules.values():
         metadata = registry.get("modules", {}).get(module.name, {})
         blessed = "yes" if metadata.get("blessed") else "no"
@@ -9548,6 +9577,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(bool(check.get("ok")) for check in payload.get("checks", []))
     return payload
 
 
@@ -9628,6 +9658,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -9643,6 +9675,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(check.get("ok")) for check in checks),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,
@@ -13726,6 +13759,8 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
     backend = store_secret(args.secret_id, value, preferred=args.backend)
+    # This prints the secret label and backend, never the stored value.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"Stored {args.secret_id} in {backend}.")
     return 0
 
@@ -13735,17 +13770,25 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
+        # `spark secrets get --reveal` is an explicit local operator command.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
         masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+        # The value is masked by default; the printed id is a label.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
     return 0
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
     if delete_secret(args.secret_id):
+        # This prints only the secret label after deletion.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
         return 0
+    # This prints only the secret label.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"No value stored for {args.secret_id}.")
     return 1
 
@@ -14231,7 +14274,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
     install_parser.add_argument("target")
-    install_parser.add_argument("--skip-install-commands", action="store_true")
+    install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
     install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
@@ -14245,7 +14288,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(load_registry_definition().get("bundles", {}).keys()),
         help="Bundle to configure (default: telegram-starter)",
     )
-    setup_parser.add_argument("--skip-install-commands", action="store_true")
+    setup_parser.add_argument("--skip-install-commands", action="store_true", help="Skip install commands (pip install, npm install) for all bundle modules")
     setup_parser.add_argument(
         "--run-install-commands",
         action="store_true",
@@ -14671,7 +14714,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
     update_parser.add_argument("target", nargs="?")
-    update_parser.add_argument("--skip-install-commands", action="store_true")
+    update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
     update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
