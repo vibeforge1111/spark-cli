@@ -56,6 +56,30 @@ def _digest_command(argv: list[str]) -> str:
     return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
 
 
+WRAPPER_PREFIXES = frozenset({"env", "nohup", "strace", "ltrace", "timeout", "nice", "ionice", "setsid", "chrt", "stdbuf"})
+
+
+def _strip_wrapper_prefixes(argv: list[str]) -> list[str]:
+    """Strip wrapper commands that obscure the real command from approval classification.
+
+    Commands like ``env python3 -c ...``, ``nohup curl ...``, ``strace -p ...``
+    must be classified by their inner command, not the wrapper.
+    """
+    remaining = list(argv)
+    while remaining:
+        first = remaining[0].lower()
+        if first in WRAPPER_PREFIXES:
+            remaining.pop(0)
+            if first == "env":
+                while remaining and "=" in remaining[0] and not remaining[0].startswith("-"):
+                    remaining.pop(0)
+            if first == "timeout" and remaining and remaining[0].lstrip("-").isdigit():
+                remaining.pop(0)
+            continue
+        break
+    return remaining if remaining else argv
+
+
 def _lower_parts(argv: list[str]) -> list[str]:
     return [part.lower() for part in argv]
 
@@ -133,6 +157,7 @@ def parse_command_text(command: str) -> list[str]:
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
     parts = [part for part in argv if part != "--"]
+    parts = _strip_wrapper_prefixes(parts)
     lowered = _lower_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
