@@ -310,6 +310,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve publish",
         )
 
+    if first == "git" and second == "submodule" and _contains_any(lowered, {"add", "update", "init"}):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "git submodule add/update can clone and execute arbitrary hooks from untrusted repositories.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve git submodule",
+        )
+
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
         return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
     if first == "spark" and second == "setup" and "--no-autostart" not in lowered:
