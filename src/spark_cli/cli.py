@@ -6166,6 +6166,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         else {}
     )
     payload = {
+        "ok": True,
         "schema_version": "spark.os_authority.summary.v0",
         "generated_at": authority.get("generated_at"),
         "default_access_level": authority.get("default_access_level_hint"),
@@ -6231,6 +6232,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_trace.summary.v0",
         "generated_at": trace_index.get("generated_at"),
         "builder_event_count": _safe_int(builder_events.get("row_count")),
@@ -6312,6 +6314,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
     memory_review_items = _safe_list(memory_review_queue.get("items"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_memory.summary.v0",
         "generated_at": memory_index.get("generated_at"),
         "status": status.get("status") or "unknown",
