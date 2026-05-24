@@ -8,7 +8,7 @@
   "installers": {
     "install.sh": {
       "path": "scripts/install.sh",
-      "sha256": "5b825ef3d824de60f84d07d1f0bf5b1de39279fc7f5c8b1c761169f904fe25f2"
+      "sha256": "2534804eab8f339a4cc2d5905ec37e22ffd0d708635629d965a97e831093f85a"
     },
     "install.ps1": {
       "path": "scripts/install.ps1",

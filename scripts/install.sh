@@ -102,38 +102,73 @@ Environment mirrors these flags:
 EOF
 }
 
+missing_option_value() {
+  local option="$1"
+  echo "Missing value for $option." >&2
+  usage >&2
+  exit 2
+}
+
+require_option_value() {
+  local option="$1"
+  local value="${2-}"
+  local allow_option_like="${3:-0}"
+  if [ -z "$value" ]; then
+    missing_option_value "$option"
+  fi
+  if [ "$allow_option_like" != "1" ]; then
+    case "$value" in
+      --*) missing_option_value "$option" ;;
+    esac
+  fi
+}
+
 extra_setup_args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --prefix)
+      require_option_value "$1" "${2-}"
       SPARK_PREFIX="$2"; shift 2 ;;
     --source)
+      require_option_value "$1" "${2-}"
       SPARK_CLI_SOURCE="$2"; shift 2 ;;
     --ref)
+      require_option_value "$1" "${2-}"
       SPARK_CLI_REF="$2"; SPARK_CLI_REF_USER_SET=1; shift 2 ;;
     --node-version)
+      require_option_value "$1" "${2-}"
       SPARK_NODE_VERSION="$2"; shift 2 ;;
     --python-version)
+      require_option_value "$1" "${2-}"
       SPARK_PYTHON_VERSION="$2"; shift 2 ;;
     --uv-version)
+      require_option_value "$1" "${2-}"
       SPARK_UV_VERSION="$2"; shift 2 ;;
     --managed-node)
       SPARK_MANAGED_NODE=1; shift ;;
     --bundle)
+      require_option_value "$1" "${2-}"
       SPARK_BUNDLE="$2"; shift 2 ;;
     --bot-token)
+      require_option_value "$1" "${2-}"
       SPARK_BOT_TOKEN="$2"; shift 2 ;;
     --admin-telegram-ids)
+      require_option_value "$1" "${2-}"
       SPARK_ADMIN_TELEGRAM_IDS="$2"; shift 2 ;;
     --llm-provider)
+      require_option_value "$1" "${2-}"
       SPARK_LLM_PROVIDER="$2"; shift 2 ;;
     --zai-api-key)
+      require_option_value "$1" "${2-}"
       SPARK_ZAI_API_KEY="$2"; shift 2 ;;
     --openai-api-key)
+      require_option_value "$1" "${2-}"
       SPARK_OPENAI_API_KEY="$2"; shift 2 ;;
     --anthropic-api-key)
+      require_option_value "$1" "${2-}"
       SPARK_ANTHROPIC_API_KEY="$2"; shift 2 ;;
     --minimax-api-key)
+      require_option_value "$1" "${2-}"
       SPARK_MINIMAX_API_KEY="$2"; shift 2 ;;
     --non-interactive-setup)
       SPARK_NON_INTERACTIVE_SETUP=1; shift ;;
@@ -142,6 +177,7 @@ while [ "$#" -gt 0 ]; do
     --setup-skip-runtime-check)
       SPARK_SETUP_SKIP_RUNTIME_CHECK=1; shift ;;
     --setup-arg)
+      require_option_value "$1" "${2-}" 1
       extra_setup_args+=("$2"); shift 2 ;;
     --dry-run)
       SPARK_DRY_RUN=1; shift ;;
@@ -152,6 +188,7 @@ while [ "$#" -gt 0 ]; do
     --no-shell-profile)
       SPARK_SHELL_PROFILE=0; shift ;;
     --local-registry)
+      require_option_value "$1" "${2-}"
       SPARK_LOCAL_REGISTRY="$2"; shift 2 ;;
     --allow-dev-source)
       SPARK_ALLOW_DEV_SOURCE=1; shift ;;
