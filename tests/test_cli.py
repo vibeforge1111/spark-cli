@@ -7701,6 +7701,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(args.llm_provider, "zai")
         self.assertEqual(values["llm.zai.api_key"], "zai-test-key")
 
+    def test_run_llm_provider_wizard_explains_skip_keeps_telegram_setup(self) -> None:
+        class Args:
+            llm_provider = None
+            chat_llm_provider = None
+            builder_llm_provider = None
+            memory_llm_provider = None
+            mission_llm_provider = None
+
+        args = Args()
+        with patch("builtins.input", side_effect=["5"]), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            values = run_llm_provider_wizard(args, {})
+
+        self.assertEqual(values, {})
+        self.assertIsNone(args.llm_provider)
+        output = stdout.getvalue()
+        self.assertIn("LLM provider skipped", output)
+        self.assertIn("telegram-starter setup will continue", output)
+
     def test_run_llm_provider_wizard_defaults_to_one_provider_for_all_roles(self) -> None:
         class Args:
             llm_provider = None
