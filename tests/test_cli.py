@@ -4875,6 +4875,7 @@ class SparkCliTests(unittest.TestCase):
         commands = parser._subparsers._group_actions[0].choices
 
         self.assertIn("Skip post-install commands", commands["install"].format_help())
+        self.assertIn("Installed module or service name to read logs from", commands["logs"].format_help())
         self.assertIn("Skip install commands", commands["setup"].format_help())
         self.assertIn("Skip post-update install commands", commands["update"].format_help())
 
