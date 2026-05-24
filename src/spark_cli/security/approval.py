@@ -49,7 +49,7 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)("
     r"sk-[A-Za-z0-9_-]{8,}|"  # OpenAI keys
-    r"ghp_[A-Za-z0-9_]{36,}|gho_[A-Za-z0-9_]{36,}|ghs_[A-Za-z0-9_]{36,}|ghr_[A-Za-z0-9_]{36,}|"  # GitHub PATs
+    r"ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|ghs_[A-Za-z0-9_]{10,}|ghr_[A-Za-z0-9_]{10,}|"  # GitHub PATs
     r"AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|"  # AWS access keys
     r"\d{5,}:[A-Za-z0-9_-]{20,}|"  # Telegram bot tokens
     r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|"  # JWT tokens
