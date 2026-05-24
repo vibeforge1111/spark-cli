@@ -39,12 +39,20 @@ $Script:InstallLogPath = ""
 $Script:TranscriptStarted = $false
 $Script:AutostartAutoDisabled = $false
 $Script:AutostartWasProvided = $PSBoundParameters.ContainsKey("Autostart") -or $PSBoundParameters.ContainsKey("NoAutostart")
-
+# Display version info to user at install start
+function Show-SparkVersion {
+    Write-Host ""
+    Write-Host "[spark-install] Installing Spark CLI"
+    Write-Host "[spark-install] Release : $SparkCliReleaseName"
+    Write-Host "[spark-install] Ref     : $Ref"
+    Write-Host "[spark-install] Bundle  : $Bundle"
+    Write-Host ""
+}
 function Write-SparkLog {
     param([string]$Message)
     Write-Host "[spark-install] $Message"
 }
-
+Show-SparkVersion
 function Apply-InstallDefaults {
     if ($Autostart) {
         $script:NoAutostart = $false
