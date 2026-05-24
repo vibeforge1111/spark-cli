@@ -403,4 +403,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+    if first == "find" and _contains_any(lowered, {"-exec", "-execdir"}):
+        exec_target = _target_after(lowered, {"-exec", "-execdir"})
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "find -exec/-execdir can execute arbitrary commands on every matched file.",
+            target_display=f"find -exec {exec_target}".strip(),
+            confirmation_phrase="approve find exec",
+        )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
