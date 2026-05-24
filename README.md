@@ -5,6 +5,19 @@ Local installer and operator CLI for the Spark module ecosystem. A single setup 
 The public launch stack is documented in [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs/SPARK_ECOSYSTEM_LAUNCH.md).
 
 ## Quick Start
+### Windows users — start here
+
+Open PowerShell and run:
+
+```powershell
+iwr https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.ps1 -OutFile .\install.ps1
+Get-Content .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Then skip to [After Install](#after-install).
+
+### macOS / Linux / WSL users — start here
 
 On any machine with Python 3.11+ and git on PATH:
 
