@@ -9407,6 +9407,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
         ],
     }
     payload["route_context"] = build_fix_route_context("telegram", payload)
+    payload["ok"] = all(bool(c.get("ok")) for c in payload.get("checks", []) if isinstance(c, dict))
     return payload
 
 
@@ -9573,6 +9574,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(bool(c.get("ok")) for c in payload.get("checks", []) if isinstance(c, dict))
     return payload
 
 
@@ -9668,6 +9670,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(c.get("ok")) for c in checks if isinstance(c, dict)),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,
