@@ -197,6 +197,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="SPARK_HOME",
             confirmation_phrase="delete spark home",
         )
+    if first == "spark" and second == "uninstall" and "--all" in lowered:
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command removes all installed Spark modules and their generated config. This cannot be undone without reinstalling.",
+            target_display="all modules",
+            confirmation_phrase="uninstall all modules",
+        )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
