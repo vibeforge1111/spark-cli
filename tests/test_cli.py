@@ -2296,6 +2296,87 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
 
+    def test_url_policy_static_validator_emits_no_network_traffic(self) -> None:
+        """validate_url_safety must remain pure — no urlopen calls."""
+        from spark_cli.security import url_policy
+        with patch.object(url_policy.urllib.request, "urlopen") as urlopen_mock:
+            validate_url_safety("https://attacker.example.com/", label="provider chat")
+            validate_url_safety("http://10.0.0.8/", label="role chat")
+            validate_url_safety("https://api.openai.com/v1", label="role chat")
+            urlopen_mock.assert_not_called()
+
+    def test_url_policy_redirect_check_blocks_metadata_redirect(self) -> None:
+        """validate_url_safety_with_redirect_check must follow 302 → metadata IP and reject."""
+        from spark_cli.security.url_policy import validate_url_safety_with_redirect_check
+        from spark_cli.security import url_policy
+
+        class StubResponse:
+            def __init__(self, status, location=None):
+                self.status = status
+                self.headers = {"Location": location} if location else {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        responses = iter([StubResponse(302, "http://169.254.169.254/latest/meta-data/")])
+
+        def fake_urlopen(req, timeout=3):
+            return next(responses)
+
+        with patch.object(url_policy.urllib.request, "urlopen", side_effect=fake_urlopen):
+            errors = validate_url_safety_with_redirect_check(
+                "https://attacker.example.com/redirect",
+                label="provider chat",
+            )
+        self.assertTrue(any("169.254.169.254" in error or "cloud metadata" in error for error in errors))
+
+    def test_url_policy_redirect_check_allows_clean_chain(self) -> None:
+        """Final destination is a normal HTTPS host; wrapper returns no errors."""
+        from spark_cli.security.url_policy import validate_url_safety_with_redirect_check
+        from spark_cli.security import url_policy
+
+        class StubResponse:
+            def __init__(self, status, location=None):
+                self.status = status
+                self.headers = {"Location": location} if location else {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        responses = iter([
+            StubResponse(302, "https://api.openai.com/v1/"),
+            StubResponse(200),
+        ])
+
+        def fake_urlopen(req, timeout=3):
+            return next(responses)
+
+        with patch.object(url_policy.urllib.request, "urlopen", side_effect=fake_urlopen):
+            errors = validate_url_safety_with_redirect_check(
+                "https://api.openai-redirector.example/v1",
+                label="provider chat",
+            )
+        self.assertEqual(errors, [])
+
+    def test_endpoint_security_errors_emits_no_network_traffic(self) -> None:
+        """Static config-time scan path must not trigger urlopen."""
+        from spark_cli.security import url_policy
+        provider_payload = {
+            "ok": True,
+            "roles": {
+                "chat": {
+                    "provider": "openai",
+                    "model": "x",
+                    "auth_mode": "api_key",
+                    "ready": True,
+                    "base_url": "https://api.openai.com/v1",
+                }
+            },
+        }
+        with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.read_generated_env", return_value={}), \
+             patch.object(url_policy.urllib.request, "urlopen") as urlopen_mock:
+            endpoint_security_errors()
+            urlopen_mock.assert_not_called()
+
     def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
         with patch("spark_cli.cli.resolve_provider_test_target", return_value={
             "provider": "zai",
