@@ -6,6 +6,14 @@ from pathlib import Path
 
 
 TARGET_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
+WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{idx}" for idx in range(1, 10)),
+    *(f"lpt{idx}" for idx in range(1, 10)),
+}
 
 
 def spark_home() -> Path:
@@ -32,7 +40,14 @@ def validate_target_name(name: str) -> str:
     value = str(name or "").strip()
     if not TARGET_NAME_PATTERN.fullmatch(value):
         raise ValueError("Target name must be 2-40 chars: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit.")
+    if is_windows_reserved_name(value):
+        raise ValueError("Target name must not use a Windows reserved device name.")
     return value
+
+
+def is_windows_reserved_name(name: str) -> bool:
+    stem = str(name or "").split(".", 1)[0].strip().lower()
+    return stem in WINDOWS_RESERVED_NAMES
 
 
 def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
@@ -43,4 +58,6 @@ def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
     resolved = candidate.resolve()
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ValueError(f"Path must stay inside {root_resolved}.")
+    if is_windows_reserved_name(resolved.name):
+        raise ValueError("Path must not use a Windows reserved device name.")
     return resolved
