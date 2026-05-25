@@ -5494,10 +5494,11 @@ class BrowserUseProfileOptions:
     user_data_dir: str = ""
     profile_directory: str = ""
     storage_state: str = ""
+    cdp_url: str = ""
 
     @property
     def enabled(self) -> bool:
-        return any((self.profile, self.user_data_dir, self.profile_directory, self.storage_state))
+        return any((self.profile, self.user_data_dir, self.profile_directory, self.storage_state, self.cdp_url))
 
 
 def browser_use_profile_options_from_args(args: argparse.Namespace) -> BrowserUseProfileOptions:
@@ -5506,13 +5507,18 @@ def browser_use_profile_options_from_args(args: argparse.Namespace) -> BrowserUs
         user_data_dir=str(getattr(args, "user_data_dir", "") or "").strip(),
         profile_directory=str(getattr(args, "profile_directory", "") or "").strip(),
         storage_state=str(getattr(args, "storage_state", "") or "").strip(),
+        cdp_url=str(getattr(args, "cdp_url", "") or "").strip(),
     )
 
 
 def browser_use_profile_cli_parts(options: BrowserUseProfileOptions | None) -> list[str]:
     if not options or not options.profile:
-        return []
-    return ["--profile", options.profile]
+        parts: list[str] = []
+    else:
+        parts = ["--profile", options.profile]
+    if options and options.cdp_url:
+        parts.extend(["--cdp-url", options.cdp_url])
+    return parts
 
 
 def browser_use_profile_payload(options: BrowserUseProfileOptions | None) -> dict[str, Any]:
@@ -5524,6 +5530,7 @@ def browser_use_profile_payload(options: BrowserUseProfileOptions | None) -> dic
         "user_data_dir": public_local_path_ref(options.user_data_dir) if options.user_data_dir else "",
         "profile_directory": options.profile_directory,
         "storage_state": public_local_path_ref(options.storage_state) if options.storage_state else "",
+        "cdp_url": options.cdp_url,
     }
 
 
@@ -6113,6 +6120,8 @@ async def run_browser_use_agent_task(
 def browser_use_create_browser(browser_cls: Any, options: BrowserUseProfileOptions | None = None) -> Any:
     profile_directory = (options.profile_directory or options.profile) if options else ""
     kwargs: dict[str, Any] = {"headless": True}
+    if options and options.cdp_url:
+        kwargs["cdp_url"] = options.cdp_url
     if options and options.user_data_dir:
         kwargs["user_data_dir"] = str(Path(options.user_data_dir).expanduser())
     if profile_directory:
@@ -6120,7 +6129,7 @@ def browser_use_create_browser(browser_cls: Any, options: BrowserUseProfileOptio
     if options and options.storage_state:
         kwargs["storage_state"] = str(Path(options.storage_state).expanduser())
 
-    if options and options.enabled and hasattr(browser_cls, "from_system_chrome") and not options.storage_state:
+    if options and options.enabled and hasattr(browser_cls, "from_system_chrome") and not options.storage_state and not options.cdp_url:
         system_kwargs = browser_use_supported_kwargs(browser_cls.from_system_chrome, kwargs)
         try:
             return browser_cls.from_system_chrome(**system_kwargs)
@@ -15804,17 +15813,20 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--profile", help="Optional browser-use CLI profile name for the probe", default="")
+    browser_use_probe_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_probe_parser.add_argument("--json", action="store_true")
     browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
     browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
     browser_use_open_parser.add_argument("url")
     browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
     browser_use_open_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_open_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_open_parser.add_argument("--json", action="store_true")
     browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
     browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
     browser_use_screenshot_parser.add_argument("url")
     browser_use_screenshot_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_screenshot_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
@@ -15825,6 +15837,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_task_parser.add_argument("--user-data-dir", help="Optional browser user-data directory for persistent cookies/localStorage", default="")
     browser_use_task_parser.add_argument("--profile-directory", help="Optional Chrome profile directory, for example Default or Profile 1", default="")
     browser_use_task_parser.add_argument("--storage-state", help="Optional browser-use storage-state JSON path", default="")
+    browser_use_task_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_task_parser.add_argument("--json", action="store_true")
     browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
     browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")

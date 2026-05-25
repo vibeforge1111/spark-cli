@@ -230,6 +230,30 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["profile"], "Default")
         self.assertIn(["browser-use", "--profile", "Default", "--session"], [call.args[0][:4] for call in run.call_args_list])
 
+    def test_open_can_attach_to_cdp_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Dashboard","url":"https://example.com/","text":"Signed in"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Signed in", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_action_payload(
+                    "https://example.com",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["profile_requested"])
+        self.assertEqual(payload["cdp_url"], "http://127.0.0.1:9222")
+        self.assertIn(["browser-use", "--cdp-url", "http://127.0.0.1:9222", "--session"], [call.args[0][:4] for call in run.call_args_list])
+
     def test_open_still_blocks_metadata_urls(self) -> None:
         payload = cli.browser_use_action_payload("http://169.254.169.254")
 
@@ -483,6 +507,7 @@ class BrowserUseCliTests(unittest.TestCase):
                     profile_options=cli.BrowserUseProfileOptions(
                         profile="Default",
                         user_data_dir="C:/Users/USER/AppData/Local/Google/Chrome/User Data",
+                        cdp_url="http://127.0.0.1:9222",
                     ),
                 )
             )
@@ -490,6 +515,7 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(result["llm"], "test-provider")
         self.assertEqual(captured["browser_kwargs"]["profile_directory"], "Default")
         self.assertIn("Google/Chrome/User Data", str(captured["browser_kwargs"]["user_data_dir"]).replace("\\", "/"))
+        self.assertEqual(captured["browser_kwargs"]["cdp_url"], "http://127.0.0.1:9222")
         self.assertTrue(captured["browser"].closed)
 
     def test_browser_use_failure_filter_suppresses_windows_cleanup_noise(self) -> None:
