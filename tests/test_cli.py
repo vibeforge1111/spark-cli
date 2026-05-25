@@ -2315,6 +2315,20 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
 
+    def test_url_policy_rejects_whitespace_and_control_hosts(self) -> None:
+        cases = [
+            "https://ex ample.com/v1",
+            "https://example.com\n.evil/v1",
+            "https://example.com%0a.evil/v1",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                errors = validate_url_safety(url, label="provider base URL")
+                self.assertTrue(
+                    any("whitespace or control" in error for error in errors),
+                    errors,
+                )
+
     def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
         with patch("spark_cli.cli.resolve_provider_test_target", return_value={
             "provider": "zai",
