@@ -2317,6 +2317,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_url_policy_rejects_whitespace_and_control_hosts(self) -> None:
         cases = [
+            " https://example.com/v1",
             "https://ex ample.com/v1",
             "https://example.com" + chr(10) + ".evil/v1",
             "https://example.com%0a.evil/v1",

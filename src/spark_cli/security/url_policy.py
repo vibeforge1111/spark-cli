@@ -52,12 +52,13 @@ def _has_url_space_or_control(value: str) -> bool:
 
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
-    value = str(raw_url or "").strip()
+    raw_value = str(raw_url or "")
+    value = raw_value.strip()
     if not value or value.startswith("${"):
         return []
 
     errors: list[str] = []
-    if _has_url_space_or_control(value):
+    if _has_url_space_or_control(raw_value):
         errors.append(f"{label} contains whitespace or control characters.")
     parsed = _parse_url(value)
     if parsed.scheme not in {"http", "https"}:
