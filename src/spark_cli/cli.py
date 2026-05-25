@@ -5819,8 +5819,16 @@ def browser_use_action_payload(
             "status": "failed",
             "last_failure_reason": "browser-use CLI is not on PATH.",
         }
+    if profile_options and profile_options.cdp_url:
+        return browser_use_cdp_action_payload(
+            base_payload,
+            url,
+            now=now,
+            screenshot=screenshot,
+            profile_options=profile_options,
+        )
 
-    session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    session = "spark-browser-" + py_secrets.token_hex(6)
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
     proofs: list[str] = []
@@ -5906,6 +5914,153 @@ def browser_use_page_summary(
         "url": str(parsed.get("url") or ""),
         "text": str(parsed.get("text") or ""),
     }
+
+
+def browser_use_cdp_action_payload(
+    base_payload: dict[str, Any],
+    url: str,
+    *,
+    now: str,
+    screenshot: bool,
+    profile_options: BrowserUseProfileOptions,
+) -> dict[str, Any]:
+    session = "spark-browser-cdp-" + py_secrets.token_hex(6)
+    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
+    screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    proofs: list[str] = []
+    try:
+        page = browser_use_cdp_open_and_read(profile_options.cdp_url, url)
+        proofs.extend(["public_url_open", "state_read"])
+        if screenshot:
+            screenshot_target = browser_use_cdp_page_target(profile_options.cdp_url)
+            screenshot_bytes = browser_use_cdp_screenshot(str(screenshot_target.get("webSocketDebuggerUrl") or page["webSocketDebuggerUrl"]))
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(screenshot_bytes)
+            proofs.append("screenshot_capture")
+        payload = {
+            **base_payload,
+            "ok": True,
+            "status": "ready",
+            "session": session,
+            "last_success_at": now,
+            "proofs": proofs,
+            "final_url": str(page.get("url") or url),
+            "title": str(page.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+            "state_excerpt": browser_use_bounded_text(str(page.get("state") or "")),
+            "screenshot_path": str(screenshot_path) if screenshot else "",
+            "receipt_path": str(receipt_path),
+            "proven_scope": browser_use_action_scope(proofs) + ["CDP browser attach"],
+            "unproven_scope": [
+                "logged-in pages unless the attached browser is authenticated",
+                "sensitive click workflows",
+            ],
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except Exception as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "session": session,
+            "last_failure_at": now,
+            "last_failure_reason": f"CDP browser attach failed: {exc}",
+            "proofs": proofs,
+            "receipt_path": str(receipt_path),
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+
+
+def browser_use_cdp_open_and_read(cdp_url: str, url: str) -> dict[str, str]:
+    target = browser_use_cdp_page_target(cdp_url)
+    ws_url = str(target.get("webSocketDebuggerUrl") or "")
+    if not ws_url:
+        raise RuntimeError("Chrome DevTools page target did not expose a websocket URL.")
+    browser_use_cdp_call(ws_url, "Page.enable")
+    browser_use_cdp_call(ws_url, "Runtime.enable")
+    browser_use_cdp_call(ws_url, "Page.navigate", {"url": url})
+    time.sleep(2)
+    expression = "JSON.stringify({title:document.title,url:location.href,text:document.body ? document.body.innerText.slice(0,2000) : '', width:innerWidth, height:innerHeight})"
+    result = browser_use_cdp_call(
+        ws_url,
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+    )
+    value = (((result.get("result") or {}).get("result") or {}).get("value") or "")
+    page = json.loads(value) if isinstance(value, str) and value else {}
+    if not isinstance(page, dict):
+        page = {}
+    page_url = str(page.get("url") or url)
+    title = str(page.get("title") or "")
+    text = str(page.get("text") or "")
+    width = str(page.get("width") or "")
+    height = str(page.get("height") or "")
+    return {
+        "webSocketDebuggerUrl": ws_url,
+        "url": page_url,
+        "title": title,
+        "text": text,
+        "state": f"viewport: {width}x{height}\n{title}\n{text}".strip(),
+    }
+
+
+def browser_use_cdp_screenshot(ws_url: str) -> bytes:
+    import websocket  # type: ignore[import-not-found]
+
+    ws = websocket.create_connection(ws_url, timeout=30, origin="http://127.0.0.1")
+    try:
+        ws.send(json.dumps({"id": 1, "method": "Page.bringToFront", "params": {}}))
+        browser_use_cdp_wait_for_id(ws, 1, "Page.bringToFront")
+        ws.send(json.dumps({"id": 2, "method": "Page.captureScreenshot", "params": {"format": "png", "fromSurface": True}}))
+        result = browser_use_cdp_wait_for_id(ws, 2, "Page.captureScreenshot")
+    finally:
+        ws.close()
+    data = str(((result.get("result") or {}).get("data") or ""))
+    if not data:
+        raise RuntimeError("Chrome DevTools did not return screenshot data.")
+    return base64.b64decode(data)
+
+
+def browser_use_cdp_page_target(cdp_url: str) -> dict[str, Any]:
+    base = cdp_url.rstrip("/")
+    try:
+        with urllib.request.urlopen(f"{base}/json", timeout=5) as response:
+            targets = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"could not read Chrome DevTools targets: {exc}") from exc
+    if not isinstance(targets, list):
+        raise RuntimeError("Chrome DevTools target list was not a JSON array.")
+    for target in targets:
+        if isinstance(target, dict) and target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
+            return target
+    raise RuntimeError("Chrome DevTools has no attachable page target.")
+
+
+def browser_use_cdp_call(ws_url: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    import websocket  # type: ignore[import-not-found]
+
+    message_id = 1
+    ws = websocket.create_connection(ws_url, timeout=10, origin="http://127.0.0.1")
+    try:
+        ws.send(json.dumps({"id": message_id, "method": method, "params": params or {}}))
+        return browser_use_cdp_wait_for_id(ws, message_id, method)
+    finally:
+        ws.close()
+
+
+def browser_use_cdp_wait_for_id(ws: Any, message_id: int, method: str) -> dict[str, Any]:
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        message = json.loads(ws.recv())
+        if isinstance(message, dict) and message.get("id") == message_id:
+            if "error" in message:
+                raise RuntimeError(json.dumps(message["error"]))
+            return message
+    raise TimeoutError(f"Chrome DevTools did not answer {method}.")
 
 
 def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:

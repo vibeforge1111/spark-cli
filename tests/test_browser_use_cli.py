@@ -234,16 +234,17 @@ class BrowserUseCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
 
-            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-                if "eval" in argv:
-                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Dashboard","url":"https://example.com/","text":"Signed in"}', stderr="")
-                return subprocess.CompletedProcess(argv, 0, stdout="Signed in", stderr="")
-
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
-                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                 patch("spark_cli.cli.browser_use_cdp_open_and_read", return_value={
+                     "webSocketDebuggerUrl": "ws://127.0.0.1/page",
+                     "title": "Dashboard",
+                     "url": "https://example.com/",
+                     "text": "Signed in",
+                     "state": "Dashboard\nSigned in",
+                 }) as cdp:
                 payload = cli.browser_use_action_payload(
                     "https://example.com",
                     profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
@@ -252,7 +253,8 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["profile_requested"])
         self.assertEqual(payload["cdp_url"], "http://127.0.0.1:9222")
-        self.assertIn(["browser-use", "--cdp-url", "http://127.0.0.1:9222", "--session"], [call.args[0][:4] for call in run.call_args_list])
+        self.assertEqual(payload["title"], "Dashboard")
+        cdp.assert_called_once_with("http://127.0.0.1:9222", "https://example.com")
 
     def test_open_still_blocks_metadata_urls(self) -> None:
         payload = cli.browser_use_action_payload("http://169.254.169.254")
