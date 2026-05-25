@@ -11140,6 +11140,13 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
 
 
 def cmd_recommend(args: argparse.Namespace) -> int:
+    if not getattr(args, "recommend_command", None):
+        print("spark recommend: choose a subcommand")
+        print("")
+        print("  spark recommend llms        Show LLM provider options and setup commands")
+        print("  spark recommend providers   Same as llms")
+        print("")
+        return 1
     if args.recommend_command in {"llms", "providers"}:
         payload = provider_recommendations_payload()
         if args.json:
