@@ -969,7 +969,20 @@ run_setup() {
   fi
   log "Running spark setup $SPARK_BUNDLE"
   local setup_exit=0
+  local previous_setup_optional="${SPARK_SETUP_OPTIONAL_ON_UPGRADE-}"
+  local had_setup_optional=0
+  if [ "${SPARK_SETUP_OPTIONAL_ON_UPGRADE+x}" = "x" ]; then
+    had_setup_optional=1
+  fi
+  if [ "$SPARK_EXISTING_MODE" = "upgrade" ]; then
+    export SPARK_SETUP_OPTIONAL_ON_UPGRADE=1
+  fi
   "${spark_setup_cmd[@]}" || setup_exit=$?
+  if [ "$had_setup_optional" = "1" ]; then
+    export SPARK_SETUP_OPTIONAL_ON_UPGRADE="$previous_setup_optional"
+  else
+    unset SPARK_SETUP_OPTIONAL_ON_UPGRADE
+  fi
   cleanup_secret_files
   return "$setup_exit"
 }

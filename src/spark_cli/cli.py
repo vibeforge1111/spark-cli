@@ -43,6 +43,7 @@ CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
 ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
+SETUP_OPTIONAL_ON_UPGRADE_ENV = "SPARK_SETUP_OPTIONAL_ON_UPGRADE"
 PRIVATE_FILE_MODE = 0o600
 GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
@@ -5699,6 +5700,51 @@ def print_setup_summary(
     )
 
 
+def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
+    secret_arg_names = (
+        "secret",
+        "bot_token",
+        "admin_telegram_ids",
+        "telegram_relay_secret",
+        "zai_api_key",
+        "openai_api_key",
+        "anthropic_api_key",
+        "minimax_api_key",
+    )
+    return any(bool(getattr(args, name, None)) for name in secret_arg_names)
+
+
+def setup_upgrade_refresh_can_pause(args: argparse.Namespace, detail: str) -> bool:
+    if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
+        return False
+    if not getattr(args, "non_interactive", False):
+        return False
+    if getattr(args, "start_now", True) or getattr(args, "autostart", True):
+        return False
+    if setup_args_include_explicit_secrets(args):
+        return False
+    if "File secret backend is disabled" not in detail:
+        return False
+    installed = load_json(REGISTRY_PATH, {})
+    return CONFIG_PATH.exists() and isinstance(installed, dict) and bool(installed)
+
+
+def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
+    bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
+    print("")
+    print("Spark command was upgraded.")
+    print(
+        "Setup refresh paused because this machine cannot securely rewrite stored secrets "
+        "from a non-interactive upgrade."
+    )
+    print("Your existing install can keep running. When you are ready, resume setup:")
+    print(f"  spark setup {bundle} --resume")
+    print("")
+    print("For now:")
+    print(f"  spark start {bundle}")
+    print("  spark live status")
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
@@ -5774,6 +5820,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     except SystemExit as exc:
         detail = str(exc)
         save_pending_setup_state("setup", detail, setup_state)
+        if setup_upgrade_refresh_can_pause(args, detail):
+            print_setup_upgrade_refresh_paused(args)
+            return 0
         print_setup_failure_truth_screen(detail)
         raise
 

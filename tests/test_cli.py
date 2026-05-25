@@ -173,6 +173,7 @@ from spark_cli.cli import (
     persist_keychain_secrets,
     split_secret_bindings,
     store_secret,
+    SetupBundlePlan,
     strip_keychain_env_vars,
     tail_log_lines,
     update_module_source,
@@ -5702,6 +5703,61 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(start.call_count, 2)
         self.assertNotIn("local Telegram relay credential", output.getvalue())
         self.assertNotIn("TELEGRAM_RELAY_SECRET", output.getvalue())
+
+    def test_setup_upgrade_refresh_secret_backend_gate_is_nonfatal_for_existing_install(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"], secrets=["telegram.bot_token"])
+        plan = SetupBundlePlan(
+            modules={gateway.name: gateway},
+            bundle=[gateway],
+            ingress_owner=gateway,
+            installed_modules={gateway.name: gateway},
+        )
+        setup_state = {
+            "bundle": "telegram-starter",
+            "modules": [gateway.name],
+            "secret_keys": ["telegram.bot_token"],
+        }
+        detail = (
+            "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+            "Install/configure a keyring backend."
+        )
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "telegram-starter",
+                "--non-interactive",
+                "--no-start-now",
+                "--no-autostart",
+            ]
+        )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+            tmp = Path(tmp_dir)
+            state_dir = tmp / "state"
+            config_path = state_dir / "setup.json"
+            registry_path = state_dir / "installed.json"
+            pending_path = state_dir / "setup.pending.json"
+            state_dir.mkdir()
+            save_json(config_path, setup_state)
+            save_json(registry_path, {gateway.name: {"path": str(gateway.path)}})
+            with patch("spark_cli.cli.CONFIG_PATH", config_path), \
+                 patch("spark_cli.cli.REGISTRY_PATH", registry_path), \
+                 patch("spark_cli.cli.SETUP_PENDING_PATH", pending_path), \
+                 patch("spark_cli.cli.resolve_setup_bundle_plan", return_value=plan), \
+                 patch("spark_cli.cli.collect_setup_configuration", return_value=({"telegram.bot_token": "123456:test-token"}, setup_state)), \
+                 patch("spark_cli.cli.validate_new_telegram_bot_tokens"), \
+                 patch("spark_cli.cli.save_json"), \
+                 patch("spark_cli.cli.install_setup_bundle"), \
+                 patch("spark_cli.cli.install_memory_sidecar_dependencies"), \
+                 patch("spark_cli.cli.write_setup_runtime_config", side_effect=SystemExit(detail)), \
+                 patch.dict(os.environ, {"SPARK_SETUP_OPTIONAL_ON_UPGRADE": "1"}, clear=False), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(cmd_setup(args), 0)
+
+        output = stdout.getvalue()
+        self.assertIn("Spark command was upgraded.", output)
+        self.assertIn("Setup refresh paused", output)
+        self.assertIn("spark setup telegram-starter --resume", output)
 
     def test_print_install_summary_mentions_ingress_owner(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
@@ -11350,6 +11406,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("$SPARK_PREFIX/bin/spark autostart off", script)
         self.assertIn("$SPARK_PREFIX/bin/spark autostart on telegram-starter --now", script)
         self.assertIn('spark_setup_cmd+=("--minimax-api-key" "$spark_secret_ref_value")', script)
+        self.assertIn("SPARK_SETUP_OPTIONAL_ON_UPGRADE=1", script)
         self.assertIn("spark_cli.cli", script)
 
     def test_install_script_dry_run_reflects_bundle_voice_and_autostart(self) -> None:
@@ -11436,6 +11493,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('$setupPreviewArgs += $SetupArg', script)
         self.assertIn('if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }', script)
         self.assertIn('$setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }', script)
+        self.assertIn('$env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"', script)
         self.assertIn("& $sparkCmd setup $Bundle @setupStartArgs @setupArgs", script)
         self.assertIn("[switch]$NoAutostart", script)
         self.assertIn("Spark startup was handled by setup", script)

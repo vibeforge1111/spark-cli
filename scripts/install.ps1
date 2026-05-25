@@ -710,13 +710,22 @@ function Run-Setup {
     if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }
     $setupArgs += $SetupArg
     Write-SparkLog "Running spark setup $Bundle"
+    $previousSetupOptional = $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE
     try {
+        if ($UpgradeExisting) {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"
+        }
         $setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }
         & $sparkCmd setup $Bundle @setupStartArgs @setupArgs
         if ($LASTEXITCODE -ne 0) {
             throw "spark setup failed with exit code $LASTEXITCODE"
         }
     } finally {
+        if ($null -eq $previousSetupOptional) {
+            Remove-Item Env:\SPARK_SETUP_OPTIONAL_ON_UPGRADE -ErrorAction SilentlyContinue
+        } else {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = $previousSetupOptional
+        }
         foreach ($secretFile in $secretFiles) {
             Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
         }
