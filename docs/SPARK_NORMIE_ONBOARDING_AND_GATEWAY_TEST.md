@@ -220,3 +220,42 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+## Known UX Gap — spark smoke first-run Misidentified (Mission #8 QA, 2026-05-25)
+
+### Bug: Bot confused spark smoke first-run with /docker_smoke confirm
+
+**Trigger:** User sends "What is the spark smoke first-run command
+and when should I use it?"
+
+**Expected:** Bot should explain:
+1. spark smoke first-run is a CLI command not a Telegram command
+2. It checks local readiness: bundle, module health, LLM roles,
+   Telegram security, Builder memory, Spawner relay, runtime processes
+3. It prints the exact Telegram smoke script to run after
+4. It shows success criteria so you know when first-run is complete
+5. Run it after spark setup and spark verify --onboarding
+6. One clear next action: run the printed Telegram script
+
+**Actual observed behavior:**
+- Bot said the command is /docker_smoke confirm
+- Explained Docker sandbox smoke test instead of first-run smoke
+- Never mentioned spark smoke first-run CLI command
+- Never explained what first-run smoke checks
+- Never mentioned the Telegram smoke script it produces
+- Never mentioned success criteria
+- Confused two completely different commands
+
+**Usage harm:**
+New user trying to verify their first Spark install gets wrong
+command and wrong explanation. They run Docker smoke instead of
+first-run smoke and get no first-run verification at all.
+
+**Fix needed:**
+When asked about spark smoke first-run bot must:
+1. Confirm it is a local CLI command: spark smoke first-run
+2. Explain it checks: bundle, modules, LLM, Telegram, memory,
+   Spawner relay, and runtime processes
+3. Explain it prints the Telegram smoke script to run after
+4. Show the success criteria output
+5. Say: run it after spark setup then follow the printed script
+6. Never confuse it with /docker_smoke confirm
