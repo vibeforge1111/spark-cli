@@ -7667,7 +7667,10 @@ def cmd_support(args: argparse.Namespace) -> int:
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
-    print("  - Logs are excluded unless you used --include-logs.")
+    if args.include_logs:
+        print("  - Logs are included. Review each log excerpt before sharing.")
+    else:
+        print("  - Logs are excluded unless you used --include-logs.")
     print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
     print("  - Nothing was uploaded.")
     print("")
