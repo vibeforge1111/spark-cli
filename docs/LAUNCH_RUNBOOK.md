@@ -218,3 +218,37 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+## Known UX Gap — Provider Status Misleading Response (Mission #13 QA, 2026-05-24)
+
+### Bug: Bot says all providers ready when /diagnose shows only 3/10 ready
+
+**Trigger:** User sends "What providers are ready and which ones are not?"
+
+**Expected:** Bot should:
+1. Report exactly how many providers are ready vs not ready
+2. Match /diagnose output — Providers: 3/10 ready
+3. Name which roles are ready and which are not
+4. Give safe next steps to configure missing providers
+5. Never say "all ready" when /diagnose shows partial readiness
+
+**Actual observed behavior:**
+- Bot said: "All four are ready: chat, builder, memory, and mission"
+- /diagnose showed: Providers: 3/10 ready
+- Direct contradiction between bot reply and /diagnose output
+- 7 unready providers never mentioned
+- No safe next steps given for unready providers
+- No role-specific readiness detail
+
+**Usage harm:**
+User thinks everything is configured correctly when 7 out of 10
+providers are not ready. This could cause unexpected failures
+when trying to use unready provider routes. User has no idea
+which providers need configuration or what to do next.
+
+**Fix needed:**
+When asked about provider status bot must:
+1. Show exact count: X of Y providers ready
+2. List which roles are ready and which are not
+3. Match /diagnose output exactly — never contradict it
+4. Give safe next steps: spark providers status, spark setup
+5. Never claim all providers ready when /diagnose says otherwise
