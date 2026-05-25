@@ -278,6 +278,7 @@ from spark_cli.cli import (
     linux_root_filesystem_read_only,
     mountinfo_mountpoints,
 )
+from spark_cli.runtime_policy import resolve_runtime_executable
 from spark_cli.security.approval import CommandContext, approval_required_for_command
 from spark_cli.security.url_policy import UrlPolicy, validate_url_safety
 from spark_cli.sandbox.audit import sandbox_audit_path, sandbox_audit_ref, write_audit_event
@@ -7503,6 +7504,28 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(
                     runtime_command_argv("npm run dev"),
                     ["C:/node/node.exe", str(npm_cli), "run", "dev"],
+                )
+
+    def test_runtime_command_argv_falls_back_to_managed_node_on_windows(self) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows managed Node fallback behavior")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            node_root = spark_home / "tools" / "node-v22.18.0-win-x64"
+            npm_cmd = node_root / "npm.cmd"
+            node_exe = node_root / "node.exe"
+            npm_cli = node_root / "node_modules" / "npm" / "bin" / "npm-cli.js"
+            npm_cli.parent.mkdir(parents=True)
+            npm_cmd.write_text("", encoding="utf-8")
+            node_exe.write_text("", encoding="utf-8")
+            npm_cli.write_text("", encoding="utf-8")
+
+            with patch.dict(os.environ, {"SPARK_HOME": str(spark_home)}, clear=False), \
+                 patch("spark_cli.runtime_policy.shutil.which", return_value=None):
+                self.assertEqual(Path(resolve_runtime_executable("npm")), npm_cmd)
+                self.assertEqual(
+                    runtime_command_argv("npm run health:runtime"),
+                    [str(node_exe), str(npm_cli), "run", "health:runtime"],
                 )
 
     def test_install_command_argv_allowlists_package_managers(self) -> None:
