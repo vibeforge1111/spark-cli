@@ -4273,10 +4273,25 @@ def remove_managed_env_block(path: Path) -> None:
     path.write_text((output + "\n") if output else "", encoding="utf-8")
 
 
-def cmd_list(_: argparse.Namespace) -> int:
+def cmd_list(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
+    if getattr(args, "json", False):
+        results = []
+        for module in modules.values():
+            metadata = registry.get("modules", {}).get(module.name, {})
+            results.append({
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "blessed": bool(metadata.get("blessed")),
+                "installed": module.name in installed,
+                "path": str(module.path),
+            })
+        print(json.dumps({"ok": True, "count": len(results), "modules": results}, indent=2))
+        return 0
     for module in modules.values():
         metadata = registry.get("modules", {}).get(module.name, {})
         blessed = "yes" if metadata.get("blessed") else "no"
@@ -14262,6 +14277,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+    list_parser.add_argument("--json", action="store_true", help="Emit module list as JSON")
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
