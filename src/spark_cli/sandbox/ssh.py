@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ipaddress
 import os
 import re
 import shlex
@@ -130,15 +131,53 @@ def ssh_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
     }
 
 
+def _parse_ipv4_number(value: str) -> int | None:
+    try:
+        if value.lower().startswith("0x"):
+            return int(value[2:], 16)
+        if len(value) > 1 and value.startswith("0"):
+            return int(value[1:] or "0", 8)
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def _alternate_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
+    if not host or not all(char in "0123456789abcdefABCDEFxX." for char in host):
+        return None
+    parts = host.split(".")
+    if len(parts) > 4 or any(part == "" for part in parts):
+        return None
+    numbers = [_parse_ipv4_number(part) for part in parts]
+    if any(number is None for number in numbers):
+        return None
+    if len(numbers) == 1:
+        value = numbers[0]
+        if value is None or value > 0xFFFFFFFF:
+            return None
+        return ipaddress.IPv4Address(value)
+    if len(numbers) == 4 and all(number is not None and number <= 0xFF for number in numbers):
+        return ipaddress.IPv4Address(bytes(int(number) for number in numbers))
+    return None
+
+
+def _ssh_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return _alternate_ipv4_address(host)
+
+
 def validate_ssh_host(host: str) -> str:
-    value = str(host or "").strip().lower()
+    value = str(host or "").strip().lower().rstrip(".")
     if not value:
         raise ValueError("SSH host is required.")
     if "://" in value or "/" in value or "\\" in value or "@" in value:
         raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
     if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
         raise ValueError("SSH host contains unsupported characters.")
-    if value in {"169.254.169.254", "metadata.google.internal"}:
+    ip = _ssh_host_ip(value)
+    if value == "metadata.google.internal" or (ip is not None and ip == ipaddress.ip_address("169.254.169.254")):
         raise ValueError("SSH host must not point at a cloud metadata service.")
     return value
 
