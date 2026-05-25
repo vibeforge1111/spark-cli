@@ -13388,13 +13388,12 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
 
 
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
-    return bool(
-        running_as_hosted_context()
-        or env.get("SPARK_LIVE_CONTAINER")
-        or env.get("RAILWAY_ENVIRONMENT")
-        or env.get("SPARK_ALLOWED_HOSTS")
-        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    # Always use the dedicated /api/health/live endpoint regardless of install
+    # context. The previous fallback to /api/providers reported "Codex provider
+    # is listed but codex is not resolvable" as a spawner health failure even
+    # when OpenAI API was configured and the spawner was running normally.
+    # Provider readiness is separately tracked by `spark providers status`.
+    return True
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
