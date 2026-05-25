@@ -6899,7 +6899,18 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
                 f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
             )
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+    # Strip Node.js runtime noise (deprecation hints, experimental warnings)
+    # before returning the last meaningful line so health-check detail strings
+    # are not polluted by lines such as
+    # "(Use `node --trace-deprecation ...` to show where the warning was created)"
+    NODE_NOISE_PREFIXES = (
+        "(Use `node ",
+        "(node:",
+        "ExperimentalWarning:",
+        "DeprecationWarning:",
+    )
+    content_lines = [l for l in lines if not l.startswith(NODE_NOISE_PREFIXES)]
+    return (content_lines or lines)[-1]
 
 
 def collect_status_payload() -> dict[str, Any]:
