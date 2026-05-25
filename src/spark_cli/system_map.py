@@ -4057,10 +4057,15 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
         )
 
     rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
+    seen_repair_keys: set[tuple[str, str]] = set()
     for row in rows[:10]:
         row = as_dict(row)
         component = str(row.get("component") or "unknown")
         event_type = str(row.get("event_type") or "unknown")
+        repair_key = (component, event_type)
+        if repair_key in seen_repair_keys:
+            continue
+        seen_repair_keys.add(repair_key)
         owner = trace_repair_owner(component)
         rank_reason = "largest Builder producer bucket missing trace_ref"
         safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
