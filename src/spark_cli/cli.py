@@ -3451,6 +3451,11 @@ def resolve_llm_provider(args: argparse.Namespace, secret_values: dict[str, str]
     requested = getattr(args, "llm_provider", None)
     if requested:
         return str(requested)
+    # If --chat-llm-provider is set without --llm-provider, use it as the default
+    # so builder, memory, and mission roles are not silently left unconfigured
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    if chat_provider and chat_provider != "not_configured":
+        return str(chat_provider)
     explicit_key_providers = [
         provider
         for provider, spec in LLM_PROVIDER_ENV.items()
