@@ -2301,7 +2301,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
     def test_url_policy_treats_loopback_host_aliases_as_local(self) -> None:
-        for host in ("localhost.localdomain", "ip6-localhost", "ip6-loopback"):
+        for host in ("localhost.localdomain", "ip6-localhost", "ip6-loopback", "localhost."):
             with self.subTest(host=host):
                 self.assertEqual(validate_url_safety(f"http://{host}:1234/v1", label="local provider"), [])
                 errors = validate_url_safety(
@@ -2314,6 +2314,10 @@ class SparkCliTests(unittest.TestCase):
     def test_url_policy_can_block_local_targets_for_hosted_tools(self) -> None:
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
+
+    def test_url_policy_blocks_trailing_dot_metadata_host(self) -> None:
+        errors = validate_url_safety("http://metadata.google.internal./computeMetadata/v1", label="metadata")
+        self.assertTrue(any("cloud metadata service" in error for error in errors))
 
     def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
         with patch("spark_cli.cli.resolve_provider_test_target", return_value={
