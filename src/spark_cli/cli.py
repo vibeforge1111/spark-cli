@@ -15702,7 +15702,8 @@ def build_parser() -> argparse.ArgumentParser:
     security_revoke_parser.set_defaults(func=cmd_security)
 
     access_parser = subparsers.add_parser("access", help="Prepare Spark's local access lanes without technical sandbox choices")
-    access_subparsers = access_parser.add_subparsers(dest="access_command", required=True)
+    access_subparsers = access_parser.add_subparsers(dest="access_command", required=False)
+    access_parser.set_defaults(func=lambda a: [print("spark access: choose a subcommand\n  spark access status\n  spark access guide\n  spark access setup\n  spark access disable-level5\n"), 1][1])
     access_status_parser = access_subparsers.add_parser("status", help="Show the current recommended access lane")
     access_status_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
     access_status_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
@@ -15732,7 +15733,8 @@ def build_parser() -> argparse.ArgumentParser:
     access_disable_parser.set_defaults(func=cmd_access)
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
-    sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
+    sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=False)
+    sandbox_parser.set_defaults(func=lambda a: [print("spark sandbox: choose a subcommand\n  spark sandbox docker\n  spark sandbox ssh\n  spark sandbox modal\n"), 1][1])
     sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
     sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
     sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
@@ -15788,7 +15790,8 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
-    approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
+    approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=False)
+    approval_parser.set_defaults(func=lambda a: [print("spark approval: choose a subcommand\n  spark approval classify -- <command>\n"), 1][1])
     approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
     approval_classify_parser.add_argument("--json", action="store_true")
     approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")
@@ -15798,7 +15801,8 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.set_defaults(func=cmd_approval)
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
-    telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+    telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=False)
+    telegram_parser.set_defaults(func=lambda a: [print("spark telegram: choose a subcommand\n  spark telegram connect\n"), 1][1])
     telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
     telegram_connect_parser.add_argument(
         "profile",
@@ -15894,7 +15898,8 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.set_defaults(func=cmd_live, live_command="status")
 
     autostart_parser = subparsers.add_parser("autostart", help="Start Spark automatically when this computer logs in")
-    autostart_subparsers = autostart_parser.add_subparsers(dest="autostart_command", required=True)
+    autostart_subparsers = autostart_parser.add_subparsers(dest="autostart_command", required=False)
+    autostart_parser.set_defaults(func=lambda a: [print("spark autostart: choose a subcommand\n  spark autostart install\n  spark autostart uninstall\n  spark autostart status\n"), 1][1])
     autostart_install_parser = autostart_subparsers.add_parser("install", help="Install OS login autostart")
     autostart_install_parser.add_argument("target", nargs="?", default="telegram-starter")
     autostart_install_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
@@ -15935,7 +15940,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
-    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
+    config_sub = config_parser.add_subparsers(dest="config_command", required=False)
+    config_parser.set_defaults(func=lambda a: [print("spark config: choose a subcommand\n  spark config get <key>\n  spark config set <key> <value>\n  spark config list\n  spark config unset <key>\n"), 1][1])
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
@@ -15954,7 +15960,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_list_parser.set_defaults(func=cmd_config_list)
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
-    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
+    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=False)
+    secrets_parser.set_defaults(func=lambda a: [print("spark secrets: choose a subcommand\n  spark secrets list\n  spark secrets get <id>\n  spark secrets set <id>\n  spark secrets delete <id>\n"), 1][1])
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
