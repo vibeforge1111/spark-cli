@@ -188,6 +188,41 @@ need_cmd() {
   fi
 }
 
+verify_install_landed() {
+  log "Verifying install location..."
+  if [ ! -d "$SPARK_PREFIX" ]; then
+    printf '[spark-install] ERROR: SPARK_PREFIX=%s does not exist after install.\n' "$SPARK_PREFIX" >&2
+    printf '[spark-install] The installer reports completion but the prefix directory is missing.\n' >&2
+    printf '[spark-install] Likely causes: $HOME resolved to an unexpected path, or $SPARK_PREFIX was overridden between resolution and write.\n' >&2
+    exit 1
+  fi
+
+  local spark_bin=""
+  if [ -f "$SPARK_PREFIX/bin/spark.cmd" ]; then
+    spark_bin="$SPARK_PREFIX/bin/spark.cmd"
+  elif [ -x "$SPARK_PREFIX/bin/spark" ]; then
+    spark_bin="$SPARK_PREFIX/bin/spark"
+  fi
+
+  if [ -z "$spark_bin" ]; then
+    printf '[spark-install] ERROR: Expected spark binary not found in %s/bin/.\n' "$SPARK_PREFIX" >&2
+    printf '[spark-install] Contents of %s/bin/:\n' "$SPARK_PREFIX" >&2
+    ls -la "$SPARK_PREFIX/bin/" >&2 2>&1 || printf '[spark-install]   (directory missing)\n' >&2
+    exit 1
+  fi
+
+  if ! "$spark_bin" --help >/dev/null 2>&1; then
+    printf '[spark-install] ERROR: %s exists but fails to run.\n' "$spark_bin" >&2
+    printf '[spark-install] This usually means the wrapper script references paths that do not exist.\n' >&2
+    printf '[spark-install] First 10 lines of %s:\n' "$spark_bin" >&2
+    head -10 "$spark_bin" 2>&1 | sed 's/^/[spark-install]   /' >&2 || true
+    printf '[spark-install] Try running the command directly to see the actual error: %s --help\n' "$spark_bin" >&2
+    exit 1
+  fi
+
+  log "Install verified: $spark_bin --help returned successfully."
+}
+
 log() {
   printf '[spark-install] %s\n' "$*"
 }
@@ -1014,6 +1049,7 @@ main() {
   write_shell_profile_hook
   run_setup
   run_autostart
+  verify_install_landed
   log "Done."
   cat <<EOF
 
