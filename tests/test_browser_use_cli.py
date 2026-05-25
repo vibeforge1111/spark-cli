@@ -151,12 +151,17 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
                 payload = cli.browser_use_action_payload("https://example.com")
+                status = cli.browser_use_status_payload()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "open")
         self.assertEqual(payload["title"], "Example Domain")
         self.assertIn("Learn more", payload["text_excerpt"])
         self.assertIn("public URL open", payload["proven_scope"])
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["last_action"], "open")
+        self.assertEqual(status["last_final_url"], "https://example.com/")
+        self.assertEqual(status["required_proofs"], ["public_url_open", "state_read"])
         called_commands = [call.args[0] for call in run.call_args_list]
         self.assertIn("open", called_commands[0])
         self.assertIn("https://example.com", called_commands[0])
@@ -181,11 +186,16 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run):
                 payload = cli.browser_use_action_payload("https://example.com", screenshot=True)
+                status = cli.browser_use_status_payload()
 
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["action"], "screenshot")
             self.assertTrue(Path(payload["screenshot_path"]).exists())
             self.assertIn("screenshot capture", payload["proven_scope"])
+            self.assertTrue(status["ok"])
+            self.assertEqual(status["last_action"], "screenshot")
+            self.assertEqual(status["last_screenshot_path"], payload["screenshot_path"])
+            self.assertEqual(status["required_proofs"], ["public_url_open", "screenshot_capture", "state_read"])
 
     def test_open_allows_local_urls_for_operator_browser_use(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -295,14 +305,22 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "http://127.0.0.1:3333", "title": "Local", "text_excerpt": "Kanban"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="http://127.0.0.1:3333", max_steps=4)
+                status = cli.browser_use_status_payload()
                 receipt_exists = Path(payload["receipt_path"]).exists()
                 history_exists = Path(payload["history_path"]).exists()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "task")
         self.assertEqual(payload["number_of_steps"], 2)
+        self.assertEqual(payload["success_tier"], "completed_with_actions")
         self.assertIn("multi-step browser task", payload["proven_scope"])
         self.assertEqual(payload["start_page"]["title"], "Local")
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["last_action"], "task")
+        self.assertEqual(status["last_task_steps"], 2)
+        self.assertEqual(status["last_receipt_path"], payload["receipt_path"])
+        self.assertEqual(status["last_history_path"], payload["history_path"])
+        self.assertEqual(status["required_proofs"], ["task_completed"])
         self.assertTrue(receipt_exists)
         self.assertTrue(history_exists)
 
@@ -340,10 +358,13 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "https://example.com", "title": "Example", "text_excerpt": "Example Domain"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="https://example.com", max_steps=3)
+                status = cli.browser_use_status_payload()
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "failed")
         self.assertIn("maximum steps", payload["last_failure_reason"])
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["status"], "failed")
 
     def test_task_receipt_fails_when_agent_reports_unsuccessful_result(self) -> None:
         payload = {

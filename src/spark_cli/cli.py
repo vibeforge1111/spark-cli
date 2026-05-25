@@ -5554,8 +5554,9 @@ def browser_use_status_payload() -> dict[str, Any]:
     raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
     proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
     proof_set = set(proofs)
+    required_proofs = browser_use_required_proofs_for_status(status_doc)
     proof_fresh = browser_use_proof_is_fresh(status_doc)
-    proof_complete = BROWSER_USE_REQUIRED_PROOFS.issubset(proof_set)
+    proof_complete = required_proofs.issubset(proof_set)
     screenshot_ok = browser_use_screenshot_ok(status_doc)
     ready_signal = raw_status in {"ready", "running", "healthy", "available", "ok", "success", "completed"} or status_doc.get("ready") is True
     ready = ready_signal and proof_complete and proof_fresh and screenshot_ok
@@ -5586,11 +5587,25 @@ def browser_use_status_payload() -> dict[str, Any]:
         "last_success_at": str(status_doc.get("last_success_at") or ""),
         "last_failure_at": str(status_doc.get("last_failure_at") or ""),
         "last_failure_reason": str(status_doc.get("last_failure_reason") or status_doc.get("error_message") or stale_or_incomplete_reason),
+        "last_action": str(status_doc.get("last_action") or ""),
+        "last_url": str(status_doc.get("last_url") or ""),
+        "last_final_url": str(status_doc.get("last_final_url") or ""),
+        "last_title": str(status_doc.get("last_title") or ""),
+        "last_receipt_path": str(status_doc.get("last_receipt_path") or ""),
+        "last_history_path": str(status_doc.get("last_history_path") or ""),
+        "last_screenshot_path": str(status_doc.get("last_screenshot_path") or ""),
+        "last_task_steps": status_doc.get("last_task_steps") or 0,
+        "profile_requested": bool(status_doc.get("profile_requested", False)),
+        "profile": str(status_doc.get("profile") or ""),
+        "user_data_dir": str(status_doc.get("user_data_dir") or ""),
+        "profile_directory": str(status_doc.get("profile_directory") or ""),
+        "storage_state": str(status_doc.get("storage_state") or ""),
+        "cdp_url": str(status_doc.get("cdp_url") or ""),
         "proofs": proofs,
         "proof_fresh": proof_fresh,
-        "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
+        "required_proofs": sorted(required_proofs),
         "proven_scope": browser_use_proven_scope(proofs),
-        "unproven_scope": [
+        "unproven_scope": status_doc.get("unproven_scope") if isinstance(status_doc.get("unproven_scope"), list) else [
             "logged-in pages",
             "cookies/profile reuse",
             "sensitive click workflows",
@@ -5599,6 +5614,17 @@ def browser_use_status_payload() -> dict[str, Any]:
         ],
         "next_action": browser_use_next_action(status),
     }
+
+
+def browser_use_required_proofs_for_status(status_doc: dict[str, Any]) -> set[str]:
+    action = str(status_doc.get("last_action") or status_doc.get("action") or "").strip().lower()
+    if action == "open":
+        return {"public_url_open", "state_read"}
+    if action == "screenshot":
+        return {"public_url_open", "state_read", "screenshot_capture"}
+    if action == "task":
+        return {"task_completed"}
+    return set(BROWSER_USE_REQUIRED_PROOFS)
 
 
 def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
@@ -5654,6 +5680,8 @@ def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
         scope.append("page state read")
     if "screenshot_capture" in proof_set:
         scope.append("screenshot capture")
+    if "task_completed" in proof_set:
+        scope.append("browser task completed")
     return scope
 
 
@@ -5670,6 +5698,71 @@ def browser_use_next_action(status: str) -> str:
 def write_browser_use_status(payload: dict[str, Any]) -> None:
     BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
     atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
+
+
+def record_browser_use_status_from_receipt(payload: dict[str, Any]) -> None:
+    if payload.get("ok") is True or str(payload.get("status") or "").lower() == "ready":
+        proofs = [str(item) for item in (payload.get("proofs") or []) if str(item).strip()]
+        if str(payload.get("action") or "") == "task" and "task_completed" not in proofs:
+            proofs.append("task_completed")
+        status_doc = {
+            "backend_kind": payload.get("backend_kind") or "browser_use_adapter",
+            "status": "ready",
+            "ready": True,
+            "checked_at": payload.get("checked_at") or "",
+            "last_success_at": payload.get("last_success_at") or payload.get("checked_at") or "",
+            "last_action": payload.get("action") or "",
+            "last_url": payload.get("url") or "",
+            "last_final_url": payload.get("final_url") or payload.get("url") or "",
+            "last_title": payload.get("title") or "",
+            "last_receipt_path": payload.get("receipt_path") or "",
+            "last_history_path": payload.get("history_path") or "",
+            "last_screenshot_path": payload.get("screenshot_path") or browser_use_start_page_screenshot(payload),
+            "last_task_steps": payload.get("number_of_steps") or 0,
+            "last_task_success_tier": payload.get("success_tier") or "",
+            "last_task_action_count": payload.get("action_count") or 0,
+            "last_task_screenshot_count": payload.get("screenshot_count") or 0,
+            "proofs": proofs,
+            "proven_scope": payload.get("proven_scope") or browser_use_proven_scope(proofs),
+            "unproven_scope": payload.get("unproven_scope") or [],
+            **browser_use_status_profile_fields(payload),
+        }
+        if status_doc["last_screenshot_path"]:
+            status_doc["screenshot_path"] = status_doc["last_screenshot_path"]
+        write_browser_use_status(status_doc)
+        return
+
+    existing = browser_use_status_file_payload()
+    if not existing:
+        existing = {"backend_kind": payload.get("backend_kind") or "browser_use_adapter", "status": "failed", "ready": False}
+    existing.update({
+        "checked_at": payload.get("checked_at") or existing.get("checked_at") or "",
+        "last_failure_at": payload.get("last_failure_at") or payload.get("checked_at") or "",
+        "last_failure_reason": payload.get("last_failure_reason") or "browser-use action failed",
+        "last_failed_action": payload.get("action") or "",
+    })
+    if not existing.get("last_success_at"):
+        existing["status"] = "failed"
+        existing["ready"] = False
+    write_browser_use_status(existing)
+
+
+def browser_use_start_page_screenshot(payload: dict[str, Any]) -> str:
+    start_page = payload.get("start_page")
+    if isinstance(start_page, dict):
+        return str(start_page.get("screenshot_path") or "")
+    return ""
+
+
+def browser_use_status_profile_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "profile_requested": bool(payload.get("profile_requested", False)),
+        "profile": str(payload.get("profile") or ""),
+        "user_data_dir": str(payload.get("user_data_dir") or ""),
+        "profile_directory": str(payload.get("profile_directory") or ""),
+        "storage_state": str(payload.get("storage_state") or ""),
+        "cdp_url": str(payload.get("cdp_url") or ""),
+    }
 
 
 def run_browser_use_command(
@@ -5863,6 +5956,7 @@ def browser_use_action_payload(
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         payload = {
@@ -5877,6 +5971,7 @@ def browser_use_action_payload(
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
     finally:
         env = dict(os.environ)
@@ -5958,6 +6053,7 @@ def browser_use_cdp_action_payload(
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
     except Exception as exc:
         payload = {
@@ -5972,6 +6068,7 @@ def browser_use_cdp_action_payload(
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
 
 
@@ -6157,6 +6254,7 @@ def browser_use_task_payload(
                 "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
             }
             atomic_write_json(receipt_path, payload)
+            record_browser_use_status_from_receipt(payload)
             return payload
     try:
         result = asyncio.run(run_browser_use_agent_task(
@@ -6167,12 +6265,20 @@ def browser_use_task_payload(
             start_page=start_page,
             profile_options=profile_options,
         ))
+        success_tier = browser_use_task_success_tier(result)
+        action_count = browser_use_task_action_count(result)
+        screenshot_count = len([item for item in (result.get("screenshot_paths") or []) if str(item).strip()]) if isinstance(result.get("screenshot_paths"), list) else 0
         completed = browser_use_task_completed(result)
         payload = {
             **base_payload,
             **result,
             "ok": completed,
             "status": "ready" if completed else "failed",
+            "success_tier": success_tier,
+            "action_count": action_count,
+            "screenshot_count": screenshot_count,
+            "final_state_observed": bool(result.get("urls") or screenshot_count or action_count),
+            "validation_notes": browser_use_task_validation_notes(result, success_tier),
             "unproven_scope": [
                 "site-specific login state unless the task used an authenticated browser profile",
                 "changes outside the browser unless another Spark route performed them",
@@ -6191,6 +6297,7 @@ def browser_use_task_payload(
             payload["last_failure_at"] = now
             payload["last_failure_reason"] = browser_use_task_failure_reason(result)
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
     except Exception as exc:
         payload = {
@@ -6201,6 +6308,7 @@ def browser_use_task_payload(
             "last_failure_reason": browser_use_command_failure_message(exc),
         }
         atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
         return payload
 
 
@@ -6458,6 +6566,39 @@ def browser_use_task_completed(result: dict[str, Any]) -> bool:
     if str(result.get("final_result") or "").strip():
         return True
     return False
+
+
+def browser_use_task_success_tier(result: dict[str, Any]) -> str:
+    if result.get("is_successful") is False:
+        return "failed"
+    if bool(result.get("is_judged")) and not bool(result.get("is_validated")):
+        return "failed"
+    action_count = browser_use_task_action_count(result)
+    screenshot_count = len([item for item in (result.get("screenshot_paths") or []) if str(item).strip()]) if isinstance(result.get("screenshot_paths"), list) else 0
+    if screenshot_count and action_count:
+        return "completed_with_screenshot"
+    if action_count:
+        return "completed_with_actions"
+    if bool(result.get("is_done")) or str(result.get("final_result") or "").strip():
+        return "completed_text_only"
+    return "failed"
+
+
+def browser_use_task_action_count(result: dict[str, Any]) -> int:
+    actions = result.get("action_names")
+    if not isinstance(actions, list):
+        return 0
+    return len([item for item in actions if str(item).strip() and str(item).strip().lower() not in {"done"}])
+
+
+def browser_use_task_validation_notes(result: dict[str, Any], success_tier: str) -> str:
+    if success_tier == "completed_text_only":
+        return "Browser-use returned text but no browser action or screenshot evidence was recorded."
+    if success_tier == "completed_with_actions":
+        return "Browser-use recorded browser actions but no screenshot artifact."
+    if success_tier == "completed_with_screenshot":
+        return "Browser-use recorded browser actions with screenshot evidence."
+    return browser_use_task_failure_reason(result)
 
 
 def browser_use_task_failure_reason(result: dict[str, Any]) -> str:
