@@ -6,6 +6,7 @@ import base64
 import ctypes
 import getpass
 import hashlib
+import inspect
 import importlib.util
 import io
 import ipaddress
@@ -5487,6 +5488,45 @@ def browser_use_package_available() -> bool:
     return importlib.util.find_spec("browser_use") is not None
 
 
+@dataclass(frozen=True)
+class BrowserUseProfileOptions:
+    profile: str = ""
+    user_data_dir: str = ""
+    profile_directory: str = ""
+    storage_state: str = ""
+
+    @property
+    def enabled(self) -> bool:
+        return any((self.profile, self.user_data_dir, self.profile_directory, self.storage_state))
+
+
+def browser_use_profile_options_from_args(args: argparse.Namespace) -> BrowserUseProfileOptions:
+    return BrowserUseProfileOptions(
+        profile=str(getattr(args, "profile", "") or "").strip(),
+        user_data_dir=str(getattr(args, "user_data_dir", "") or "").strip(),
+        profile_directory=str(getattr(args, "profile_directory", "") or "").strip(),
+        storage_state=str(getattr(args, "storage_state", "") or "").strip(),
+    )
+
+
+def browser_use_profile_cli_parts(options: BrowserUseProfileOptions | None) -> list[str]:
+    if not options or not options.profile:
+        return []
+    return ["--profile", options.profile]
+
+
+def browser_use_profile_payload(options: BrowserUseProfileOptions | None) -> dict[str, Any]:
+    if not options or not options.enabled:
+        return {"profile_requested": False}
+    return {
+        "profile_requested": True,
+        "profile": options.profile,
+        "user_data_dir": public_local_path_ref(options.user_data_dir) if options.user_data_dir else "",
+        "profile_directory": options.profile_directory,
+        "storage_state": public_local_path_ref(options.storage_state) if options.storage_state else "",
+    }
+
+
 def browser_use_status_file_payload() -> dict[str, Any]:
     if not BROWSER_USE_STATUS_PATH.exists():
         return {}
@@ -5625,12 +5665,17 @@ def write_browser_use_status(payload: dict[str, Any]) -> None:
     atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
 
 
-def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> subprocess.CompletedProcess[str]:
+def run_browser_use_command(
+    cli_path: str,
+    *parts: str,
+    timeout: int = 45,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUTF8", "1")
     return subprocess.run(
-        [cli_path, *parts],
+        [cli_path, *browser_use_profile_cli_parts(profile_options), *parts],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -5639,7 +5684,7 @@ def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> su
     )
 
 
-def browser_use_probe_payload() -> dict[str, Any]:
+def browser_use_probe_payload(profile_options: BrowserUseProfileOptions | None = None) -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     base_payload: dict[str, Any] = {
@@ -5650,6 +5695,7 @@ def browser_use_probe_payload() -> dict[str, Any]:
         "cli_path": cli_path or "",
         "checked_at": now,
         "proofs": [],
+        **browser_use_profile_payload(profile_options),
     }
     if not cli_path:
         failure = "browser-use CLI is not on PATH."
@@ -5668,11 +5714,11 @@ def browser_use_probe_payload() -> dict[str, Any]:
     try:
         run_browser_use_command(cli_path, "doctor", timeout=60)
         proofs.append("doctor")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90)
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90, profile_options=profile_options)
         proofs.append("public_page_open")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45, profile_options=profile_options)
         proofs.append("state_read")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "screenshot", str(screenshot_path), timeout=60)
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "screenshot", str(screenshot_path), timeout=60, profile_options=profile_options)
         proofs.append("screenshot_capture")
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         failure = browser_use_command_failure_message(exc)
@@ -5692,7 +5738,7 @@ def browser_use_probe_payload() -> dict[str, Any]:
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("PYTHONUTF8", "1")
             subprocess.run(
-                [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                [cli_path, *browser_use_profile_cli_parts(profile_options), "--session", BROWSER_USE_PROBE_SESSION, "close"],
                 capture_output=True,
                 text=True,
                 timeout=20,
@@ -5730,7 +5776,12 @@ def browser_use_public_url(raw_url: str) -> str:
     return urllib.parse.urlunparse(parsed)
 
 
-def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
+def browser_use_action_payload(
+    raw_url: str,
+    *,
+    screenshot: bool = False,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
@@ -5752,6 +5803,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         "package_available": browser_use_package_available(),
         "cli_available": bool(cli_path),
         "cli_path": cli_path or "",
+        **browser_use_profile_payload(profile_options),
     }
     if not cli_path:
         return {
@@ -5766,14 +5818,14 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
     proofs: list[str] = []
     try:
-        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
+        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90, profile_options=profile_options)
         proofs.append("public_url_open")
-        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
+        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45, profile_options=profile_options)
         proofs.append("state_read")
-        page = browser_use_page_summary(cli_path, session)
+        page = browser_use_page_summary(cli_path, session, profile_options=profile_options)
         if screenshot:
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-            run_browser_use_command(cli_path, "--session", session, "screenshot", str(screenshot_path), timeout=60)
+            run_browser_use_command(cli_path, "--session", session, "screenshot", str(screenshot_path), timeout=60, profile_options=profile_options)
             proofs.append("screenshot_capture")
         payload = {
             **base_payload,
@@ -5790,8 +5842,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
             "receipt_path": str(receipt_path),
             "proven_scope": browser_use_action_scope(proofs),
             "unproven_scope": [
-                "logged-in pages",
-                "cookies/profile reuse",
+                "logged-in pages unless the selected profile is authenticated",
                 "sensitive click workflows",
             ],
         }
@@ -5817,7 +5868,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
         subprocess.run(
-            [cli_path, "--session", session, "close"],
+            [cli_path, *browser_use_profile_cli_parts(profile_options), "--session", session, "close"],
             capture_output=True,
             text=True,
             timeout=20,
@@ -5826,9 +5877,14 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         )
 
 
-def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
+def browser_use_page_summary(
+    cli_path: str,
+    session: str,
+    *,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> dict[str, str]:
     script = "JSON.stringify({title:document.title,url:location.href,text:document.body.innerText.slice(0,2000)})"
-    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
+    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45, profile_options=profile_options)
     raw = result.stdout.strip()
     if raw.lower().startswith("result:"):
         raw = raw.split(":", 1)[1].strip()
@@ -5864,7 +5920,13 @@ def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
     return scope
 
 
-def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int = 25) -> dict[str, Any]:
+def browser_use_task_payload(
+    goal: str,
+    *,
+    start_url: str = "",
+    max_steps: int = 25,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> dict[str, Any]:
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     cleaned_goal = str(goal or "").strip()
     if not cleaned_goal:
@@ -5909,6 +5971,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         "cli_path": browser_use_cli_path() or "",
         "receipt_path": str(receipt_path),
         "history_path": str(history_path),
+        **browser_use_profile_payload(profile_options),
     }
     if not browser_use_package_available():
         return {
@@ -5921,7 +5984,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
     task_dir.mkdir(parents=True, exist_ok=True)
     start_page: dict[str, Any] = {}
     if url:
-        start_page = browser_use_task_start_page(url)
+        start_page = browser_use_task_start_page(url, profile_options=profile_options)
         base_payload["start_page"] = browser_use_task_start_page_summary(start_page)
         if not start_page.get("ok"):
             payload = {
@@ -5934,7 +5997,14 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             atomic_write_json(receipt_path, payload)
             return payload
     try:
-        result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
+        result = asyncio.run(run_browser_use_agent_task(
+            cleaned_goal,
+            start_url=url,
+            max_steps=steps,
+            history_path=history_path,
+            start_page=start_page,
+            profile_options=profile_options,
+        ))
         completed = browser_use_task_completed(result)
         payload = {
             **base_payload,
@@ -5953,6 +6023,8 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
                 "agent planning loop",
                 "browser actions selected by browser-use",
             ]
+            if profile_options and profile_options.enabled:
+                payload["proven_scope"].append("browser profile requested")
         else:
             payload["last_failure_at"] = now
             payload["last_failure_reason"] = browser_use_task_failure_reason(result)
@@ -5970,8 +6042,12 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         return payload
 
 
-def browser_use_task_start_page(url: str) -> dict[str, Any]:
-    return browser_use_action_payload(url, screenshot=True)
+def browser_use_task_start_page(
+    url: str,
+    *,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> dict[str, Any]:
+    return browser_use_action_payload(url, screenshot=True, profile_options=profile_options)
 
 
 def browser_use_task_start_page_summary(payload: dict[str, Any]) -> dict[str, str]:
@@ -5991,6 +6067,7 @@ async def run_browser_use_agent_task(
     max_steps: int = 25,
     history_path: Path | None = None,
     start_page: dict[str, Any] | None = None,
+    profile_options: BrowserUseProfileOptions | None = None,
 ) -> dict[str, Any]:
     from browser_use import Agent, Browser
 
@@ -6005,7 +6082,7 @@ async def run_browser_use_agent_task(
             f"Visible text excerpt:\n{page['text_excerpt']}\n"
             "Treat this evidence as authoritative for the starting page unless later browser state contradicts it."
         )
-    browser = Browser(headless=True)
+    browser = browser_use_create_browser(Browser, profile_options)
     try:
         llm, llm_label = browser_use_agent_llm()
         agent = Agent(
@@ -6026,7 +6103,49 @@ async def run_browser_use_agent_task(
             history.save_to_file(history_path)
         return browser_use_agent_history_payload(history) | {"llm": llm_label}
     finally:
-        await browser.close()
+        try:
+            await browser.close()
+        except Exception as exc:
+            if not browser_use_is_benign_close_error(exc):
+                raise
+
+
+def browser_use_create_browser(browser_cls: Any, options: BrowserUseProfileOptions | None = None) -> Any:
+    profile_directory = (options.profile_directory or options.profile) if options else ""
+    kwargs: dict[str, Any] = {"headless": True}
+    if options and options.user_data_dir:
+        kwargs["user_data_dir"] = str(Path(options.user_data_dir).expanduser())
+    if profile_directory:
+        kwargs["profile_directory"] = profile_directory
+    if options and options.storage_state:
+        kwargs["storage_state"] = str(Path(options.storage_state).expanduser())
+
+    if options and options.enabled and hasattr(browser_cls, "from_system_chrome") and not options.storage_state:
+        system_kwargs = browser_use_supported_kwargs(browser_cls.from_system_chrome, kwargs)
+        try:
+            return browser_cls.from_system_chrome(**system_kwargs)
+        except TypeError:
+            pass
+    return browser_cls(**browser_use_supported_kwargs(browser_cls, kwargs))
+
+
+def browser_use_supported_kwargs(callable_obj: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return kwargs
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+        return kwargs
+    return {key: value for key, value in kwargs.items() if key in signature.parameters}
+
+
+def browser_use_is_benign_close_error(exc: BaseException) -> bool:
+    detail = str(exc).lower()
+    return (
+        "i/o operation on closed pipe" in detail
+        or "event loop is closed" in detail
+        or "proactorbasepipetransport" in detail
+    )
 
 
 def browser_use_agent_llm() -> tuple[Any, str]:
@@ -6197,11 +6316,32 @@ def browser_use_bounded_list(value: Any, *, limit: int) -> list[str]:
 
 def browser_use_command_failure_message(exc: BaseException) -> str:
     if isinstance(exc, subprocess.CalledProcessError):
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        detail = browser_use_filter_noise(exc.stderr or exc.stdout or str(exc)).strip()
         return detail[:500] or f"browser-use command exited {exc.returncode}"
     if isinstance(exc, subprocess.TimeoutExpired):
         return f"browser-use command timed out after {exc.timeout}s"
-    return str(exc)[:500] or type(exc).__name__
+    return browser_use_filter_noise(str(exc))[:500] or type(exc).__name__
+
+
+def browser_use_filter_noise(value: str) -> str:
+    lines = []
+    skip_next_indented = False
+    for raw_line in str(value or "").splitlines():
+        line = raw_line.rstrip()
+        normalized = line.lower()
+        if skip_next_indented and (line.startswith(" ") or line.startswith("\t")):
+            continue
+        skip_next_indented = False
+        if "exception ignored in:" in normalized and "proactorbasepipetransport" in normalized:
+            skip_next_indented = True
+            continue
+        if "valueerror: i/o operation on closed pipe" in normalized:
+            continue
+        if "using anonymized telemetry" in normalized and "browser-use" in normalized:
+            continue
+        if line.strip():
+            lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def cmd_browser_use(args: argparse.Namespace) -> int:
@@ -6242,7 +6382,8 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 0
 
     if action == "probe":
-        payload = browser_use_probe_payload()
+        profile_options = browser_use_profile_options_from_args(args)
+        payload = browser_use_probe_payload(profile_options=profile_options)
         status_payload = browser_use_status_payload()
         if getattr(args, "json", False):
             print(json.dumps(status_payload | {"probe": payload}, indent=2))
@@ -6259,7 +6400,11 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 1
 
     if action in {"open", "screenshot"}:
-        payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
+        payload = browser_use_action_payload(
+            str(getattr(args, "url", "") or ""),
+            screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)),
+            profile_options=browser_use_profile_options_from_args(args),
+        )
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
@@ -6285,6 +6430,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             " ".join(getattr(args, "goal", []) or []).strip(),
             start_url=str(getattr(args, "url", "") or ""),
             max_steps=int(getattr(args, "max_steps", 25) or 25),
+            profile_options=browser_use_profile_options_from_args(args),
         )
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
@@ -15657,21 +15803,28 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
+    browser_use_probe_parser.add_argument("--profile", help="Optional browser-use CLI profile name for the probe", default="")
     browser_use_probe_parser.add_argument("--json", action="store_true")
     browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
     browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
     browser_use_open_parser.add_argument("url")
     browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+    browser_use_open_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_open_parser.add_argument("--json", action="store_true")
     browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
     browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
     browser_use_screenshot_parser.add_argument("url")
+    browser_use_screenshot_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
     browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
     browser_use_task_parser.add_argument("--max-steps", type=int, default=25, help="Maximum Browser Use Agent steps")
+    browser_use_task_parser.add_argument("--profile", help="Optional browser profile name or Chrome profile directory", default="")
+    browser_use_task_parser.add_argument("--user-data-dir", help="Optional browser user-data directory for persistent cookies/localStorage", default="")
+    browser_use_task_parser.add_argument("--profile-directory", help="Optional Chrome profile directory, for example Default or Profile 1", default="")
+    browser_use_task_parser.add_argument("--storage-state", help="Optional browser-use storage-state JSON path", default="")
     browser_use_task_parser.add_argument("--json", action="store_true")
     browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
     browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")

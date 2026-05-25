@@ -206,6 +206,30 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["final_url"], "http://127.0.0.1:3333/")
 
+    def test_open_can_request_browser_use_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Dashboard","url":"https://example.com/","text":"Signed in"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Signed in", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_action_payload(
+                    "https://example.com",
+                    profile_options=cli.BrowserUseProfileOptions(profile="Default"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["profile_requested"])
+        self.assertEqual(payload["profile"], "Default")
+        self.assertIn(["browser-use", "--profile", "Default", "--session"], [call.args[0][:4] for call in run.call_args_list])
+
     def test_open_still_blocks_metadata_urls(self) -> None:
         payload = cli.browser_use_action_payload("http://169.254.169.254")
 
@@ -221,6 +245,7 @@ class BrowserUseCliTests(unittest.TestCase):
             max_steps: int = 25,
             history_path: Path | None = None,
             start_page: dict[str, object] | None = None,
+            profile_options: cli.BrowserUseProfileOptions | None = None,
         ) -> dict[str, object]:
             if history_path is not None:
                 history_path.write_text("{}", encoding="utf-8")
@@ -270,6 +295,7 @@ class BrowserUseCliTests(unittest.TestCase):
             max_steps: int = 25,
             history_path: Path | None = None,
             start_page: dict[str, object] | None = None,
+            profile_options: cli.BrowserUseProfileOptions | None = None,
         ) -> dict[str, object]:
             return {
                 "final_result": "",
@@ -420,6 +446,61 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertFalse(agent_kwargs["enable_planning"])
         self.assertIn("action schema", str(agent_kwargs["extend_system_message"]))
         self.assertTrue(captured["browser"].closed)
+
+    def test_agent_task_can_use_browser_profile_options(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeBrowser:
+            def __init__(self, **kwargs: object) -> None:
+                captured["browser_kwargs"] = kwargs
+                captured["browser"] = self
+                self.closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        class FakeHistory:
+            def final_result(self) -> str:
+                return "Visible"
+
+            def is_done(self) -> bool:
+                return True
+
+        class FakeAgent:
+            def __init__(self, **kwargs: object) -> None:
+                captured["agent_kwargs"] = kwargs
+
+            async def run(self, *, max_steps: int) -> FakeHistory:
+                return FakeHistory()
+
+        fake_browser_use = types.SimpleNamespace(Agent=FakeAgent, Browser=FakeBrowser)
+        with patch.dict(sys.modules, {"browser_use": fake_browser_use}), \
+             patch("spark_cli.cli.browser_use_agent_llm", return_value=("test-llm", "test-provider")):
+            result = asyncio.run(
+                cli.run_browser_use_agent_task(
+                    "review the page",
+                    max_steps=1,
+                    profile_options=cli.BrowserUseProfileOptions(
+                        profile="Default",
+                        user_data_dir="C:/Users/USER/AppData/Local/Google/Chrome/User Data",
+                    ),
+                )
+            )
+
+        self.assertEqual(result["llm"], "test-provider")
+        self.assertEqual(captured["browser_kwargs"]["profile_directory"], "Default")
+        self.assertIn("Google/Chrome/User Data", str(captured["browser_kwargs"]["user_data_dir"]).replace("\\", "/"))
+        self.assertTrue(captured["browser"].closed)
+
+    def test_browser_use_failure_filter_suppresses_windows_cleanup_noise(self) -> None:
+        message = cli.browser_use_filter_noise(
+            "INFO [service] Using anonymized telemetry, see https://docs.browser-use.com\n"
+            "Exception ignored in: <function _ProactorBasePipeTransport.__del__ at 0x1>\n"
+            "  ValueError: I/O operation on closed pipe\n"
+            "real failure"
+        )
+
+        self.assertEqual(message, "real failure")
 
     def test_structured_llm_exposes_browser_use_model_attributes(self) -> None:
         inner = types.SimpleNamespace(provider="openai", name="glm", model="openai/glm-5.1")
