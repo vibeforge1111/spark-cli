@@ -105,6 +105,7 @@ BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_WORKBENCH_SESSION = "spark-browser-workbench"
+BROWSER_USE_CDP_WORKBENCH_SESSION = "spark-browser-workbench-cdp"
 BROWSER_USE_PROBE_URL = "https://example.com"
 BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
 BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
@@ -5535,6 +5536,12 @@ def browser_use_profile_payload(options: BrowserUseProfileOptions | None) -> dic
     }
 
 
+def browser_use_default_session(options: BrowserUseProfileOptions | None) -> str:
+    if options and options.cdp_url:
+        return BROWSER_USE_CDP_WORKBENCH_SESSION
+    return BROWSER_USE_WORKBENCH_SESSION
+
+
 def browser_use_status_file_payload() -> dict[str, Any]:
     if not BROWSER_USE_STATUS_PATH.exists():
         return {}
@@ -5926,13 +5933,14 @@ def browser_use_primitive_payload(
     direction: str = "",
     amount: str = "",
     js: str = "",
-    session: str = BROWSER_USE_WORKBENCH_SESSION,
+    session: str = "",
     profile_options: BrowserUseProfileOptions | None = None,
+    _retry_after_session_close: bool = True,
 ) -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     action = str(action or "").strip().lower()
-    session = str(session or BROWSER_USE_WORKBENCH_SESSION).strip() or BROWSER_USE_WORKBENCH_SESSION
+    session = str(session or browser_use_default_session(profile_options)).strip() or browser_use_default_session(profile_options)
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-{action}-{py_secrets.token_hex(4)}.json"
     base_payload: dict[str, Any] = {
         "backend_kind": "browser_use_adapter",
@@ -5982,7 +5990,8 @@ def browser_use_primitive_payload(
             else:
                 state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45, profile_options=profile_options)
                 state_excerpt = browser_use_bounded_text(state.stdout)
-            page = browser_use_page_summary(cli_path, session, profile_options=profile_options)
+            if not (profile_options and profile_options.cdp_url):
+                page = browser_use_page_summary(cli_path, session, profile_options=profile_options)
         payload = {
             **base_payload,
             "ok": True,
@@ -6005,6 +6014,19 @@ def browser_use_primitive_payload(
         record_browser_use_status_from_receipt(payload)
         return payload
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        if _retry_after_session_close and browser_use_session_config_conflict(exc):
+            browser_use_close_session(cli_path, session)
+            return browser_use_primitive_payload(
+                action,
+                target=target,
+                text=text,
+                direction=direction,
+                amount=amount,
+                js=js,
+                session=session,
+                profile_options=profile_options,
+                _retry_after_session_close=False,
+            )
         payload = {
             **base_payload,
             "ok": False,
@@ -6017,6 +6039,24 @@ def browser_use_primitive_payload(
         atomic_write_json(receipt_path, payload)
         record_browser_use_status_from_receipt(payload)
         return payload
+
+
+def browser_use_session_config_conflict(exc: BaseException) -> bool:
+    return "already running with different config" in browser_use_command_failure_message(exc).lower()
+
+
+def browser_use_close_session(cli_path: str, session: str) -> None:
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    subprocess.run(
+        [cli_path, "--session", session, "close"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+        env=env,
+    )
 
 
 def browser_use_primitive_command_parts(
@@ -6058,7 +6098,7 @@ def browser_use_action_payload(
     raw_url: str,
     *,
     screenshot: bool = False,
-    session: str = BROWSER_USE_WORKBENCH_SESSION,
+    session: str = "",
     close_session: bool = False,
     profile_options: BrowserUseProfileOptions | None = None,
 ) -> dict[str, Any]:
@@ -6101,7 +6141,7 @@ def browser_use_action_payload(
             profile_options=profile_options,
         )
 
-    session = str(session or BROWSER_USE_WORKBENCH_SESSION).strip() or BROWSER_USE_WORKBENCH_SESSION
+    session = str(session or browser_use_default_session(profile_options)).strip() or browser_use_default_session(profile_options)
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
     proofs: list[str] = []
@@ -6900,11 +6940,12 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 1
 
     if action in {"open", "screenshot"}:
+        profile_options = browser_use_profile_options_from_args(args)
         payload = browser_use_action_payload(
             str(getattr(args, "url", "") or ""),
             screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)),
-            session=str(getattr(args, "session", "") or BROWSER_USE_WORKBENCH_SESSION),
-            profile_options=browser_use_profile_options_from_args(args),
+            session=str(getattr(args, "session", "") or ""),
+            profile_options=profile_options,
         )
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
@@ -6927,6 +6968,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 1
 
     if action in {"state", "click", "type", "input", "scroll", "back", "eval", "close"}:
+        profile_options = browser_use_profile_options_from_args(args)
         text_parts = getattr(args, "text", []) or []
         js_parts = getattr(args, "js", []) or []
         payload = browser_use_primitive_payload(
@@ -6936,8 +6978,8 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             direction=str(getattr(args, "direction", "") or ""),
             amount=str(getattr(args, "amount", "") or ""),
             js=" ".join(js_parts).strip() if isinstance(js_parts, list) else str(js_parts or "").strip(),
-            session=str(getattr(args, "session", "") or BROWSER_USE_WORKBENCH_SESSION),
-            profile_options=browser_use_profile_options_from_args(args),
+            session=str(getattr(args, "session", "") or ""),
+            profile_options=profile_options,
         )
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
@@ -16344,34 +16386,34 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
     browser_use_open_parser.add_argument("url")
     browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
-    browser_use_open_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_open_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_open_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_open_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_open_parser.add_argument("--json", action="store_true")
     browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
     browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
     browser_use_screenshot_parser.add_argument("url")
-    browser_use_screenshot_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_screenshot_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_screenshot_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_screenshot_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_state_parser = browser_use_sub.add_parser("state", help="Read the current browser-use session state")
-    browser_use_state_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_state_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_state_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_state_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_state_parser.add_argument("--json", action="store_true")
     browser_use_state_parser.set_defaults(func=cmd_browser_use, browser_use_command="state")
     browser_use_click_parser = browser_use_sub.add_parser("click", help="Click an element by index or x/y coordinates")
     browser_use_click_parser.add_argument("target", nargs="+", help="Element index or x y coordinates")
-    browser_use_click_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_click_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_click_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_click_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_click_parser.add_argument("--json", action="store_true")
     browser_use_click_parser.set_defaults(func=cmd_browser_use, browser_use_command="click")
     browser_use_type_parser = browser_use_sub.add_parser("type", help="Type text into the focused element")
     browser_use_type_parser.add_argument("text", nargs=argparse.REMAINDER, help="Text to type")
-    browser_use_type_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_type_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_type_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_type_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_type_parser.add_argument("--json", action="store_true")
@@ -16379,7 +16421,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_input_parser = browser_use_sub.add_parser("input", help="Clear and type text into an element by index")
     browser_use_input_parser.add_argument("target", nargs=1, help="Element index")
     browser_use_input_parser.add_argument("text", nargs=argparse.REMAINDER, help="Text to type")
-    browser_use_input_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_input_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_input_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_input_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_input_parser.add_argument("--json", action="store_true")
@@ -16387,26 +16429,26 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_scroll_parser = browser_use_sub.add_parser("scroll", help="Scroll the current browser-use page")
     browser_use_scroll_parser.add_argument("direction", nargs="?", choices=["up", "down"], default="down")
     browser_use_scroll_parser.add_argument("--amount", help="Scroll amount in pixels", default="")
-    browser_use_scroll_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_scroll_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_scroll_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_scroll_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_scroll_parser.add_argument("--json", action="store_true")
     browser_use_scroll_parser.set_defaults(func=cmd_browser_use, browser_use_command="scroll")
     browser_use_back_parser = browser_use_sub.add_parser("back", help="Go back in the browser-use session")
-    browser_use_back_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_back_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_back_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_back_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_back_parser.add_argument("--json", action="store_true")
     browser_use_back_parser.set_defaults(func=cmd_browser_use, browser_use_command="back")
     browser_use_eval_parser = browser_use_sub.add_parser("eval", help="Run JavaScript in the browser-use session")
     browser_use_eval_parser.add_argument("js", nargs=argparse.REMAINDER, help="JavaScript code")
-    browser_use_eval_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_eval_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_eval_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_eval_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_eval_parser.add_argument("--json", action="store_true")
     browser_use_eval_parser.set_defaults(func=cmd_browser_use, browser_use_command="eval")
     browser_use_close_parser = browser_use_sub.add_parser("close", help="Close the browser-use session")
-    browser_use_close_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_close_parser.add_argument("--session", help="Browser-use session name", default="")
     browser_use_close_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_close_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_close_parser.add_argument("--json", action="store_true")

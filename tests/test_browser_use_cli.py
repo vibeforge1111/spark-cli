@@ -291,6 +291,62 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("browser click", status["proven_scope"])
         self.assertIn(["browser-use", "--session", cli.BROWSER_USE_WORKBENCH_SESSION, "click", "1"], [call.args[0] for call in run.call_args_list])
 
+    def test_cdp_primitive_uses_separate_default_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    raise AssertionError("CDP primitives should not run an extra eval summary")
+                return subprocess.CompletedProcess(argv, 0, stdout="Canvas", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload(
+                    "state",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["session"], cli.BROWSER_USE_CDP_WORKBENCH_SESSION)
+        self.assertIn(
+            ["browser-use", "--cdp-url", "http://127.0.0.1:9222", "--session", cli.BROWSER_USE_CDP_WORKBENCH_SESSION, "state"],
+            [call.args[0] for call in run.call_args_list],
+        )
+
+    def test_primitive_recovers_from_session_config_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            calls = 0
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                nonlocal calls
+                if "close" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout="closed", stderr="")
+                if "state" in argv:
+                    calls += 1
+                    if calls == 1:
+                        raise subprocess.CalledProcessError(1, argv, stderr="Error: Session 'spark-browser-workbench-cdp' is already running with different config.")
+                    return subprocess.CompletedProcess(argv, 0, stdout="Canvas", stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload(
+                    "state",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(calls, 2)
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_CDP_WORKBENCH_SESSION, "close"], [call.args[0] for call in run.call_args_list])
+
     def test_input_primitive_requires_index_and_text(self) -> None:
         with patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
              patch("spark_cli.cli.browser_use_package_available", return_value=True):
