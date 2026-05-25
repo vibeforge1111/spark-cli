@@ -3857,6 +3857,30 @@ def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
         update_env_file(env_path, generated_env)
 
 
+def normalize_telegram_admin_ids(*values: str | None) -> str:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for raw in re.split(r"[\s,;]+", str(value)):
+            item = raw.strip()
+            if not item or item in seen:
+                continue
+            ids.append(item)
+            seen.add(item)
+    return ",".join(ids)
+
+
+def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
+    values = [base_env.get("ADMIN_TELEGRAM_IDS")]
+    for path in telegram_generated_env_paths(setup_state):
+        if not path.exists():
+            continue
+        values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
+    return normalize_telegram_admin_ids(*values)
+
+
 def configure_telegram_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     installed = resolve_installed_modules()
@@ -3890,7 +3914,10 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
         raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
 
     profile_env = dict(base_env)
-    profile_env["ADMIN_TELEGRAM_IDS"] = getattr(args, "admin_telegram_ids", None) or base_env.get("ADMIN_TELEGRAM_IDS", "")
+    profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
+        existing_telegram_admin_ids(base_env, setup_state),
+        getattr(args, "admin_telegram_ids", None),
+    )
     profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
     profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
     profile_env["SPARK_TELEGRAM_PROFILE"] = profile

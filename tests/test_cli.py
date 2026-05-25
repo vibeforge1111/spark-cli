@@ -104,6 +104,7 @@ from spark_cli.cli import (
     module_secret_env_bindings,
     module_trust_tier,
     next_telegram_profile_relay_port,
+    normalize_telegram_admin_ids,
     normalize_telegram_profile,
     path_is_write_denied,
     provider_env_blocklist,
@@ -2652,6 +2653,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(statuses[1]["primary"])
         self.assertFalse(statuses[1]["autostart"])
 
+    def test_normalize_telegram_admin_ids_merges_and_deduplicates(self) -> None:
+        self.assertEqual(
+            normalize_telegram_admin_ids("111, 222", "222;333  444", "", None, "111"),
+            "111,222,333,444",
+        )
+
     def test_configure_telegram_profile_writes_isolated_env_and_spawner_webhook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -2716,7 +2723,7 @@ class SparkCliTests(unittest.TestCase):
                 setup_state = load_json(state_dir / "setup.json", {})
                 stored_token = fetch_secret("telegram.profiles.qa-bot.bot_token")
 
-        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "222")
+        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "111,222")
         self.assertEqual(profile_env["TELEGRAM_RELAY_PORT"], "8792")
         self.assertEqual(profile_env["SPARK_TELEGRAM_PROFILE"], "qa-bot")
         self.assertNotIn("BOT_TOKEN", profile_env)
