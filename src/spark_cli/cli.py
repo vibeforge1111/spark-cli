@@ -9991,6 +9991,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key:
+                env_var = spec.get("api_key_env")
+                api_key = os.environ.get(str(env_var)) if env_var else None
             if api_key:
                 return {
                     "provider": provider,
@@ -10975,6 +10978,32 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
     try:
         target = resolve_provider_test_target(role, provider)
     except SystemExit as exc:
+        # Distinguish "not configured at all" from "configured but key not reachable".
+        role_state = configured_llm_role_state(role)
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_top = setup_state.get("llm") if isinstance(setup_state, dict) else {}
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        provider_for_check = str(role_state.get("provider") or (isinstance(llm_top, dict) and llm_top.get("provider")) or "")
+        spec_for_check = LLM_PROVIDER_ENV.get(provider_for_check, {})
+        api_key_secret = spec_for_check.get("api_key_secret", "")
+        key_configured_in_setup = bool(
+            role_state.get("api_key_configured")
+            or (isinstance(llm_top, dict) and llm_top.get("api_key_configured"))
+            or (api_key_secret and api_key_secret in secret_keys)
+        )
+        if key_configured_in_setup:
+            configured_provider = str(role_state.get("provider") or provider or "configured")
+            return {
+                "ok": False,
+                "role": role,
+                "provider": configured_provider,
+                "detail": (
+                    f"Provider {configured_provider} is configured in Spark setup, "
+                    "but the API key is not reachable from the test probe. "
+                    "The key may be stored in a platform-managed secret or env var."
+                ),
+                "repair": "spark providers status",
+            }
         return {
             "ok": False,
             "role": role,
