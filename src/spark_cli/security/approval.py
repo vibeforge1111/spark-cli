@@ -47,13 +47,25 @@ class ApprovalDecision:
 
 
 SECRET_LIKE_PATTERN = re.compile(
-    r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
+    r"(?i)("
+    r"sk-[A-Za-z0-9_-]{8,}"                          # OpenAI / Anthropic keys
+    r"|gh[pors]_[A-Za-z0-9]{36,}"                     # GitHub PATs
+    r"|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}"             # AWS access keys
+    r"|xox[baprs]-[A-Za-z0-9-]{10,}"                  # Slack tokens
+    r"|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"  # JWTs
+    r"|\d{5,}:[A-Za-z0-9_-]{20,}"                    # Telegram bot tokens
+    r")"
 )
 
 
 def _digest_command(argv: list[str]) -> str:
     redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", part) for part in argv]
     return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
+
+
+def _redact_display(text: str) -> str:
+    """Redact secret-like values from user-facing display strings."""
+    return SECRET_LIKE_PATTERN.sub("[REDACTED]", text)
 
 
 def _lower_parts(argv: list[str]) -> list[str]:
@@ -116,7 +128,7 @@ def _decision(
         requires_approval=requires,
         approval_mode="blocked" if requires and context.non_interactive else "interactive" if requires else "none",
         reason=reason,
-        target_display=target_display,
+        target_display=_redact_display(target_display),
         command_digest=_digest_command(argv),
         confirmation_phrase=phrase,
         surface=context.surface,
