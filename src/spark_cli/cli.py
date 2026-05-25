@@ -5676,6 +5676,8 @@ def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
         scope.append("browser-use doctor")
     if "public_page_open" in proof_set:
         scope.append("public page open")
+    if "public_url_open" in proof_set:
+        scope.append("public URL open")
     if "state_read" in proof_set:
         scope.append("page state read")
     if "screenshot_capture" in proof_set:
@@ -5687,7 +5689,7 @@ def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
 
 def browser_use_next_action(status: str) -> str:
     if status == "ready":
-        return "Run /probe browser in Telegram before claiming a specific browser task worked this turn."
+        return "Use the latest browser receipt for its proven scope, or run a fresh browser action for a new page/task."
     if status == "installed_unproven":
         return "Run `spark browser-use probe` to create a fresh proof receipt."
     if status == "failed":
