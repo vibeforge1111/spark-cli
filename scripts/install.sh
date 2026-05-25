@@ -821,8 +821,9 @@ install_cli_venv() {
   "$SPARK_PYTHON_BIN" -m venv "$venv_dir"
   log "Upgrading pip in Spark CLI virtualenv"
   "$venv_dir/bin/python" -m pip install --upgrade pip >/dev/null
-  log "Installing Spark CLI package"
-  "$venv_dir/bin/python" -m pip install -e "$cli_dir"
+  log "Installing Spark CLI package with browser-use support"
+  "$venv_dir/bin/python" -m pip install -e "$cli_dir[browser-use]"
+  "$venv_dir/bin/browser-use" install >/dev/null || true
 }
 
 write_wrapper() {

@@ -607,8 +607,9 @@ function Install-CliVenv {
     & $Script:PythonExe -m venv $venvDir
     Write-SparkLog "Upgrading pip in Spark CLI virtualenv"
     & (Join-Path $venvDir "Scripts\python.exe") -m pip install --upgrade pip | Out-Null
-    Write-SparkLog "Installing Spark CLI package"
-    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e $CliDir | Out-Null
+    Write-SparkLog "Installing Spark CLI package with browser-use support"
+    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e "$CliDir[browser-use]" | Out-Null
+    & (Join-Path $venvDir "Scripts\browser-use.exe") install | Out-Null
     return $venvDir
 }
 

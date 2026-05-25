@@ -105,6 +105,7 @@ BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_PROBE_URL = "https://example.com"
 BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
 BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
+BROWSER_USE_ACTION_TEXT_LIMIT = 1800
 SAFE_PARENT_ENV_KEYS = {
     "APPDATA",
     "COMSPEC",
@@ -5676,6 +5677,157 @@ def browser_use_probe_payload() -> dict[str, Any]:
     return payload
 
 
+def browser_use_public_url(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value:
+        raise ValueError("Browser URL is required.")
+    if "://" not in value:
+        value = f"https://{value}"
+    errors = validate_url_safety(
+        value,
+        label="Browser URL",
+        policy=UrlPolicy(allow_local=False, allow_private_networks=False, require_https_for_remote=False),
+    )
+    if errors:
+        raise ValueError(" ".join(errors))
+    parsed = urllib.parse.urlparse(value)
+    return urllib.parse.urlunparse(parsed)
+
+
+def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        url = browser_use_public_url(raw_url)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "screenshot" if screenshot else "open",
+            "url": str(raw_url or "").strip(),
+            "checked_at": now,
+            "last_failure_reason": str(exc),
+        }
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "action": "screenshot" if screenshot else "open",
+        "url": url,
+        "checked_at": now,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+    }
+    if not cli_path:
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use CLI is not on PATH.",
+        }
+
+    session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
+    screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    proofs: list[str] = []
+    try:
+        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
+        proofs.append("public_url_open")
+        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
+        proofs.append("state_read")
+        page = browser_use_page_summary(cli_path, session)
+        if screenshot:
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            run_browser_use_command(cli_path, "--session", session, "screenshot", str(screenshot_path), timeout=60)
+            proofs.append("screenshot_capture")
+        payload = {
+            **base_payload,
+            "ok": True,
+            "status": "ready",
+            "session": session,
+            "last_success_at": now,
+            "proofs": proofs,
+            "final_url": str(page.get("url") or url),
+            "title": str(page.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+            "state_excerpt": browser_use_bounded_text(state.stdout),
+            "screenshot_path": str(screenshot_path) if screenshot else "",
+            "receipt_path": str(receipt_path),
+            "proven_scope": browser_use_action_scope(proofs),
+            "unproven_scope": [
+                "logged-in pages",
+                "cookies/profile reuse",
+                "sensitive click workflows",
+            ],
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "session": session,
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+            "proofs": proofs,
+            "receipt_path": str(receipt_path),
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    finally:
+        env = dict(os.environ)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+        subprocess.run(
+            [cli_path, "--session", session, "close"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=env,
+        )
+
+
+def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
+    script = "JSON.stringify({title:document.title,url:location.href,text:document.body.innerText.slice(0,2000)})"
+    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
+    raw = result.stdout.strip()
+    if raw.lower().startswith("result:"):
+        raw = raw.split(":", 1)[1].strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"title": "", "url": "", "text": ""}
+    if not isinstance(parsed, dict):
+        return {"title": "", "url": "", "text": ""}
+    return {
+        "title": str(parsed.get("title") or ""),
+        "url": str(parsed.get("url") or ""),
+        "text": str(parsed.get("text") or ""),
+    }
+
+
+def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:
+    compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 20)].rstrip() + "\n[truncated]"
+
+
+def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
+    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+    scope: list[str] = []
+    if "public_url_open" in proof_set:
+        scope.append("public URL open")
+    if "state_read" in proof_set:
+        scope.append("page state read")
+    if "screenshot_capture" in proof_set:
+        scope.append("screenshot capture")
+    return scope
+
+
 def browser_use_command_failure_message(exc: BaseException) -> str:
     if isinstance(exc, subprocess.CalledProcessError):
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
@@ -5737,6 +5889,28 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         print("Browser-use probe failed.")
         print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
         print(f"Status file: {status_payload['status_path']}")
+        return 1
+
+    if action in {"open", "screenshot"}:
+        payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print(f"Browser-use {payload['action']} succeeded.")
+            if payload.get("title"):
+                print(f"Title: {payload['title']}")
+            if payload.get("final_url"):
+                print(f"URL: {payload['final_url']}")
+            if payload.get("text_excerpt"):
+                print("")
+                print(str(payload["text_excerpt"]))
+            if payload.get("screenshot_path"):
+                print("")
+                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+            return 0
+        print(f"Browser-use {action} failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
         return 1
 
     raise SystemExit(f"Unknown browser-use command: {action}")
@@ -14623,8 +14797,10 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark fix autostart", "use": "Targeted login-startup repair checklist: installed hooks, stale paths, permissions, and Telegram profile selection." },
             { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, preview links, or Mission Control is not reachable." },
             { "command": "spark providers test --role chat", "use": "Send a tiny PING_OK probe through the selected chat LLM." },
-            { "command": "spark browser-use status", "use": "Check optional browser-use package, CLI, and latest proof receipt without starting a browser." },
+            { "command": "spark browser-use status", "use": "Check browser-use package, CLI, and latest proof receipt without starting a browser." },
             { "command": "spark browser-use probe", "use": "Prove browser-use can open a public page, read state, and capture a screenshot." },
+            { "command": "spark browser-use open <url>", "use": "Open a public URL with browser-use and return page evidence." },
+            { "command": "spark browser-use screenshot <url>", "use": "Open a public URL and capture a screenshot." },
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
@@ -14666,7 +14842,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark access status|guide|setup|disable-level5", "use": "Prepare, explain, and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
-            { "command": "spark browser-use status|install|probe", "use": "Install, inspect, and prove the optional browser-use adapter." },
+            { "command": "spark browser-use status|install|probe|open|screenshot", "use": "Inspect, prove, and use the browser-use adapter for public URL evidence." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
             { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
@@ -15091,6 +15267,15 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--json", action="store_true")
     browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
+    browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a public URL with browser-use and return page evidence")
+    browser_use_open_parser.add_argument("url")
+    browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+    browser_use_open_parser.add_argument("--json", action="store_true")
+    browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
+    browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a public URL and capture a screenshot")
+    browser_use_screenshot_parser.add_argument("url")
+    browser_use_screenshot_parser.add_argument("--json", action="store_true")
+    browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
 
     recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")

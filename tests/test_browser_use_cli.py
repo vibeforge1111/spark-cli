@@ -126,6 +126,71 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         run.assert_not_called()
 
+    def test_open_returns_page_summary_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "state" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout="Example Domain\nLearn more", stderr="")
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        stdout='result: {"title":"Example Domain","url":"https://example.com/","text":"Example Domain\\n\\nLearn more"}',
+                        stderr="",
+                    )
+                return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_action_payload("https://example.com")
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "open")
+        self.assertEqual(payload["title"], "Example Domain")
+        self.assertIn("Learn more", payload["text_excerpt"])
+        self.assertIn("public URL open", payload["proven_scope"])
+        called_commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn("open", called_commands[0])
+        self.assertIn("https://example.com", called_commands[0])
+        self.assertIn("state", called_commands[1])
+        self.assertIn("eval", called_commands[2])
+
+    def test_screenshot_writes_screenshot_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "screenshot" in argv:
+                    Path(argv[-1]).parent.mkdir(parents=True, exist_ok=True)
+                    Path(argv[-1]).write_bytes(b"png")
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Example Domain","url":"https://example.com/","text":"Example"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Example", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run):
+                payload = cli.browser_use_action_payload("https://example.com", screenshot=True)
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["action"], "screenshot")
+            self.assertTrue(Path(payload["screenshot_path"]).exists())
+            self.assertIn("screenshot capture", payload["proven_scope"])
+
+    def test_open_blocks_local_urls_by_default(self) -> None:
+        payload = cli.browser_use_action_payload("http://127.0.0.1:3333")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("local-only host", payload["last_failure_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
