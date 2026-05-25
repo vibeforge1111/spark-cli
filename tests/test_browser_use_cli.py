@@ -240,6 +240,66 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["profile"], "Default")
         self.assertIn(["browser-use", "--profile", "Default", "--session"], [call.args[0][:4] for call in run.call_args_list])
 
+    def test_state_primitive_writes_workbench_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Board","url":"http://127.0.0.1:3333/kanban","text":"Mission Board"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Mission Board\n[0] Canvas", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload("state")
+                status = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "state")
+        self.assertEqual(payload["session"], cli.BROWSER_USE_WORKBENCH_SESSION)
+        self.assertIn("Mission Board", payload["state_excerpt"])
+        self.assertEqual(status["last_action"], "state")
+        self.assertEqual(status["required_proofs"], ["state_read"])
+        self.assertIn("page state read", status["proven_scope"])
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_WORKBENCH_SESSION, "state"], [call.args[0] for call in run.call_args_list])
+
+    def test_click_primitive_updates_state_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Canvas","url":"http://127.0.0.1:3333/canvas","text":"Canvas"}', stderr="")
+                if "click" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout="clicked", stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Canvas\n[1] Inspect", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload("click", target=["1"])
+                status = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "click")
+        self.assertEqual(status["required_proofs"], ["browser_click", "state_read"])
+        self.assertIn("browser click", status["proven_scope"])
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_WORKBENCH_SESSION, "click", "1"], [call.args[0] for call in run.call_args_list])
+
+    def test_input_primitive_requires_index_and_text(self) -> None:
+        with patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+             patch("spark_cli.cli.browser_use_package_available", return_value=True):
+            payload = cli.browser_use_primitive_payload("input", target=["3"], text="")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("Unsupported browser-use primitive", payload["last_failure_reason"])
+
     def test_open_can_attach_to_cdp_browser(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"

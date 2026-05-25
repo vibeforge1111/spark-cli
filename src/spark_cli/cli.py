@@ -104,6 +104,7 @@ TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
+BROWSER_USE_WORKBENCH_SESSION = "spark-browser-workbench"
 BROWSER_USE_PROBE_URL = "https://example.com"
 BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
 BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
@@ -5574,6 +5575,7 @@ def browser_use_status_payload() -> dict[str, Any]:
         proof_complete=proof_complete,
         proof_fresh=proof_fresh,
         screenshot_ok=screenshot_ok,
+        required_proofs=required_proofs,
         proofs=proofs,
     )
     return {
@@ -5624,6 +5626,8 @@ def browser_use_required_proofs_for_status(status_doc: dict[str, Any]) -> set[st
         return {"public_url_open", "state_read", "screenshot_capture"}
     if action == "task":
         return {"task_completed"}
+    if action in {"state", "click", "type", "input", "scroll", "back", "eval", "close"}:
+        return set(browser_use_primitive_proofs(action))
     return set(BROWSER_USE_REQUIRED_PROOFS)
 
 
@@ -5655,12 +5659,13 @@ def browser_use_status_receipt_problem(
     proof_complete: bool,
     proof_fresh: bool,
     screenshot_ok: bool,
+    required_proofs: set[str],
     proofs: list[str],
 ) -> str:
     if not ready_signal:
         return ""
     if not proof_complete:
-        missing = sorted(BROWSER_USE_REQUIRED_PROOFS.difference(set(proofs)))
+        missing = sorted(required_proofs.difference(set(proofs)))
         return "browser-use status is ready, but proof receipt is incomplete: missing " + ", ".join(missing)
     if not proof_fresh:
         return "browser-use proof receipt is stale; rerun `spark browser-use probe`."
@@ -5684,6 +5689,20 @@ def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
         scope.append("screenshot capture")
     if "task_completed" in proof_set:
         scope.append("browser task completed")
+    if "browser_click" in proof_set:
+        scope.append("browser click")
+    if "browser_type" in proof_set:
+        scope.append("browser type")
+    if "browser_input" in proof_set:
+        scope.append("browser input")
+    if "browser_scroll" in proof_set:
+        scope.append("browser scroll")
+    if "browser_back" in proof_set:
+        scope.append("browser back")
+    if "browser_close" in proof_set:
+        scope.append("browser close")
+    if "page_eval" in proof_set:
+        scope.append("page eval")
     return scope
 
 
@@ -5878,10 +5897,169 @@ def browser_use_public_url(raw_url: str) -> str:
     return urllib.parse.urlunparse(parsed)
 
 
+def browser_use_primitive_proofs(action: str) -> list[str]:
+    action = str(action or "").strip().lower()
+    if action == "state":
+        return ["state_read"]
+    if action == "click":
+        return ["browser_click", "state_read"]
+    if action == "type":
+        return ["browser_type", "state_read"]
+    if action == "input":
+        return ["browser_input", "state_read"]
+    if action == "scroll":
+        return ["browser_scroll", "state_read"]
+    if action == "back":
+        return ["browser_back", "state_read"]
+    if action == "eval":
+        return ["page_eval", "state_read"]
+    if action == "close":
+        return ["browser_close"]
+    return []
+
+
+def browser_use_primitive_payload(
+    action: str,
+    *,
+    target: list[str] | None = None,
+    text: str = "",
+    direction: str = "",
+    amount: str = "",
+    js: str = "",
+    session: str = BROWSER_USE_WORKBENCH_SESSION,
+    profile_options: BrowserUseProfileOptions | None = None,
+) -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    action = str(action or "").strip().lower()
+    session = str(session or BROWSER_USE_WORKBENCH_SESSION).strip() or BROWSER_USE_WORKBENCH_SESSION
+    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-{action}-{py_secrets.token_hex(4)}.json"
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "action": action,
+        "session": session,
+        "checked_at": now,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+        "receipt_path": str(receipt_path),
+        **browser_use_profile_payload(profile_options),
+    }
+    if not cli_path:
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use CLI is not on PATH.",
+        }
+
+    command_parts = browser_use_primitive_command_parts(
+        action,
+        target=target or [],
+        text=text,
+        direction=direction,
+        amount=amount,
+        js=js,
+        session=session,
+    )
+    if not command_parts:
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "blocked",
+            "last_failure_reason": f"Unsupported browser-use primitive: {action}",
+        }
+
+    proofs: list[str] = []
+    try:
+        result = run_browser_use_command(cli_path, *command_parts, timeout=90, profile_options=profile_options)
+        proofs.extend(browser_use_primitive_proofs(action))
+        state_excerpt = ""
+        page: dict[str, str] = {"title": "", "url": "", "text": ""}
+        if action != "close":
+            if action == "state":
+                state_excerpt = browser_use_bounded_text(result.stdout)
+            else:
+                state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45, profile_options=profile_options)
+                state_excerpt = browser_use_bounded_text(state.stdout)
+            page = browser_use_page_summary(cli_path, session, profile_options=profile_options)
+        payload = {
+            **base_payload,
+            "ok": True,
+            "status": "ready",
+            "last_success_at": now,
+            "proofs": proofs,
+            "final_url": str(page.get("url") or ""),
+            "title": str(page.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+            "state_excerpt": state_excerpt,
+            "command_stdout": browser_use_bounded_text(result.stdout, 1200),
+            "proven_scope": browser_use_action_scope(proofs),
+            "unproven_scope": [
+                "logged-in pages unless the selected or attached profile is authenticated",
+                "sensitive click workflows unless explicitly requested",
+            ],
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
+        return payload
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+            "proofs": proofs,
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        record_browser_use_status_from_receipt(payload)
+        return payload
+
+
+def browser_use_primitive_command_parts(
+    action: str,
+    *,
+    target: list[str],
+    text: str,
+    direction: str,
+    amount: str,
+    js: str,
+    session: str,
+) -> list[str]:
+    prefix = ["--session", session]
+    if action == "state":
+        return [*prefix, "state"]
+    if action == "click" and target:
+        return [*prefix, "click", *[str(item) for item in target]]
+    if action == "type" and str(text).strip():
+        return [*prefix, "type", str(text)]
+    if action == "input" and target and str(text).strip():
+        return [*prefix, "input", str(target[0]), str(text)]
+    if action == "scroll":
+        parts = [*prefix, "scroll"]
+        if str(amount).strip():
+            parts.extend(["--amount", str(amount).strip()])
+        if str(direction).strip():
+            parts.append(str(direction).strip())
+        return parts
+    if action == "back":
+        return [*prefix, "back"]
+    if action == "eval" and str(js).strip():
+        return [*prefix, "eval", str(js)]
+    if action == "close":
+        return [*prefix, "close"]
+    return []
+
+
 def browser_use_action_payload(
     raw_url: str,
     *,
     screenshot: bool = False,
+    session: str = BROWSER_USE_WORKBENCH_SESSION,
+    close_session: bool = False,
     profile_options: BrowserUseProfileOptions | None = None,
 ) -> dict[str, Any]:
     cli_path = browser_use_cli_path()
@@ -5923,7 +6101,7 @@ def browser_use_action_payload(
             profile_options=profile_options,
         )
 
-    session = "spark-browser-" + py_secrets.token_hex(6)
+    session = str(session or BROWSER_USE_WORKBENCH_SESSION).strip() or BROWSER_USE_WORKBENCH_SESSION
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
     proofs: list[str] = []
@@ -5979,14 +6157,15 @@ def browser_use_action_payload(
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
-        subprocess.run(
-            [cli_path, *browser_use_profile_cli_parts(profile_options), "--session", session, "close"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-            env=env,
-        )
+        if close_session:
+            subprocess.run(
+                [cli_path, *browser_use_profile_cli_parts(profile_options), "--session", session, "close"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+            )
 
 
 def browser_use_page_summary(
@@ -6178,6 +6357,20 @@ def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
         scope.append("page state read")
     if "screenshot_capture" in proof_set:
         scope.append("screenshot capture")
+    if "browser_click" in proof_set:
+        scope.append("browser click")
+    if "browser_type" in proof_set:
+        scope.append("browser type")
+    if "browser_input" in proof_set:
+        scope.append("browser input")
+    if "browser_scroll" in proof_set:
+        scope.append("browser scroll")
+    if "browser_back" in proof_set:
+        scope.append("browser back")
+    if "browser_close" in proof_set:
+        scope.append("browser close")
+    if "page_eval" in proof_set:
+        scope.append("page eval")
     return scope
 
 
@@ -6710,6 +6903,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         payload = browser_use_action_payload(
             str(getattr(args, "url", "") or ""),
             screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)),
+            session=str(getattr(args, "session", "") or BROWSER_USE_WORKBENCH_SESSION),
             profile_options=browser_use_profile_options_from_args(args),
         )
         if getattr(args, "json", False):
@@ -6727,6 +6921,39 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             if payload.get("screenshot_path"):
                 print("")
                 print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+            return 0
+        print(f"Browser-use {action} failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+        return 1
+
+    if action in {"state", "click", "type", "input", "scroll", "back", "eval", "close"}:
+        text_parts = getattr(args, "text", []) or []
+        js_parts = getattr(args, "js", []) or []
+        payload = browser_use_primitive_payload(
+            action,
+            target=[str(item) for item in (getattr(args, "target", []) or [])],
+            text=" ".join(text_parts).strip() if isinstance(text_parts, list) else str(text_parts or "").strip(),
+            direction=str(getattr(args, "direction", "") or ""),
+            amount=str(getattr(args, "amount", "") or ""),
+            js=" ".join(js_parts).strip() if isinstance(js_parts, list) else str(js_parts or "").strip(),
+            session=str(getattr(args, "session", "") or BROWSER_USE_WORKBENCH_SESSION),
+            profile_options=browser_use_profile_options_from_args(args),
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print(f"Browser-use {action} succeeded.")
+            if payload.get("title"):
+                print(f"Title: {payload['title']}")
+            if payload.get("final_url"):
+                print(f"URL: {payload['final_url']}")
+            excerpt = str(payload.get("state_excerpt") or payload.get("command_stdout") or "").strip()
+            if excerpt:
+                print("")
+                print(excerpt)
+            print("")
+            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
             return 0
         print(f"Browser-use {action} failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -16117,16 +16344,73 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
     browser_use_open_parser.add_argument("url")
     browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+    browser_use_open_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
     browser_use_open_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_open_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_open_parser.add_argument("--json", action="store_true")
     browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
     browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
     browser_use_screenshot_parser.add_argument("url")
+    browser_use_screenshot_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
     browser_use_screenshot_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
     browser_use_screenshot_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
+    browser_use_state_parser = browser_use_sub.add_parser("state", help="Read the current browser-use session state")
+    browser_use_state_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_state_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_state_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_state_parser.add_argument("--json", action="store_true")
+    browser_use_state_parser.set_defaults(func=cmd_browser_use, browser_use_command="state")
+    browser_use_click_parser = browser_use_sub.add_parser("click", help="Click an element by index or x/y coordinates")
+    browser_use_click_parser.add_argument("target", nargs="+", help="Element index or x y coordinates")
+    browser_use_click_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_click_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_click_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_click_parser.add_argument("--json", action="store_true")
+    browser_use_click_parser.set_defaults(func=cmd_browser_use, browser_use_command="click")
+    browser_use_type_parser = browser_use_sub.add_parser("type", help="Type text into the focused element")
+    browser_use_type_parser.add_argument("text", nargs=argparse.REMAINDER, help="Text to type")
+    browser_use_type_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_type_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_type_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_type_parser.add_argument("--json", action="store_true")
+    browser_use_type_parser.set_defaults(func=cmd_browser_use, browser_use_command="type")
+    browser_use_input_parser = browser_use_sub.add_parser("input", help="Clear and type text into an element by index")
+    browser_use_input_parser.add_argument("target", nargs=1, help="Element index")
+    browser_use_input_parser.add_argument("text", nargs=argparse.REMAINDER, help="Text to type")
+    browser_use_input_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_input_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_input_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_input_parser.add_argument("--json", action="store_true")
+    browser_use_input_parser.set_defaults(func=cmd_browser_use, browser_use_command="input")
+    browser_use_scroll_parser = browser_use_sub.add_parser("scroll", help="Scroll the current browser-use page")
+    browser_use_scroll_parser.add_argument("direction", nargs="?", choices=["up", "down"], default="down")
+    browser_use_scroll_parser.add_argument("--amount", help="Scroll amount in pixels", default="")
+    browser_use_scroll_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_scroll_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_scroll_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_scroll_parser.add_argument("--json", action="store_true")
+    browser_use_scroll_parser.set_defaults(func=cmd_browser_use, browser_use_command="scroll")
+    browser_use_back_parser = browser_use_sub.add_parser("back", help="Go back in the browser-use session")
+    browser_use_back_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_back_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_back_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_back_parser.add_argument("--json", action="store_true")
+    browser_use_back_parser.set_defaults(func=cmd_browser_use, browser_use_command="back")
+    browser_use_eval_parser = browser_use_sub.add_parser("eval", help="Run JavaScript in the browser-use session")
+    browser_use_eval_parser.add_argument("js", nargs=argparse.REMAINDER, help="JavaScript code")
+    browser_use_eval_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_eval_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_eval_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_eval_parser.add_argument("--json", action="store_true")
+    browser_use_eval_parser.set_defaults(func=cmd_browser_use, browser_use_command="eval")
+    browser_use_close_parser = browser_use_sub.add_parser("close", help="Close the browser-use session")
+    browser_use_close_parser.add_argument("--session", help="Browser-use session name", default=BROWSER_USE_WORKBENCH_SESSION)
+    browser_use_close_parser.add_argument("--profile", help="Optional browser-use CLI profile name", default="")
+    browser_use_close_parser.add_argument("--cdp-url", help="Optional Chrome DevTools URL for an already-running browser", default="")
+    browser_use_close_parser.add_argument("--json", action="store_true")
+    browser_use_close_parser.set_defaults(func=cmd_browser_use, browser_use_command="close")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
     browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
