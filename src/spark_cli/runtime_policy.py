@@ -10,6 +10,19 @@ from pathlib import Path
 
 SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
+# Module install commands may only run package-manifest install paths.
+# Anything that lets the caller execute arbitrary scripts / relocate the
+# install / re-enable lifecycle script execution is blocked.
+_ALLOWED_NPM_SUBCOMMANDS = frozenset({"install", "ci"})
+_DISALLOWED_NPM_FLAGS = frozenset({
+    "--ignore-scripts=false",
+    "--prefix",
+})
+_DISALLOWED_NPM_FLAG_PREFIXES = frozenset({
+    "--script-shell",
+    "--prefix=",
+})
+
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
     parts = shlex.split(command, posix=True)
@@ -54,6 +67,34 @@ def runtime_command_argv(command: str) -> list[str]:
     if executable == "node":
         return [resolve_runtime_executable("node"), *parts[1:]]
     if executable == "npm":
+        if len(parts) < 2:
+            raise SystemExit(
+                "npm with no subcommand is not permitted in module install commands. "
+                "Use 'npm install' or 'npm ci'."
+            )
+        subcommand = parts[1].lower()
+        if subcommand not in _ALLOWED_NPM_SUBCOMMANDS:
+            raise SystemExit(
+                f"npm subcommand {subcommand!r} is not permitted in module install commands. "
+                f"Allowed: {sorted(_ALLOWED_NPM_SUBCOMMANDS)}. "
+                "Remove 'npm run', 'npm exec', 'npx', and similar from the module's install commands."
+            )
+        # Block flags that re-enable script execution or relocate the install path.
+        # npm install itself runs lifecycle scripts unless --ignore-scripts is set;
+        # users can explicitly re-enable script execution with --ignore-scripts=false,
+        # and --script-shell / --prefix open further-reaching post-install paths.
+        for arg in parts[2:]:
+            if arg in _DISALLOWED_NPM_FLAGS:
+                raise SystemExit(
+                    f"npm flag {arg!r} is not permitted in module install commands. "
+                    f"Blocked flags: {sorted(_DISALLOWED_NPM_FLAGS)}."
+                )
+            for prefix in _DISALLOWED_NPM_FLAG_PREFIXES:
+                if arg.startswith(prefix):
+                    raise SystemExit(
+                        f"npm flag prefix {prefix!r} is not permitted in module install commands "
+                        f"(saw {arg!r})."
+                    )
         return npm_runtime_command_argv(parts[1:])
     if executable == "uv" and len(parts) >= 2 and parts[1] == "run":
         return [resolve_runtime_executable("uv"), *parts[1:]]
