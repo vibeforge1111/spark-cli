@@ -1094,10 +1094,13 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             save_secrets_index(index)
             return "keychain"
         except Exception as _keychain_exc:
+            # Log only the exception TYPE, never str(exc): a keychain write failure
+            # can raise with the secret value echoed in its message, and pattern-based
+            # scrubbing may miss a custom token. The class name is enough to diagnose.
             logging.warning(
                 "Keychain write failed for %r; falling back to file storage. "
-                "Run `spark secrets set %s` to migrate once keyring is available. Error: %s",
-                secret_id, secret_id, _keychain_exc,
+                "Run `spark secrets set %s` to migrate once keyring is available. Error type: %s",
+                secret_id, secret_id, type(_keychain_exc).__name__,
             )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     try:
