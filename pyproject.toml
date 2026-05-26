@@ -14,6 +14,12 @@ dependencies = [
     "keyring>=24.0",
 ]
 
+[project.optional-dependencies]
+browser-use = [
+    "browser-use==0.12.8",
+    "litellm==1.75.9",
+]
+
 [project.scripts]
 spark = "spark_cli.cli:main"
 spark-local = "spark_cli.cli:main"
