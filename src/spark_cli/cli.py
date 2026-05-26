@@ -4283,8 +4283,24 @@ def initialize_builder_runtime_home(
                 status="enabled",
             )
             notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except Exception as exc:  # pragma: no cover - defensive fallback for partial installs
+    except ImportError as exc:  # expected when spark_intelligence package is not yet installed
         notes.append(f"Builder runtime bootstrap skipped: {exc}")
+    except Exception as exc:  # pragma: no cover - unexpected: redacted log (type + truncated message)
+        # NOTE: this code path initializes Builder runtime state (telegram_admin_ids,
+        # pairing_mode, secrets-adjacent setup). A bare logging.exception() here would
+        # dump the full stack and (under some log handlers) local variables — risking
+        # leakage of secrets-adjacent context into logs. We log a redacted, bounded
+        # message by default and gate the verbose traceback behind an opt-in env flag.
+        logging.error(
+            "Builder runtime bootstrap failed unexpectedly: %s: %s",
+            type(exc).__name__, str(exc)[:200],
+        )
+        if os.environ.get("SPARK_VERBOSE_BOOTSTRAP_TRACEBACK"):
+            logging.exception("Builder runtime bootstrap traceback (verbose, env-gated)")
+        notes.append(
+            f"Builder runtime bootstrap failed: {type(exc).__name__} "
+            "(run with SPARK_VERBOSE_BOOTSTRAP_TRACEBACK=1 to log the traceback)"
+        )
     finally:
         if inserted:
             try:
