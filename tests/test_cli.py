@@ -1491,6 +1491,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertIsNone(dotted_get(config, "missing.key"))
         self.assertEqual(dotted_get(config, "missing.key", default="fallback"), "fallback")
 
+    def test_dotted_set_rejects_empty_key(self) -> None:
+        config: dict = {}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "", "value")
+
+    def test_dotted_set_rejects_empty_segments_from_double_dots(self) -> None:
+        config: dict = {}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "nested..key", "value")
+
+    def test_dotted_set_rejects_leading_dot(self) -> None:
+        config: dict = {}
+        with self.assertRaises(ValueError):
+            dotted_set(config, ".leading", "value")
+
+    def test_dotted_set_rejects_trailing_dot(self) -> None:
+        config: dict = {}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "trailing.", "value")
+
+    def test_dotted_unset_rejects_empty_key(self) -> None:
+        config = {"a": 1}
+        with self.assertRaises(ValueError):
+            dotted_unset(config, "")
+
+    def test_dotted_unset_rejects_empty_segments(self) -> None:
+        config = {"a": {"b": 1}}
+        with self.assertRaises(ValueError):
+            dotted_unset(config, "a..b")
+
     def test_dotted_unset_removes_nested_key_and_reports_hit(self) -> None:
         config = {"dashboard": {"port": 8765, "theme": "dark"}}
         self.assertTrue(dotted_unset(config, "dashboard.port"))

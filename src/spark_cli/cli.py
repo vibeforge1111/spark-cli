@@ -4470,6 +4470,17 @@ def public_local_path_ref(path: str | Path) -> str:
     return f"<local-path>/{candidate.name}"
 
 
+def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
+    """Expand the <spark-home> privacy-redaction placeholder back to the actual path.
+
+    `public_local_path_ref` replaces local paths with ``<spark-home>`` so
+    shareable diagnostic payloads stay portable.  Human-readable terminal
+    output (e.g. ``spark status`` without ``--json``) should show the real
+    path so operators know where to look.
+    """
+    return text.replace("<spark-home>", str(spark_home))
+
+
 def public_diagnostic_payload(value: Any) -> Any:
     if isinstance(value, dict):
         payload: dict[str, Any] = {}
@@ -7299,7 +7310,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if profile_summary:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {hint}")
+        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     print("")
 
     exit_code = 0
@@ -7311,9 +7322,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = str(module["detail"])
+        detail = expand_spark_home_placeholder(str(module["detail"]))
         if module.get("repair_hints"):
-            detail = f"{detail} -- {' '.join(module['repair_hints'])}"
+            expanded_hints = [expand_spark_home_placeholder(str(h)) for h in module["repair_hints"]]
+            detail = f"{detail} -- {' '.join(expanded_hints)}"
         print(f"{marker} {module['name']:<26} {detail}")
         if healthy is False:
             exit_code = 1
@@ -14554,7 +14566,20 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
+def _validate_config_key(key: str) -> None:
+    """Reject keys with empty segments (empty string, leading/trailing dots, or consecutive dots)."""
+    if not key:
+        raise ValueError("config key must not be empty")
+    parts = key.split(".")
+    for i, part in enumerate(parts):
+        if not part:
+            raise ValueError(
+                f"config key contains empty segment (check for leading dot, trailing dot, or consecutive dots): {key!r}"
+            )
+
+
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    _validate_config_key(key)
     parts = key.split(".")
     current = config
     for part in parts[:-1]:
@@ -14567,6 +14592,7 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    _validate_config_key(key)
     parts = key.split(".")
     current: Any = config
     for part in parts[:-1]:
@@ -14601,8 +14627,12 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
-    value = coerce_config_value(args.value)
-    dotted_set(config, args.key, value)
+    try:
+        value = coerce_config_value(args.value)
+        dotted_set(config, args.key, value)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
@@ -14610,8 +14640,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
-    if not dotted_unset(config, args.key):
-        print(f"{args.key} was not set")
+    try:
+        if not dotted_unset(config, args.key):
+            print(f"{args.key} was not set")
+            return 1
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
     save_user_config(config)
     print(f"Unset {args.key}")
