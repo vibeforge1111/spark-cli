@@ -4488,9 +4488,14 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Mirror atomic_write_json: random temp name (no predictable-name symlink race)
+    # and chmod 0o600 before the rename so the env file's secrets are never briefly
+    # world-readable.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def remove_managed_env_block(path: Path) -> None:
