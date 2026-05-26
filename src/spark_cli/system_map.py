@@ -5462,6 +5462,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
     return {
+        "ok": True,
         "schema_version": "spark.os_compile.summary.v0",
         "generated_at": system_map.get("generated_at"),
         "modules": len(as_list(system_map.get("modules"))),
