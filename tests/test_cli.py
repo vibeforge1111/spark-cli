@@ -4951,6 +4951,36 @@ class SparkCliTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             purge_spark_home(Path.home())
 
+    def test_safe_spark_home_for_purge_refuses_system_dirs(self) -> None:
+        from spark_cli.cli import safe_spark_home_for_purge
+
+        protected_prefixes = [
+            "/var", "/etc", "/opt", "/srv", "/usr", "/bin",
+            "/sbin", "/lib", "/boot", "/sys", "/proc", "/dev",
+            "/run", "/snap",
+        ]
+        for prefix in protected_prefixes:
+            with self.subTest(prefix=prefix):
+                with self.assertRaises(SystemExit):
+                    safe_spark_home_for_purge(Path(prefix) / "spark")
+
+    def test_safe_spark_home_for_purge_allows_user_dir(self) -> None:
+        from spark_cli.cli import safe_spark_home_for_purge
+
+        # A path under the user's home that is not home itself should be allowed
+        user_spark = Path.home() / ".spark-test-purge-ok"
+        try:
+            result = safe_spark_home_for_purge(user_spark)
+            self.assertEqual(result, user_spark.resolve())
+        except SystemExit:
+            self.fail("safe_spark_home_for_purge should allow a user subdirectory")
+
+    def test_safe_spark_home_for_purge_refuses_root(self) -> None:
+        from spark_cli.cli import safe_spark_home_for_purge
+
+        with self.assertRaises(SystemExit):
+            safe_spark_home_for_purge(Path("/"))
+
     def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
         args = Namespace()
         with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}), \
