@@ -33,7 +33,7 @@ That default setup installs:
 - `spark-character`
 - `spark-intelligence-builder`
 - `domain-chip-memory`
-- `spawner-ui`
+- `spawner-ui` (the upstream repo for this module is `vibeforge1111/vibeship-spawner-ui` — historical rename; the module key, directory name, and bundle reference stay `spawner-ui`)
 - `spark-telegram-bot`
 
 Voice is available as an opt-in starter path:
