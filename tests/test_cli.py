@@ -154,6 +154,7 @@ from spark_cli.cli import (
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
+    expand_spark_home_placeholder,
     public_local_path_ref,
     resolve_provider_test_target,
     save_codex_client_config,
@@ -8745,6 +8746,13 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(public_local_path_ref(spark_home / "config"), "<spark-home>/config")
                 self.assertEqual(public_local_path_ref("https://example.test/repo.git"), "https://example.test/repo.git")
                 self.assertEqual(public_local_path_ref(Path(tmp_dir) / "elsewhere" / "tool.exe"), "<local-path>/tool.exe")
+
+    def test_expand_spark_home_placeholder_for_human_status_output(self) -> None:
+        spark_home = Path("/tmp/spark")
+        self.assertEqual(
+            expand_spark_home_placeholder("Repair <spark-home>/config/settings.json", spark_home),
+            f"Repair {spark_home}/config/settings.json",
+        )
 
     def test_status_payload_masks_config_and_installed_local_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

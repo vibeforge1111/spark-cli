@@ -4470,6 +4470,10 @@ def public_local_path_ref(path: str | Path) -> str:
     return f"<local-path>/{candidate.name}"
 
 
+def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
+    return text.replace("<spark-home>", str(spark_home))
+
+
 def public_diagnostic_payload(value: Any) -> Any:
     if isinstance(value, dict):
         payload: dict[str, Any] = {}
@@ -7299,7 +7303,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if profile_summary:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {hint}")
+        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     print("")
 
     exit_code = 0
@@ -7311,9 +7315,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = str(module["detail"])
+        detail = expand_spark_home_placeholder(str(module["detail"]))
         if module.get("repair_hints"):
-            detail = f"{detail} -- {' '.join(module['repair_hints'])}"
+            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            detail = f"{detail} -- {' '.join(expanded_hints)}"
         print(f"{marker} {module['name']:<26} {detail}")
         if healthy is False:
             exit_code = 1
