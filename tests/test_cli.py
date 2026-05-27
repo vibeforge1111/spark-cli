@@ -1425,6 +1425,35 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertTrue(should_enforce_approval(args, decision))
 
+    def test_approval_classifier_hardens_secret_publish_and_wrapper_gaps(self) -> None:
+        cases = [
+            (["sudo", "git", "push", "--force-with-lease"], "git_history_mutation", "critical"),
+            (["env", "TOKEN=redacted", "gh", "auth", "token"], "credential_mutation", "critical"),
+            (["printenv"], "credential_mutation", "high"),
+            (["aws", "secretsmanager", "get-secret-value", "--secret-id", "spark"], "credential_mutation", "critical"),
+            (["kubectl", "get", "secret", "spark-token"], "credential_mutation", "critical"),
+            (["docker", "login", "ghcr.io"], "credential_mutation", "high"),
+            (["find", ".", "-name", "*.sh", "-exec", "sh", "{}", ";"], "remote_code_execution", "high"),
+            (["git", "submodule", "add", "https://example.test/repo.git"], "remote_code_execution", "high"),
+            (["twine", "upload", "dist/*"], "external_publish", "high"),
+            (["cargo", "publish"], "external_publish", "high"),
+            (["gem", "push", "spark.gem"], "external_publish", "high"),
+            (["nuget", "push", "spark.nupkg"], "external_publish", "high"),
+            (["docker", "push", "example/spark:latest"], "external_publish", "high"),
+            (["serverless", "deploy"], "external_publish", "high"),
+            (["pulumi", "up", "--yes"], "external_publish", "high"),
+            (["prisma", "migrate", "deploy"], "external_publish", "high"),
+            (["alembic", "upgrade", "head"], "external_publish", "high"),
+            (["gcloud", "run", "deploy", "spark"], "external_publish", "high"),
+            (["supabase", "db", "push"], "external_publish", "high"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
