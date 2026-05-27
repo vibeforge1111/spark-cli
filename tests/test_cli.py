@@ -2717,6 +2717,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(telegram_profile_relay_port(setup_state, "spark-agi"), 8789)
         self.assertEqual(telegram_profile_relay_port(setup_state, "missing"), 8788)
 
+    def test_telegram_profile_relay_port_rejects_out_of_range_ports(self) -> None:
+        setup_state = {
+            "telegram_profiles": {
+                "max-valid": {"relay_port": 65535},
+                "too-high": {"relay_port": 65536},
+                "negative": {"relay_port": -1},
+            }
+        }
+        self.assertEqual(telegram_profile_relay_port(setup_state, "max-valid"), 65535)
+        self.assertEqual(telegram_profile_relay_port(setup_state, "too-high"), 8788)
+        self.assertEqual(telegram_profile_relay_port(setup_state, "negative"), 8788)
+
     def test_next_telegram_profile_relay_port_skips_existing_ports(self) -> None:
         setup_state = {"telegram_profiles": {"qa": {"relay_port": 8789}, "agi": {"relay_port": "8790"}}}
         self.assertEqual(next_telegram_profile_relay_port(setup_state), 8791)

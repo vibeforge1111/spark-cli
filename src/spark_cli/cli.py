@@ -2846,7 +2846,7 @@ def telegram_profile_relay_port(
                 relay_port = int(profile_state.get("relay_port", 0))
             except (TypeError, ValueError):
                 relay_port = 0
-            if relay_port > 0:
+            if 0 < relay_port <= 65535:
                 return relay_port
     return default
 
