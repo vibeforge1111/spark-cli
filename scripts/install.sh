@@ -846,6 +846,44 @@ EOF
   log "Wrote shell env helper $env_file"
 }
 
+verify_install_layout() {
+  local wrapper="$SPARK_PREFIX/bin/spark"
+  local env_file="$SPARK_PREFIX/env"
+  local cli_dir="$SPARK_PREFIX/tools/spark-cli"
+  local python_bin="$SPARK_PREFIX/tools/spark-cli-venv/bin/python"
+
+  log "Verifying install layout"
+  if [ ! -d "$SPARK_PREFIX" ]; then
+    echo "Install prefix does not exist after install: $SPARK_PREFIX" >&2
+    exit 1
+  fi
+  if [ ! -d "$cli_dir" ]; then
+    echo "Spark CLI checkout is missing after install: $cli_dir" >&2
+    exit 1
+  fi
+  if [ ! -x "$python_bin" ]; then
+    echo "Spark CLI Python runtime is missing or not executable: $python_bin" >&2
+    exit 1
+  fi
+  if [ ! -x "$wrapper" ]; then
+    echo "Spark wrapper is missing or not executable: $wrapper" >&2
+    exit 1
+  fi
+  if [ ! -f "$env_file" ]; then
+    echo "Spark shell env helper is missing after install: $env_file" >&2
+    exit 1
+  fi
+  if ! grep -F "SPARK_HOME=\"$SPARK_PREFIX\"" "$wrapper" >/dev/null 2>&1; then
+    echo "Spark wrapper does not reference the resolved install prefix: $SPARK_PREFIX" >&2
+    exit 1
+  fi
+  if ! grep -F "$python_bin" "$wrapper" >/dev/null 2>&1; then
+    echo "Spark wrapper does not reference the installed Python runtime: $python_bin" >&2
+    exit 1
+  fi
+  log "Install layout verified"
+}
+
 write_shell_profile_hook() {
   if [ "$SPARK_SHELL_PROFILE" = "0" ]; then
     log "Skipping shell profile update"
@@ -1011,6 +1049,7 @@ main() {
   checkout_cli
   install_cli_venv
   write_wrapper
+  verify_install_layout
   write_shell_profile_hook
   run_setup
   run_autostart
