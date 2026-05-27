@@ -4293,7 +4293,7 @@ def initialize_builder_runtime_home(
         # message by default and gate the verbose traceback behind an opt-in env flag.
         logging.error(
             "Builder runtime bootstrap failed unexpectedly: %s: %s",
-            type(exc).__name__, str(exc)[:200],
+            type(exc).__name__, redact_sensitive_text(str(exc))[:200],
         )
         if os.environ.get("SPARK_VERBOSE_BOOTSTRAP_TRACEBACK"):
             logging.exception("Builder runtime bootstrap traceback (verbose, env-gated)")
