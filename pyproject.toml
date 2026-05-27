@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 browser-use = [
     "browser-use==0.12.8",
-    "litellm==1.75.9",
+    "litellm==1.83.10",
 ]
 
 [project.scripts]

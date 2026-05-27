@@ -1703,14 +1703,29 @@ def collect_module_provenance_payload(
     }
 
 
+REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
+REMOTE_GIT_REF_ATTEMPTS = 2
+
+
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    result = subprocess.run(
-        git_command("ls-remote", normalize_git_url(source), remote_ref),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            last_timeout = error
+    else:
+        raise RuntimeError(
+            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+        ) from last_timeout
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
@@ -1751,7 +1766,7 @@ def collect_registry_pin_drift_payload(
                     raise
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
-        except (RuntimeError, SystemExit) as error:
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
             checks.append(
                 {
                     "name": str(name),
@@ -3534,17 +3549,23 @@ def openai_base_url_kind(base_url: str | None) -> str:
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    effective_default = (
+        str(chat_provider)
+        if chat_provider and not agent_provider and default_provider == "not_configured"
+        else default_provider
+    )
     roles: dict[str, str] = {}
     for role in LLM_ROLES:
         explicit = getattr(args, f"{role}_llm_provider", None)
         if explicit:
             roles[role] = str(explicit)
         elif role == "mission":
-            roles[role] = default_mission_llm_provider(default_provider)
+            roles[role] = default_mission_llm_provider(effective_default)
         elif agent_provider:
             roles[role] = str(agent_provider)
         else:
-            roles[role] = default_provider
+            roles[role] = effective_default
     return roles
 
 
@@ -3857,6 +3878,30 @@ def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
         update_env_file(env_path, generated_env)
 
 
+def normalize_telegram_admin_ids(*values: str | None) -> str:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for raw in re.split(r"[\s,;]+", str(value)):
+            item = raw.strip()
+            if not item or item in seen:
+                continue
+            ids.append(item)
+            seen.add(item)
+    return ",".join(ids)
+
+
+def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
+    values = [base_env.get("ADMIN_TELEGRAM_IDS")]
+    for path in telegram_generated_env_paths(setup_state):
+        if not path.exists():
+            continue
+        values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
+    return normalize_telegram_admin_ids(*values)
+
+
 def configure_telegram_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     installed = resolve_installed_modules()
@@ -3890,7 +3935,10 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
         raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
 
     profile_env = dict(base_env)
-    profile_env["ADMIN_TELEGRAM_IDS"] = getattr(args, "admin_telegram_ids", None) or base_env.get("ADMIN_TELEGRAM_IDS", "")
+    profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
+        existing_telegram_admin_ids(base_env, setup_state),
+        getattr(args, "admin_telegram_ids", None),
+    )
     profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
     profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
     profile_env["SPARK_TELEGRAM_PROFILE"] = profile
@@ -4441,6 +4489,10 @@ def public_local_path_ref(path: str | Path) -> str:
         relative_text = relative.as_posix()
         return label if relative_text == "." else f"{label}/{relative_text}"
     return f"<local-path>/{candidate.name}"
+
+
+def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
+    return text.replace("<spark-home>", str(spark_home))
 
 
 def public_diagnostic_payload(value: Any) -> Any:
@@ -7272,7 +7324,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if profile_summary:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {hint}")
+        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     print("")
 
     exit_code = 0
@@ -7284,9 +7336,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = str(module["detail"])
+        detail = expand_spark_home_placeholder(str(module["detail"]))
         if module.get("repair_hints"):
-            detail = f"{detail} -- {' '.join(module['repair_hints'])}"
+            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            detail = f"{detail} -- {' '.join(expanded_hints)}"
         print(f"{marker} {module['name']:<26} {detail}")
         if healthy is False:
             exit_code = 1
@@ -13361,13 +13414,9 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
 
 
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
-    return bool(
-        running_as_hosted_context()
-        or env.get("SPARK_LIVE_CONTAINER")
-        or env.get("RAILWAY_ENVIRONMENT")
-        or env.get("SPARK_ALLOWED_HOSTS")
-        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    # Spawner liveness is separate from provider readiness; provider details
+    # stay visible through `spark providers status`.
+    return True
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
@@ -14527,7 +14576,13 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
+def validate_config_key(key: str) -> None:
+    if not key or any(not part for part in key.split(".")):
+        raise ValueError("config key must contain non-empty dot-separated segments")
+
+
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    validate_config_key(key)
     parts = key.split(".")
     current = config
     for part in parts[:-1]:
@@ -14540,6 +14595,7 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    validate_config_key(key)
     parts = key.split(".")
     current: Any = config
     for part in parts[:-1]:
@@ -14575,7 +14631,11 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
     value = coerce_config_value(args.value)
-    dotted_set(config, args.key, value)
+    try:
+        dotted_set(config, args.key, value)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
@@ -14583,7 +14643,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
-    if not dotted_unset(config, args.key):
+    try:
+        removed = dotted_unset(config, args.key)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if not removed:
         print(f"{args.key} was not set")
         return 1
     save_user_config(config)
