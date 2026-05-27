@@ -95,6 +95,27 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_network_upload_option(parts: list[str]) -> bool:
+    upload_long_options = {
+        "--data",
+        "--data-ascii",
+        "--data-binary",
+        "--data-raw",
+        "--data-urlencode",
+        "--form",
+        "--post-data",
+        "--post-file",
+        "--upload-file",
+    }
+    for part in parts:
+        lowered = part.lower()
+        if lowered in upload_long_options or any(lowered.startswith(f"{option}=") for option in upload_long_options):
+            return True
+        if part in {"-F", "-T", "-d"} or part.startswith(("-F", "-T", "-d")):
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -353,7 +374,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
         )
-    if first in {"curl", "wget"} and _contains_any(lowered, {"-t", "--upload-file", "-f", "--form", "--data", "--data-binary"}):
+    if first in {"curl", "wget"} and _has_network_upload_option(parts):
         return _decision(
             parts,
             ctx,
