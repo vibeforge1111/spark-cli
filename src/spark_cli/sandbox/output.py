@@ -25,7 +25,7 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(hf_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\b(AIza[0-9A-Za-z_\-]{25,})\b"),
     re.compile(r"\b(AKI[AI][A-Z0-9]{16})\b"),
-    re.compile(r"\b(ghp_[A-Za-z0-9]{20,})\b"),
+    re.compile(r"\b(gh[oprsu]_[A-Za-z0-9]{20,})\b"),
     re.compile(r"\b(github_pat_[A-Za-z0-9_]{20,})\b"),
     re.compile(r"\b(glpat-[A-Za-z0-9_\-]{20,})\b"),
     re.compile(r"\b(npm_[A-Za-z0-9]{10,})\b"),
