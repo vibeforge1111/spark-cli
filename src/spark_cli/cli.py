@@ -7960,6 +7960,34 @@ def dependency_hash_mode_errors() -> list[str]:
     return errors
 
 
+def _endpoint_url_for_policy(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value or value.startswith("${"):
+        return value
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = parsed.hostname or ""
+    if not host.endswith("."):
+        return value
+
+    normalized_host = host.rstrip(".")
+    if not normalized_host or parsed.username or parsed.password:
+        return value
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return value
+
+    host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
+    netloc = f"{host_part}:{port}" if port is not None else host_part
+    normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    if "://" not in value and normalized.startswith("http://"):
+        return normalized[len("http://"):]
+    return normalized
+
+
 def endpoint_security_errors() -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
@@ -7980,7 +8008,7 @@ def endpoint_security_errors() -> list[str]:
     for label, raw_url in urls:
         errors.extend(
             validate_url_safety(
-                raw_url,
+                _endpoint_url_for_policy(raw_url),
                 label=label,
                 policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
             )

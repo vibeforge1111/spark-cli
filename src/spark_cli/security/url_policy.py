@@ -57,7 +57,7 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
     if parsed.scheme not in {"http", "https"}:
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
 
-    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    host = (parsed.hostname or "").strip().lower()
     if not host:
         return [f"{label} has a URL without a hostname."]
     if host in METADATA_HOSTS:
