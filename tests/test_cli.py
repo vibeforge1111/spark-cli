@@ -476,6 +476,21 @@ class SparkCliTests(unittest.TestCase):
             self.assertNotIn(leaked, text)
         self.assertIn("[REDACTED]", text)
 
+    def test_sandbox_redaction_catches_github_token_prefixes(self) -> None:
+        tokens = [
+            "ghp_abcdefghijklmnopqrstuvwxyz123456",
+            "gho_abcdefghijklmnopqrstuvwxyz123456",
+            "ghu_abcdefghijklmnopqrstuvwxyz123456",
+            "ghs_abcdefghijklmnopqrstuvwxyz123456",
+            "ghr_abcdefghijklmnopqrstuvwxyz123456",
+        ]
+
+        text = redact_sandbox_text("\n".join(tokens))
+
+        for token in tokens:
+            self.assertNotIn(token, text)
+        self.assertEqual(text.count("[REDACTED]"), len(tokens))
+
     def test_sandbox_redaction_catches_url_credentials_and_jwts(self) -> None:
         jwt = (
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
