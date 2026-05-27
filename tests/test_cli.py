@@ -2346,6 +2346,50 @@ class SparkCliTests(unittest.TestCase):
             errors = endpoint_security_errors()
         self.assertTrue(any("169.254.169.254" in error for error in errors))
 
+    def test_endpoint_security_errors_flag_trailing_dot_metadata_host(self) -> None:
+        provider_payload = {
+            "ok": True,
+            "roles": {
+                "chat": {
+                    "provider": "openai",
+                    "model": "x",
+                    "auth_mode": "api_key",
+                    "ready": True,
+                    "base_url": "http://metadata.google.internal./computeMetadata/v1",
+                }
+            },
+        }
+        with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            errors = endpoint_security_errors()
+        self.assertTrue(any("cloud metadata service" in error for error in errors))
+
+    def test_endpoint_security_errors_reject_whitespace_and_control_hosts(self) -> None:
+        cases = [
+            " https://example.com/v1",
+            "https://ex ample.com/v1",
+            "https://example.com" + chr(10) + ".evil/v1",
+            "https://example.com%0a.evil/v1",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                provider_payload = {
+                    "ok": True,
+                    "roles": {
+                        "chat": {
+                            "provider": "openai",
+                            "model": "x",
+                            "auth_mode": "api_key",
+                            "ready": True,
+                            "base_url": url,
+                        }
+                    },
+                }
+                with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+                     patch("spark_cli.cli.read_generated_env", return_value={}):
+                    errors = endpoint_security_errors()
+                self.assertTrue(any("whitespace or control" in error for error in errors), errors)
+
     def test_url_policy_blocks_private_remote_targets(self) -> None:
         errors = validate_url_safety("http://10.0.0.8/v1", label="llm role chat")
         self.assertTrue(any("private network address" in error for error in errors))
