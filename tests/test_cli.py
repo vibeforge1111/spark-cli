@@ -7184,7 +7184,7 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080"])
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
-                "http://127.0.0.1:8080/api/providers",
+                "http://127.0.0.1:8080/api/health/live",
             )
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),

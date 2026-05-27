@@ -13393,13 +13393,9 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
 
 
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
-    return bool(
-        running_as_hosted_context()
-        or env.get("SPARK_LIVE_CONTAINER")
-        or env.get("RAILWAY_ENVIRONMENT")
-        or env.get("SPARK_ALLOWED_HOSTS")
-        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    # Spawner liveness is separate from provider readiness; provider details
+    # stay visible through `spark providers status`.
+    return True
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
