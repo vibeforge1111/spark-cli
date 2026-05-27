@@ -41,12 +41,14 @@ from spark_cli.cli import (
     collect_sandbox_verify_payload,
     collect_setup_configuration,
     collect_simple_fix_payload,
+    collect_autostart_fix_payload,
     collect_status_payload,
     collect_hosted_security_payload,
     collect_llm_doctor_context,
     collect_telegram_fix_payload,
     collect_verify_payload,
     configure_telegram_profile,
+    cmd_list,
     cmd_secrets_set,
     cmd_live,
     cmd_onboard,
@@ -102,6 +104,7 @@ from spark_cli.cli import (
     module_secret_env_bindings,
     module_trust_tier,
     next_telegram_profile_relay_port,
+    normalize_telegram_admin_ids,
     normalize_telegram_profile,
     path_is_write_denied,
     provider_env_blocklist,
@@ -111,9 +114,11 @@ from spark_cli.cli import (
     check_runtime_version_for_module,
     clear_install_progress,
     coerce_config_value,
+    codex_client_config_payload,
     dotted_get,
     dotted_set,
     dotted_unset,
+    validate_config_key,
     render_init_spark_toml,
     scaffold_module_files,
     save_json,
@@ -150,8 +155,11 @@ from spark_cli.cli import (
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
+    expand_spark_home_placeholder,
     public_local_path_ref,
     resolve_provider_test_target,
+    save_codex_client_config,
+    update_toml_top_level_scalars,
     redact_for_llm,
     redact_shareable_text,
     redact_sensitive_text,
@@ -467,6 +475,21 @@ class SparkCliTests(unittest.TestCase):
         ]:
             self.assertNotIn(leaked, text)
         self.assertIn("[REDACTED]", text)
+
+    def test_sandbox_redaction_catches_github_token_prefixes(self) -> None:
+        tokens = [
+            "ghp_abcdefghijklmnopqrstuvwxyz123456",
+            "gho_abcdefghijklmnopqrstuvwxyz123456",
+            "ghu_abcdefghijklmnopqrstuvwxyz123456",
+            "ghs_abcdefghijklmnopqrstuvwxyz123456",
+            "ghr_abcdefghijklmnopqrstuvwxyz123456",
+        ]
+
+        text = redact_sandbox_text("\n".join(tokens))
+
+        for token in tokens:
+            self.assertNotIn(token, text)
+        self.assertEqual(text.count("[REDACTED]"), len(tokens))
 
     def test_sandbox_redaction_catches_url_credentials_and_jwts(self) -> None:
         jwt = (
@@ -1491,6 +1514,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(dotted_unset(config, "dashboard.port"))
         self.assertEqual(config, {"dashboard": {"theme": "dark"}})
 
+    def test_config_key_rejects_empty_segments(self) -> None:
+        for key in ("", ".", "dashboard..port", ".dashboard", "dashboard."):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    validate_config_key(key)
+
+    def test_dotted_set_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "dashboard..theme", "dark")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
+
+    def test_dotted_unset_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_unset(config, ".dashboard")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
+
     def test_coerce_config_value_parses_json_primitives_but_keeps_bare_strings(self) -> None:
         self.assertEqual(coerce_config_value("true"), True)
         self.assertEqual(coerce_config_value("42"), 42)
@@ -2295,6 +2336,17 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
 
+    def test_url_policy_treats_loopback_host_aliases_as_local(self) -> None:
+        for host in ("localhost.localdomain", "ip6-localhost", "ip6-loopback"):
+            with self.subTest(host=host):
+                self.assertEqual(validate_url_safety(f"http://{host}:1234/v1", label="local provider"), [])
+                errors = validate_url_safety(
+                    f"http://{host}:1234/v1",
+                    label="hosted provider",
+                    policy=UrlPolicy(allow_local=False),
+                )
+                self.assertTrue(any("local-only host" in error for error in errors))
+
     def test_url_policy_can_block_local_targets_for_hosted_tools(self) -> None:
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
@@ -2636,6 +2688,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(statuses[1]["primary"])
         self.assertFalse(statuses[1]["autostart"])
 
+    def test_normalize_telegram_admin_ids_merges_and_deduplicates(self) -> None:
+        self.assertEqual(
+            normalize_telegram_admin_ids("111, 222", "222;333  444", "", None, "111"),
+            "111,222,333,444",
+        )
+
     def test_configure_telegram_profile_writes_isolated_env_and_spawner_webhook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -2700,7 +2758,7 @@ class SparkCliTests(unittest.TestCase):
                 setup_state = load_json(state_dir / "setup.json", {})
                 stored_token = fetch_secret("telegram.profiles.qa-bot.bot_token")
 
-        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "222")
+        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "111,222")
         self.assertEqual(profile_env["TELEGRAM_RELAY_PORT"], "8792")
         self.assertEqual(profile_env["SPARK_TELEGRAM_PROFILE"], "qa-bot")
         self.assertNotIn("BOT_TOKEN", profile_env)
@@ -2925,6 +2983,19 @@ class SparkCliTests(unittest.TestCase):
             module_path = Path(tmp_dir)
             (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
             (module_path / "keys.txt").write_text("-----BEGIN PRIVATE KEY-----\nabc\n", encoding="utf-8")
+            module = Module(
+                name="thirdparty",
+                path=module_path,
+                manifest={"module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            findings = scan_module_trust(module, trust_tier="community")
+        self.assertTrue(any(finding.category == "embedded-private-key" for finding in findings))
+
+    def test_scan_module_trust_finds_encrypted_private_key_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
+            (module_path / "keys.txt").write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nabc\n", encoding="utf-8")
             module = Module(
                 name="thirdparty",
                 path=module_path,
@@ -3841,6 +3912,33 @@ class SparkCliTests(unittest.TestCase):
             {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
         )
 
+    def test_resolve_llm_roles_uses_chat_provider_as_setup_default_when_no_global_provider(self) -> None:
+        args = build_parser().parse_args(["setup", "--non-interactive", "--chat-llm-provider", "zai"])
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
+        )
+
+    def test_resolve_llm_roles_does_not_let_chat_provider_override_agent_provider(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "--non-interactive",
+                "--chat-llm-provider",
+                "zai",
+                "--agent-llm-provider",
+                "openai",
+            ]
+        )
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "openai", "memory": "openai", "mission": "not_configured"},
+        )
+
     def test_build_llm_env_lmstudio_powers_agent_and_mission_by_default(self) -> None:
         args = build_parser().parse_args(
             [
@@ -4177,6 +4275,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"][0]["remote_ref"], "refs/heads/release/stability-2026-05-09")
         self.assertIn("matches remote refs/heads/release/stability-2026-05-09", payload["checks"][0]["detail"])
 
+    def test_registry_pin_drift_payload_reports_remote_timeout_without_traceback(self) -> None:
+        registry = {
+            "modules": {
+                "domain-chip-memory": {
+                    "source": "https://github.com/vibeforge1111/domain-chip-memory",
+                    "commit": "e" * 40,
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        def resolver(_source: str, _ref: str) -> str:
+            raise subprocess.TimeoutExpired(["git", "ls-remote"], 60)
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=resolver)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["checks"][0]["remote_head"], "")
+        self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
+
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
         self.assertEqual(args.target, "telegram-starter")
@@ -4467,6 +4586,23 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("Systemd service current command: yes", text)
             self.assertIn("Systemd service current Spark home: yes", text)
             self.assertNotIn("Systemd service warning: autostart command does not match", text)
+
+    def test_autostart_fix_payload_reports_missing_hook_as_not_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
+                 patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
+                 patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
+                 patch("spark_cli.cli.load_json", return_value={}):
+                payload = collect_autostart_fix_payload()
+
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["current startup target"]["ok"])
+        self.assertIn("No autostart hook is installed", checks["current startup target"]["detail"])
 
     def test_autostart_install_macos_replaces_existing_launch_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -4814,6 +4950,26 @@ class SparkCliTests(unittest.TestCase):
     def test_purge_spark_home_refuses_home_directory(self) -> None:
         with self.assertRaises(SystemExit):
             purge_spark_home(Path.home())
+
+    def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
+        args = Namespace()
+        with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}), \
+             patch("spark_cli.cli.load_json", return_value={}), \
+             patch("spark_cli.cli.discover_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_list(args), 0)
+
+        output = stdout.getvalue()
+        self.assertIn("No installed Spark modules recorded.", output)
+        self.assertIn("spark setup telegram-starter", output)
+
+    def test_skip_install_commands_help_text_is_present_on_install_setup_and_update(self) -> None:
+        parser = build_parser()
+        commands = parser._subparsers._group_actions[0].choices
+
+        self.assertIn("Skip post-install commands", commands["install"].format_help())
+        self.assertIn("Skip install commands", commands["setup"].format_help())
+        self.assertIn("Skip post-update install commands", commands["update"].format_help())
 
     def test_guide_prints_normie_onboarding_surface(self) -> None:
         args = build_parser().parse_args(["guide"])
@@ -6824,6 +6980,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result["detail"], "command timed out after 7s")
         run.assert_called_once_with("npm run health", module.path, env={}, timeout=7)
 
+    def test_evaluate_module_health_uses_primary_telegram_profile_env(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"},
+                "healthcheck": {"command": "npm run health:polling"},
+            },
+        )
+        setup_state = {
+            "primary_telegram_profile": "spark-recursive",
+            "telegram_profiles": {
+                "spark-agi": {"relay_port": 8789},
+                "spark-recursive": {"relay_port": 8791},
+            },
+        }
+        runtime_env = {"TELEGRAM_RELAY_PORT": "8791", "SPARK_TELEGRAM_PROFILE": "spark-recursive"}
+        completed = subprocess.CompletedProcess("npm run health:polling", 0, stdout="ok", stderr="")
+
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.module_runtime_env", return_value=runtime_env) as runtime_env_for_module, \
+             patch("spark_cli.cli.run_runtime_command", return_value=completed) as run:
+            result = evaluate_module_health(module)
+
+        self.assertTrue(result["healthy"])
+        runtime_env_for_module.assert_called_once_with(module, "spark-recursive")
+        run.assert_called_once_with("npm run health:polling", module.path, env=runtime_env, timeout=10)
+
     def test_format_start_warning_mentions_running_process_and_logs(self) -> None:
         module = Module(
             name="spawner-ui",
@@ -7063,7 +7247,7 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080"])
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
-                "http://127.0.0.1:8080/api/providers",
+                "http://127.0.0.1:8080/api/health/live",
             )
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),
@@ -7802,6 +7986,90 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+
+    def test_parser_accepts_codex_client_config_command(self) -> None:
+        args = build_parser().parse_args(["providers", "codex", "--service-tier", "fast", "--reasoning-effort", "high"])
+        self.assertEqual(args.providers_command, "codex")
+        self.assertEqual(args.service_tier, "fast")
+        self.assertEqual(args.reasoning_effort, "high")
+
+    def test_codex_client_config_payload_reads_safe_top_level_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = Path(tmp_dir) / "config.toml"
+            config.write_text(
+                'model = "gpt-5.5"\n'
+                'model_reasoning_effort = "high"\n'
+                'service_tier = "fast"\n'
+                '\n'
+                '[profiles.other]\n'
+                'service_tier = "slow"\n',
+                encoding="utf-8",
+            )
+
+            payload = codex_client_config_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["values"]["model"], "gpt-5.5")
+        self.assertEqual(payload["values"]["model_reasoning_effort"], "high")
+        self.assertEqual(payload["values"]["service_tier"], "fast")
+        self.assertNotIn("slow", json.dumps(payload))
+
+    def test_save_codex_client_config_updates_top_level_values_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = Path(tmp_dir) / "config.toml"
+            config.write_text(
+                'model = "gpt-5.4"\n'
+                '\n'
+                '[profiles.speed]\n'
+                'model_reasoning_effort = "medium"\n'
+                'service_tier = "default"\n',
+                encoding="utf-8",
+            )
+
+            payload = save_codex_client_config(
+                {"model": "gpt-5.5", "model_reasoning_effort": "high", "service_tier": "fast"},
+                {"CODEX_HOME": tmp_dir},
+            )
+            updated = config.read_text(encoding="utf-8")
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["changed"], True)
+        self.assertIn('model = "gpt-5.5"', updated)
+        self.assertIn('model_reasoning_effort = "high"\nservice_tier = "fast"\n\n[profiles.speed]', updated)
+        self.assertIn('[profiles.speed]\nmodel_reasoning_effort = "medium"\nservice_tier = "default"', updated)
+
+    def test_update_toml_top_level_scalars_preserves_sections(self) -> None:
+        updated = update_toml_top_level_scalars(
+            'model = "old"\n\n[profiles.speed]\nservice_tier = "default"\n',
+            {"service_tier": "fast"},
+        )
+
+        self.assertIn('model = "old"', updated)
+        self.assertIn('service_tier = "fast"\n\n[profiles.speed]', updated)
+        self.assertIn('[profiles.speed]\nservice_tier = "default"', updated)
+
+    def test_provider_status_adds_codex_client_only_to_codex_roles(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "codex",
+                "roles": {
+                    "chat": {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"},
+                    "builder": {"provider": "openai", "model": "gpt-5.5", "auth_mode": "api_key"},
+                    "memory": {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"},
+                    "mission": {"provider": "zai", "model": "glm-5.1", "auth_mode": "api_key"},
+                },
+            },
+            "secret_keys": [],
+        }
+        codex_payload = {"ok": True, "values": {"service_tier": "fast", "model_reasoning_effort": "high"}}
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
+            payload = provider_status_payload()
+
+        self.assertEqual(payload["roles"]["chat"]["codex_client"], codex_payload)
+        self.assertEqual(payload["roles"]["memory"]["codex_client"], codex_payload)
+        self.assertNotIn("codex_client", payload["roles"]["builder"])
+        self.assertNotIn("codex_client", payload["roles"]["mission"])
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])
@@ -8561,6 +8829,13 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(public_local_path_ref("https://example.test/repo.git"), "https://example.test/repo.git")
                 self.assertEqual(public_local_path_ref(Path(tmp_dir) / "elsewhere" / "tool.exe"), "<local-path>/tool.exe")
 
+    def test_expand_spark_home_placeholder_for_human_status_output(self) -> None:
+        spark_home = Path("/tmp/spark")
+        self.assertEqual(
+            expand_spark_home_placeholder("Repair <spark-home>/config/settings.json", spark_home),
+            f"Repair {spark_home}/config/settings.json",
+        )
+
     def test_status_payload_masks_config_and_installed_local_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             spark_home = Path(tmp_dir) / ".spark"
@@ -9196,6 +9471,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.provider_status_payload", return_value=provider_payload):
             payload = collect_simple_fix_payload("spawner")
 
+        self.assertFalse(payload["ok"])
         route_context = payload["route_context"]
         self.assertEqual(route_context["schema_version"], "spark.repair_route_context.v1")
         self.assertEqual(route_context["candidate_route"], "spark.repair")
@@ -11177,6 +11453,15 @@ class SparkCliTests(unittest.TestCase):
         bash = shutil.which("bash")
         if not bash:
             self.skipTest("bash is not available")
+        bash_probe = subprocess.run(
+            [bash, "-c", "printf ok"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if bash_probe.returncode != 0 or bash_probe.stdout != "ok":
+            self.skipTest(f"bash is not usable: {bash_probe.stderr or bash_probe.stdout}")
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
         with tempfile.TemporaryDirectory() as tmp_dir:
             env = dict(os.environ)

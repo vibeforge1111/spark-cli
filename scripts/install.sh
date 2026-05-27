@@ -3,8 +3,8 @@ set -euo pipefail
 
 SPARK_PREFIX="${SPARK_PREFIX:-$HOME/.spark}"
 SPARK_CLI_SOURCE="${SPARK_CLI_SOURCE:-https://github.com/vibeforge1111/spark-cli}"
-SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-05-17-r13}"
-SPARK_DEFAULT_CLI_REF="264baaaf0cbb3e1790b20c425b391d2919505a21"
+SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-05-24-r15}"
+SPARK_DEFAULT_CLI_REF="7ab32b23003726dcea8a414c8e9395bf13f45e12"
 SPARK_CLI_REF_USER_SET=0
 if [ -n "${SPARK_CLI_REF:-}" ]; then
   SPARK_CLI_REF_USER_SET=1
@@ -821,8 +821,9 @@ install_cli_venv() {
   "$SPARK_PYTHON_BIN" -m venv "$venv_dir"
   log "Upgrading pip in Spark CLI virtualenv"
   "$venv_dir/bin/python" -m pip install --upgrade pip >/dev/null
-  log "Installing Spark CLI package"
-  "$venv_dir/bin/python" -m pip install -e "$cli_dir"
+  log "Installing Spark CLI package with browser-use support"
+  "$venv_dir/bin/python" -m pip install -e "$cli_dir[browser-use]"
+  "$venv_dir/bin/browser-use" install >/dev/null || true
 }
 
 write_wrapper() {
