@@ -396,17 +396,31 @@ class AccessSetupTests(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         ps1 = (repo / "scripts" / "docker-sandbox-run.ps1").read_text(encoding="utf-8")
         sh = (repo / "scripts" / "docker-sandbox-run.sh").read_text(encoding="utf-8")
+        workflow = (repo / ".github" / "workflows" / "docker-optional.yml").read_text(encoding="utf-8")
 
         self.assertIn("PositionalBinding=$false", ps1)
         self.assertIn("ValueFromRemainingArguments", ps1)
         self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", ps1)
         self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", sh)
+        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", workflow)
         self.assertIn("--network \"${network}\"", sh)
         for script in (ps1, sh):
             self.assertNotIn("/var/run/docker.sock", script)
             self.assertNotIn("--mount", script)
             self.assertNotIn("--volume", script)
             self.assertNotIn(" -v ", script)
+
+    def test_dev_docker_smoke_uses_bounded_docker_checks(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        dockerfile = (repo / "docker" / "dev" / "Dockerfile").read_text(encoding="utf-8")
+        ps1 = (repo / "scripts" / "docker-dev-smoke.ps1").read_text(encoding="utf-8")
+        sh = (repo / "scripts" / "docker-dev-smoke.sh").read_text(encoding="utf-8")
+
+        for source in (dockerfile, ps1, sh):
+            self.assertIn("tests/test_docker_entrypoint.py", source)
+            self.assertIn("spark --help", source)
+            self.assertNotIn("tests/test_cli.py -q", source)
+        self.assertIn("COPY docker ./docker", dockerfile)
 
 
 if __name__ == "__main__":
