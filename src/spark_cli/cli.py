@@ -14559,7 +14559,13 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
+def validate_config_key(key: str) -> None:
+    if not key or any(not part for part in key.split(".")):
+        raise ValueError("config key must contain non-empty dot-separated segments")
+
+
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    validate_config_key(key)
     parts = key.split(".")
     current = config
     for part in parts[:-1]:
@@ -14572,6 +14578,7 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    validate_config_key(key)
     parts = key.split(".")
     current: Any = config
     for part in parts[:-1]:
@@ -14607,7 +14614,11 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
     value = coerce_config_value(args.value)
-    dotted_set(config, args.key, value)
+    try:
+        dotted_set(config, args.key, value)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
@@ -14615,7 +14626,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
-    if not dotted_unset(config, args.key):
+    try:
+        removed = dotted_unset(config, args.key)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if not removed:
         print(f"{args.key} was not set")
         return 1
     save_user_config(config)
