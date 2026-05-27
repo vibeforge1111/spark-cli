@@ -220,3 +220,23 @@ For local development, patch the registry to point at sibling local repos or run
 ## Future Webhook Work
 
 Webhook support is intentionally out of launch v1. Reintroduce it only through a hosted gateway migration with secret-token validation, replay protection, ingress tests, and public-network threat modeling. Do not document webhook setup as a user launch path until that exists.
+
+## Known UX Gap - Architecture Explanation
+
+Mission #16 QA on 2026-05-22 produced a maintainer-reviewed backlog note: first replies to architecture-confusion questions can under-explain the system boundary. This is QA evidence, not a runtime instruction or proof that Telegram behavior is fixed.
+
+Trigger: a user asks which AI is doing what.
+
+Expected response:
+
+1. Identify the current surface correctly.
+2. Explain Spark, the outside LLM, Spawner, Builder, and memory in one reply.
+3. Avoid requiring follow-up questions for the basic architecture map.
+
+Observed gap:
+
+- The response named the wrong surface.
+- It collapsed the system into one AI and skipped Spawner, Builder, and memory.
+- The complete explanation only appeared after follow-up questions.
+
+Fix needed: first responses to architecture-confusion questions should provide the complete boundary map without claiming authority from the wrong surface. Telegram behavior changes belong in the Telegram/Builder owner repos, not in this CLI doc.
