@@ -118,6 +118,7 @@ from spark_cli.cli import (
     dotted_get,
     dotted_set,
     dotted_unset,
+    validate_config_key,
     render_init_spark_toml,
     scaffold_module_files,
     save_json,
@@ -1497,6 +1498,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(dotted_unset(config, "dashboard.port"))
         self.assertFalse(dotted_unset(config, "dashboard.port"))
         self.assertEqual(config, {"dashboard": {"theme": "dark"}})
+
+    def test_config_key_rejects_empty_segments(self) -> None:
+        for key in ("", ".", "dashboard..port", ".dashboard", "dashboard."):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    validate_config_key(key)
+
+    def test_dotted_set_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "dashboard..theme", "dark")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
+
+    def test_dotted_unset_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_unset(config, ".dashboard")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
 
     def test_coerce_config_value_parses_json_primitives_but_keeps_bare_strings(self) -> None:
         self.assertEqual(coerce_config_value("true"), True)
