@@ -14,14 +14,62 @@ SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 # Anything that lets the caller execute arbitrary scripts / relocate the
 # install / re-enable lifecycle script execution is blocked.
 _ALLOWED_NPM_SUBCOMMANDS = frozenset({"install", "ci"})
+# Exact-match flags that are never allowed (the "safe" form of the same flag,
+# e.g. --ignore-scripts=true or --global=false, is intentionally NOT blocked).
 _DISALLOWED_NPM_FLAGS = frozenset({
-    "--ignore-scripts=false",
-    "--prefix",
+    "--ignore-scripts=false",   # re-enables lifecycle scripts
+    "-g",                       # global install escapes the module sandbox dir
+    "--global",
+    "--global=true",
+    "--location=global",        # equivalent to --global
+    "--install-links",          # installs local deps as real installs (can run scripts)
+    "--install-links=true",
+    "--unsafe-perm",            # runs scripts as root
+    "--unsafe-perm=true",
 })
+# Prefix-match: blocks the flag and any =value / space-separated value form,
+# because ANY value of these flags is dangerous.
 _DISALLOWED_NPM_FLAG_PREFIXES = frozenset({
-    "--script-shell",
-    "--prefix=",
+    "--script-shell",   # custom shell for lifecycle scripts
+    "--prefix",         # relocate the install target
+    "--userconfig",     # point npm at an attacker-controlled .npmrc...
+    "--globalconfig",   # ...which can itself set ignore-scripts=false, script-shell, registry
+    "--registry",       # redirect the package source (supply-chain / script delivery)
+    "--cache",          # relocate the cache dir
 })
+
+# npm also honours npm_config_* / NPM_CONFIG_* environment variables and
+# NODE_OPTIONS, any of which can re-enable lifecycle scripts, point npm at an
+# attacker-controlled config/registry, or inject `--require <module>` into the
+# Node process — bypassing the argv policy above. Strip these for module-install
+# npm invocations so the environment cannot override the policy.
+_DISALLOWED_NPM_ENV_CONFIG_KEYS = frozenset({
+    "ignore_scripts", "foreground_scripts", "script_shell", "unsafe_perm",
+    "userconfig", "globalconfig", "registry", "prefix", "global",
+    "cache", "install_links", "location", "node_options",
+})
+
+
+def sanitize_npm_env(env: dict[str, str]) -> dict[str, str]:
+    """Drop env vars that could re-enable scripts or redirect npm's config."""
+    cleaned: dict[str, str] = {}
+    for key, value in env.items():
+        lower_key = key.lower()
+        if lower_key == "node_options":
+            continue
+        if lower_key.startswith("npm_config_") and \
+                lower_key[len("npm_config_"):] in _DISALLOWED_NPM_ENV_CONFIG_KEYS:
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
+def _is_npm_invocation(command: str) -> bool:
+    try:
+        parts = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+    return bool(parts) and parts[0].lower() == "npm"
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
@@ -112,6 +160,12 @@ def run_runtime_command(
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = runtime_command_argv(command)
+    run_env = env if env is not None else os.environ.copy()
+    # For npm installs, strip env vars that could re-enable scripts or redirect
+    # config, so the argv policy in runtime_command_argv() cannot be bypassed
+    # through the environment.
+    if _is_npm_invocation(command):
+        run_env = sanitize_npm_env(run_env)
     try:
         return subprocess.run(
             argv,
@@ -121,7 +175,7 @@ def run_runtime_command(
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=env or os.environ.copy(),
+            env=run_env,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as error:
