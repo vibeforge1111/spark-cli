@@ -1703,14 +1703,29 @@ def collect_module_provenance_payload(
     }
 
 
+REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
+REMOTE_GIT_REF_ATTEMPTS = 2
+
+
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    result = subprocess.run(
-        git_command("ls-remote", normalize_git_url(source), remote_ref),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            last_timeout = error
+    else:
+        raise RuntimeError(
+            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+        ) from last_timeout
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
@@ -1751,7 +1766,7 @@ def collect_registry_pin_drift_payload(
                     raise
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
-        except (RuntimeError, SystemExit) as error:
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
             checks.append(
                 {
                     "name": str(name),
