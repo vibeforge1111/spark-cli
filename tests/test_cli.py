@@ -1333,6 +1333,34 @@ class SparkCliTests(unittest.TestCase):
         decision = approval_required_for_command(["spark", "setup", "--no-autostart"], CommandContext())
         self.assertFalse(decision.requires_approval)
 
+    def test_approval_classifier_flags_setup_api_key_secret(self) -> None:
+        decision = approval_required_for_command(
+            [
+                "spark",
+                "setup",
+                "telegram-starter",
+                "--llm-provider",
+                "openai",
+                "--openai-api-key",
+                "sk-test-secret-1234567890",
+                "--no-autostart",
+            ],
+            CommandContext(),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "credential_mutation")
+        self.assertEqual(decision.confirmation_phrase, "approve secret change")
+        self.assertNotIn("sk-test-secret", decision.command_digest)
+
+    def test_approval_classifier_flags_setup_equals_secret_option(self) -> None:
+        decision = approval_required_for_command(
+            ["spark", "setup", "--secret=llm.openai.api_key=sk-test-secret-1234567890", "--no-autostart"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "credential_mutation")
+        self.assertEqual(decision.approval_mode, "blocked")
+
     def test_approval_classifier_flags_destructive_delete(self) -> None:
         decision = approval_required_for_command(["rm", "-rf", "/tmp/spark-test"], CommandContext())
         self.assertTrue(decision.requires_approval)
