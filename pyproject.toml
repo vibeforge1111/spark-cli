@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 dependencies = [
-    "certifi>=2024.8.30",
+    "certifi>=2026.5.20",
     "keyring>=24.0",
 ]
 
