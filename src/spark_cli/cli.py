@@ -7960,6 +7960,27 @@ def dependency_hash_mode_errors() -> list[str]:
     return errors
 
 
+def _has_endpoint_space_or_control(value: str) -> bool:
+    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
+    raw_value = str(raw_url or "")
+    value = raw_value.strip()
+    if not value or value.startswith("${"):
+        return []
+
+    errors: list[str] = []
+    if _has_endpoint_space_or_control(raw_value):
+        errors.append(f"{label} contains whitespace or control characters.")
+
+    parse_value = value if "://" in value else f"http://{value}"
+    host = (urllib.parse.urlparse(parse_value).hostname or "").strip().lower()
+    if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
+        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
+    return errors
+
+
 def endpoint_security_errors() -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
@@ -7975,9 +7996,10 @@ def endpoint_security_errors() -> list[str]:
         for key, value in env_values.items():
             if ("URL" in key or key.endswith("_HOST")) and value:
                 for raw_url in str(value).split(","):
-                    urls.append((f"{env_name}:{key}", raw_url.strip()))
+                    urls.append((f"{env_name}:{key}", raw_url))
 
     for label, raw_url in urls:
+        errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
         errors.extend(
             validate_url_safety(
                 raw_url,

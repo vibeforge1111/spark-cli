@@ -46,20 +46,13 @@ def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
         return None
 
 
-def _has_url_space_or_control(value: str) -> bool:
-    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
-
-
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
-    raw_value = str(raw_url or "")
-    value = raw_value.strip()
+    value = str(raw_url or "").strip()
     if not value or value.startswith("${"):
         return []
 
     errors: list[str] = []
-    if _has_url_space_or_control(raw_value):
-        errors.append(f"{label} contains whitespace or control characters.")
     parsed = _parse_url(value)
     if parsed.scheme not in {"http", "https"}:
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
@@ -67,8 +60,6 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
     host = (parsed.hostname or "").strip().lower()
     if not host:
         return [f"{label} has a URL without a hostname."]
-    if _has_url_space_or_control(urllib.parse.unquote(host)):
-        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
     if host in METADATA_HOSTS:
         errors.append(f"{label} points at cloud metadata service `{host}`.")
     if host in UNSAFE_BIND_HOSTS:
