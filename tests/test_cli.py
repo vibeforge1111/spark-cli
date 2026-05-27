@@ -4248,6 +4248,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"][0]["remote_ref"], "refs/heads/release/stability-2026-05-09")
         self.assertIn("matches remote refs/heads/release/stability-2026-05-09", payload["checks"][0]["detail"])
 
+    def test_registry_pin_drift_payload_reports_remote_timeout_without_traceback(self) -> None:
+        registry = {
+            "modules": {
+                "domain-chip-memory": {
+                    "source": "https://github.com/vibeforge1111/domain-chip-memory",
+                    "commit": "e" * 40,
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        def resolver(_source: str, _ref: str) -> str:
+            raise subprocess.TimeoutExpired(["git", "ls-remote"], 60)
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=resolver)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["checks"][0]["remote_head"], "")
+        self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
+
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
         self.assertEqual(args.target, "telegram-starter")
