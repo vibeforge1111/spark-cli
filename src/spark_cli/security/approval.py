@@ -289,6 +289,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
+    if first == "kubectl" and (
+        (lowered[1:3] == ["config", "view"] and "--raw" in lowered)
+        or (
+            len(lowered) > 2
+            and lowered[1] in {"get", "describe"}
+            and lowered[2] in {"secret", "secrets"}
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "kubectl command can reveal Kubernetes secret or kubeconfig credential material.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes secret read",
+        )
     if first in {"kubectl", "helm", "terraform"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install"}):
         return _decision(
             parts,
