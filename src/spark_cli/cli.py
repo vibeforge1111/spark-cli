@@ -3534,17 +3534,23 @@ def openai_base_url_kind(base_url: str | None) -> str:
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    effective_default = (
+        str(chat_provider)
+        if chat_provider and not agent_provider and default_provider == "not_configured"
+        else default_provider
+    )
     roles: dict[str, str] = {}
     for role in LLM_ROLES:
         explicit = getattr(args, f"{role}_llm_provider", None)
         if explicit:
             roles[role] = str(explicit)
         elif role == "mission":
-            roles[role] = default_mission_llm_provider(default_provider)
+            roles[role] = default_mission_llm_provider(effective_default)
         elif agent_provider:
             roles[role] = str(agent_provider)
         else:
-            roles[role] = default_provider
+            roles[role] = effective_default
     return roles
 
 

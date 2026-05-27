@@ -3897,6 +3897,33 @@ class SparkCliTests(unittest.TestCase):
             {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
         )
 
+    def test_resolve_llm_roles_uses_chat_provider_as_setup_default_when_no_global_provider(self) -> None:
+        args = build_parser().parse_args(["setup", "--non-interactive", "--chat-llm-provider", "zai"])
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
+        )
+
+    def test_resolve_llm_roles_does_not_let_chat_provider_override_agent_provider(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "--non-interactive",
+                "--chat-llm-provider",
+                "zai",
+                "--agent-llm-provider",
+                "openai",
+            ]
+        )
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "openai", "memory": "openai", "mission": "not_configured"},
+        )
+
     def test_build_llm_env_lmstudio_powers_agent_and_mission_by_default(self) -> None:
         args = build_parser().parse_args(
             [
