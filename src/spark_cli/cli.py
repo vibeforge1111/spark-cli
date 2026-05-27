@@ -1541,19 +1541,40 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = (
-                        bool(expected_hosted)
-                        and hosted_hash == expected_hosted
-                        and (expected_hosted == expected or hosted_source_basis == "installed_checkout")
+                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
                     )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    detail = (
-                        f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                        if hosted_ok
-                        else f"{url} does not match hosted checksum metadata or expected Spark CLI source pins."
+                    hosted_matches_hosted_release = (
+                        hosted_pins["releaseName"] == hosted_release_name
+                        and hosted_pins["ref"] == hosted_release_ref
                     )
+                    hosted_is_different_release_than_local = (
+                        hosted_source_basis == "committed_manifest"
+                        and bool(hosted_release_name)
+                        and hosted_release_name != expected_hosted_release
+                    )
+                    if hosted_ok:
+                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                    elif (
+                        hosted_metadata_checksum_ok
+                        and not hosted_checksum_ok
+                        and hosted_matches_hosted_release
+                        and hosted_is_different_release_than_local
+                    ):
+                        detail = (
+                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                            "committed installer manifest/source pins. The hosted site may be newer than the local "
+                            "verifier; update Spark CLI or validate from the release commit before calling the "
+                            "hosted copy stale."
+                        )
+                    elif not hosted_metadata_checksum_ok:
+                        detail = f"{url} does not match hosted checksum metadata."
+                    else:
+                        detail = f"{url} does not install the expected Spark CLI source pins."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1603,22 +1624,29 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 if isinstance(hosted_release_manifest.get("sparkCli"), dict)
                 else {}
             )
-            release_ok = spark_cli.get("releaseName") == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            actual_release = str(spark_cli.get("releaseName", ""))
+            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            if release_ok:
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI commit."
+            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                release_detail = (
+                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                    "before treating the hosted copy as outdated."
+                )
+            else:
+                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
             checks.append(
                 {
                     "name": "hosted_release_manifest",
                     "ok": release_ok,
                     "expected_release": expected_hosted_release,
-                    "actual_release": str(spark_cli.get("releaseName", "")),
+                    "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": (
-                        "Hosted release manifest has the current release name and expected Spark CLI commit."
-                        if release_ok
-                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-                    ),
+                    "detail": release_detail,
                 }
             )
         try:
@@ -1633,10 +1661,18 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_hashes == hosted_expected
                 and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
             )
+            command_hashes_match_hosted = command_hashes == hosted_expected
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
-                commands_detail = (
-                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                    commands_detail = (
+                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                        "checkout's expected release pins. The hosted site may be newer or older than the local "
+                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                    )
+                else:
+                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                commands_detail += (
                     f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
                     f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
                     f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "

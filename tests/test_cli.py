@@ -9980,6 +9980,130 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["hosted_release_manifest"]["ok"])
         self.assertTrue(checks["hosted_commands_metadata"]["ok"])
 
+    def test_hosted_installer_checks_explain_newer_hosted_copy_without_checksum_confusion(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.payload
+
+        old_ref = "1" * 40
+        new_ref = "2" * 40
+        old_release = "spark-cli-launch-old"
+        new_release = "spark-cli-launch-new"
+
+        def shell_script(release: str, ref: str) -> bytes:
+            return (
+                "#!/bin/sh\n"
+                f'SPARK_CLI_RELEASE_NAME="${{SPARK_CLI_RELEASE_NAME:-{release}}}"\n'
+                f'SPARK_DEFAULT_CLI_REF="{ref}"\n'
+            ).encode("utf-8")
+
+        def powershell_script(release: str, ref: str) -> bytes:
+            return (
+                f'param([string]$Ref = "{ref}")\n'
+                f'$SparkCliReleaseName = "{release}"\n'
+            ).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_installers = {
+                "install.sh": shell_script(old_release, old_ref),
+                "install.ps1": powershell_script(old_release, old_ref),
+            }
+            installer_paths = {
+                "install.sh": root / "install.sh",
+                "install.ps1": root / "install.ps1",
+            }
+            for name, payload in old_installers.items():
+                installer_paths[name].write_bytes(payload)
+            old_hashes = {
+                name: hashlib.sha256(payload).hexdigest()
+                for name, payload in old_installers.items()
+            }
+            manifest_path = root / "installer-manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "source": {
+                            "repository": "https://github.com/vibeforge1111/spark-cli",
+                            "releaseName": old_release,
+                            "ref": old_ref,
+                        },
+                        "installers": {
+                            name: {"path": str(path), "sha256": old_hashes[name]}
+                            for name, path in installer_paths.items()
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            hosted_installers = {
+                "install.sh": shell_script(new_release, new_ref),
+                "install.ps1": powershell_script(new_release, new_ref),
+            }
+            hosted_hashes = {
+                name: hashlib.sha256(payload).hexdigest()
+                for name, payload in hosted_installers.items()
+            }
+            checksums_payload = (
+                f"{hosted_hashes['install.sh']}  install.sh\n"
+                f"{hosted_hashes['install.ps1']}  install.ps1\n"
+            ).encode("utf-8")
+            release_manifest_payload = json.dumps(
+                {"sparkCli": {"releaseName": new_release, "commit": new_ref}}
+            ).encode("utf-8")
+            commands_payload = json.dumps(
+                {
+                    "checksums": {"sha256": hosted_hashes},
+                    "source": {"releaseName": new_release, "ref": new_ref},
+                }
+            ).encode("utf-8")
+
+            def fake_urlopen(request: Any, timeout: int = 0, **_: Any) -> FakeResponse:
+                url = request.full_url
+                if url.endswith("/install/checksums.txt"):
+                    return FakeResponse(checksums_payload)
+                if url.endswith("/install/release-manifest.json"):
+                    return FakeResponse(release_manifest_payload)
+                if url.endswith("/install/commands.json"):
+                    return FakeResponse(commands_payload)
+                if url.endswith("/install.sh"):
+                    return FakeResponse(hosted_installers["install.sh"])
+                if url.endswith("/install.ps1"):
+                    return FakeResponse(hosted_installers["install.ps1"])
+                raise AssertionError(url)
+
+            with patch("spark_cli.cli.INSTALLER_MANIFEST_PATH", manifest_path), \
+                 patch("spark_cli.cli.INSTALLER_SCRIPT_PATHS", installer_paths), \
+                 patch("spark_cli.cli.current_git_commit", return_value=old_ref), \
+                 patch("spark_cli.cli.urllib.request.urlopen", side_effect=fake_urlopen):
+                payload = collect_installer_integrity_payload(hosted=True)
+
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["hosted_install.sh"]["ok"])
+        self.assertEqual(checks["hosted_install.sh"]["actual_sha256"], hosted_hashes["install.sh"])
+        self.assertEqual(checks["hosted_install.sh"]["hosted_metadata_sha256"], hosted_hashes["install.sh"])
+        self.assertIn("matches hosted checksum metadata", checks["hosted_install.sh"]["detail"])
+        self.assertIn("hosted site may be newer", checks["hosted_install.sh"]["detail"])
+        self.assertNotIn("does not match hosted checksum metadata", checks["hosted_install.sh"]["detail"])
+        self.assertFalse(checks["hosted_release_manifest"]["ok"])
+        self.assertIn("does not match this Spark CLI checkout's expected release pins", checks["hosted_release_manifest"]["detail"])
+        self.assertNotIn("stale", checks["hosted_release_manifest"]["detail"].lower())
+        self.assertFalse(checks["hosted_commands_metadata"]["ok"])
+        self.assertIn("matches hosted installer hashes", checks["hosted_commands_metadata"]["detail"])
+        self.assertIn("expected_source_basis", checks["hosted_commands_metadata"]["detail"])
+
     def test_hosted_installer_checks_fail_when_hosted_hashes_do_not_match_committed_manifest(self) -> None:
         class FakeResponse:
             def __init__(self, payload: bytes) -> None:
