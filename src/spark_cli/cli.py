@@ -13512,6 +13512,12 @@ def coerce_config_value(raw: str) -> Any:
 
 def cmd_config_get(args: argparse.Namespace) -> int:
     value = dotted_get(load_user_config(), args.key)
+    if getattr(args, "json", False):
+        if value is None:
+            print(json.dumps({"ok": False, "key": args.key, "value": None, "set": False}, indent=2))
+            return 1
+        print(json.dumps({"ok": True, "key": args.key, "value": value, "set": True}, indent=2))
+        return 0
     if value is None:
         print(f"{args.key} is not set")
         return 1
@@ -13727,8 +13733,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_secrets_list(_: argparse.Namespace) -> int:
+def cmd_secrets_list(args: argparse.Namespace) -> int:
     index = list_stored_secrets()
+    if getattr(args, "json", False):
+        entries = [{"id": sid, "backend": backend} for sid, backend in sorted(index.items())]
+        print(json.dumps({"ok": True, "count": len(entries), "secrets": entries}, indent=2))
+        return 0
     if not index:
         print("No stored secrets.")
         return 0
@@ -14822,6 +14832,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
+    config_get_parser.add_argument("--json", action="store_true", help="Emit value as JSON")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
@@ -14840,6 +14851,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
+    secrets_list_parser.add_argument("--json", action="store_true", help="Emit secret list as JSON")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
