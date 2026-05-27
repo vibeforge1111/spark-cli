@@ -10046,7 +10046,6 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
             }
     raise SystemExit("No directly callable LLM provider is configured for Spark Doctor. Run `spark setup` and choose OpenAI, OpenRouter, Z.AI GLM, MiniMax, Hugging Face, or Ollama for chat/builder.")
 
-
 def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> str:
     base_url = str(target["base_url"]).rstrip("/")
     url = f"{base_url}/chat/completions"
@@ -10068,8 +10067,15 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"LLM provider API error ({e.code}): {e.reason}. Please verify your API key and base URL settings.")
+    except urllib.error.URLError as e:
+        raise SystemExit(f"Failed to reach LLM provider network endpoint: {e.reason}. Check your connection.")
+
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
