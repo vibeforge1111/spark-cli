@@ -4890,6 +4890,19 @@ def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> s
     return None
 
 
+def _is_allowed_healthcheck_host(hostname: str | None) -> bool:
+    """Check whether a hostname is allowed for healthcheck HTTP probes.
+
+    Only localhost, loopback, .local, and .internal hostnames are permitted
+    to prevent SSRF via module healthcheck URLs.
+    """
+    if not hostname:
+        return False
+    if hostname in {"127.0.0.1", "localhost", "::1"}:
+        return True
+    return hostname.endswith(".local") or hostname.endswith(".internal")
+
+
 def evaluate_module_health(module: Module) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
     runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
@@ -4898,10 +4911,15 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
         try:
-            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
-            with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
-                healthy = 200 <= int(response.status) < 300
-                detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
+            parsed = urllib.parse.urlparse(health_url)
+            if not _is_allowed_healthcheck_host(parsed.hostname):
+                healthy = False
+                detail = f"Spawner UI health URL blocked: hostname {parsed.hostname} not in allowlist"
+            else:
+                request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
+                with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
+                    healthy = 200 <= int(response.status) < 300
+                    detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
         except Exception as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
@@ -13214,6 +13232,9 @@ def wait_for_ready_check(
                     return False, f"{ready_detail}. Process exited with code {exit_code}"
                 return False, f"process exited with code {exit_code}"
         if ready_check.startswith(("http://", "https://")):
+            parsed = urllib.parse.urlparse(ready_check)
+            if not _is_allowed_healthcheck_host(parsed.hostname):
+                return False, f"ready check URL hostname not allowed: {parsed.hostname} (only localhost, .local, .internal)"
             try:
                 request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
                 with urllib.request.urlopen(request, timeout=2) as response:
