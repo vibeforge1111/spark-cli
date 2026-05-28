@@ -151,12 +151,17 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
                 payload = cli.browser_use_action_payload("https://example.com")
+                status = cli.browser_use_status_payload()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "open")
         self.assertEqual(payload["title"], "Example Domain")
         self.assertIn("Learn more", payload["text_excerpt"])
         self.assertIn("public URL open", payload["proven_scope"])
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["last_action"], "open")
+        self.assertEqual(status["last_final_url"], "https://example.com/")
+        self.assertEqual(status["required_proofs"], ["public_url_open", "state_read"])
         called_commands = [call.args[0] for call in run.call_args_list]
         self.assertIn("open", called_commands[0])
         self.assertIn("https://example.com", called_commands[0])
@@ -181,11 +186,16 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run):
                 payload = cli.browser_use_action_payload("https://example.com", screenshot=True)
+                status = cli.browser_use_status_payload()
 
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["action"], "screenshot")
             self.assertTrue(Path(payload["screenshot_path"]).exists())
             self.assertIn("screenshot capture", payload["proven_scope"])
+            self.assertTrue(status["ok"])
+            self.assertEqual(status["last_action"], "screenshot")
+            self.assertEqual(status["last_screenshot_path"], payload["screenshot_path"])
+            self.assertEqual(status["required_proofs"], ["public_url_open", "screenshot_capture", "state_read"])
 
     def test_open_allows_local_urls_for_operator_browser_use(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -206,6 +216,172 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["final_url"], "http://127.0.0.1:3333/")
 
+    def test_open_can_request_browser_use_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Dashboard","url":"https://example.com/","text":"Signed in"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Signed in", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_action_payload(
+                    "https://example.com",
+                    profile_options=cli.BrowserUseProfileOptions(profile="Default"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["profile_requested"])
+        self.assertEqual(payload["profile"], "Default")
+        self.assertIn(["browser-use", "--profile", "Default", "--session"], [call.args[0][:4] for call in run.call_args_list])
+
+    def test_state_primitive_writes_workbench_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Board","url":"http://127.0.0.1:3333/kanban","text":"Mission Board"}', stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Mission Board\n[0] Canvas", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload("state")
+                status = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "state")
+        self.assertEqual(payload["session"], cli.BROWSER_USE_WORKBENCH_SESSION)
+        self.assertIn("Mission Board", payload["state_excerpt"])
+        self.assertEqual(status["last_action"], "state")
+        self.assertEqual(status["required_proofs"], ["state_read"])
+        self.assertIn("page state read", status["proven_scope"])
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_WORKBENCH_SESSION, "state"], [call.args[0] for call in run.call_args_list])
+
+    def test_click_primitive_updates_state_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Canvas","url":"http://127.0.0.1:3333/canvas","text":"Canvas"}', stderr="")
+                if "click" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout="clicked", stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="Canvas\n[1] Inspect", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload("click", target=["1"])
+                status = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["action"], "click")
+        self.assertEqual(status["required_proofs"], ["browser_click", "state_read"])
+        self.assertIn("browser click", status["proven_scope"])
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_WORKBENCH_SESSION, "click", "1"], [call.args[0] for call in run.call_args_list])
+
+    def test_cdp_primitive_uses_separate_default_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "eval" in argv:
+                    raise AssertionError("CDP primitives should not run an extra eval summary")
+                return subprocess.CompletedProcess(argv, 0, stdout="Canvas", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload(
+                    "state",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["session"], cli.BROWSER_USE_CDP_WORKBENCH_SESSION)
+        self.assertIn(
+            ["browser-use", "--cdp-url", "http://127.0.0.1:9222", "--session", cli.BROWSER_USE_CDP_WORKBENCH_SESSION, "state"],
+            [call.args[0] for call in run.call_args_list],
+        )
+
+    def test_primitive_recovers_from_session_config_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            calls = 0
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                nonlocal calls
+                if "close" in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout="closed", stderr="")
+                if "state" in argv:
+                    calls += 1
+                    if calls == 1:
+                        raise subprocess.CalledProcessError(1, argv, stderr="Error: Session 'spark-browser-workbench-cdp' is already running with different config.")
+                    return subprocess.CompletedProcess(argv, 0, stdout="Canvas", stderr="")
+                return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
+                payload = cli.browser_use_primitive_payload(
+                    "state",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(calls, 2)
+        self.assertIn(["browser-use", "--session", cli.BROWSER_USE_CDP_WORKBENCH_SESSION, "close"], [call.args[0] for call in run.call_args_list])
+
+    def test_input_primitive_requires_index_and_text(self) -> None:
+        with patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+             patch("spark_cli.cli.browser_use_package_available", return_value=True):
+            payload = cli.browser_use_primitive_payload("input", target=["3"], text="")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("Unsupported browser-use primitive", payload["last_failure_reason"])
+
+    def test_open_can_attach_to_cdp_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_cdp_open_and_read", return_value={
+                     "webSocketDebuggerUrl": "ws://127.0.0.1/page",
+                     "title": "Dashboard",
+                     "url": "https://example.com/",
+                     "text": "Signed in",
+                     "state": "Dashboard\nSigned in",
+                 }) as cdp:
+                payload = cli.browser_use_action_payload(
+                    "https://example.com",
+                    profile_options=cli.BrowserUseProfileOptions(cdp_url="http://127.0.0.1:9222"),
+                )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["profile_requested"])
+        self.assertEqual(payload["cdp_url"], "http://127.0.0.1:9222")
+        self.assertEqual(payload["title"], "Dashboard")
+        cdp.assert_called_once_with("http://127.0.0.1:9222", "https://example.com")
+
     def test_open_still_blocks_metadata_urls(self) -> None:
         payload = cli.browser_use_action_payload("http://169.254.169.254")
 
@@ -221,6 +397,7 @@ class BrowserUseCliTests(unittest.TestCase):
             max_steps: int = 25,
             history_path: Path | None = None,
             start_page: dict[str, object] | None = None,
+            profile_options: cli.BrowserUseProfileOptions | None = None,
         ) -> dict[str, object]:
             if history_path is not None:
                 history_path.write_text("{}", encoding="utf-8")
@@ -244,14 +421,22 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "http://127.0.0.1:3333", "title": "Local", "text_excerpt": "Kanban"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="http://127.0.0.1:3333", max_steps=4)
+                status = cli.browser_use_status_payload()
                 receipt_exists = Path(payload["receipt_path"]).exists()
                 history_exists = Path(payload["history_path"]).exists()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "task")
         self.assertEqual(payload["number_of_steps"], 2)
+        self.assertEqual(payload["success_tier"], "completed_with_actions")
         self.assertIn("multi-step browser task", payload["proven_scope"])
         self.assertEqual(payload["start_page"]["title"], "Local")
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["last_action"], "task")
+        self.assertEqual(status["last_task_steps"], 2)
+        self.assertEqual(status["last_receipt_path"], payload["receipt_path"])
+        self.assertEqual(status["last_history_path"], payload["history_path"])
+        self.assertEqual(status["required_proofs"], ["task_completed"])
         self.assertTrue(receipt_exists)
         self.assertTrue(history_exists)
 
@@ -270,6 +455,7 @@ class BrowserUseCliTests(unittest.TestCase):
             max_steps: int = 25,
             history_path: Path | None = None,
             start_page: dict[str, object] | None = None,
+            profile_options: cli.BrowserUseProfileOptions | None = None,
         ) -> dict[str, object]:
             return {
                 "final_result": "",
@@ -288,10 +474,13 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "https://example.com", "title": "Example", "text_excerpt": "Example Domain"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="https://example.com", max_steps=3)
+                status = cli.browser_use_status_payload()
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "failed")
         self.assertIn("maximum steps", payload["last_failure_reason"])
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["status"], "failed")
 
     def test_task_receipt_fails_when_agent_reports_unsuccessful_result(self) -> None:
         payload = {
@@ -420,6 +609,63 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertFalse(agent_kwargs["enable_planning"])
         self.assertIn("action schema", str(agent_kwargs["extend_system_message"]))
         self.assertTrue(captured["browser"].closed)
+
+    def test_agent_task_can_use_browser_profile_options(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeBrowser:
+            def __init__(self, **kwargs: object) -> None:
+                captured["browser_kwargs"] = kwargs
+                captured["browser"] = self
+                self.closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        class FakeHistory:
+            def final_result(self) -> str:
+                return "Visible"
+
+            def is_done(self) -> bool:
+                return True
+
+        class FakeAgent:
+            def __init__(self, **kwargs: object) -> None:
+                captured["agent_kwargs"] = kwargs
+
+            async def run(self, *, max_steps: int) -> FakeHistory:
+                return FakeHistory()
+
+        fake_browser_use = types.SimpleNamespace(Agent=FakeAgent, Browser=FakeBrowser)
+        with patch.dict(sys.modules, {"browser_use": fake_browser_use}), \
+             patch("spark_cli.cli.browser_use_agent_llm", return_value=("test-llm", "test-provider")):
+            result = asyncio.run(
+                cli.run_browser_use_agent_task(
+                    "review the page",
+                    max_steps=1,
+                    profile_options=cli.BrowserUseProfileOptions(
+                        profile="Default",
+                        user_data_dir="C:/Users/USER/AppData/Local/Google/Chrome/User Data",
+                        cdp_url="http://127.0.0.1:9222",
+                    ),
+                )
+            )
+
+        self.assertEqual(result["llm"], "test-provider")
+        self.assertEqual(captured["browser_kwargs"]["profile_directory"], "Default")
+        self.assertIn("Google/Chrome/User Data", str(captured["browser_kwargs"]["user_data_dir"]).replace("\\", "/"))
+        self.assertEqual(captured["browser_kwargs"]["cdp_url"], "http://127.0.0.1:9222")
+        self.assertTrue(captured["browser"].closed)
+
+    def test_browser_use_failure_filter_suppresses_windows_cleanup_noise(self) -> None:
+        message = cli.browser_use_filter_noise(
+            "INFO [service] Using anonymized telemetry, see https://docs.browser-use.com\n"
+            "Exception ignored in: <function _ProactorBasePipeTransport.__del__ at 0x1>\n"
+            "  ValueError: I/O operation on closed pipe\n"
+            "real failure"
+        )
+
+        self.assertEqual(message, "real failure")
 
     def test_structured_llm_exposes_browser_use_model_attributes(self) -> None:
         inner = types.SimpleNamespace(provider="openai", name="glm", model="openai/glm-5.1")
