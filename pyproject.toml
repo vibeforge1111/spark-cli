@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,14 +10,14 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 dependencies = [
-    "certifi>=2024.8.30",
-    "keyring>=24.0",
+    "certifi>=2026.5.20",
+    "keyring>=25.7.0",
 ]
 
 [project.optional-dependencies]
 browser-use = [
     "browser-use==0.12.8",
-    "litellm==1.75.9",
+    "litellm==1.83.10",
 ]
 
 [project.scripts]

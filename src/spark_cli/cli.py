@@ -1541,19 +1541,40 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = (
-                        bool(expected_hosted)
-                        and hosted_hash == expected_hosted
-                        and (expected_hosted == expected or hosted_source_basis == "installed_checkout")
+                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
                     )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    detail = (
-                        f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                        if hosted_ok
-                        else f"{url} does not match hosted checksum metadata or expected Spark CLI source pins."
+                    hosted_matches_hosted_release = (
+                        hosted_pins["releaseName"] == hosted_release_name
+                        and hosted_pins["ref"] == hosted_release_ref
                     )
+                    hosted_is_different_release_than_local = (
+                        hosted_source_basis == "committed_manifest"
+                        and bool(hosted_release_name)
+                        and hosted_release_name != expected_hosted_release
+                    )
+                    if hosted_ok:
+                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                    elif (
+                        hosted_metadata_checksum_ok
+                        and not hosted_checksum_ok
+                        and hosted_matches_hosted_release
+                        and hosted_is_different_release_than_local
+                    ):
+                        detail = (
+                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                            "committed installer manifest/source pins. The hosted site may be newer than the local "
+                            "verifier; update Spark CLI or validate from the release commit before calling the "
+                            "hosted copy stale."
+                        )
+                    elif not hosted_metadata_checksum_ok:
+                        detail = f"{url} does not match hosted checksum metadata."
+                    else:
+                        detail = f"{url} does not install the expected Spark CLI source pins."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1603,22 +1624,29 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 if isinstance(hosted_release_manifest.get("sparkCli"), dict)
                 else {}
             )
-            release_ok = spark_cli.get("releaseName") == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            actual_release = str(spark_cli.get("releaseName", ""))
+            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            if release_ok:
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI commit."
+            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                release_detail = (
+                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                    "before treating the hosted copy as outdated."
+                )
+            else:
+                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
             checks.append(
                 {
                     "name": "hosted_release_manifest",
                     "ok": release_ok,
                     "expected_release": expected_hosted_release,
-                    "actual_release": str(spark_cli.get("releaseName", "")),
+                    "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": (
-                        "Hosted release manifest has the current release name and expected Spark CLI commit."
-                        if release_ok
-                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-                    ),
+                    "detail": release_detail,
                 }
             )
         try:
@@ -1633,10 +1661,18 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_hashes == hosted_expected
                 and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
             )
+            command_hashes_match_hosted = command_hashes == hosted_expected
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
-                commands_detail = (
-                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                    commands_detail = (
+                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                        "checkout's expected release pins. The hosted site may be newer or older than the local "
+                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                    )
+                else:
+                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                commands_detail += (
                     f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
                     f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
                     f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
@@ -1703,14 +1739,29 @@ def collect_module_provenance_payload(
     }
 
 
+REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
+REMOTE_GIT_REF_ATTEMPTS = 2
+
+
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    result = subprocess.run(
-        git_command("ls-remote", normalize_git_url(source), remote_ref),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            last_timeout = error
+    else:
+        raise RuntimeError(
+            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+        ) from last_timeout
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
@@ -1751,7 +1802,7 @@ def collect_registry_pin_drift_payload(
                     raise
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
-        except (RuntimeError, SystemExit) as error:
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
             checks.append(
                 {
                     "name": str(name),
@@ -2831,7 +2882,7 @@ def telegram_profile_relay_port(
                 relay_port = int(profile_state.get("relay_port", 0))
             except (TypeError, ValueError):
                 relay_port = 0
-            if relay_port > 0:
+            if 0 < relay_port <= 65535:
                 return relay_port
     return default
 
@@ -3534,17 +3585,23 @@ def openai_base_url_kind(base_url: str | None) -> str:
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    effective_default = (
+        str(chat_provider)
+        if chat_provider and not agent_provider and default_provider == "not_configured"
+        else default_provider
+    )
     roles: dict[str, str] = {}
     for role in LLM_ROLES:
         explicit = getattr(args, f"{role}_llm_provider", None)
         if explicit:
             roles[role] = str(explicit)
         elif role == "mission":
-            roles[role] = default_mission_llm_provider(default_provider)
+            roles[role] = default_mission_llm_provider(effective_default)
         elif agent_provider:
             roles[role] = str(agent_provider)
         else:
-            roles[role] = default_provider
+            roles[role] = effective_default
     return roles
 
 
@@ -8845,6 +8902,56 @@ def dependency_hash_mode_errors() -> list[str]:
     return errors
 
 
+def _has_endpoint_space_or_control(value: str) -> bool:
+    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
+    raw_value = str(raw_url or "")
+    value = raw_value.strip()
+    if not value or value.startswith("${"):
+        return []
+
+    errors: list[str] = []
+    if _has_endpoint_space_or_control(raw_value):
+        errors.append(f"{label} contains whitespace or control characters.")
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = (parsed.hostname or "").strip().lower()
+    if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
+        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
+    return errors
+
+
+def _endpoint_url_for_policy(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value or value.startswith("${"):
+        return value
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = parsed.hostname or ""
+    if not host.endswith("."):
+        return value
+
+    normalized_host = host.rstrip(".")
+    if not normalized_host or parsed.username or parsed.password:
+        return value
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return value
+
+    host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
+    netloc = f"{host_part}:{port}" if port is not None else host_part
+    normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    if "://" not in value and normalized.startswith("http://"):
+        return normalized[len("http://"):]
+    return normalized
+
+
 def endpoint_security_errors() -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
@@ -8860,12 +8967,13 @@ def endpoint_security_errors() -> list[str]:
         for key, value in env_values.items():
             if ("URL" in key or key.endswith("_HOST")) and value:
                 for raw_url in str(value).split(","):
-                    urls.append((f"{env_name}:{key}", raw_url.strip()))
+                    urls.append((f"{env_name}:{key}", raw_url))
 
     for label, raw_url in urls:
+        errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
         errors.extend(
             validate_url_safety(
-                raw_url,
+                _endpoint_url_for_policy(raw_url),
                 label=label,
                 policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
             )
