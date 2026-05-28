@@ -3172,6 +3172,7 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "summary": "Spark LLM recommendations",
         "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
         "paths": {
@@ -9776,6 +9777,7 @@ def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
