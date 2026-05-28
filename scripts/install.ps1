@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "264baaaf0cbb3e1790b20c425b391d2919505a21",
+    [string]$Ref = "7ab32b23003726dcea8a414c8e9395bf13f45e12",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-05-17-r13"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-05-24-r15"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -607,8 +607,9 @@ function Install-CliVenv {
     & $Script:PythonExe -m venv $venvDir
     Write-SparkLog "Upgrading pip in Spark CLI virtualenv"
     & (Join-Path $venvDir "Scripts\python.exe") -m pip install --upgrade pip | Out-Null
-    Write-SparkLog "Installing Spark CLI package"
-    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e $CliDir | Out-Null
+    Write-SparkLog "Installing Spark CLI package with browser-use support"
+    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e "$CliDir[browser-use]" | Out-Null
+    & (Join-Path $venvDir "Scripts\browser-use.exe") install | Out-Null
     return $venvDir
 }
 

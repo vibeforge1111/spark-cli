@@ -412,6 +412,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark verify [--onboarding\|--deep\|--installers\|--sandboxes]` | Verify launch wiring, onboarding, runtime checks, installer integrity, or optional sandbox readiness |
 | `spark fix <target>` | Repair checklist for `telegram`, `secrets`, `spawner`, `providers`, `memory`, `live`, `update`, or `autostart` |
 | `spark providers list\|status\|test\|recommend` | Inspect, test, and choose LLM provider wiring |
+| `spark browser-use status\|probe\|open\|screenshot\|task` | Inspect Browser Use, prove readiness, open URLs, capture screenshots, and run multi-step Browser Use Agent tasks |
 | `spark recommend llms\|providers` | Recommend setup choices |
 | `spark security audit` | Audit local security posture |
 | `spark security revoke-all` | Stop Spark, rotate local control keys, remove local secrets, pause missions, and write a redacted support bundle |

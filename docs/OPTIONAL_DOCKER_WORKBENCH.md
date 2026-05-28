@@ -12,6 +12,7 @@ This repo provides two opt-in Docker lanes:
 |---|---|---|---|
 | Dev smoke | `docker/dev/Dockerfile` | Clean disposable environment for tests and installer verification | On |
 | Sandbox run | `docker/sandbox/Dockerfile` | Restricted CLI command experiments with no real home or secrets | Off |
+| Live image smoke | `docker/live/Dockerfile` | Hosted Spark Live image build and entrypoint guard checks | Hosted env only |
 
 Use these when you want to test a new feature without contaminating the operator's real `~/.spark` state.
 
@@ -57,11 +58,11 @@ Use this for clean regression checks:
 bash scripts/docker-dev-smoke.sh
 ```
 
-By default this builds `spark-cli-dev:local` and runs:
+By default this builds `spark-cli-dev:local` and runs a bounded Docker smoke:
 
 ```bash
-python -m pytest tests/test_cli.py -q
-python -m spark_cli.cli verify --installers
+python -m pytest tests/test_docker_entrypoint.py -q
+spark --help >/tmp/spark-help.txt
 ```
 
 Optional registry/provenance checks:
@@ -121,7 +122,8 @@ The wrapper runs the container with:
 - `--read-only`
 - `--cap-drop ALL`
 - `--security-opt no-new-privileges`
-- tmpfs scratch space at `/tmp` and `/sandbox`
+- tmpfs scratch space at `/tmp` and `/sandbox`, with `/sandbox` owned by the
+  unprivileged Spark user
 - isolated `HOME` and `SPARK_HOME`
 
 To allow network for a specific experiment:
@@ -138,7 +140,9 @@ Network-on sandbox runs should be treated as a separate risk decision.
 
 ## Optional GitHub Workflow
 
-The manual workflow at `.github/workflows/docker-optional.yml` builds both images and runs a smoke command. It only runs through `workflow_dispatch`, so Docker does not become a required CI dependency.
+The manual workflow at `.github/workflows/docker-optional.yml` builds the dev,
+sandbox, and live images and runs bounded smoke commands. It only runs through
+`workflow_dispatch`, so Docker does not become a required CI dependency.
 
 ## Secret Rules
 
