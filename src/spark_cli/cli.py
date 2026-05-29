@@ -6380,6 +6380,21 @@ def browser_use_command_failure_message(exc: BaseException) -> str:
     return str(exc)[:500] or type(exc).__name__
 
 
+def browser_use_public_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        public: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_text = str(key)
+            if key_text == "cli_path" or key_text.endswith("_path"):
+                public[key_text] = public_local_path_ref(value)
+            else:
+                public[key_text] = browser_use_public_payload(value)
+        return public
+    if isinstance(payload, list):
+        return [browser_use_public_payload(item) for item in payload]
+    return payload
+
+
 def cmd_browser_use(args: argparse.Namespace) -> int:
     action = getattr(args, "browser_use_command", "status")
     if action == "status":
@@ -6421,7 +6436,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         payload = browser_use_probe_payload()
         status_payload = browser_use_status_payload()
         if getattr(args, "json", False):
-            print(json.dumps(status_payload | {"probe": payload}, indent=2))
+            print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
             return 0 if status_payload["ok"] else 1
         if status_payload["ok"]:
             print("Browser-use is ready for the probed scope.")
@@ -6437,7 +6452,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
     if action in {"open", "screenshot"}:
         payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
         if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
             return 0 if payload.get("ok") else 1
         if payload.get("ok"):
             print(f"Browser-use {payload['action']} succeeded.")
@@ -6463,7 +6478,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             max_steps=int(getattr(args, "max_steps", 25) or 25),
         )
         if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
             return 0 if payload.get("ok") else 1
         if payload.get("ok"):
             print("Browser-use task completed.")
