@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 METADATA_HOSTS = {
     "169.254.169.254",
+    "fd00:ec2::254",
     "metadata.google.internal",
 }
 
@@ -39,11 +40,56 @@ def _parse_url(raw_url: str) -> urllib.parse.ParseResult:
     return urllib.parse.urlparse(value)
 
 
+def _parse_ipv4_part(value: str) -> int | None:
+    try:
+        if value.lower().startswith("0x"):
+            return int(value[2:], 16)
+        if len(value) > 1 and value.startswith("0"):
+            return int(value[1:] or "0", 8)
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def _parse_legacy_ipv4(host: str) -> ipaddress.IPv4Address | None:
+    if not host or not all(c in "0123456789abcdefABCDEFxX." for c in host):
+        return None
+    parts = host.split(".")
+    if len(parts) > 4 or any(p == "" for p in parts):
+        return None
+    numbers = [_parse_ipv4_part(p) for p in parts]
+    if any(n is None for n in numbers):
+        return None
+    try:
+        if len(numbers) == 1:
+            v = int(numbers[0])
+            if v > 0xFFFFFFFF:
+                return None
+            octets = [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF]
+        elif len(numbers) == 2:
+            a, b = int(numbers[0]), int(numbers[1])
+            if a > 0xFF or b > 0xFFFFFF:
+                return None
+            octets = [a, (b >> 16) & 0xFF, (b >> 8) & 0xFF, b & 0xFF]
+        elif len(numbers) == 3:
+            a, b, c = int(numbers[0]), int(numbers[1]), int(numbers[2])
+            if a > 0xFF or b > 0xFF or c > 0xFFFF:
+                return None
+            octets = [a, b, (c >> 8) & 0xFF, c & 0xFF]
+        else:
+            if any(int(n) > 0xFF for n in numbers):
+                return None
+            octets = [int(n) for n in numbers]
+        return ipaddress.IPv4Address(bytes(octets))
+    except (ValueError, OverflowError):
+        return None
+
+
 def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
         return ipaddress.ip_address(host.strip("[]"))
     except ValueError:
-        return None
+        return _parse_legacy_ipv4(host)
 
 
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
