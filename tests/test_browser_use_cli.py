@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,24 @@ from spark_cli import cli
 
 
 class BrowserUseCliTests(unittest.TestCase):
+    def test_cli_path_discovers_installed_spark_venv_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            entrypoint = Path(tmp_dir) / "tools" / "spark-cli-venv" / "bin" / "browser-use"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("#!/usr/bin/env sh\n", encoding="utf-8")
+            with patch("spark_cli.cli.shutil.which", return_value=None), \
+                 patch.dict(os.environ, {"SPARK_HOME": tmp_dir}, clear=False):
+                self.assertEqual(cli.browser_use_cli_path(), str(entrypoint))
+
+    def test_cli_path_discovers_installed_windows_spark_venv_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            entrypoint = Path(tmp_dir) / "tools" / "spark-cli-venv" / "Scripts" / "browser-use.exe"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("", encoding="utf-8")
+            with patch("spark_cli.cli.shutil.which", return_value=None), \
+                 patch.dict(os.environ, {"SPARK_HOME": tmp_dir}, clear=False):
+                self.assertEqual(cli.browser_use_cli_path(), str(entrypoint))
+
     def test_status_reports_missing_without_mutating(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
@@ -94,8 +113,12 @@ class BrowserUseCliTests(unittest.TestCase):
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 if "screenshot" in argv:
-                    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-                    screenshot_path.write_bytes(b"png")
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        stdout=cli.json.dumps({"success": True, "data": {"screenshot": "cG5n"}}),
+                        stderr="",
+                    )
                 return completed
 
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
@@ -118,7 +141,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 ["browser-use", "doctor"],
                 ["browser-use", "--session", "spark-probe", "open"],
                 ["browser-use", "--session", "spark-probe", "state"],
-                ["browser-use", "--session", "spark-probe", "screenshot"],
+                ["browser-use", "--json", "--session", "spark-probe"],
             ],
         )
 
@@ -169,8 +192,12 @@ class BrowserUseCliTests(unittest.TestCase):
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 if "screenshot" in argv:
-                    Path(argv[-1]).parent.mkdir(parents=True, exist_ok=True)
-                    Path(argv[-1]).write_bytes(b"png")
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        stdout=cli.json.dumps({"success": True, "data": {"screenshot": "cG5n"}}),
+                        stderr="",
+                    )
                 if "eval" in argv:
                     return subprocess.CompletedProcess(argv, 0, stdout='result: {"title":"Example Domain","url":"https://example.com/","text":"Example"}', stderr="")
                 return subprocess.CompletedProcess(argv, 0, stdout="Example", stderr="")
