@@ -309,6 +309,18 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(args.max_steps, 3)
         self.assertTrue(args.json)
 
+    def test_task_parser_keeps_option_like_goal_text_after_separator(self) -> None:
+        args = cli.build_parser().parse_args([
+            "browser-use",
+            "task",
+            "explain",
+            "--",
+            "--json",
+        ])
+
+        self.assertEqual(args.goal, ["explain", "--json"])
+        self.assertFalse(args.json)
+
     def test_task_parser_keeps_json_missing_goal_on_command_path(self) -> None:
         args = cli.build_parser().parse_args(["browser-use", "task", "--json"])
 
