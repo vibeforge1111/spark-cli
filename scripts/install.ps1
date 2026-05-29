@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "bb188d440707ff0a9f866f782760929a69872ed2",
+    [string]$Ref = "spark-cli-public-installer-2026-05-29-r21",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-05-29-r20"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-05-29-r21"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -459,8 +459,8 @@ function Test-InstallSettings {
     if ($UvVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw "Unsafe uv version value: $UvVersion"
     }
-    if (-not $RefWasProvided -and $Ref -notmatch '^[0-9a-f]{40}$') {
-        throw "Default Spark CLI ref must be an immutable 40-character commit SHA: $Ref"
+    if (-not $RefWasProvided -and $Ref -notmatch '^([0-9a-f]{40}|spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+)$') {
+        throw "Default Spark CLI ref must be a 40-character commit SHA or Spark public release tag: $Ref"
     }
     $normalizedSource = $Source.TrimEnd("/")
     if ($normalizedSource.EndsWith(".git")) {

@@ -3,8 +3,8 @@ set -euo pipefail
 
 SPARK_PREFIX="${SPARK_PREFIX:-$HOME/.spark}"
 SPARK_CLI_SOURCE="${SPARK_CLI_SOURCE:-https://github.com/vibeforge1111/spark-cli}"
-SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-05-29-r20}"
-SPARK_DEFAULT_CLI_REF="bb188d440707ff0a9f866f782760929a69872ed2"
+SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-05-29-r21}"
+SPARK_DEFAULT_CLI_REF="spark-cli-public-installer-2026-05-29-r21"
 SPARK_CLI_REF_USER_SET=0
 if [ -n "${SPARK_CLI_REF:-}" ]; then
   SPARK_CLI_REF_USER_SET=1
@@ -512,8 +512,8 @@ validate_install_settings() {
     exit 1
   fi
 
-  if [ "$SPARK_CLI_REF_USER_SET" = "0" ] && ! printf '%s' "$SPARK_CLI_REF" | grep -Eq '^[0-9a-f]{40}$'; then
-    echo "Default Spark CLI ref must be an immutable 40-character commit SHA: $SPARK_CLI_REF" >&2
+  if [ "$SPARK_CLI_REF_USER_SET" = "0" ] && ! printf '%s' "$SPARK_CLI_REF" | grep -Eq '^([0-9a-f]{40}|spark-cli-public-installer-[0-9]{4}-[0-9]{2}-[0-9]{2}-r[0-9]+)$'; then
+    echo "Default Spark CLI ref must be a 40-character commit SHA or Spark public release tag: $SPARK_CLI_REF" >&2
     exit 1
   fi
 

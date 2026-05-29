@@ -10199,8 +10199,10 @@ class SparkCliTests(unittest.TestCase):
             payload["hosted_release"],
             {
                 "release": source["releaseName"],
+                "ref": source["ref"],
                 "commit": source["ref"],
                 "expected_release": source["releaseName"],
+                "expected_ref": source["ref"],
                 "expected_commit": source["ref"],
                 "source_basis": "committed_manifest",
                 "verified_at": "2026-05-25T06:30:00Z",
@@ -10741,8 +10743,10 @@ class SparkCliTests(unittest.TestCase):
             "manifest": "scripts/installer-manifest.json",
             "hosted_release": {
                 "release": "spark-cli-public-installer-r16",
+                "ref": "abc123",
                 "commit": "abc123",
                 "expected_release": "spark-cli-public-installer-r16",
+                "expected_ref": "abc123",
                 "expected_commit": "abc123",
                 "source_basis": "committed_manifest",
                 "verified_at": "2026-05-25T06:30:00Z",
