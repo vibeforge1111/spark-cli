@@ -526,7 +526,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_sandbox_output_path_stays_inside_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
+            root = Path(tmpdir).resolve()
             self.assertEqual(resolve_safe_output_path("artifact.txt", root=root), root / "artifact.txt")
             with self.assertRaises(ValueError):
                 resolve_safe_output_path("../escape.txt", root=root)
@@ -7772,7 +7772,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_write_denied_paths_include_sensitive_home_locations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            home = Path(tmp_dir)
+            home = Path(tmp_dir).resolve()
             self.assertIn(home / ".spark" / "config" / "secrets.local.json", write_denied_paths(home))
             self.assertIn(home / ".ssh", write_denied_prefixes(home))
             self.assertIn(home / ".config" / "gh", write_denied_prefixes(home))
@@ -7808,7 +7808,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_update_env_file_refuses_denied_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            home = Path(tmp_dir)
+            home = Path(tmp_dir).resolve()
             with patch("spark_cli.cli.Path.home", return_value=home):
                 with self.assertRaises(SystemExit) as error:
                     update_env_file(home / ".ssh" / "spark.env", {"A": "1"})
@@ -11945,6 +11945,7 @@ class SparkCliTests(unittest.TestCase):
                 ],
                 cwd=str(script_path.parents[1]),
                 env=env,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
