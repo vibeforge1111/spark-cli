@@ -9767,6 +9767,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(route_context["authority_verdict"]["decision"], "not_required")
         self.assertEqual(route_context["data_boundary"]["exports_raw_prompt"], False)
 
+    def test_collect_simple_fix_payload_update_requires_installed_modules(self) -> None:
+        status_payload = {"ok": False, "summary": "No installed Spark modules recorded.", "modules": []}
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No provider"}):
+            payload = collect_simple_fix_payload("update")
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["installed modules"]["ok"])
+        self.assertEqual(checks["installed modules"]["repair"], "spark setup telegram-starter")
+        self.assertIn("spark setup telegram-starter", payload["next_commands"])
+        self.assertNotIn("spark update --skip-dirty", payload["next_commands"])
+        self.assertEqual(payload["route_context"]["health_evidence"], "fresh_degraded")
+
+    def test_collect_simple_fix_payload_update_keeps_dirty_hint_when_modules_exist(self) -> None:
+        status_payload = {"ok": False, "modules": [{"name": "spawner-ui", "healthy": True, "detail": "OK"}]}
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True, "summary": "providers ready"}):
+            payload = collect_simple_fix_payload("update")
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(payload["ok"])
+        self.assertTrue(checks["installed modules"]["ok"])
+        self.assertTrue(checks["dirty module safety"]["ok"])
+        self.assertIn("spark update --skip-dirty", payload["next_commands"])
+
     def test_doctor_prints_plain_first_user_summary(self) -> None:
         status_payload = {
             "ok": False,

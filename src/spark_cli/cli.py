@@ -10866,6 +10866,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     status_payload = collect_status_payload()
     provider_payload = provider_status_payload()
     status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    modules_installed = bool(status_modules)
     spawner_module = next(
         (module for module in status_modules if isinstance(module, dict) and module.get("name") == "spawner-ui"),
         None,
@@ -10933,13 +10934,27 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
             "summary": "Spark update repair",
             "checks": [
                 {
+                    "name": "installed modules",
+                    "ok": modules_installed,
+                    "detail": (
+                        "Spark modules are installed; update can check them safely."
+                        if modules_installed
+                        else "No installed Spark modules are recorded, so there is nothing for update to repair."
+                    ),
+                    "repair": "" if modules_installed else "spark setup telegram-starter",
+                },
+                {
                     "name": "dirty module safety",
-                    "ok": True,
+                    "ok": modules_installed,
                     "detail": "Use --skip-dirty when local module edits should not block clean modules from updating.",
-                    "repair": "",
+                    "repair": "" if modules_installed else "Install Spark modules before running update.",
                 }
             ],
-            "next_commands": ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"],
+            "next_commands": (
+                ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"]
+                if modules_installed
+                else ["spark setup telegram-starter", "spark status", "spark verify --onboarding"]
+            ),
         },
         "autostart": {
             "summary": "Spark autostart repair",
