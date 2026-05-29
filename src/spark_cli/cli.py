@@ -2101,7 +2101,16 @@ def resolve_secret_input(value: str) -> str:
         if not secret_path:
             raise SystemExit("Invalid secret reference: @file: requires a path.")
         try:
-            return Path(secret_path).expanduser().read_text(encoding="utf-8").strip()
+            resolved = Path(secret_path).expanduser().resolve()
+            spark_home = SPARK_HOME.resolve()
+            try:
+                resolved.relative_to(spark_home)
+            except ValueError:
+                raise SystemExit(
+                    f"Secret file must be inside SPARK_HOME ({spark_home}). "
+                    f"{secret_path} resolves outside that boundary."
+                ) from None
+            return resolved.read_text(encoding="utf-8").strip()
         except OSError as exc:
             raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
     return value
