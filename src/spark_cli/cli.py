@@ -15629,6 +15629,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     entries = registry.get("modules", {}) or {}
     installed = load_json(REGISTRY_PATH, {})
+
+    # Handle explicit whitespace queries gracefully
+    if args.query is not None and not args.query.strip():
+        print("Error: Search query cannot be empty spaces. Please provide a valid search term.")
+        return 1
+
     query = (args.query or "").strip().lower()
 
     hits: list[tuple[str, str, bool, bool]] = []
@@ -15659,6 +15665,14 @@ def cmd_search(args: argparse.Namespace) -> int:
         badge_text = ",".join(badges)
         print(f"{name:<30} [{badge_text}] {summary}")
     return 0
+    for name, summary, blessed, installed_flag in sorted(hits):
+        badges: list[str] = []
+        badges.append("blessed" if blessed else "community")
+        if installed_flag:
+            badges.append("installed")
+        badge_text = ",".join(badges)
+        print(f"{name:<30} [{badge_text}] {summary}")
+    return 0 
 
 
 def cmd_secrets_list(_: argparse.Namespace) -> int:
