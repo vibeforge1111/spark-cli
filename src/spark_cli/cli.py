@@ -10573,6 +10573,20 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     prompt = render_llm_doctor_prompt(context)
     if getattr(args, "prompt_out", None):
         prompt_path = Path(args.prompt_out).expanduser()
+        # Validate prompt_path stays within Spark home or doctor directory to prevent path traversal
+        prompt_resolved = prompt_path.resolve()
+        spark_home_resolved = SPARK_HOME.resolve()
+        doctor_dir = spark_home_resolved / "doctor"
+        allowed_roots = [spark_home_resolved, doctor_dir]
+        is_allowed = any(
+            prompt_resolved.is_relative_to(root) or prompt_resolved == root
+            for root in allowed_roots
+        )
+        if not is_allowed:
+            raise SystemExit(
+                f"Prompt output path must be inside Spark home ({SPARK_HOME}) or its doctor subdirectory.\n"
+                f"Refusing: {args.prompt_out}"
+            )
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
         prompt_path.write_text(prompt, encoding="utf-8")
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
@@ -10598,6 +10612,20 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         upstream_out = getattr(args, "upstream_out", None)
         if upstream_out:
             upstream_path = Path(upstream_out).expanduser()
+            # Validate upstream_path stays within Spark home or doctor directory to prevent path traversal
+            upstream_resolved = upstream_path.resolve()
+            spark_home_resolved = SPARK_HOME.resolve()
+            doctor_dir = spark_home_resolved / "doctor"
+            allowed_roots = [spark_home_resolved, doctor_dir]
+            is_allowed = any(
+                upstream_resolved.is_relative_to(root) or upstream_resolved == root
+                for root in allowed_roots
+            )
+            if not is_allowed:
+                raise SystemExit(
+                    f"Upstream output path must be inside Spark home ({SPARK_HOME}) or its doctor subdirectory.\n"
+                    f"Refusing: {upstream_out}"
+                )
             upstream_path.parent.mkdir(parents=True, exist_ok=True)
             upstream_path.write_text(upstream, encoding="utf-8")
         else:
