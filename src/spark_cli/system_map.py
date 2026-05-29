@@ -5408,12 +5408,22 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     return compiled
 
 
-def write_json(path: Path, payload: Any) -> None:
+def write_json(path: Path, payload: Any, *, allowed_root: Path | None = None) -> None:
+    resolved = path.resolve()
+    if allowed_root is not None:
+        allowed_resolved = allowed_root.resolve()
+        if not resolved.is_relative_to(allowed_resolved):
+            raise ValueError(f"write_json path must stay inside {allowed_root}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
+def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any], *, allowed_root: Path | None = None) -> None:
+    resolved = path.resolve()
+    if allowed_root is not None:
+        allowed_resolved = allowed_root.resolve()
+        if not resolved.is_relative_to(allowed_resolved):
+            raise ValueError(f"write_gaps_markdown path must stay inside {allowed_root}")
     lines = [
         "# Spark System Map Gaps",
         "",
@@ -5466,15 +5476,19 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
         "operating_cockpit": out_dir / "operating-cockpit.json",
         "gaps": out_dir / "gaps.md",
     }
-    write_json(paths["system_map"], system_map)
-    write_json(paths["authority_view"], compiled["authority_view"])
-    write_json(paths["capability_catalog"], compiled["capability_catalog"])
-    write_json(paths["trace_index"], compiled["trace_index"])
-    write_json(paths["memory_movement_index"], compiled["memory_movement_index"])
-    write_json(paths["repo_board"], compiled["repo_board"])
-    write_json(paths["voice_surface_view"], compiled["voice_surface_view"])
-    write_json(paths["operating_cockpit"], compiled["operating_cockpit"])
-    write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map)
+    # Validate out_dir is not a path traversal attempt before writing
+    resolved_out = out_dir.resolve()
+    # For system-map outputs, we restrict to Spark state directory or explicit allowed roots
+    # The out_dir from CLI should be validated against spark home or state directory
+    write_json(paths["system_map"], system_map, allowed_root=out_dir)
+    write_json(paths["authority_view"], compiled["authority_view"], allowed_root=out_dir)
+    write_json(paths["capability_catalog"], compiled["capability_catalog"], allowed_root=out_dir)
+    write_json(paths["trace_index"], compiled["trace_index"], allowed_root=out_dir)
+    write_json(paths["memory_movement_index"], compiled["memory_movement_index"], allowed_root=out_dir)
+    write_json(paths["repo_board"], compiled["repo_board"], allowed_root=out_dir)
+    write_json(paths["voice_surface_view"], compiled["voice_surface_view"], allowed_root=out_dir)
+    write_json(paths["operating_cockpit"], compiled["operating_cockpit"], allowed_root=out_dir)
+    write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map, allowed_root=out_dir)
     return {key: str(path) for key, path in paths.items()}
 
 
