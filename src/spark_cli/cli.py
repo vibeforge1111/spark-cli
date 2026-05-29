@@ -1265,9 +1265,23 @@ def _path_is_reparse_point(path: Path) -> bool:
 
 def assert_no_linked_write_path(path: Path) -> None:
     expanded = path.expanduser()
-    chain = [*reversed(expanded.parent.parents), expanded.parent]
+    try:
+        canonical = Path(os.path.realpath(str(expanded)))
+    except OSError:
+        canonical = expanded
+    seen: set[Path] = set()
+    chain: list[Path] = []
+    for item in [*reversed(canonical.parent.parents), canonical.parent]:
+        if item not in seen:
+            seen.add(item)
+            chain.append(item)
     if expanded.exists() or expanded.is_symlink():
-        chain.append(expanded)
+        if canonical not in seen:
+            seen.add(canonical)
+            chain.append(canonical)
+        if expanded != canonical and expanded not in seen:
+            seen.add(expanded)
+            chain.append(expanded)
     for item in chain:
         if not item.exists() and not item.is_symlink():
             continue
