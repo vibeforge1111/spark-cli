@@ -303,6 +303,44 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["status"], "blocked")
         self.assertIn("task is required", payload["last_failure_reason"])
 
+    def test_task_parser_accepts_options_after_goal_text(self) -> None:
+        args = cli.build_parser().parse_args([
+            "browser-use",
+            "task",
+            "review",
+            "the",
+            "page",
+            "--url",
+            "https://example.com",
+            "--max-steps",
+            "3",
+            "--json",
+        ])
+
+        self.assertEqual(args.browser_use_command, "task")
+        self.assertEqual(args.goal, ["review", "the", "page"])
+        self.assertEqual(args.url, "https://example.com")
+        self.assertEqual(args.max_steps, 3)
+        self.assertTrue(args.json)
+
+    def test_task_parser_keeps_option_like_goal_text_after_separator(self) -> None:
+        args = cli.build_parser().parse_args([
+            "browser-use",
+            "task",
+            "explain",
+            "--",
+            "--json",
+        ])
+
+        self.assertEqual(args.goal, ["explain", "--json"])
+        self.assertFalse(args.json)
+
+    def test_task_parser_keeps_json_missing_goal_on_command_path(self) -> None:
+        args = cli.build_parser().parse_args(["browser-use", "task", "--json"])
+
+        self.assertEqual(args.goal, [])
+        self.assertTrue(args.json)
+
     def test_task_receipt_fails_when_agent_does_not_finish(self) -> None:
         async def fake_agent(
             goal: str,

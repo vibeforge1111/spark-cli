@@ -16051,7 +16051,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
-    browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
+    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
     browser_use_task_parser.add_argument("--max-steps", type=int, default=25, help="Maximum Browser Use Agent steps")
     browser_use_task_parser.add_argument("--json", action="store_true")
