@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,8 +20,14 @@ from spark_cli import cli
 
 
 class BrowserUseCliTests(unittest.TestCase):
+    def temporary_directory(self) -> tempfile.TemporaryDirectory[str]:
+        root = Path(tempfile.gettempdir()).resolve() / f"spark-browser-use-tests-{os.getpid()}"
+        root.mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        return tempfile.TemporaryDirectory(dir=root)
+
     def test_cli_path_discovers_installed_spark_venv_entrypoint(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             entrypoint = Path(tmp_dir) / "tools" / "spark-cli-venv" / "bin" / "browser-use"
             entrypoint.parent.mkdir(parents=True)
             entrypoint.write_text("#!/usr/bin/env sh\n", encoding="utf-8")
@@ -29,7 +36,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 self.assertEqual(cli.browser_use_cli_path(), str(entrypoint))
 
     def test_cli_path_discovers_installed_windows_spark_venv_entrypoint(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             entrypoint = Path(tmp_dir) / "tools" / "spark-cli-venv" / "Scripts" / "browser-use.exe"
             entrypoint.parent.mkdir(parents=True)
             entrypoint.write_text("", encoding="utf-8")
@@ -38,7 +45,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 self.assertEqual(cli.browser_use_cli_path(), str(entrypoint))
 
     def test_status_reports_missing_without_mutating(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
@@ -51,7 +58,7 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["next_action"], "Run `spark browser-use install`, then `spark browser-use probe`.")
 
     def test_status_marks_old_ready_receipt_unproven(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             screenshot = Path(tmp_dir) / "probe-screenshot.png"
             status_path.parent.mkdir(parents=True)
@@ -79,7 +86,7 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("stale", payload["last_failure_reason"])
 
     def test_status_accepts_builder_screenshot_proof_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             screenshot = Path(tmp_dir) / "smoke-screenshot.png"
             status_path.parent.mkdir(parents=True)
@@ -109,7 +116,7 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ready")
 
     def test_probe_writes_ready_receipt_for_public_page_scope(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             completed = subprocess.CompletedProcess(["browser-use"], 0, stdout="ok", stderr="")
             screenshot_path = status_path.parent / "probe-screenshot.png"
@@ -156,7 +163,7 @@ class BrowserUseCliTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_open_returns_page_summary_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -190,7 +197,7 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("eval", called_commands[2])
 
     def test_screenshot_writes_screenshot_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -218,7 +225,7 @@ class BrowserUseCliTests(unittest.TestCase):
             self.assertIn("screenshot capture", payload["proven_scope"])
 
     def test_open_allows_local_urls_for_operator_browser_use(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -265,7 +272,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 "is_validated": False,
             }
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
@@ -309,7 +316,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 "is_successful": False,
             }
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
@@ -424,7 +431,7 @@ class BrowserUseCliTests(unittest.TestCase):
                 return FakeHistory()
 
         fake_browser_use = types.SimpleNamespace(Agent=FakeAgent, Browser=FakeBrowser)
-        with tempfile.TemporaryDirectory() as tmp_dir, \
+        with self.temporary_directory() as tmp_dir, \
              patch.dict(sys.modules, {"browser_use": fake_browser_use}), \
              patch("spark_cli.cli.browser_use_agent_llm", return_value=("test-llm", "test-provider")):
             history_path = Path(tmp_dir) / "history.json"
@@ -478,12 +485,13 @@ class BrowserUseCliTests(unittest.TestCase):
                 "is_successful": True,
             }
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            browser_use_path = Path.home() / ".cache" / "spark-browser-use-test" / "browser-use"
             buffer = io.StringIO()
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
-                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(Path(tmp_dir) / "bin" / "browser-use")), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(browser_use_path)), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent), \
                  redirect_stdout(buffer):
@@ -506,9 +514,10 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertNotIn(tmp_dir, buffer.getvalue())
 
     def test_probe_json_output_uses_public_artifact_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with self.temporary_directory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             screenshot_path = status_path.parent / "probe-screenshot.png"
+            browser_use_path = Path.home() / ".cache" / "spark-browser-use-test" / "browser-use"
             completed = subprocess.CompletedProcess(["browser-use"], 0, stdout="ok", stderr="")
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -524,7 +533,7 @@ class BrowserUseCliTests(unittest.TestCase):
             buffer = io.StringIO()
             with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
-                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(Path(tmp_dir) / "bin" / "browser-use")), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(browser_use_path)), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run), \
                  redirect_stdout(buffer):
