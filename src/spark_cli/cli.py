@@ -89,10 +89,11 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+$")
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
-SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([0-9a-fA-F]{40})"')
+SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
-POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([0-9a-fA-F]{40})"')
+POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
@@ -1331,6 +1332,8 @@ def current_git_commit() -> str:
 
 def local_git_commit_exists(ref: str) -> bool:
     normalized = (ref or "").strip().lower()
+    if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
+        return True
     if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
         return False
     try:
@@ -1466,6 +1469,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     hosted_metadata_error = ""
     hosted_release_name = ""
     hosted_release_ref = ""
+    hosted_release_commit = ""
     hosted_release_manifest: dict[str, Any] = {}
     hosted_release_manifest_error = ""
     committed_expected: dict[str, str] = {}
@@ -1482,7 +1486,8 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 else {}
             )
             hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("commit", "")).lower()
+            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
             hosted_release_manifest_error = str(exc)
         current_ref = current_git_commit()
@@ -1492,6 +1497,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             hosted_source_basis = "installed_checkout"
     local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
     local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
     checks.append(
         {
             "name": "local_release_ref_reachable",
@@ -1501,9 +1507,13 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
                 if local_ref_skipped
                 else (
-                    "Installer source commit exists in the local Spark CLI checkout."
+                    (
+                        "Installer source release tag has a valid Spark public release-tag shape."
+                        if local_ref_is_release_tag
+                        else "Installer source commit exists in the local Spark CLI checkout."
+                    )
                     if local_ref_ok
-                    else "Installer source commit is not reachable in the local Spark CLI checkout; a fresh install may fail."
+                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
                 )
             ),
         }
@@ -1628,7 +1638,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             actual_release = str(spark_cli.get("releaseName", ""))
             release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
             if release_ok:
-                release_detail = "Hosted release manifest has the current release name and expected Spark CLI commit."
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
             elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
                 release_detail = (
                     "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
@@ -1645,6 +1655,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
+                    "actual_commit": hosted_release_commit,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
                     "detail": release_detail,
@@ -1705,8 +1716,10 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     if hosted:
         hosted_release = {
             "release": hosted_release_name,
-            "commit": hosted_release_ref,
+            "ref": hosted_release_ref,
+            "commit": hosted_release_commit or hosted_release_ref,
             "expected_release": expected_hosted_release,
+            "expected_ref": expected_hosted_ref,
             "expected_commit": expected_hosted_ref,
             "source_basis": hosted_source_basis,
             "verified_at": timestamp_now(),
@@ -5788,6 +5801,19 @@ def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> su
     )
 
 
+def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
+    try:
+        parsed = json.loads(result.stdout.strip())
+        data = parsed.get("data") if isinstance(parsed, dict) else {}
+        encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
+        if not encoded:
+            raise ValueError("missing screenshot data")
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
+    except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
+
+
 def browser_use_probe_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -5821,7 +5847,8 @@ def browser_use_probe_payload() -> dict[str, Any]:
         proofs.append("public_page_open")
         run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
         proofs.append("state_read")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "screenshot", str(screenshot_path), timeout=60)
+        screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
+        write_browser_use_screenshot(screenshot, screenshot_path)
         proofs.append("screenshot_capture")
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         failure = browser_use_command_failure_message(exc)
@@ -5921,8 +5948,8 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         proofs.append("state_read")
         page = browser_use_page_summary(cli_path, session)
         if screenshot:
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-            run_browser_use_command(cli_path, "--session", session, "screenshot", str(screenshot_path), timeout=60)
+            result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
+            write_browser_use_screenshot(result, screenshot_path)
             proofs.append("screenshot_capture")
         payload = {
             **base_payload,
@@ -13076,11 +13103,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
         if isinstance(hosted_release, dict):
             marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
             release = hosted_release.get("release") or "<unknown release>"
-            commit = hosted_release.get("commit") or "<unknown commit>"
+            source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
             print("Hosted release freshness:")
-            print(f"{marker} published: {release} @ {commit}")
+            print(f"{marker} published: {release} @ {source_ref}")
             print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
-            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_commit') or '<unknown commit>'}")
+            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
