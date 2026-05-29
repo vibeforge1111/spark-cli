@@ -114,6 +114,7 @@ from spark_cli.cli import (
     check_runtime_version_for_module,
     clear_install_progress,
     coerce_config_value,
+    codex_cli_auth_payload,
     codex_client_config_payload,
     dotted_get,
     dotted_set,
@@ -8300,6 +8301,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["values"]["service_tier"], "fast")
         self.assertNotIn("slow", json.dumps(payload))
 
+    def test_codex_cli_auth_payload_reports_missing_auth_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            payload = codex_cli_auth_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["exists"])
+        self.assertIn("codex login", payload["notes"][0])
+
+    def test_codex_cli_auth_payload_does_not_echo_auth_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            auth = Path(tmp_dir) / "auth.json"
+            auth.write_text('{"tokens": {"access_token": "secret-token"}}\n', encoding="utf-8")
+
+            payload = codex_cli_auth_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("secret-token", json.dumps(payload))
+
     def test_save_codex_client_config_updates_top_level_values_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = Path(tmp_dir) / "config.toml"
@@ -8348,14 +8367,38 @@ class SparkCliTests(unittest.TestCase):
             "secret_keys": [],
         }
         codex_payload = {"ok": True, "values": {"service_tier": "fast", "model_reasoning_effort": "high"}}
+        auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
         with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
              patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
             payload = provider_status_payload()
 
+        self.assertTrue(payload["roles"]["chat"]["ready"])
         self.assertEqual(payload["roles"]["chat"]["codex_client"], codex_payload)
+        self.assertEqual(payload["roles"]["chat"]["codex_auth"], auth_payload)
         self.assertEqual(payload["roles"]["memory"]["codex_client"], codex_payload)
         self.assertNotIn("codex_client", payload["roles"]["builder"])
         self.assertNotIn("codex_client", payload["roles"]["mission"])
+
+    def test_provider_status_marks_codex_oauth_unready_without_auth(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "codex",
+                "roles": {
+                    role: {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"}
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            }
+        }
+        auth_payload = {"ok": False, "exists": False, "source": "codex_cli_auth", "notes": ["Codex auth.json was not found. Run `codex login` first."]}
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value={"ok": True, "values": {}}):
+            payload = provider_status_payload()
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["roles"]["chat"]["ready"])
+        self.assertIn("codex login", payload["repair_hints"][0])
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])
@@ -9874,7 +9917,8 @@ class SparkCliTests(unittest.TestCase):
                 },
             }
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True, "exists": True, "notes": []}):
             payload = provider_status_payload()
         self.assertFalse(payload["ok"])
         self.assertTrue(payload["roles"]["chat"]["ready"])
@@ -9933,7 +9977,8 @@ class SparkCliTests(unittest.TestCase):
                 "auth_mode": "codex_oauth",
             }
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True, "exists": True, "notes": []}):
             payload = provider_status_payload()
         self.assertTrue(payload["ok"])
         for role in ("chat", "builder", "memory", "mission"):
