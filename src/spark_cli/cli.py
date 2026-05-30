@@ -40,6 +40,7 @@ from .runtime_policy import run_runtime_command, runtime_command_argv, split_sin
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
+from .sandbox.output import redact_sandbox_text, strip_terminal_controls
 from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
@@ -7393,7 +7394,7 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
     stdout = result.stdout or ""
     stderr = result.stderr or ""
     for raw_line in (stdout + "\n" + stderr).splitlines():
-        line = raw_line.strip()
+        line = redact_sandbox_text(strip_terminal_controls(raw_line.strip()))
         if not line:
             continue
         if line.startswith("> "):
@@ -7434,7 +7435,22 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
                 f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
             )
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+    meaningful_lines = [
+        line
+        for line in lines
+        if line not in {"{", "}", "[", "]"}
+        and not line.lstrip().startswith("at ")
+        and not re.fullmatch(r"[\^~\s]+", line)
+        and not re.fullmatch(r"diagnosticCodes:\s*\[?", line)
+        and not re.fullmatch(r"[\d,\s]+", line)
+    ]
+    for line in meaningful_lines:
+        if re.search(r"\berror\s+[A-Z]{2}\d+:", line):
+            return line
+    for line in meaningful_lines:
+        if re.search(r"(Error|error|failed|Cannot|Missing|ModuleNotFoundError|TSError)", line):
+            return line
+    return meaningful_lines[-1] if meaningful_lines else lines[-1]
 
 
 def collect_status_payload() -> dict[str, Any]:

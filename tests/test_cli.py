@@ -4048,6 +4048,52 @@ class SparkCliTests(unittest.TestCase):
         )
         self.assertEqual(summarize_command_output(result), "module emitted undecodable output")
 
+    def test_summarize_command_output_skips_stack_trace_braces(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["dummy"],
+            returncode=1,
+            stdout="> spark-telegram-bot@1.0.0 health:polling\n> node scripts/run-health-polling.cjs\n",
+            stderr=(
+                "TSError: Unable to compile TypeScript:\n"
+                "src/healthRuntime.ts(5,37): error TS2503: Cannot find namespace 'NodeJS'.\n"
+                "    at createTSError (/tmp/node_modules/ts-node/src/index.ts:859:12)\n"
+                "  diagnosticCodes: [\n"
+                "    2503\n"
+                "  ]\n"
+                "}\n"
+            ),
+        )
+        self.assertEqual(
+            summarize_command_output(result),
+            "src/healthRuntime.ts(5,37): error TS2503: Cannot find namespace 'NodeJS'.",
+        )
+
+    def test_summarize_command_output_redacts_secret_like_error_detail(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["dummy"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Error: provider failed with Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456 "
+                "while opening https://api.example.test/run?api_key=sk-abcdefghi123456789\n"
+            ),
+        )
+
+        summary = summarize_command_output(result)
+        self.assertIn("[REDACTED]", summary)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", summary)
+        self.assertNotIn("sk-abcdefghi123456789", summary)
+
+    def test_summarize_command_output_strips_terminal_controls(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["dummy"],
+            returncode=1,
+            stdout="",
+            stderr="\x1b]8;;https://example.test\x07Error: Missing module\x1b]8;;\x07\n",
+        )
+
+        self.assertEqual(summarize_command_output(result), "Error: Missing module")
+
     def test_summarize_command_output_compacts_memory_json(self) -> None:
         result = subprocess.CompletedProcess(
             args=["dummy"],
