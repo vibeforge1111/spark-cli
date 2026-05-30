@@ -48,6 +48,7 @@ from spark_cli.cli import (
     collect_telegram_fix_payload,
     collect_verify_payload,
     configure_telegram_profile,
+    cmd_config_get,
     cmd_list,
     cmd_secrets_set,
     cmd_live,
@@ -1555,10 +1556,18 @@ class SparkCliTests(unittest.TestCase):
         config: dict = {}
         dotted_set(config, "dashboard.port", 8765)
         dotted_set(config, "model", "sonnet")
+        dotted_set(config, "disabled", None)
         self.assertEqual(dotted_get(config, "dashboard.port"), 8765)
         self.assertEqual(dotted_get(config, "model"), "sonnet")
+        self.assertIsNone(dotted_get(config, "disabled", default="fallback"))
         self.assertIsNone(dotted_get(config, "missing.key"))
         self.assertEqual(dotted_get(config, "missing.key", default="fallback"), "fallback")
+
+    def test_config_get_prints_stored_null_value(self) -> None:
+        with patch("spark_cli.cli.load_user_config", return_value={"feature": {"flag": None}}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_config_get(Namespace(key="feature.flag")), 0)
+        self.assertEqual(stdout.getvalue(), "null\n")
 
     def test_dotted_unset_removes_nested_key_and_reports_hit(self) -> None:
         config = {"dashboard": {"port": 8765, "theme": "dark"}}

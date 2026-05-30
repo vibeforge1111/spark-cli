@@ -14989,6 +14989,9 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+CONFIG_MISSING = object()
+
+
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     parts = key.split(".")
     current: Any = config
@@ -15040,12 +15043,14 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key)
-    if value is None:
+    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    if value is CONFIG_MISSING:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
+    elif value is None:
+        print("null")
     else:
         print(value)
     return 0
