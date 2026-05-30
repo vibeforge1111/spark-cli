@@ -6386,7 +6386,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         payload = browser_use_status_payload()
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
-            return 0 if payload["status"] != "failed" else 1
+            return 0 if payload["ok"] else 1
         print("Spark browser-use")
         print(f"Status: {payload['status']}")
         print(f"Package: {'available' if payload['package_available'] else 'missing'}")
@@ -6400,20 +6400,46 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 0 if payload["status"] != "failed" else 1
 
     if action == "install":
+        use_json = getattr(args, "json", False)
         if getattr(args, "dry_run", False):
-            print("Spark browser-use install preview")
-            print("Would run:")
-            print(f"  {sys.executable} -m pip install {REPO_ROOT}[browser-use]")
-            print("  browser-use install")
-            print("  browser-use doctor")
-            print("Then run: spark browser-use probe")
+            if use_json:
+                print(json.dumps({
+                    "ok": True,
+                    "dry_run": True,
+                    "steps": [
+                        f"{sys.executable} -m pip install <spark-root>[browser-use]",
+                        "browser-use install",
+                        "browser-use doctor",
+                    ],
+                    "next": "Run `spark browser-use probe` after install.",
+                }, indent=2))
+            else:
+                print("Spark browser-use install preview")
+                print("Would run:")
+                print(f"  {sys.executable} -m pip install {REPO_ROOT}[browser-use]")
+                print("  browser-use install")
+                print("  browser-use doctor")
+                print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as exc:
+            if use_json:
+                print(json.dumps({"ok": False, "step": "pip_install", "error": f"pip exited with code {exc.returncode}"}, indent=2))
+                return 1
+            raise SystemExit(f"pip install failed (exit {exc.returncode}). Check the output above.") from exc
         cli_path = browser_use_cli_path()
         if not cli_path:
+            if use_json:
+                print(json.dumps({"ok": False, "step": "cli_detection", "error": "browser-use CLI not found on PATH after install. Restart the terminal or check the Spark Python environment."}, indent=2))
+                return 1
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
         run_browser_use_command(cli_path, "install", timeout=180)
         run_browser_use_command(cli_path, "doctor", timeout=60)
+        if use_json:
+            status_payload = browser_use_status_payload()
+            print(json.dumps(status_payload, indent=2))
+            return 0 if status_payload["ok"] else 1
         print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
         return 0
 
@@ -9913,7 +9939,7 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "approval":
+    if getattr(args, "approval_command", None) is not None:
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
@@ -16008,6 +16034,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
     browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
     browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.add_argument("--json", action="store_true")
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--json", action="store_true")
