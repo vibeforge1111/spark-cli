@@ -13748,12 +13748,19 @@ def windows_service_creationflags() -> int:
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
     if os.name != "nt":
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            # `lsof` may not be installed on minimal Linux images (containers,
+            # CI runners). The port-owner lookup is best-effort: when the tool
+            # is missing, callers fall back to the spawned process PID, so the
+            # supervisor can still take ownership.
+            return None
         if result.returncode != 0:
             return None
         for line in result.stdout.splitlines():
@@ -13765,12 +13772,15 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             except ValueError:
                 continue
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
     suffix = f":{port}"
