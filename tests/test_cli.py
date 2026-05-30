@@ -41,12 +41,14 @@ from spark_cli.cli import (
     collect_sandbox_verify_payload,
     collect_setup_configuration,
     collect_simple_fix_payload,
+    collect_autostart_fix_payload,
     collect_status_payload,
     collect_hosted_security_payload,
     collect_llm_doctor_context,
     collect_telegram_fix_payload,
     collect_verify_payload,
     configure_telegram_profile,
+    cmd_list,
     cmd_secrets_set,
     cmd_live,
     cmd_onboard,
@@ -102,6 +104,7 @@ from spark_cli.cli import (
     module_secret_env_bindings,
     module_trust_tier,
     next_telegram_profile_relay_port,
+    normalize_telegram_admin_ids,
     normalize_telegram_profile,
     path_is_write_denied,
     provider_env_blocklist,
@@ -111,9 +114,11 @@ from spark_cli.cli import (
     check_runtime_version_for_module,
     clear_install_progress,
     coerce_config_value,
+    codex_client_config_payload,
     dotted_get,
     dotted_set,
     dotted_unset,
+    validate_config_key,
     render_init_spark_toml,
     scaffold_module_files,
     save_json,
@@ -150,8 +155,14 @@ from spark_cli.cli import (
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
+    expand_spark_home_placeholder,
+    print_plain_doctor,
+    pending_setup_refresh_status,
+    setup_upgrade_refresh_can_pause,
     public_local_path_ref,
     resolve_provider_test_target,
+    save_codex_client_config,
+    update_toml_top_level_scalars,
     redact_for_llm,
     redact_shareable_text,
     redact_sensitive_text,
@@ -168,6 +179,7 @@ from spark_cli.cli import (
     persist_keychain_secrets,
     split_secret_bindings,
     store_secret,
+    SetupBundlePlan,
     strip_keychain_env_vars,
     tail_log_lines,
     update_module_source,
@@ -468,6 +480,21 @@ class SparkCliTests(unittest.TestCase):
             self.assertNotIn(leaked, text)
         self.assertIn("[REDACTED]", text)
 
+    def test_sandbox_redaction_catches_github_token_prefixes(self) -> None:
+        tokens = [
+            "ghp_abcdefghijklmnopqrstuvwxyz123456",
+            "gho_abcdefghijklmnopqrstuvwxyz123456",
+            "ghu_abcdefghijklmnopqrstuvwxyz123456",
+            "ghs_abcdefghijklmnopqrstuvwxyz123456",
+            "ghr_abcdefghijklmnopqrstuvwxyz123456",
+        ]
+
+        text = redact_sandbox_text("\n".join(tokens))
+
+        for token in tokens:
+            self.assertNotIn(token, text)
+        self.assertEqual(text.count("[REDACTED]"), len(tokens))
+
     def test_sandbox_redaction_catches_url_credentials_and_jwts(self) -> None:
         jwt = (
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
@@ -492,7 +519,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_sandbox_target_name_validation(self) -> None:
         self.assertEqual(validate_target_name("odyssey-vps"), "odyssey-vps")
-        for value in ["Odyssey", "../oops", "a", "bad_name", "bad/target", "bad-"]:
+        for value in ["Odyssey", "../oops", "a", "bad_name", "bad/target", "bad-", "con", "aux", "com1", "lpt9"]:
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     validate_target_name(value)
@@ -503,6 +530,10 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(resolve_safe_output_path("artifact.txt", root=root), root / "artifact.txt")
             with self.assertRaises(ValueError):
                 resolve_safe_output_path("../escape.txt", root=root)
+            for value in ["CON", "aux.txt", "safe/COM1.log", "nested/lpt9/output.txt"]:
+                with self.subTest(value=value):
+                    with self.assertRaises(ValueError):
+                        resolve_safe_output_path(value, root=root)
 
     def test_sandbox_audit_event_redacts_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -738,7 +769,21 @@ class SparkCliTests(unittest.TestCase):
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
             validate_ssh_user("root")
-        for host in ["ssh://example.test", "spark@example.test", "example.test/path", "169.254.169.254", "-badhost"]:
+        for host in [
+            "ssh://example.test",
+            "spark@example.test",
+            "example.test/path",
+            "169.254.169.254",
+            "169.254.169.254.",
+            "::ffff:169.254.169.254",
+            "fd00:ec2::254",
+            "metadata.google.internal.",
+            "2852039166",
+            "0xa9fea9fe",
+            "169.254.43518",
+            "0251.0376.0251.0376",
+            "-badhost",
+        ]:
             with self.subTest(host=host):
                 with self.assertRaises(ValueError):
                     validate_ssh_host(host)
@@ -1384,6 +1429,35 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertTrue(should_enforce_approval(args, decision))
 
+    def test_approval_classifier_hardens_secret_publish_and_wrapper_gaps(self) -> None:
+        cases = [
+            (["sudo", "git", "push", "--force-with-lease"], "git_history_mutation", "critical"),
+            (["env", "TOKEN=redacted", "gh", "auth", "token"], "credential_mutation", "critical"),
+            (["printenv"], "credential_mutation", "high"),
+            (["aws", "secretsmanager", "get-secret-value", "--secret-id", "spark"], "credential_mutation", "critical"),
+            (["kubectl", "get", "secret", "spark-token"], "credential_mutation", "critical"),
+            (["docker", "login", "ghcr.io"], "credential_mutation", "high"),
+            (["find", ".", "-name", "*.sh", "-exec", "sh", "{}", ";"], "remote_code_execution", "high"),
+            (["git", "submodule", "add", "https://example.test/repo.git"], "remote_code_execution", "high"),
+            (["twine", "upload", "dist/*"], "external_publish", "high"),
+            (["cargo", "publish"], "external_publish", "high"),
+            (["gem", "push", "spark.gem"], "external_publish", "high"),
+            (["nuget", "push", "spark.nupkg"], "external_publish", "high"),
+            (["docker", "push", "example/spark:latest"], "external_publish", "high"),
+            (["serverless", "deploy"], "external_publish", "high"),
+            (["pulumi", "up", "--yes"], "external_publish", "high"),
+            (["prisma", "migrate", "deploy"], "external_publish", "high"),
+            (["alembic", "upgrade", "head"], "external_publish", "high"),
+            (["gcloud", "run", "deploy", "spark"], "external_publish", "high"),
+            (["supabase", "db", "push"], "external_publish", "high"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
@@ -1491,6 +1565,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(dotted_unset(config, "dashboard.port"))
         self.assertEqual(config, {"dashboard": {"theme": "dark"}})
 
+    def test_config_key_rejects_empty_segments(self) -> None:
+        for key in ("", ".", "dashboard..port", ".dashboard", "dashboard."):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    validate_config_key(key)
+
+    def test_dotted_set_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_set(config, "dashboard..theme", "dark")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
+
+    def test_dotted_unset_rejects_empty_key_segments_without_mutating_config(self) -> None:
+        config = {"dashboard": {"port": 8765}}
+        with self.assertRaises(ValueError):
+            dotted_unset(config, ".dashboard")
+        self.assertEqual(config, {"dashboard": {"port": 8765}})
+
     def test_coerce_config_value_parses_json_primitives_but_keeps_bare_strings(self) -> None:
         self.assertEqual(coerce_config_value("true"), True)
         self.assertEqual(coerce_config_value("42"), 42)
@@ -1583,13 +1675,23 @@ class SparkCliTests(unittest.TestCase):
             resolve_secret_input("@env:SPARK_TEST_SECRET_MISSING")
 
     def test_resolve_secret_input_can_read_file_reference(self) -> None:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
-            handle.write("secret-from-file\n")
-            secret_path = Path(handle.name)
-        try:
-            self.assertEqual(resolve_secret_input(f"@file:{secret_path}"), "secret-from-file")
-        finally:
-            secret_path.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            secret_path = spark_home / "config" / "secret.txt"
+            secret_path.parent.mkdir(parents=True)
+            secret_path.write_text("secret-from-file\n", encoding="utf-8")
+            with patch("spark_cli.cli.SPARK_HOME", spark_home):
+                self.assertEqual(resolve_secret_input(f"@file:{secret_path}"), "secret-from-file")
+
+    def test_resolve_secret_input_rejects_file_reference_outside_spark_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            spark_home = root / "spark-home"
+            outside_secret = root / "outside-secret.txt"
+            outside_secret.write_text("secret-from-file\n", encoding="utf-8")
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), self.assertRaises(SystemExit) as error:
+                resolve_secret_input(f"@file:{outside_secret}")
+            self.assertIn("inside SPARK_HOME", str(error.exception))
 
     def test_llm_doctor_redacts_tokens_and_secret_fields(self) -> None:
         text = "BOT_TOKEN=1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890 and Authorization: Bearer sk-proj-secretvalue1234567890"
@@ -2287,6 +2389,50 @@ class SparkCliTests(unittest.TestCase):
             errors = endpoint_security_errors()
         self.assertTrue(any("169.254.169.254" in error for error in errors))
 
+    def test_endpoint_security_errors_flag_trailing_dot_metadata_host(self) -> None:
+        provider_payload = {
+            "ok": True,
+            "roles": {
+                "chat": {
+                    "provider": "openai",
+                    "model": "x",
+                    "auth_mode": "api_key",
+                    "ready": True,
+                    "base_url": "http://metadata.google.internal./computeMetadata/v1",
+                }
+            },
+        }
+        with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            errors = endpoint_security_errors()
+        self.assertTrue(any("cloud metadata service" in error for error in errors))
+
+    def test_endpoint_security_errors_reject_whitespace_and_control_hosts(self) -> None:
+        cases = [
+            " https://example.com/v1",
+            "https://ex ample.com/v1",
+            "https://example.com" + chr(10) + ".evil/v1",
+            "https://example.com%0a.evil/v1",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                provider_payload = {
+                    "ok": True,
+                    "roles": {
+                        "chat": {
+                            "provider": "openai",
+                            "model": "x",
+                            "auth_mode": "api_key",
+                            "ready": True,
+                            "base_url": url,
+                        }
+                    },
+                }
+                with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+                     patch("spark_cli.cli.read_generated_env", return_value={}):
+                    errors = endpoint_security_errors()
+                self.assertTrue(any("whitespace or control" in error for error in errors), errors)
+
     def test_url_policy_blocks_private_remote_targets(self) -> None:
         errors = validate_url_safety("http://10.0.0.8/v1", label="llm role chat")
         self.assertTrue(any("private network address" in error for error in errors))
@@ -2294,6 +2440,17 @@ class SparkCliTests(unittest.TestCase):
     def test_url_policy_allows_local_provider_targets_by_default(self) -> None:
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
+
+    def test_url_policy_treats_loopback_host_aliases_as_local(self) -> None:
+        for host in ("localhost.localdomain", "ip6-localhost", "ip6-loopback"):
+            with self.subTest(host=host):
+                self.assertEqual(validate_url_safety(f"http://{host}:1234/v1", label="local provider"), [])
+                errors = validate_url_safety(
+                    f"http://{host}:1234/v1",
+                    label="hosted provider",
+                    policy=UrlPolicy(allow_local=False),
+                )
+                self.assertTrue(any("local-only host" in error for error in errors))
 
     def test_url_policy_can_block_local_targets_for_hosted_tools(self) -> None:
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
@@ -2603,6 +2760,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(telegram_profile_relay_port(setup_state, "spark-agi"), 8789)
         self.assertEqual(telegram_profile_relay_port(setup_state, "missing"), 8788)
 
+    def test_telegram_profile_relay_port_rejects_out_of_range_ports(self) -> None:
+        setup_state = {
+            "telegram_profiles": {
+                "max-valid": {"relay_port": 65535},
+                "too-high": {"relay_port": 65536},
+                "negative": {"relay_port": -1},
+            }
+        }
+        self.assertEqual(telegram_profile_relay_port(setup_state, "max-valid"), 65535)
+        self.assertEqual(telegram_profile_relay_port(setup_state, "too-high"), 8788)
+        self.assertEqual(telegram_profile_relay_port(setup_state, "negative"), 8788)
+
     def test_next_telegram_profile_relay_port_skips_existing_ports(self) -> None:
         setup_state = {"telegram_profiles": {"qa": {"relay_port": 8789}, "agi": {"relay_port": "8790"}}}
         self.assertEqual(next_telegram_profile_relay_port(setup_state), 8791)
@@ -2635,6 +2804,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(statuses[0]["autostart"])
         self.assertFalse(statuses[1]["primary"])
         self.assertFalse(statuses[1]["autostart"])
+
+    def test_normalize_telegram_admin_ids_merges_and_deduplicates(self) -> None:
+        self.assertEqual(
+            normalize_telegram_admin_ids("111, 222", "222;333  444", "", None, "111"),
+            "111,222,333,444",
+        )
 
     def test_configure_telegram_profile_writes_isolated_env_and_spawner_webhook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -2700,7 +2875,7 @@ class SparkCliTests(unittest.TestCase):
                 setup_state = load_json(state_dir / "setup.json", {})
                 stored_token = fetch_secret("telegram.profiles.qa-bot.bot_token")
 
-        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "222")
+        self.assertEqual(profile_env["ADMIN_TELEGRAM_IDS"], "111,222")
         self.assertEqual(profile_env["TELEGRAM_RELAY_PORT"], "8792")
         self.assertEqual(profile_env["SPARK_TELEGRAM_PROFILE"], "qa-bot")
         self.assertNotIn("BOT_TOKEN", profile_env)
@@ -2925,6 +3100,19 @@ class SparkCliTests(unittest.TestCase):
             module_path = Path(tmp_dir)
             (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
             (module_path / "keys.txt").write_text("-----BEGIN PRIVATE KEY-----\nabc\n", encoding="utf-8")
+            module = Module(
+                name="thirdparty",
+                path=module_path,
+                manifest={"module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"}},
+            )
+            findings = scan_module_trust(module, trust_tier="community")
+        self.assertTrue(any(finding.category == "embedded-private-key" for finding in findings))
+
+    def test_scan_module_trust_finds_encrypted_private_key_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "spark.toml").write_text("[module]\nname = \"thirdparty\"\n", encoding="utf-8")
+            (module_path / "keys.txt").write_text("-----BEGIN ENCRYPTED PRIVATE KEY-----\nabc\n", encoding="utf-8")
             module = Module(
                 name="thirdparty",
                 path=module_path,
@@ -3841,6 +4029,33 @@ class SparkCliTests(unittest.TestCase):
             {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
         )
 
+    def test_resolve_llm_roles_uses_chat_provider_as_setup_default_when_no_global_provider(self) -> None:
+        args = build_parser().parse_args(["setup", "--non-interactive", "--chat-llm-provider", "zai"])
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "zai", "memory": "zai", "mission": "zai"},
+        )
+
+    def test_resolve_llm_roles_does_not_let_chat_provider_override_agent_provider(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "--non-interactive",
+                "--chat-llm-provider",
+                "zai",
+                "--agent-llm-provider",
+                "openai",
+            ]
+        )
+        with patch("spark_cli.cli.load_json", return_value={}):
+            roles = resolve_llm_roles(args, {"llm.zai.api_key": "zai-key"})
+        self.assertEqual(
+            roles,
+            {"chat": "zai", "builder": "openai", "memory": "openai", "mission": "not_configured"},
+        )
+
     def test_build_llm_env_lmstudio_powers_agent_and_mission_by_default(self) -> None:
         args = build_parser().parse_args(
             [
@@ -4177,6 +4392,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"][0]["remote_ref"], "refs/heads/release/stability-2026-05-09")
         self.assertIn("matches remote refs/heads/release/stability-2026-05-09", payload["checks"][0]["detail"])
 
+    def test_registry_pin_drift_payload_reports_remote_timeout_without_traceback(self) -> None:
+        registry = {
+            "modules": {
+                "domain-chip-memory": {
+                    "source": "https://github.com/vibeforge1111/domain-chip-memory",
+                    "commit": "e" * 40,
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        def resolver(_source: str, _ref: str) -> str:
+            raise subprocess.TimeoutExpired(["git", "ls-remote"], 60)
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=resolver)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["checks"][0]["remote_head"], "")
+        self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
+
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
         self.assertEqual(args.target, "telegram-starter")
@@ -4467,6 +4703,23 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("Systemd service current command: yes", text)
             self.assertIn("Systemd service current Spark home: yes", text)
             self.assertNotIn("Systemd service warning: autostart command does not match", text)
+
+    def test_autostart_fix_payload_reports_missing_hook_as_not_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service_path = Path(tmp_dir) / "spark-telegram-agent.service"
+            xdg_path = Path(tmp_dir) / "spark-telegram-agent.desktop"
+            with patch("spark_cli.cli.sys.platform", "linux"), \
+                 patch("spark_cli.cli.running_under_wsl", return_value=False), \
+                 patch("spark_cli.cli.linux_autostart_scope", return_value="user"), \
+                 patch("spark_cli.cli.linux_autostart_path", return_value=service_path), \
+                 patch("spark_cli.cli.linux_xdg_autostart_path", return_value=xdg_path), \
+                 patch("spark_cli.cli.load_json", return_value={}):
+                payload = collect_autostart_fix_payload()
+
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["current startup target"]["ok"])
+        self.assertIn("No autostart hook is installed", checks["current startup target"]["detail"])
 
     def test_autostart_install_macos_replaces_existing_launch_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -4814,6 +5067,26 @@ class SparkCliTests(unittest.TestCase):
     def test_purge_spark_home_refuses_home_directory(self) -> None:
         with self.assertRaises(SystemExit):
             purge_spark_home(Path.home())
+
+    def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
+        args = Namespace()
+        with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}), \
+             patch("spark_cli.cli.load_json", return_value={}), \
+             patch("spark_cli.cli.discover_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_list(args), 0)
+
+        output = stdout.getvalue()
+        self.assertIn("No installed Spark modules recorded.", output)
+        self.assertIn("spark setup telegram-starter", output)
+
+    def test_skip_install_commands_help_text_is_present_on_install_setup_and_update(self) -> None:
+        parser = build_parser()
+        commands = parser._subparsers._group_actions[0].choices
+
+        self.assertIn("Skip post-install commands", commands["install"].format_help())
+        self.assertIn("Skip install commands", commands["setup"].format_help())
+        self.assertIn("Skip post-update install commands", commands["update"].format_help())
 
     def test_guide_prints_normie_onboarding_surface(self) -> None:
         args = build_parser().parse_args(["guide"])
@@ -5636,6 +5909,153 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(start.call_count, 2)
         self.assertNotIn("local Telegram relay credential", output.getvalue())
         self.assertNotIn("TELEGRAM_RELAY_SECRET", output.getvalue())
+
+    def test_setup_upgrade_refresh_secret_backend_gate_is_nonfatal_for_existing_install(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"], secrets=["telegram.bot_token"])
+        plan = SetupBundlePlan(
+            modules={gateway.name: gateway},
+            bundle=[gateway],
+            ingress_owner=gateway,
+            installed_modules={gateway.name: gateway},
+        )
+        setup_state = {
+            "bundle": "telegram-starter",
+            "modules": [gateway.name],
+            "secret_keys": ["telegram.bot_token"],
+        }
+        detail = (
+            "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+            "Install/configure a keyring backend."
+        )
+        args = build_parser().parse_args(
+            [
+                "setup",
+                "telegram-starter",
+                "--non-interactive",
+                "--no-start-now",
+                "--no-autostart",
+            ]
+        )
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp_dir:
+            tmp = Path(tmp_dir)
+            state_dir = tmp / "state"
+            config_path = state_dir / "setup.json"
+            registry_path = state_dir / "installed.json"
+            pending_path = state_dir / "setup.pending.json"
+            state_dir.mkdir()
+            save_json(config_path, setup_state)
+            save_json(registry_path, {gateway.name: {"path": str(gateway.path)}})
+            with patch("spark_cli.cli.CONFIG_PATH", config_path), \
+                 patch("spark_cli.cli.REGISTRY_PATH", registry_path), \
+                 patch("spark_cli.cli.SETUP_PENDING_PATH", pending_path), \
+                 patch("spark_cli.cli.resolve_setup_bundle_plan", return_value=plan), \
+                 patch("spark_cli.cli.collect_setup_configuration", return_value=({"telegram.bot_token": "123456:test-token"}, setup_state)), \
+                 patch("spark_cli.cli.validate_new_telegram_bot_tokens"), \
+                 patch("spark_cli.cli.save_json"), \
+                 patch("spark_cli.cli.install_setup_bundle"), \
+                 patch("spark_cli.cli.install_memory_sidecar_dependencies"), \
+                 patch("spark_cli.cli.write_setup_runtime_config", side_effect=SystemExit(detail)), \
+                 patch.dict(os.environ, {"SPARK_SETUP_OPTIONAL_ON_UPGRADE": "1"}, clear=False), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(cmd_setup(args), 0)
+
+        output = stdout.getvalue()
+        self.assertIn("Spark upgrade status", output)
+        self.assertIn("[OK] CLI upgrade: complete", output)
+        self.assertIn("[PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them", output)
+        self.assertIn("[OK] Existing runtime: can keep running with the current setup", output)
+        self.assertIn("Next when you are ready:", output)
+        self.assertIn("spark setup telegram-starter --resume", output)
+        self.assertIn("spark doctor", output)
+
+    def test_doctor_surfaces_paused_setup_refresh_as_safe_to_continue(self) -> None:
+        payload = {
+            "ok": True,
+            "modules": [],
+            "llm": {"provider": "codex", "model": "gpt-5.5"},
+            "setup_refresh": {
+                "status": "paused",
+                "safe_to_continue": True,
+                "summary": "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets.",
+                "next": "spark setup telegram-starter --resume",
+            },
+        }
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            print_plain_doctor(payload)
+
+        output = stdout.getvalue()
+        self.assertIn("Spark is ready with a paused setup refresh.", output)
+        self.assertIn("Setup refresh", output)
+        self.assertIn("- Status: paused", output)
+        self.assertIn("- Existing runtime: safe to keep using", output)
+        self.assertIn("spark setup telegram-starter --resume", output)
+
+    def test_pending_setup_refresh_status_structures_secret_backend_pause(self) -> None:
+        status = pending_setup_refresh_status({
+            "bundle": "telegram-starter",
+            "detail": (
+                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                "Install/configure a keyring backend."
+            ),
+            "next": "spark setup telegram-starter --resume",
+            "updated_at": "2026-05-25T04:00:00Z",
+        })
+
+        self.assertIsNotNone(status)
+        assert status is not None
+        self.assertEqual(status["status"], "paused")
+        self.assertTrue(status["safe_to_continue"])
+        self.assertIn("secure secret backend", status["summary"])
+        self.assertEqual(status["next"], "spark setup telegram-starter --resume")
+
+    def test_setup_upgrade_refresh_pause_requires_existing_install_and_no_new_secrets(self) -> None:
+        detail = "File secret backend is disabled because this OS has no built-in Spark file encryption."
+        base_args = build_parser().parse_args(
+            [
+                "setup",
+                "telegram-starter",
+                "--non-interactive",
+                "--no-start-now",
+                "--no-autostart",
+            ]
+        )
+        with patch.dict(os.environ, {"SPARK_SETUP_OPTIONAL_ON_UPGRADE": "1"}, clear=False):
+            self.assertTrue(
+                setup_upgrade_refresh_can_pause(
+                    base_args,
+                    detail,
+                    existing_config=True,
+                    existing_modules=True,
+                )
+            )
+            self.assertFalse(
+                setup_upgrade_refresh_can_pause(
+                    base_args,
+                    detail,
+                    existing_config=False,
+                    existing_modules=True,
+                )
+            )
+            secret_args = build_parser().parse_args(
+                [
+                    "setup",
+                    "telegram-starter",
+                    "--non-interactive",
+                    "--no-start-now",
+                    "--no-autostart",
+                    "--openrouter-api-key",
+                    "new-secret",
+                ]
+            )
+            self.assertFalse(
+                setup_upgrade_refresh_can_pause(
+                    secret_args,
+                    detail,
+                    existing_config=True,
+                    existing_modules=True,
+                )
+            )
 
     def test_print_install_summary_mentions_ingress_owner(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
@@ -6824,6 +7244,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result["detail"], "command timed out after 7s")
         run.assert_called_once_with("npm run health", module.path, env={}, timeout=7)
 
+    def test_evaluate_module_health_uses_primary_telegram_profile_env(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"},
+                "healthcheck": {"command": "npm run health:polling"},
+            },
+        )
+        setup_state = {
+            "primary_telegram_profile": "spark-recursive",
+            "telegram_profiles": {
+                "spark-agi": {"relay_port": 8789},
+                "spark-recursive": {"relay_port": 8791},
+            },
+        }
+        runtime_env = {"TELEGRAM_RELAY_PORT": "8791", "SPARK_TELEGRAM_PROFILE": "spark-recursive"}
+        completed = subprocess.CompletedProcess("npm run health:polling", 0, stdout="ok", stderr="")
+
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.module_runtime_env", return_value=runtime_env) as runtime_env_for_module, \
+             patch("spark_cli.cli.run_runtime_command", return_value=completed) as run:
+            result = evaluate_module_health(module)
+
+        self.assertTrue(result["healthy"])
+        runtime_env_for_module.assert_called_once_with(module, "spark-recursive")
+        run.assert_called_once_with("npm run health:polling", module.path, env=runtime_env, timeout=10)
+
     def test_format_start_warning_mentions_running_process_and_logs(self) -> None:
         module = Module(
             name="spawner-ui",
@@ -7063,7 +7511,7 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080"])
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
-                "http://127.0.0.1:8080/api/providers",
+                "http://127.0.0.1:8080/api/health/live",
             )
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),
@@ -7097,6 +7545,28 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertTrue(result["healthy"])
         self.assertEqual(result["healthcheck_command"], "GET http://127.0.0.1:8080/api/health/live")
+        run_runtime.assert_not_called()
+
+    def test_spawner_health_does_not_trust_untracked_local_port(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={}), \
+             patch("spark_cli.cli.load_pids", return_value={}), \
+             patch("spark_cli.cli.urllib.request.urlopen") as urlopen, \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("no Spark-supervised spawner-ui process", result["detail"])
+        urlopen.assert_not_called()
         run_runtime.assert_not_called()
 
     def test_external_telegram_health_skips_local_bot_token_check(self) -> None:
@@ -7802,6 +8272,90 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+
+    def test_parser_accepts_codex_client_config_command(self) -> None:
+        args = build_parser().parse_args(["providers", "codex", "--service-tier", "fast", "--reasoning-effort", "high"])
+        self.assertEqual(args.providers_command, "codex")
+        self.assertEqual(args.service_tier, "fast")
+        self.assertEqual(args.reasoning_effort, "high")
+
+    def test_codex_client_config_payload_reads_safe_top_level_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = Path(tmp_dir) / "config.toml"
+            config.write_text(
+                'model = "gpt-5.5"\n'
+                'model_reasoning_effort = "high"\n'
+                'service_tier = "fast"\n'
+                '\n'
+                '[profiles.other]\n'
+                'service_tier = "slow"\n',
+                encoding="utf-8",
+            )
+
+            payload = codex_client_config_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["values"]["model"], "gpt-5.5")
+        self.assertEqual(payload["values"]["model_reasoning_effort"], "high")
+        self.assertEqual(payload["values"]["service_tier"], "fast")
+        self.assertNotIn("slow", json.dumps(payload))
+
+    def test_save_codex_client_config_updates_top_level_values_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = Path(tmp_dir) / "config.toml"
+            config.write_text(
+                'model = "gpt-5.4"\n'
+                '\n'
+                '[profiles.speed]\n'
+                'model_reasoning_effort = "medium"\n'
+                'service_tier = "default"\n',
+                encoding="utf-8",
+            )
+
+            payload = save_codex_client_config(
+                {"model": "gpt-5.5", "model_reasoning_effort": "high", "service_tier": "fast"},
+                {"CODEX_HOME": tmp_dir},
+            )
+            updated = config.read_text(encoding="utf-8")
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["changed"], True)
+        self.assertIn('model = "gpt-5.5"', updated)
+        self.assertIn('model_reasoning_effort = "high"\nservice_tier = "fast"\n\n[profiles.speed]', updated)
+        self.assertIn('[profiles.speed]\nmodel_reasoning_effort = "medium"\nservice_tier = "default"', updated)
+
+    def test_update_toml_top_level_scalars_preserves_sections(self) -> None:
+        updated = update_toml_top_level_scalars(
+            'model = "old"\n\n[profiles.speed]\nservice_tier = "default"\n',
+            {"service_tier": "fast"},
+        )
+
+        self.assertIn('model = "old"', updated)
+        self.assertIn('service_tier = "fast"\n\n[profiles.speed]', updated)
+        self.assertIn('[profiles.speed]\nservice_tier = "default"', updated)
+
+    def test_provider_status_adds_codex_client_only_to_codex_roles(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "codex",
+                "roles": {
+                    "chat": {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"},
+                    "builder": {"provider": "openai", "model": "gpt-5.5", "auth_mode": "api_key"},
+                    "memory": {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"},
+                    "mission": {"provider": "zai", "model": "glm-5.1", "auth_mode": "api_key"},
+                },
+            },
+            "secret_keys": [],
+        }
+        codex_payload = {"ok": True, "values": {"service_tier": "fast", "model_reasoning_effort": "high"}}
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
+            payload = provider_status_payload()
+
+        self.assertEqual(payload["roles"]["chat"]["codex_client"], codex_payload)
+        self.assertEqual(payload["roles"]["memory"]["codex_client"], codex_payload)
+        self.assertNotIn("codex_client", payload["roles"]["builder"])
+        self.assertNotIn("codex_client", payload["roles"]["mission"])
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])
@@ -8561,6 +9115,13 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(public_local_path_ref("https://example.test/repo.git"), "https://example.test/repo.git")
                 self.assertEqual(public_local_path_ref(Path(tmp_dir) / "elsewhere" / "tool.exe"), "<local-path>/tool.exe")
 
+    def test_expand_spark_home_placeholder_for_human_status_output(self) -> None:
+        spark_home = Path("/tmp/spark")
+        self.assertEqual(
+            expand_spark_home_placeholder("Repair <spark-home>/config/settings.json", spark_home),
+            f"Repair {spark_home}/config/settings.json",
+        )
+
     def test_status_payload_masks_config_and_installed_local_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             spark_home = Path(tmp_dir) / ".spark"
@@ -9196,6 +9757,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.provider_status_payload", return_value=provider_payload):
             payload = collect_simple_fix_payload("spawner")
 
+        self.assertFalse(payload["ok"])
         route_context = payload["route_context"]
         self.assertEqual(route_context["schema_version"], "spark.repair_route_context.v1")
         self.assertEqual(route_context["candidate_route"], "spark.repair")
@@ -9638,10 +10200,25 @@ class SparkCliTests(unittest.TestCase):
             raise AssertionError(url)
 
         with patch("spark_cli.cli.current_git_commit", return_value=source["ref"]), \
+             patch("spark_cli.cli.timestamp_now", return_value="2026-05-25T06:30:00Z"), \
              patch("spark_cli.cli.urllib.request.urlopen", side_effect=fake_urlopen):
             payload = collect_installer_integrity_payload(hosted=True)
 
         self.assertTrue(payload["ok"])
+        self.assertEqual(
+            payload["hosted_release"],
+            {
+                "release": source["releaseName"],
+                "ref": source["ref"],
+                "commit": source["ref"],
+                "expected_release": source["releaseName"],
+                "expected_ref": source["ref"],
+                "expected_commit": source["ref"],
+                "source_basis": "committed_manifest",
+                "verified_at": "2026-05-25T06:30:00Z",
+                "fresh": True,
+            },
+        )
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertEqual(checks["hosted_install.sh"]["expected_sha256"], hosted_hashes["install.sh"])
         self.assertEqual(checks["hosted_install.sh"]["hosted_metadata_sha256"], hosted_hashes["install.sh"])
@@ -9766,6 +10343,130 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(checks["hosted_install.sh"]["expected_sha256"], hosted_hashes["install.sh"])
         self.assertTrue(checks["hosted_release_manifest"]["ok"])
         self.assertTrue(checks["hosted_commands_metadata"]["ok"])
+
+    def test_hosted_installer_checks_explain_newer_hosted_copy_without_checksum_confusion(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.payload
+
+        old_ref = "1" * 40
+        new_ref = "2" * 40
+        old_release = "spark-cli-launch-old"
+        new_release = "spark-cli-launch-new"
+
+        def shell_script(release: str, ref: str) -> bytes:
+            return (
+                "#!/bin/sh\n"
+                f'SPARK_CLI_RELEASE_NAME="${{SPARK_CLI_RELEASE_NAME:-{release}}}"\n'
+                f'SPARK_DEFAULT_CLI_REF="{ref}"\n'
+            ).encode("utf-8")
+
+        def powershell_script(release: str, ref: str) -> bytes:
+            return (
+                f'param([string]$Ref = "{ref}")\n'
+                f'$SparkCliReleaseName = "{release}"\n'
+            ).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_installers = {
+                "install.sh": shell_script(old_release, old_ref),
+                "install.ps1": powershell_script(old_release, old_ref),
+            }
+            installer_paths = {
+                "install.sh": root / "install.sh",
+                "install.ps1": root / "install.ps1",
+            }
+            for name, payload in old_installers.items():
+                installer_paths[name].write_bytes(payload)
+            old_hashes = {
+                name: hashlib.sha256(payload).hexdigest()
+                for name, payload in old_installers.items()
+            }
+            manifest_path = root / "installer-manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "source": {
+                            "repository": "https://github.com/vibeforge1111/spark-cli",
+                            "releaseName": old_release,
+                            "ref": old_ref,
+                        },
+                        "installers": {
+                            name: {"path": str(path), "sha256": old_hashes[name]}
+                            for name, path in installer_paths.items()
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            hosted_installers = {
+                "install.sh": shell_script(new_release, new_ref),
+                "install.ps1": powershell_script(new_release, new_ref),
+            }
+            hosted_hashes = {
+                name: hashlib.sha256(payload).hexdigest()
+                for name, payload in hosted_installers.items()
+            }
+            checksums_payload = (
+                f"{hosted_hashes['install.sh']}  install.sh\n"
+                f"{hosted_hashes['install.ps1']}  install.ps1\n"
+            ).encode("utf-8")
+            release_manifest_payload = json.dumps(
+                {"sparkCli": {"releaseName": new_release, "commit": new_ref}}
+            ).encode("utf-8")
+            commands_payload = json.dumps(
+                {
+                    "checksums": {"sha256": hosted_hashes},
+                    "source": {"releaseName": new_release, "ref": new_ref},
+                }
+            ).encode("utf-8")
+
+            def fake_urlopen(request: Any, timeout: int = 0, **_: Any) -> FakeResponse:
+                url = request.full_url
+                if url.endswith("/install/checksums.txt"):
+                    return FakeResponse(checksums_payload)
+                if url.endswith("/install/release-manifest.json"):
+                    return FakeResponse(release_manifest_payload)
+                if url.endswith("/install/commands.json"):
+                    return FakeResponse(commands_payload)
+                if url.endswith("/install.sh"):
+                    return FakeResponse(hosted_installers["install.sh"])
+                if url.endswith("/install.ps1"):
+                    return FakeResponse(hosted_installers["install.ps1"])
+                raise AssertionError(url)
+
+            with patch("spark_cli.cli.INSTALLER_MANIFEST_PATH", manifest_path), \
+                 patch("spark_cli.cli.INSTALLER_SCRIPT_PATHS", installer_paths), \
+                 patch("spark_cli.cli.current_git_commit", return_value=old_ref), \
+                 patch("spark_cli.cli.urllib.request.urlopen", side_effect=fake_urlopen):
+                payload = collect_installer_integrity_payload(hosted=True)
+
+        self.assertFalse(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["hosted_install.sh"]["ok"])
+        self.assertEqual(checks["hosted_install.sh"]["actual_sha256"], hosted_hashes["install.sh"])
+        self.assertEqual(checks["hosted_install.sh"]["hosted_metadata_sha256"], hosted_hashes["install.sh"])
+        self.assertIn("matches hosted checksum metadata", checks["hosted_install.sh"]["detail"])
+        self.assertIn("hosted site may be newer", checks["hosted_install.sh"]["detail"])
+        self.assertNotIn("does not match hosted checksum metadata", checks["hosted_install.sh"]["detail"])
+        self.assertFalse(checks["hosted_release_manifest"]["ok"])
+        self.assertIn("does not match this Spark CLI checkout's expected release pins", checks["hosted_release_manifest"]["detail"])
+        self.assertNotIn("stale", checks["hosted_release_manifest"]["detail"].lower())
+        self.assertFalse(checks["hosted_commands_metadata"]["ok"])
+        self.assertIn("matches hosted installer hashes", checks["hosted_commands_metadata"]["detail"])
+        self.assertIn("expected_source_basis", checks["hosted_commands_metadata"]["detail"])
 
     def test_hosted_installer_checks_fail_when_hosted_hashes_do_not_match_committed_manifest(self) -> None:
         class FakeResponse:
@@ -10043,6 +10744,34 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(args.func(args), 0)
         collect_mock.assert_called_once_with(hosted=False)
         self.assertIn("local_install.sh", stdout.getvalue())
+
+    def test_verify_hosted_installers_plain_prints_release_freshness(self) -> None:
+        args = build_parser().parse_args(["verify", "--installers", "--hosted-installers"])
+        payload = {
+            "ok": True,
+            "summary": "Spark installer integrity verification",
+            "manifest": "scripts/installer-manifest.json",
+            "hosted_release": {
+                "release": "spark-cli-public-installer-r16",
+                "ref": "abc123",
+                "commit": "abc123",
+                "expected_release": "spark-cli-public-installer-r16",
+                "expected_ref": "abc123",
+                "expected_commit": "abc123",
+                "source_basis": "committed_manifest",
+                "verified_at": "2026-05-25T06:30:00Z",
+                "fresh": True,
+            },
+            "checks": [{"name": "hosted_release_manifest", "ok": True, "detail": "ready"}],
+        }
+        with patch("spark_cli.cli.collect_installer_integrity_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        collect_mock.assert_called_once_with(hosted=True)
+        output = stdout.getvalue()
+        self.assertIn("Hosted release freshness:", output)
+        self.assertIn("[OK] published: spark-cli-public-installer-r16 @ abc123", output)
+        self.assertIn("verified: 2026-05-25T06:30:00Z", output)
 
     def test_verify_hosted_reports_security_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--hosted", "--json"])
@@ -11114,6 +11843,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Upgrading pip in Spark CLI virtualenv", script)
         self.assertIn("Installing Spark CLI package", script)
         self.assertIn("pip install -e", script)
+        self.assertIn("ensure_uvx_for_browser_use", script)
+        self.assertIn("Installing browser-use Chromium dependency", script)
+        self.assertIn('PATH="$venv_dir/bin:$uv_dir:$PATH" "$venv_dir/bin/browser-use" install', script)
         self.assertIn("SPARK_LOCAL_REGISTRY", script)
         self.assertIn("SPARK_ALLOW_DEV_SOURCE", script)
         self.assertIn('SPARK_SHELL_PROFILE="${SPARK_SHELL_PROFILE:-auto}"', script)
@@ -11143,6 +11875,16 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('export SPARK_HOME="$SPARK_PREFIX"', script)
         self.assertIn('local env_file="$SPARK_PREFIX/env"', script)
         self.assertIn('export PATH="$SPARK_PREFIX/bin:$SPARK_NODE_BIN_DIR:\\$PATH"', script)
+        self.assertIn("verify_install_layout", script)
+        self.assertIn("Verifying install layout", script)
+        self.assertIn("require_option_value", script)
+        self.assertIn("require_non_option_value", script)
+        self.assertIn("Missing value for $option.", script)
+        self.assertIn('local wrapper="$SPARK_PREFIX/bin/spark"', script)
+        self.assertIn('local cli_dir="$SPARK_PREFIX/tools/spark-cli"', script)
+        self.assertIn('local python_bin="$SPARK_PREFIX/tools/spark-cli-venv/bin/python"', script)
+        self.assertIn('grep -F "SPARK_HOME=\\"$SPARK_PREFIX\\"" "$wrapper"', script)
+        self.assertIn('grep -F "$python_bin" "$wrapper"', script)
         self.assertIn('"$SPARK_PREFIX/bin/spark" setup "$SPARK_BUNDLE"', script)
         self.assertIn('spark_setup_cmd+=("--start-now" "--autostart")', script)
         self.assertIn('spark_setup_cmd+=("--no-start-now" "--no-autostart")', script)
@@ -11165,18 +11907,39 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("$SPARK_PREFIX/bin/spark fix telegram", script)
         self.assertIn("$SPARK_PREFIX/bin/spark fix spawner", script)
         self.assertIn("$SPARK_PREFIX/bin/spark fix autostart", script)
+        self.assertIn("print_install_outcome", script)
+        self.assertIn("Install outcome:", script)
+        self.assertIn("[OK] CLI upgrade: complete", script)
+        self.assertIn("[OK] Setup: configured", script)
+        self.assertIn("[SKIP] Setup: skipped by request", script)
+        self.assertIn("setup_refresh_paused", script)
+        self.assertIn("[PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them", script)
+        self.assertIn("[OK] Existing runtime: can keep running with the current setup", script)
+        self.assertIn("[STARTED] Runtime: setup handled start/autostart", script)
+        self.assertIn("[MANUAL] Runtime: start after setup", script)
+        self.assertIn("[VERIFY] Telegram: run spark verify --onboarding", script)
         self.assertIn("choose Level 4", script)
         self.assertIn("Use a lower level only", script)
         self.assertIn("Mission Control, Kanban, Canvas, or preview links", script)
         self.assertIn("$SPARK_PREFIX/bin/spark autostart off", script)
         self.assertIn("$SPARK_PREFIX/bin/spark autostart on telegram-starter --now", script)
         self.assertIn('spark_setup_cmd+=("--minimax-api-key" "$spark_secret_ref_value")', script)
+        self.assertIn("SPARK_SETUP_OPTIONAL_ON_UPGRADE=1", script)
         self.assertIn("spark_cli.cli", script)
 
     def test_install_script_dry_run_reflects_bundle_voice_and_autostart(self) -> None:
         bash = shutil.which("bash")
         if not bash:
             self.skipTest("bash is not available")
+        bash_probe = subprocess.run(
+            [bash, "-c", "printf ok"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if bash_probe.returncode != 0 or bash_probe.stdout != "ok":
+            self.skipTest(f"bash is not usable: {bash_probe.stderr or bash_probe.stdout}")
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
         with tempfile.TemporaryDirectory() as tmp_dir:
             env = dict(os.environ)
@@ -11205,6 +11968,54 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("--no-start-now --no-autostart --non-interactive", result.stdout)
         self.assertNotIn("--start-now --autostart", result.stdout)
 
+    def test_install_script_reports_missing_option_values_before_install_actions(self) -> None:
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash is not available")
+        script_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = dict(os.environ)
+            env["SPARK_PREFIX"] = str(Path(tmp_dir) / ".spark")
+            result = subprocess.run(
+                [bash, "./scripts/install.sh", "--prefix", "--dry-run"],
+                cwd=str(script_root),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+        self.assertIn("Missing value for --prefix.", result.stderr)
+        self.assertIn("Usage: install.sh [options]", result.stderr)
+
+    def test_install_script_setup_arg_accepts_option_like_values(self) -> None:
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash is not available")
+        script_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env = dict(os.environ)
+            env["SPARK_PREFIX"] = str(Path(tmp_dir) / ".spark")
+            result = subprocess.run(
+                [
+                    bash,
+                    "./scripts/install.sh",
+                    "--dry-run",
+                    "--upgrade-existing",
+                    "--setup-arg",
+                    "--future-setup-flag",
+                ],
+                cwd=str(script_root),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("--future-setup-flag", result.stdout)
+
     def test_windows_install_script_bootstraps_local_prefix_contract(self) -> None:
         script = (Path(__file__).resolve().parents[1] / "scripts" / "install.ps1").read_text(encoding="utf-8")
         release_source = installer_manifest_payload()["source"]
@@ -11226,6 +12037,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Upgrading pip in Spark CLI virtualenv", script)
         self.assertIn("Installing Spark CLI package", script)
         self.assertIn("pip install -e", script)
+        self.assertIn("Ensure-UvxForBrowserUse", script)
+        self.assertIn("Installing browser-use Chromium dependency", script)
+        self.assertIn('$env:PATH = "$(Join-Path $venvDir "Scripts");$uvDir;$env:PATH"', script)
         self.assertIn('Remove-Item -LiteralPath $legacyExe -Force', script)
         self.assertIn("Removed stale Spark executable shim", script)
         self.assertIn("$env:PATH = \"$nodeDir;$env:PATH\"", script)
@@ -11257,6 +12071,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('$setupPreviewArgs += $SetupArg', script)
         self.assertIn('if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }', script)
         self.assertIn('$setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }', script)
+        self.assertIn('$env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"', script)
         self.assertIn("& $sparkCmd setup $Bundle @setupStartArgs @setupArgs", script)
         self.assertIn("[switch]$NoAutostart", script)
         self.assertIn("Spark startup was handled by setup", script)
@@ -11271,6 +12086,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark fix telegram", script)
         self.assertIn("spark fix spawner", script)
         self.assertIn("spark fix autostart", script)
+        self.assertIn("Show-InstallOutcome", script)
+        self.assertIn("Install outcome:", script)
+        self.assertIn("[OK] CLI upgrade: complete", script)
+        self.assertIn("[OK] Setup: configured", script)
+        self.assertIn("[SKIP] Setup: skipped by request", script)
+        self.assertIn("Test-SetupRefreshPaused", script)
+        self.assertIn("[PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them", script)
+        self.assertIn("[OK] Existing runtime: can keep running with the current setup", script)
+        self.assertIn("[STARTED] Runtime: setup handled start/autostart", script)
+        self.assertIn("[MANUAL] Runtime: start after setup", script)
+        self.assertIn("[VERIFY] Telegram: run spark verify --onboarding", script)
         self.assertIn("choose Level 4", script)
         self.assertIn("Use a lower level only", script)
         self.assertIn("Mission Control, Kanban, Canvas, or preview links", script)

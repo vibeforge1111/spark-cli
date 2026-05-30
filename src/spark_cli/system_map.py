@@ -3845,8 +3845,20 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
     }
 
 
-def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[str, Any]:
-    source_files = {
+def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
+    module_sources = spark_home / "modules" if spark_home is not None else None
+    installed_suffixes: dict[str, tuple[str, Path]] = {
+        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
+        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
+        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
+        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
+        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
+        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
+        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
+        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
+        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
+    }
+    desktop_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
         "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
@@ -3857,13 +3869,33 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[s
         "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
         "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
     }
+
+    def resolve_source_file(key: str) -> Path:
+        desktop_path = desktop_files[key]
+        if desktop_path.exists():
+            return desktop_path
+        module_name, suffix = installed_suffixes[key]
+        if module_sources is not None:
+            installed_path = module_sources / module_name / "source" / suffix
+            if installed_path.exists():
+                return installed_path
+        return desktop_path
+
+    def resolve_repo_root(repo_name: str) -> Path:
+        if module_sources is not None:
+            installed_root = module_sources / repo_name / "source"
+            if installed_root.exists():
+                return installed_root
+        return desktop / repo_name
+
+    source_files = {key: resolve_source_file(key) for key in desktop_files}
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
-    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
+    spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
+    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
@@ -5365,7 +5397,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
     compiled = {
         "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary),
+        "authority_view": build_authority_view(desktop, setup_summary, spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
