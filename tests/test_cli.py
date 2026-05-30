@@ -1535,6 +1535,14 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parsed["runtime"]["version"], ">=22")
         self.assertIn("node -e", parsed["healthcheck"]["command"])
 
+    def test_render_init_spark_toml_escapes_description(self) -> None:
+        import tomllib as _toml
+        description = "Demo \"quoted\"\nmodule"
+        parsed = _toml.loads(render_init_spark_toml("my-module", "python", description))
+        self.assertEqual(parsed["module"]["description"], description)
+        self.assertEqual(parsed["module"]["name"], "my-module")
+        self.assertEqual(parsed["paths"]["home"], "~/.spark/modules/my-module")
+
     def test_scaffold_module_files_writes_expected_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             target = Path(tmp_dir) / "new-module"
