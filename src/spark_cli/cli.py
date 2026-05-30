@@ -3900,6 +3900,11 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     mission_provider = llm_env.get("SPARK_MISSION_LLM_BOT_PROVIDER") or llm_env.get("BOT_DEFAULT_PROVIDER")
     if mission_provider:
         spawner_env["DEFAULT_MISSION_PROVIDER"] = mission_provider
+        mission_provider_id = llm_env.get("SPARK_MISSION_LLM_PROVIDER") or mission_provider
+        mission_spec = LLM_PROVIDER_ENV.get(str(mission_provider_id))
+        mission_api_key_env = mission_spec.get("api_key_env") if mission_spec else None
+        if mission_api_key_env and llm_env.get(mission_api_key_env):
+            spawner_env[mission_api_key_env] = llm_env[mission_api_key_env]
     if mission_provider == "codex":
         spawner_env["SPAWNER_PRD_AUTO_PROVIDER"] = "codex"
         if llm_env.get("CODEX_PATH"):
