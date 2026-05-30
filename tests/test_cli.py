@@ -6310,10 +6310,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(ordered, ["spawner-ui"])
 
     def test_live_restart_targets_starter_bundle_with_cascade(self) -> None:
-        args = build_parser().parse_args(["live", "restart"])
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            args = build_parser().parse_args(["live", "restart"])
 
-        with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
-            self.assertEqual(cmd_live(args), 0)
+            with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
+                self.assertEqual(cmd_live(args), 0)
 
         live_args = restart.call_args.args[0]
         self.assertEqual(live_args.target, "telegram-starter")
@@ -6325,15 +6327,50 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(args.live_command, "status")
 
     def test_live_run_starts_stack_and_follows_logs(self) -> None:
-        args = build_parser().parse_args(["live", "run", "--lines", "5"])
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            args = build_parser().parse_args(["live", "run", "--lines", "5"])
 
-        with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
-             patch("spark_cli.cli.follow_live_logs") as follow:
-            self.assertEqual(cmd_live(args), 0)
+            with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
+                 patch("spark_cli.cli.follow_live_logs") as follow:
+                self.assertEqual(cmd_live(args), 0)
 
         live_args = start.call_args.args[0]
         self.assertEqual(live_args.target, "telegram-starter")
         follow.assert_called_once_with(lines=5)
+
+    def test_live_run_external_ingress_targets_spawner_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            (Path(tmp_dir) / "setup.json").write_text(
+                json.dumps({"telegram_ingress_mode": "external"}),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["live", "run", "--lines", "5"])
+
+            with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
+                 patch("spark_cli.cli.follow_live_logs") as follow:
+                self.assertEqual(cmd_live(args), 0)
+
+        live_args = start.call_args.args[0]
+        self.assertEqual(live_args.target, "spawner-ui")
+        follow.assert_called_once_with(lines=5)
+
+    def test_live_restart_external_ingress_targets_spawner_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            (Path(tmp_dir) / "setup.json").write_text(
+                json.dumps({"telegram_ingress_mode": "external"}),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["live", "restart"])
+
+            with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
+                self.assertEqual(cmd_live(args), 0)
+
+        live_args = restart.call_args.args[0]
+        self.assertEqual(live_args.target, "spawner-ui")
+        self.assertTrue(live_args.cascade)
 
     def test_live_follow_zero_lines_starts_at_new_output_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
