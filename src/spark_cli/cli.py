@@ -7231,7 +7231,7 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     summary = compile_summary(compiled, written)
     if args.json:
         print(json.dumps(summary, indent=2))
-        return 0
+        return 0 if summary.get("ok") else 1
 
     print("Spark OS system map compiled")
     print(f"- modules: {summary['modules']}")
@@ -7281,6 +7281,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
             proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
 
     payload = {
+        "ok": True,
         "schema_version": "spark.os_capabilities.summary.v0",
         "generated_at": catalog.get("generated_at"),
         "card_count": len(cards),
@@ -7295,7 +7296,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS capabilities")
     print(f"- cards: {payload['card_count']}")
@@ -7341,6 +7342,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         else {}
     )
     payload = {
+        "ok": True,
         "schema_version": "spark.os_authority.summary.v0",
         "generated_at": authority.get("generated_at"),
         "default_access_level": authority.get("default_access_level_hint"),
@@ -7358,7 +7360,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS authority")
     print(f"- default access level: {payload['default_access_level']}")
@@ -7406,6 +7408,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_trace.summary.v0",
         "generated_at": trace_index.get("generated_at"),
         "builder_event_count": _safe_int(builder_events.get("row_count")),
@@ -7439,7 +7442,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     cross_system = payload["cross_system_trace"]
     print("Spark OS trace")
@@ -7487,6 +7490,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
     memory_review_items = _safe_list(memory_review_queue.get("items"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_memory.summary.v0",
         "generated_at": memory_index.get("generated_at"),
         "status": status.get("status") or "unknown",
@@ -7505,7 +7509,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS memory movement")
     print(f"- status: {payload['status']}")
@@ -7897,6 +7901,7 @@ def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
 
 def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "ok": True,
         "created_at": timestamp_now(),
         "spark_home": public_local_path_ref(SPARK_HOME),
         "status": collect_status_payload(),
@@ -7955,7 +7960,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
