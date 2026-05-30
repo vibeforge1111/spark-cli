@@ -3325,6 +3325,7 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "summary": "Spark LLM recommendations",
         "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
         "paths": {
@@ -6386,7 +6387,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         payload = browser_use_status_payload()
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
-            return 0 if payload["status"] != "failed" else 1
+            return 0 if payload["ok"] else 1
         print("Spark browser-use")
         print(f"Status: {payload['status']}")
         print(f"Package: {'available' if payload['package_available'] else 'missing'}")
@@ -6400,20 +6401,46 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         return 0 if payload["status"] != "failed" else 1
 
     if action == "install":
+        use_json = getattr(args, "json", False)
         if getattr(args, "dry_run", False):
-            print("Spark browser-use install preview")
-            print("Would run:")
-            print(f"  {sys.executable} -m pip install {REPO_ROOT}[browser-use]")
-            print("  browser-use install")
-            print("  browser-use doctor")
-            print("Then run: spark browser-use probe")
+            if use_json:
+                print(json.dumps({
+                    "ok": True,
+                    "dry_run": True,
+                    "steps": [
+                        f"{sys.executable} -m pip install <spark-root>[browser-use]",
+                        "browser-use install",
+                        "browser-use doctor",
+                    ],
+                    "next": "Run `spark browser-use probe` after install.",
+                }, indent=2))
+            else:
+                print("Spark browser-use install preview")
+                print("Would run:")
+                print(f"  {sys.executable} -m pip install {REPO_ROOT}[browser-use]")
+                print("  browser-use install")
+                print("  browser-use doctor")
+                print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as exc:
+            if use_json:
+                print(json.dumps({"ok": False, "step": "pip_install", "error": f"pip exited with code {exc.returncode}"}, indent=2))
+                return 1
+            raise SystemExit(f"pip install failed (exit {exc.returncode}). Check the output above.") from exc
         cli_path = browser_use_cli_path()
         if not cli_path:
+            if use_json:
+                print(json.dumps({"ok": False, "step": "cli_detection", "error": "browser-use CLI not found on PATH after install. Restart the terminal or check the Spark Python environment."}, indent=2))
+                return 1
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
         run_browser_use_command(cli_path, "install", timeout=180)
         run_browser_use_command(cli_path, "doctor", timeout=60)
+        if use_json:
+            status_payload = browser_use_status_payload()
+            print(json.dumps(status_payload, indent=2))
+            return 0 if status_payload["ok"] else 1
         print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
         return 0
 
@@ -7204,7 +7231,7 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     summary = compile_summary(compiled, written)
     if args.json:
         print(json.dumps(summary, indent=2))
-        return 0
+        return 0 if summary.get("ok") else 1
 
     print("Spark OS system map compiled")
     print(f"- modules: {summary['modules']}")
@@ -7254,6 +7281,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
             proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
 
     payload = {
+        "ok": True,
         "schema_version": "spark.os_capabilities.summary.v0",
         "generated_at": catalog.get("generated_at"),
         "card_count": len(cards),
@@ -7268,7 +7296,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS capabilities")
     print(f"- cards: {payload['card_count']}")
@@ -7314,6 +7342,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         else {}
     )
     payload = {
+        "ok": True,
         "schema_version": "spark.os_authority.summary.v0",
         "generated_at": authority.get("generated_at"),
         "default_access_level": authority.get("default_access_level_hint"),
@@ -7331,7 +7360,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS authority")
     print(f"- default access level: {payload['default_access_level']}")
@@ -7379,6 +7408,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
     trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_trace.summary.v0",
         "generated_at": trace_index.get("generated_at"),
         "builder_event_count": _safe_int(builder_events.get("row_count")),
@@ -7412,7 +7442,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     cross_system = payload["cross_system_trace"]
     print("Spark OS trace")
@@ -7460,6 +7490,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
     memory_review_items = _safe_list(memory_review_queue.get("items"))
     payload = {
+        "ok": True,
         "schema_version": "spark.os_memory.summary.v0",
         "generated_at": memory_index.get("generated_at"),
         "status": status.get("status") or "unknown",
@@ -7478,7 +7509,7 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     }
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
 
     print("Spark OS memory movement")
     print(f"- status: {payload['status']}")
@@ -7870,6 +7901,7 @@ def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
 
 def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "ok": True,
         "created_at": timestamp_now(),
         "spark_home": public_local_path_ref(SPARK_HOME),
         "status": collect_status_payload(),
@@ -7928,7 +7960,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
     if args.json:
         print(json.dumps(payload, indent=2))
-        return 0
+        return 0 if payload.get("ok") else 1
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
@@ -9913,7 +9945,7 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "approval":
+    if getattr(args, "approval_command", None) is not None:
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
@@ -11134,6 +11166,7 @@ def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
@@ -11345,14 +11378,14 @@ def cmd_providers(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
         for provider in payload["providers"]:
             auth = ", ".join(provider["auth"])
@@ -11464,7 +11497,7 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     raise SystemExit(f"Unknown recommend command: {args.recommend_command}")
@@ -16008,6 +16041,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
     browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
     browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.add_argument("--json", action="store_true")
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--json", action="store_true")
