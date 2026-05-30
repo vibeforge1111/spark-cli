@@ -9939,7 +9939,7 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "approval":
+    if getattr(args, "approval_command", None) is not None:
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
