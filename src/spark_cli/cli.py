@@ -10653,6 +10653,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
 def collect_telegram_fix_payload() -> dict[str, Any]:
     status_payload = collect_status_payload()
     setup_state = load_json(CONFIG_PATH, {})
+    installed = load_json(REGISTRY_PATH, {})
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     modules_by_name = {
         item.get("name"): item for item in status_payload.get("modules", []) if isinstance(item, dict)
@@ -10737,6 +10738,20 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "repair": "spark setup telegram-starter",
         }
     )
+    if memory_roots_ok:
+        smoke = collect_builder_memory_direct_smoke(
+            installed=installed,
+            builder_home=builder_env.get("SPARK_INTELLIGENCE_HOME", ""),
+            builder_env=builder_env,
+        )
+        checks.append(
+            {
+                "name": "builder_memory_direct_smoke",
+                "ok": bool(smoke.get("ok")),
+                "detail": str(smoke.get("detail") or ""),
+                "repair": str(smoke.get("repair") or "spark setup telegram-starter"),
+            }
+        )
     checks.append(
         {
             "name": "llm_roles",

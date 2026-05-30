@@ -9745,6 +9745,63 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(route_context["data_boundary"]["exports_secret"], False)
         self.assertNotIn("BOT_TOKEN", json.dumps(route_context))
 
+    def test_collect_telegram_fix_payload_flags_builder_memory_smoke_failure(self) -> None:
+        status_payload = {
+            "ok": True,
+            "modules": [
+                {"name": "spark-telegram-bot", "healthy": True, "detail": "Relay runtime: OK"},
+            ],
+            "tracked_pids": {"spark-telegram-bot": {"pid": 12345}},
+            "llm": {
+                "provider": "zai",
+                "roles": {
+                    "chat": {"provider": "zai", "auth_mode": "api_key"},
+                    "builder": {"provider": "zai", "auth_mode": "api_key"},
+                    "memory": {"provider": "zai", "auth_mode": "api_key"},
+                    "mission": {"provider": "zai", "auth_mode": "api_key"},
+                },
+            },
+            "repair_hints": [],
+        }
+
+        def fake_env(path: Path) -> dict[str, str]:
+            if path.name == "spark-telegram-bot.env":
+                return {
+                    "SPARK_BUILDER_BRIDGE_MODE": "required",
+                    "SPARK_BUILDER_HOME": "C:/spark/home",
+                }
+            if path.name == "spark-intelligence-builder.env":
+                return {
+                    "SPARK_INTELLIGENCE_HOME": "C:/spark/home",
+                    "SPARK_DOMAIN_CHIP_MEMORY_ROOT": "C:/spark/domain-chip-memory",
+                    "SPARK_RESEARCHER_ROOT": "C:/spark/researcher",
+                }
+            return {}
+
+        smoke = {
+            "ok": False,
+            "detail": "Builder memory direct smoke failed with exit 5.",
+            "repair": "spark setup telegram-starter",
+        }
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+            patch("spark_cli.cli.load_json", side_effect=[
+                {"secret_keys": ["telegram.bot_token", "telegram.admin_ids"]},
+                {"spark-intelligence-builder": "C:/spark/builder", "domain-chip-memory": "C:/spark/domain-chip-memory"},
+            ]), \
+            patch("spark_cli.cli.read_generated_env", side_effect=fake_env), \
+            patch("spark_cli.cli.tail_log_lines", return_value=[]), \
+            patch("spark_cli.cli.pid_is_running", return_value=True), \
+            patch("spark_cli.cli.collect_builder_memory_direct_smoke", return_value=smoke) as smoke_mock:
+            payload = collect_telegram_fix_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertTrue(checks["builder_memory_roots"]["ok"])
+        self.assertFalse(checks["builder_memory_direct_smoke"]["ok"])
+        self.assertIn("direct smoke failed", checks["builder_memory_direct_smoke"]["detail"])
+        smoke_mock.assert_called_once()
+        self.assertIn("builder_memory_direct_smoke", payload["route_context"]["failed_checks"])
+
     def test_collect_simple_fix_payload_exports_builder_route_context(self) -> None:
         status_payload = {
             "ok": False,
