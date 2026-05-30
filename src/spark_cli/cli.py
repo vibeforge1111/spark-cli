@@ -45,6 +45,7 @@ CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
 ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
+SETUP_OPTIONAL_ON_UPGRADE_ENV = "SPARK_SETUP_OPTIONAL_ON_UPGRADE"
 PRIVATE_FILE_MODE = 0o600
 GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
@@ -68,7 +69,20 @@ KEYCHAIN_SERVICE = "spark-cli"
 AUTOSTART_SERVICE_NAME = "spark-telegram-agent"
 AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
 AUTOSTART_WINDOWS_TASK_NAME = "Spark Telegram Agent"
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def discover_repo_root() -> Path:
+    env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
+    candidates = []
+    if env_root:
+        candidates.append(Path(env_root).expanduser())
+    cwd = Path.cwd().resolve()
+    candidates.extend([cwd, *cwd.parents, Path(__file__).resolve().parents[2]])
+    for candidate in candidates:
+        if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
+            return candidate
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = discover_repo_root()
 LOCAL_REGISTRY_PATH = REPO_ROOT / "registry.json"
 INSTALLER_MANIFEST_PATH = REPO_ROOT / "scripts" / "installer-manifest.json"
 INSTALLER_SCRIPT_PATHS = {
@@ -88,10 +102,11 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+$")
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
-SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([0-9a-fA-F]{40})"')
+SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
-POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([0-9a-fA-F]{40})"')
+POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
@@ -1330,6 +1345,8 @@ def current_git_commit() -> str:
 
 def local_git_commit_exists(ref: str) -> bool:
     normalized = (ref or "").strip().lower()
+    if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
+        return True
     if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
         return False
     try:
@@ -1465,6 +1482,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     hosted_metadata_error = ""
     hosted_release_name = ""
     hosted_release_ref = ""
+    hosted_release_commit = ""
     hosted_release_manifest: dict[str, Any] = {}
     hosted_release_manifest_error = ""
     committed_expected: dict[str, str] = {}
@@ -1481,7 +1499,8 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 else {}
             )
             hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("commit", "")).lower()
+            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
             hosted_release_manifest_error = str(exc)
         current_ref = current_git_commit()
@@ -1491,6 +1510,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             hosted_source_basis = "installed_checkout"
     local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
     local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
     checks.append(
         {
             "name": "local_release_ref_reachable",
@@ -1500,9 +1520,13 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
                 if local_ref_skipped
                 else (
-                    "Installer source commit exists in the local Spark CLI checkout."
+                    (
+                        "Installer source release tag has a valid Spark public release-tag shape."
+                        if local_ref_is_release_tag
+                        else "Installer source commit exists in the local Spark CLI checkout."
+                    )
                     if local_ref_ok
-                    else "Installer source commit is not reachable in the local Spark CLI checkout; a fresh install may fail."
+                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
                 )
             ),
         }
@@ -1541,19 +1565,40 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = (
-                        bool(expected_hosted)
-                        and hosted_hash == expected_hosted
-                        and (expected_hosted == expected or hosted_source_basis == "installed_checkout")
+                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
                     )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    detail = (
-                        f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                        if hosted_ok
-                        else f"{url} does not match hosted checksum metadata or expected Spark CLI source pins."
+                    hosted_matches_hosted_release = (
+                        hosted_pins["releaseName"] == hosted_release_name
+                        and hosted_pins["ref"] == hosted_release_ref
                     )
+                    hosted_is_different_release_than_local = (
+                        hosted_source_basis == "committed_manifest"
+                        and bool(hosted_release_name)
+                        and hosted_release_name != expected_hosted_release
+                    )
+                    if hosted_ok:
+                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                    elif (
+                        hosted_metadata_checksum_ok
+                        and not hosted_checksum_ok
+                        and hosted_matches_hosted_release
+                        and hosted_is_different_release_than_local
+                    ):
+                        detail = (
+                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                            "committed installer manifest/source pins. The hosted site may be newer than the local "
+                            "verifier; update Spark CLI or validate from the release commit before calling the "
+                            "hosted copy stale."
+                        )
+                    elif not hosted_metadata_checksum_ok:
+                        detail = f"{url} does not match hosted checksum metadata."
+                    else:
+                        detail = f"{url} does not install the expected Spark CLI source pins."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1603,22 +1648,30 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 if isinstance(hosted_release_manifest.get("sparkCli"), dict)
                 else {}
             )
-            release_ok = spark_cli.get("releaseName") == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            actual_release = str(spark_cli.get("releaseName", ""))
+            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            if release_ok:
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
+            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                release_detail = (
+                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                    "before treating the hosted copy as outdated."
+                )
+            else:
+                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
             checks.append(
                 {
                     "name": "hosted_release_manifest",
                     "ok": release_ok,
                     "expected_release": expected_hosted_release,
-                    "actual_release": str(spark_cli.get("releaseName", "")),
+                    "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
+                    "actual_commit": hosted_release_commit,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": (
-                        "Hosted release manifest has the current release name and expected Spark CLI commit."
-                        if release_ok
-                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-                    ),
+                    "detail": release_detail,
                 }
             )
         try:
@@ -1633,10 +1686,18 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_hashes == hosted_expected
                 and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
             )
+            command_hashes_match_hosted = command_hashes == hosted_expected
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
-                commands_detail = (
-                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                    commands_detail = (
+                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                        "checkout's expected release pins. The hosted site may be newer or older than the local "
+                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                    )
+                else:
+                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                commands_detail += (
                     f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
                     f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
                     f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
@@ -1664,16 +1725,37 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "detail": f"Could not fetch hosted command metadata: {exc}",
                 }
             )
+    hosted_release: dict[str, Any] | None = None
+    if hosted:
+        hosted_release = {
+            "release": hosted_release_name,
+            "ref": hosted_release_ref,
+            "commit": hosted_release_commit or hosted_release_ref,
+            "expected_release": expected_hosted_release,
+            "expected_ref": expected_hosted_ref,
+            "expected_commit": expected_hosted_ref,
+            "source_basis": hosted_source_basis,
+            "verified_at": timestamp_now(),
+            "fresh": bool(
+                hosted_release_name
+                and hosted_release_ref
+                and hosted_release_name == expected_hosted_release
+                and hosted_release_ref == expected_hosted_ref
+            ),
+        }
     try:
         manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
     except ValueError:
         manifest_label = str(INSTALLER_MANIFEST_PATH)
-    return {
+    payload: dict[str, Any] = {
         "ok": all(check["ok"] for check in checks),
         "summary": "Spark installer integrity verification",
         "manifest": manifest_label,
         "checks": checks,
     }
+    if hosted_release is not None:
+        payload["hosted_release"] = hosted_release
+    return payload
 
 
 def collect_module_provenance_payload(
@@ -1864,6 +1946,33 @@ def save_pending_setup_state(stage: str, detail: str, setup_state: dict[str, Any
     save_json(SETUP_PENDING_PATH, pending)
 
 
+def save_paused_setup_refresh_state(stage: str, detail: str, setup_state: dict[str, Any] | None = None) -> None:
+    bundle = "telegram-starter"
+    if isinstance(setup_state, dict):
+        bundle = str(setup_state.get("bundle") or bundle)
+    pending: dict[str, Any] = {
+        "event": "setup_refresh_paused",
+        "updated_at": timestamp_now(),
+        "stage": stage,
+        "detail": detail,
+        "ready": [
+            "CLI upgrade complete",
+            "Existing runtime can keep running with the current setup",
+        ],
+        "still_needed": [
+            "Secure secret backend before Spark rewrites stored secrets",
+        ],
+        "next": f"spark setup {bundle} --resume",
+        "safe_to_continue": True,
+    }
+    if isinstance(setup_state, dict):
+        pending["bundle"] = setup_state.get("bundle")
+        pending["modules"] = setup_state.get("modules")
+        pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
+        pending["onboarding_session"] = setup_state.get("onboarding_session")
+    save_json(SETUP_PENDING_PATH, pending)
+
+
 def clear_pending_setup_state() -> None:
     try:
         SETUP_PENDING_PATH.unlink(missing_ok=True)
@@ -1876,6 +1985,29 @@ def load_pending_setup_state() -> dict[str, Any]:
         return {}
     pending = load_json(SETUP_PENDING_PATH, {})
     return pending if isinstance(pending, dict) else {}
+
+
+def pending_setup_refresh_status(pending: dict[str, Any]) -> dict[str, Any] | None:
+    if not pending:
+        return None
+    bundle = str(pending.get("bundle") or "telegram-starter")
+    detail = str(pending.get("detail") or "").strip()
+    secure_secret_gate = "File secret backend is disabled" in detail
+    if secure_secret_gate:
+        summary = "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets."
+        safe_to_continue = True
+    else:
+        summary = "Setup is pending and needs attention before Spark is fully configured."
+        safe_to_continue = False
+    return {
+        "status": "paused" if secure_secret_gate else "pending",
+        "safe_to_continue": safe_to_continue,
+        "summary": summary,
+        "detail": redact_shareable_text(detail),
+        "next": str(pending.get("next") or f"spark setup {bundle} --resume"),
+        "bundle": bundle,
+        "updated_at": pending.get("updated_at"),
+    }
 
 
 def print_setup_failure_truth_screen(detail: str) -> None:
@@ -2048,6 +2180,17 @@ def telegram_token_repair_command(secret_id: str) -> str:
     return "spark telegram connect"
 
 
+def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> bool:
+    try:
+        candidate = secret_path.expanduser().resolve(strict=False)
+        root = spark_home.expanduser().resolve(strict=False)
+        candidate_text = os.path.normcase(str(candidate))
+        root_text = os.path.normcase(str(root))
+        return os.path.commonpath([candidate_text, root_text]) == root_text
+    except (OSError, ValueError):
+        return False
+
+
 def resolve_secret_input(value: str) -> str:
     stripped = value.strip()
     if stripped.lower() == "@clipboard":
@@ -2064,8 +2207,11 @@ def resolve_secret_input(value: str) -> str:
         secret_path = stripped[6:].strip()
         if not secret_path:
             raise SystemExit("Invalid secret reference: @file: requires a path.")
+        path = Path(secret_path)
+        if not secret_file_path_inside_spark_home(path, SPARK_HOME):
+            raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
         try:
-            return Path(secret_path).expanduser().read_text(encoding="utf-8").strip()
+            return path.expanduser().read_text(encoding="utf-8").strip()
         except OSError as exc:
             raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
     return value
@@ -4894,6 +5040,18 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
     runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
     if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
+        if not spawner_liveness_can_trust_local_port(runtime_env):
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": False,
+                "detail": "Spawner UI live health is not trusted because no Spark-supervised spawner-ui process is running.",
+                "healthcheck_command": None,
+                "failure_hint": "Run `spark start spawner-ui`, then rerun `spark status`.",
+                "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+            }
         health_url = spawner_runtime_health_url(module, runtime_env)
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
@@ -5501,10 +5659,16 @@ def browser_use_cli_path() -> str | None:
     if discovered:
         return discovered
     executable_dir = Path(sys.executable).resolve().parent
+    candidate_dirs = [executable_dir]
+    spark_home = os.environ.get("SPARK_HOME")
+    if spark_home:
+        venv_root = Path(spark_home).expanduser() / "tools" / "spark-cli-venv"
+        candidate_dirs.extend([venv_root / "bin", venv_root / "Scripts"])
     for name in ("browser-use.exe", "browser_use.exe", "browser-use", "browser_use"):
-        candidate = executable_dir / name
-        if candidate.exists():
-            return str(candidate)
+        for directory in candidate_dirs:
+            candidate = directory / name
+            if candidate.exists():
+                return str(candidate)
     return None
 
 
@@ -5658,10 +5822,25 @@ def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> su
         [cli_path, *parts],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         check=True,
         env=env,
     )
+
+
+def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
+    try:
+        parsed = json.loads(result.stdout.strip())
+        data = parsed.get("data") if isinstance(parsed, dict) else {}
+        encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
+        if not encoded:
+            raise ValueError("missing screenshot data")
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
+    except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
 
 
 def browser_use_probe_payload() -> dict[str, Any]:
@@ -5697,7 +5876,8 @@ def browser_use_probe_payload() -> dict[str, Any]:
         proofs.append("public_page_open")
         run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
         proofs.append("state_read")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "screenshot", str(screenshot_path), timeout=60)
+        screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
+        write_browser_use_screenshot(screenshot, screenshot_path)
         proofs.append("screenshot_capture")
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         failure = browser_use_command_failure_message(exc)
@@ -5797,8 +5977,8 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         proofs.append("state_read")
         page = browser_use_page_summary(cli_path, session)
         if screenshot:
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-            run_browser_use_command(cli_path, "--session", session, "screenshot", str(screenshot_path), timeout=60)
+            result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
+            write_browser_use_screenshot(result, screenshot_path)
             proofs.append("screenshot_capture")
         payload = {
             **base_payload,
@@ -6252,12 +6432,12 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         if getattr(args, "dry_run", False):
             print("Spark browser-use install preview")
             print("Would run:")
-            print(f"  {sys.executable} -m pip install {REPO_ROOT}[browser-use]")
+            print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
             print("  browser-use install")
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", f"{REPO_ROOT}[browser-use]"], check=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
@@ -6604,6 +6784,63 @@ def print_setup_summary(
     )
 
 
+def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
+    secret_arg_names = (
+        "secret",
+        "bot_token",
+        "admin_telegram_ids",
+        "telegram_relay_secret",
+        "zai_api_key",
+        "openai_api_key",
+        "anthropic_api_key",
+        "openrouter_api_key",
+        "huggingface_api_key",
+        "kimi_api_key",
+        "minimax_api_key",
+        "elevenlabs_api_key",
+    )
+    return any(bool(getattr(args, name, None)) for name in secret_arg_names)
+
+
+def setup_upgrade_refresh_can_pause(
+    args: argparse.Namespace,
+    detail: str,
+    *,
+    existing_config: bool,
+    existing_modules: bool,
+) -> bool:
+    if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
+        return False
+    if not getattr(args, "non_interactive", False):
+        return False
+    if getattr(args, "start_now", True) or getattr(args, "autostart", True):
+        return False
+    if setup_args_include_explicit_secrets(args):
+        return False
+    if "File secret backend is disabled" not in detail:
+        return False
+    return existing_config and existing_modules
+
+
+def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
+    bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
+    print("")
+    print("Spark upgrade status")
+    print("  [OK] CLI upgrade: complete")
+    print("  [PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them")
+    print("  [OK] Existing runtime: can keep running with the current setup")
+    print("")
+    print("Next when you are ready:")
+    print(f"  spark setup {bundle} --resume")
+    print("")
+    print("To review what needs attention:")
+    print("  spark doctor")
+    print("")
+    print("To keep working now:")
+    print(f"  spark start {bundle}")
+    print("  spark live status")
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
@@ -6611,6 +6848,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     apply_setup_feature_aliases(args)
     setup_state: dict[str, Any] | None = None
     pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
+    existing_config_before_setup = CONFIG_PATH.exists()
+    existing_installed_before_setup = load_json(REGISTRY_PATH, {})
+    existing_modules_before_setup = isinstance(existing_installed_before_setup, dict) and bool(existing_installed_before_setup)
     if pending:
         pending_bundle = str(pending.get("bundle") or "").strip()
         if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
@@ -6678,6 +6918,15 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 0 if ((start_ok or not start_now) and first_message_ok) else 1
     except SystemExit as exc:
         detail = str(exc)
+        if setup_upgrade_refresh_can_pause(
+            args,
+            detail,
+            existing_config=existing_config_before_setup,
+            existing_modules=existing_modules_before_setup,
+        ):
+            save_paused_setup_refresh_state("setup", detail, setup_state)
+            print_setup_upgrade_refresh_paused(args)
+            return 0
         save_pending_setup_state("setup", detail, setup_state)
         print_setup_failure_truth_screen(detail)
         raise
@@ -6931,13 +7180,17 @@ def collect_status_payload() -> dict[str, Any]:
     ensure_state_dirs()
     installed = load_json(REGISTRY_PATH, {})
     setup_state = load_json(CONFIG_PATH, {})
+    setup_refresh = pending_setup_refresh_status(load_pending_setup_state())
     if not installed:
-        return {
+        payload = {
             "ok": False,
             "summary": "No installed Spark modules recorded.",
             "repair": "Run `spark setup telegram-starter` first.",
             "modules": [],
         }
+        if setup_refresh:
+            payload["setup_refresh"] = setup_refresh
+        return payload
 
     modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
     module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
@@ -6954,7 +7207,7 @@ def collect_status_payload() -> dict[str, Any]:
     public_tracked_pids = public_diagnostic_payload(tracked_pids)
     repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
-    return {
+    payload = {
         "ok": ok,
         "summary": "Spark CLI spike status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
@@ -6965,6 +7218,9 @@ def collect_status_payload() -> dict[str, Any]:
         "config_dir": public_local_path_ref(CONFIG_DIR),
         "repair_hints": repair_hints,
     }
+    if setup_refresh:
+        payload["setup_refresh"] = setup_refresh
+    return payload
 
 
 def cmd_os_compile(args: argparse.Namespace) -> int:
@@ -7539,7 +7795,11 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
 
 def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("Spark doctor")
-    print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
+    setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
+    if payload.get("ok") and setup_refresh.get("status") == "paused":
+        print("Spark is ready with a paused setup refresh.")
+    else:
+        print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
     print("")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
@@ -7554,6 +7814,18 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
     print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
     print("")
+    if setup_refresh:
+        print("Setup refresh")
+        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+        summary = str(setup_refresh.get("summary") or "").strip()
+        if summary:
+            print(f"- Note: {summary}")
+        if setup_refresh.get("safe_to_continue"):
+            print("- Existing runtime: safe to keep using")
+        next_step = str(setup_refresh.get("next") or "").strip()
+        if next_step:
+            print(f"- Resume: {next_step}")
+        print("")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
@@ -12835,6 +13107,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
         print(payload["summary"])
+        hosted_release = payload.get("hosted_release")
+        if isinstance(hosted_release, dict):
+            marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
+            release = hosted_release.get("release") or "<unknown release>"
+            source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
+            print("Hosted release freshness:")
+            print(f"{marker} published: {release} @ {source_ref}")
+            print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
+            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
@@ -13468,6 +13749,18 @@ def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
     # Spawner liveness is separate from provider readiness; provider details
     # stay visible through `spark providers status`.
     return True
+
+
+def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    pids = load_pids()
+    for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
+        record = pids.get(process_key)
+        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        if pid and pid_is_running(pid):
+            return True
+    return False
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
