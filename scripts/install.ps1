@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "264baaaf0cbb3e1790b20c425b391d2919505a21",
+    [string]$Ref = "spark-cli-public-installer-2026-05-30-r22",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-05-17-r13"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-05-30-r22"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -119,16 +119,22 @@ function Find-SystemPython {
 function Find-Uv {
     $cmd = Get-Command uv -ErrorAction SilentlyContinue
     if ($cmd) {
-        $Script:UvExe = $cmd.Source
-        return $true
+        $uvDir = Split-Path -Parent $cmd.Source
+        if ((Test-Path -LiteralPath (Join-Path $uvDir "uvx.exe")) -or (Get-Command uvx -ErrorAction SilentlyContinue)) {
+            $Script:UvExe = $cmd.Source
+            return $true
+        }
     }
     foreach ($candidate in @(
         (Join-Path $HOME ".local\bin\uv.exe"),
         (Join-Path $HOME ".cargo\bin\uv.exe")
     )) {
         if (Test-Path -LiteralPath $candidate) {
-            $Script:UvExe = $candidate
-            return $true
+            $uvDir = Split-Path -Parent $candidate
+            if ((Test-Path -LiteralPath (Join-Path $uvDir "uvx.exe")) -or (Get-Command uvx -ErrorAction SilentlyContinue)) {
+                $Script:UvExe = $candidate
+                return $true
+            }
         }
     }
     return $false
@@ -167,10 +173,16 @@ function Install-Uv {
     $archive = Join-Path $toolsDir $asset
     $extractDir = Join-Path $toolsDir "uv-extract-$UvVersion-$uvPlatform"
     $uvExe = Join-Path $uvDir "uv.exe"
-    if (Test-Path -LiteralPath $uvExe) {
+    $uvxExe = Join-Path $uvDir "uvx.exe"
+    if ((Test-Path -LiteralPath $uvExe) -and (Test-Path -LiteralPath $uvxExe)) {
         $Script:UvExe = $uvExe
         Write-SparkLog "Using managed uv at $Script:UvExe"
         return
+    }
+    if (Test-Path -LiteralPath $uvExe) {
+        Write-SparkLog "Refreshing managed uv because uvx.exe is missing"
+        Remove-Item -LiteralPath $uvExe -Force
+        Remove-Item -LiteralPath $uvxExe -Force -ErrorAction SilentlyContinue
     }
     New-Item -ItemType Directory -Force -Path $toolsDir, $uvDir | Out-Null
     Write-SparkLog "Downloading pinned uv $UvVersion for $uvPlatform"
@@ -196,6 +208,20 @@ function Install-Uv {
     Remove-Item -LiteralPath $extractDir -Recurse -Force
     $Script:UvExe = $uvExe
     Write-SparkLog "Using managed uv at $Script:UvExe"
+}
+
+function Ensure-UvxForBrowserUse {
+    Install-Uv
+    $uvDir = Split-Path -Parent $Script:UvExe
+    $uvxExe = Join-Path $uvDir "uvx.exe"
+    if (Test-Path -LiteralPath $uvxExe) {
+        return $uvDir
+    }
+    $uvxOnPath = Get-Command uvx -ErrorAction SilentlyContinue
+    if ($uvxOnPath) {
+        return (Split-Path -Parent $uvxOnPath.Source)
+    }
+    throw "Pinned uv install did not provide uvx.exe, which browser-use needs to install Chromium."
 }
 
 function Ensure-PythonRuntime {
@@ -433,8 +459,8 @@ function Test-InstallSettings {
     if ($UvVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw "Unsafe uv version value: $UvVersion"
     }
-    if (-not $RefWasProvided -and $Ref -notmatch '^[0-9a-f]{40}$') {
-        throw "Default Spark CLI ref must be an immutable 40-character commit SHA: $Ref"
+    if (-not $RefWasProvided -and $Ref -notmatch '^([0-9a-f]{40}|spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+)$') {
+        throw "Default Spark CLI ref must be a 40-character commit SHA or Spark public release tag: $Ref"
     }
     $normalizedSource = $Source.TrimEnd("/")
     if ($normalizedSource.EndsWith(".git")) {
@@ -603,12 +629,30 @@ function Checkout-Cli {
 function Install-CliVenv {
     param([string]$CliDir)
     $venvDir = Join-Path $Script:SparkPrefix "tools\spark-cli-venv"
+    $uvDir = Ensure-UvxForBrowserUse
     Write-SparkLog "Creating Spark CLI virtualenv"
     & $Script:PythonExe -m venv $venvDir
     Write-SparkLog "Upgrading pip in Spark CLI virtualenv"
     & (Join-Path $venvDir "Scripts\python.exe") -m pip install --upgrade pip | Out-Null
-    Write-SparkLog "Installing Spark CLI package"
-    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e $CliDir | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip in Spark CLI virtualenv." }
+    Write-SparkLog "Installing Spark CLI package with browser-use support"
+    & (Join-Path $venvDir "Scripts\python.exe") -m pip install -e "$CliDir[browser-use]" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install Spark CLI package with browser-use support." }
+    Write-SparkLog "Installing browser-use Chromium dependency"
+    $oldPath = $env:PATH
+    $oldPythonIoEncoding = $env:PYTHONIOENCODING
+    $oldPythonUtf8 = $env:PYTHONUTF8
+    try {
+        $env:PATH = "$(Join-Path $venvDir "Scripts");$uvDir;$env:PATH"
+        $env:PYTHONIOENCODING = "utf-8"
+        $env:PYTHONUTF8 = "1"
+        & (Join-Path $venvDir "Scripts\browser-use.exe") install | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install browser-use Chromium dependency." }
+    } finally {
+        $env:PATH = $oldPath
+        $env:PYTHONIOENCODING = $oldPythonIoEncoding
+        $env:PYTHONUTF8 = $oldPythonUtf8
+    }
     return $venvDir
 }
 
@@ -710,13 +754,22 @@ function Run-Setup {
     if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }
     $setupArgs += $SetupArg
     Write-SparkLog "Running spark setup $Bundle"
+    $previousSetupOptional = $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE
     try {
+        if ($UpgradeExisting) {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"
+        }
         $setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }
         & $sparkCmd setup $Bundle @setupStartArgs @setupArgs
         if ($LASTEXITCODE -ne 0) {
             throw "spark setup failed with exit code $LASTEXITCODE"
         }
     } finally {
+        if ($null -eq $previousSetupOptional) {
+            Remove-Item Env:\SPARK_SETUP_OPTIONAL_ON_UPGRADE -ErrorAction SilentlyContinue
+        } else {
+            $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = $previousSetupOptional
+        }
         foreach ($secretFile in $secretFiles) {
             Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
         }
@@ -728,6 +781,49 @@ function Run-Autostart {
         return
     }
     Write-SparkLog "Spark startup was handled by setup"
+}
+
+function Test-SetupRefreshPaused {
+    $pendingSetupPath = Join-Path $Script:SparkPrefix "state\setup.pending.json"
+    if (-not (Test-Path -LiteralPath $pendingSetupPath)) {
+        return $false
+    }
+    try {
+        return (Get-Content -LiteralPath $pendingSetupPath -Raw -ErrorAction Stop).Contains('"event": "setup_refresh_paused"')
+    } catch {
+        return $false
+    }
+}
+
+function Show-InstallOutcome {
+    $pendingSetupPath = Join-Path $Script:SparkPrefix "state\setup.pending.json"
+    if ($SkipSetup) {
+        $setupLine = "[SKIP] Setup: skipped by request"
+        $runtimeLine = "[MANUAL] Runtime: start after setup"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding after setup"
+    } elseif (Test-SetupRefreshPaused) {
+        $setupLine = "[PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them"
+        $runtimeLine = "[OK] Existing runtime: can keep running with the current setup"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding"
+    } elseif (Test-Path -LiteralPath $pendingSetupPath) {
+        $setupLine = "[PAUSED] Setup: run spark doctor"
+        $runtimeLine = "[MANUAL] Runtime: resume setup before changing secrets"
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding after setup resumes"
+    } else {
+        $setupLine = "[OK] Setup: configured"
+        if ($NoAutostart) {
+            $runtimeLine = "[MANUAL] Runtime: start after setup"
+        } else {
+            $runtimeLine = "[STARTED] Runtime: setup handled start/autostart"
+        }
+        $telegramLine = "[VERIFY] Telegram: run spark verify --onboarding"
+    }
+    Write-Host ""
+    Write-Host "Install outcome:"
+    Write-Host "  [OK] CLI upgrade: complete"
+    Write-Host "  $setupLine"
+    Write-Host "  $runtimeLine"
+    Write-Host "  $telegramLine"
 }
 
 function Invoke-Install {
@@ -778,6 +874,7 @@ function Invoke-Install {
     Write-Host ""
     Write-Host "Install log:"
     Write-Host "  $Script:InstallLogPath"
+    Show-InstallOutcome
     Write-Host ""
     if ($SkipSetup) {
         Write-Host "Setup was skipped."
