@@ -430,3 +430,24 @@ That kept parsing, target storage, subprocess execution, redaction, and audit
 from landing as one large risky diff. The shipped follow-up slices now cover
 SSH target records, host-key trust, doctor, remote probe, hashed smoke, Modal
 doctor/smoke, and shared `spark verify --sandboxes`.
+
+## Known UX Gap - Private Or Ambiguous Repo Handling
+
+Mission #32 QA on 2026-05-22 produced a maintainer-reviewed backlog note: private or ambiguous target repositories need safer public-track routing. This is QA evidence, not a runtime instruction or proof that bot behavior is fixed.
+
+Trigger: a user asks what to do when the target repo is private or ambiguous.
+
+Expected response:
+
+1. Direct the user to the public submission track.
+2. Tell the user to prepare a proof packet.
+3. Route private-repo handling to maintainers.
+4. Never ask for credentials, local machine paths, or private repo contents in chat.
+
+Observed gap:
+
+- The response offered direct private-repo access instead of public-track routing.
+- It asked for local machine repo paths.
+- It did not mention proof packets or maintainer routing.
+
+Fix needed: private or ambiguous repository requests must route to public-track proof packets and maintainer handling, not chat-based credential or local-path collection.

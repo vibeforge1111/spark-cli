@@ -95,6 +95,10 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _is_env_assignment(value: str) -> bool:
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -140,6 +144,39 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+
+    if first in {"sudo", "doas"}:
+        nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Command runs through a privilege-elevation wrapper.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve privilege escalation",
+        )
+
+    if first == "env":
+        index = 1
+        while index < len(parts) and _is_env_assignment(parts[index]):
+            index += 1
+        if index < len(parts):
+            nested = approval_required_for_command(parts[index:], ctx)
+            if nested.requires_approval:
+                return nested
+        else:
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "high",
+                "Command can print environment variables that may include secrets.",
+                target_display="env",
+                confirmation_phrase="approve environment reveal",
+            )
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
@@ -225,6 +262,67 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="revoke spark access",
         )
 
+    if first in {"printenv", "set"} and (
+        len(lowered) == 1
+        or any(re.search(r"(?i)(token|secret|password|api[_-]?key|credential)", part) for part in lowered[1:])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can reveal environment variables or credential-like values.",
+            target_display=parts[0],
+            confirmation_phrase="approve environment reveal",
+        )
+
+    if first == "gh" and lowered[1:3] == ["auth", "token"]:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "GitHub command can reveal the active authentication token.",
+            target_display="gh auth token",
+            confirmation_phrase="approve github token reveal",
+        )
+
+    if first == "aws" and (
+        lowered[1:3] in [["secretsmanager", "get-secret-value"], ["ssm", "get-parameter"]]
+        or ("configure" in lowered and "get" in lowered and any("secret" in part or "key" in part for part in lowered))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "AWS command can reveal cloud secrets or decrypted parameters.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloud secret reveal",
+        )
+
+    if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Kubernetes command can reveal cluster secrets.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve kubernetes secret reveal",
+        )
+
+    if first == "docker" and second == "login":
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Docker command can store or change registry credentials.",
+            target_display="docker login",
+            confirmation_phrase="approve docker credential change",
+        )
+
     if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
         r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
         joined,
@@ -237,6 +335,28 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command appears to download remote code and execute it.",
             target_display=parts[0],
             confirmation_phrase="approve remote code execution",
+        )
+
+    if first == "find" and any(part in {"-exec", "-execdir"} for part in lowered):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs another command through find over matched filesystem paths.",
+            target_display="find -exec",
+            confirmation_phrase="approve find execution",
+        )
+
+    if first == "git" and lowered[1:3] in [["submodule", "add"], ["submodule", "update"]]:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Git submodule commands can add or fetch executable code from another repository.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve submodule code fetch",
         )
 
     if first == "docker" and (
@@ -255,7 +375,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve container privilege",
         )
 
-    if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
+    if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
             parts,
             ctx,
@@ -289,7 +409,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
-    if first in {"kubectl", "helm", "terraform"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install"}):
+    if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,
             ctx,
@@ -299,7 +419,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
-    if (first == "git" and second == "push") or (first == "npm" and second == "publish") or joined.startswith("gh release create"):
+    if (
+        (first == "git" and second == "push")
+        or (first in {"npm", "pnpm", "yarn"} and second == "publish")
+        or (first == "twine" and second == "upload")
+        or (first == "cargo" and second == "publish")
+        or (first == "gem" and second == "push")
+        or (first == "nuget" and second == "push")
+        or (first == "helm" and second == "push")
+        or (first == "docker" and second == "push")
+        or (first == "prisma" and lowered[1:3] == ["migrate", "deploy"])
+        or (first == "alembic" and second in {"upgrade", "downgrade"})
+        or (first in {"az", "gcloud", "supabase"} and _contains_any(lowered, {"deploy", "push", "up"}))
+        or joined.startswith("gh release create")
+    ):
         return _decision(
             parts,
             ctx,

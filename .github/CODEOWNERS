@@ -1,0 +1,11 @@
+# Security-sensitive repository control points.
+/.github/ @vibeforge1111
+/pyproject.toml @vibeforge1111
+/registry.json @vibeforge1111
+/schemas/ @vibeforge1111
+/scripts/install.sh @vibeforge1111
+/scripts/install.ps1 @vibeforge1111
+/docker/ @vibeforge1111
+/src/spark_cli/security/ @vibeforge1111
+/src/spark_cli/sandbox/ @vibeforge1111
+/src/spark_cli/runtime_policy.py @vibeforge1111

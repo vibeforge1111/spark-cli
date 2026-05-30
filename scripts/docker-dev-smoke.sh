@@ -2,7 +2,7 @@
 set -euo pipefail
 
 image="${SPARK_DOCKER_DEV_IMAGE:-spark-cli-dev:local}"
-cmd="${SPARK_DOCKER_DEV_CMD:-python -m pytest tests/test_cli.py -q && python -m spark_cli.cli verify --installers}"
+cmd="${SPARK_DOCKER_DEV_CMD:-python -m pytest tests/test_docker_entrypoint.py -q && spark --help >/tmp/spark-help.txt}"
 
 if [[ "${SPARK_DOCKER_REGISTRY_PINS:-0}" == "1" ]]; then
   cmd="${cmd} && python -m spark_cli.cli verify --registry-pins --json"
