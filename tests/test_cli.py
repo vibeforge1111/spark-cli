@@ -1713,6 +1713,24 @@ class SparkCliTests(unittest.TestCase):
         text = "setup_should_run_install_commands and skip_install_commands are normal field names"
         self.assertEqual(redact_sensitive_text(text), text)
 
+    def test_redact_sensitive_text_json_quoted_secret(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('{"secret": "myappsecret12345678901234567890abcd"}'),
+            '{"secret": "[REDACTED]"}',
+        )
+
+    def test_redact_sensitive_text_json_quoted_password(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('{"password": "SuperSecret123!@#"}'),
+            '{"password": "[REDACTED]"}',
+        )
+
+    def test_redact_sensitive_text_bearer_jwt(self) -> None:
+        self.assertEqual(
+            redact_sensitive_text('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'),
+            'Bearer [REDACTED]',
+        )
+
     def test_collect_llm_doctor_context_defaults_to_no_logs(self) -> None:
         with patch("spark_cli.cli.collect_status_payload", return_value={"ok": False, "modules": []}), \
              patch("spark_cli.cli.provider_status_payload", return_value={"ok": True}), \
@@ -6334,6 +6352,17 @@ class SparkCliTests(unittest.TestCase):
         live_args = start.call_args.args[0]
         self.assertEqual(live_args.target, "telegram-starter")
         follow.assert_called_once_with(lines=5)
+
+    def test_live_run_does_not_follow_logs_when_start_fails(self) -> None:
+        args = build_parser().parse_args(["live", "run", "--lines", "5"])
+
+        with patch("spark_cli.cli.cmd_start", return_value=1) as start, \
+             patch("spark_cli.cli.follow_live_logs") as follow:
+            self.assertEqual(cmd_live(args), 1)
+
+        live_args = start.call_args.args[0]
+        self.assertEqual(live_args.target, "telegram-starter")
+        follow.assert_not_called()
 
     def test_live_follow_zero_lines_starts_at_new_output_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
