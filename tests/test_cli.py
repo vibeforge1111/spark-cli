@@ -3705,6 +3705,13 @@ class SparkCliTests(unittest.TestCase):
             ],
         )
 
+    def test_resolve_bundle_names_unknown_bundle_lists_known_bundles(self) -> None:
+        with self.assertRaises(SystemExit) as error:
+            resolve_bundle_names("nonexistent-bundle")
+        message = str(error.exception)
+        self.assertIn("Unknown bundle: nonexistent-bundle", message)
+        self.assertIn("telegram-starter", message)
+
     def test_resolve_setup_bundle_plan_allows_plain_telegram_without_voice(self) -> None:
         modules = make_starter_modules(include_voice=False)
         args = build_parser().parse_args(["setup", "telegram-starter", "--no-start-now", "--no-autostart"])

@@ -4318,10 +4318,18 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    bundles = registry.get("bundles", {})
+    bundle = bundles.get(bundle_name, {})
     names = bundle.get("modules")
     if not names:
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
+        known = sorted(b for b in bundles if bundles.get(b, {}).get("modules"))
+        if known:
+            raise SystemExit(
+                f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}."
+            )
+        raise SystemExit(
+            f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry."
+        )
     return [str(name) for name in names]
 
 
