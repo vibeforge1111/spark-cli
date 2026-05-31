@@ -15,6 +15,7 @@ from spark_cli.system_map import (
     CONTRACT_FILE_HINTS,
     build_authority_view,
     build_capability_catalog,
+    build_contract_coverage,
     build_memory_movement_index,
     build_duplicate_truths,
     build_repo_board,
@@ -1454,6 +1455,57 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_contract_coverage_marks_verified_machine_and_legacy_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            spawner_dispatch = desktop / "spawner-ui" / "src" / "routes" / "api" / "dispatch"
+            spawner_server = desktop / "spawner-ui" / "src" / "lib" / "server"
+            telegram_src = desktop / "spark-telegram-bot" / "src"
+            memory_tests = desktop / "domain-chip-memory" / "tests"
+            for path in (spawner_dispatch, spawner_server, telegram_src, memory_tests):
+                path.mkdir(parents=True)
+
+            (spawner_dispatch / "+server.ts").write_text(
+                "import { assertHarnessAuthority } from '../../../lib/server/harness-authority';\n"
+                "assertHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "harness-authority.ts").write_text(
+                "export const schema = 'spark.machine_origin_policy.v1';\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "index.ts").write_text(
+                "buildTelegramTurnIntentEnvelope();\n"
+                "if (deterministicRouteAllowed('mission')) launchMission();\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "harnessContract.ts").write_text(
+                "export function authorizeToolCallFromEnvelope() {}\n"
+                "export type TurnIntentEnvelope = { schema: 'spark.turn_intent.v1' };\n",
+                encoding="utf-8",
+            )
+            (memory_tests / "test_promotion_gates.py").write_text(
+                "# promotion gate keeps protected prompt changes evidence-only\n",
+                encoding="utf-8",
+            )
+
+            coverage = build_contract_coverage(desktop, spark_home)
+            by_id = {item["id"]: item for item in coverage["edges"]}
+
+        self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(by_id["spawner.dispatch"]["status"], "machine_origin_policy")
+        self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
+        self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
+        self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
+        self.assertEqual(by_id["memory.promotion"]["status"], "evidence_only")
+        self.assertEqual(
+            coverage["optional_surfaces"]["spark-skill-graphs"]["status"],
+            "not_installed_optional_surface",
+        )
+        self.assertIn("release_blocker_count", coverage["summary"])
+
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             builder_home = Path(tmp) / "spark-intelligence"
@@ -1814,8 +1866,10 @@ routes = []
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(summary["modules"], 1)
+            self.assertIn("contract_coverage", summary)
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
             self.assertTrue((out / "authority-view.json").exists())
+            self.assertTrue((out / "contract-coverage.json").exists())
             self.assertTrue((out / "capability-catalog.json").exists())
             self.assertTrue((out / "trace-index.json").exists())
             self.assertTrue((out / "memory-movement-index.json").exists())

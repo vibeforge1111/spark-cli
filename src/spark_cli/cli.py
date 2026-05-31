@@ -7241,6 +7241,8 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     print(f"- chip manifests: {summary['chip_manifests']}")
     print(f"- skill graphs: {summary['skill_graphs']}")
     print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+    contract_coverage = summary.get("contract_coverage") if isinstance(summary.get("contract_coverage"), dict) else {}
+    print(f"- contract coverage release blockers: {contract_coverage.get('release_blocker_count') or 0}")
     print(f"- gaps: {summary['gaps']}")
     print(f"- output: {out_dir}")
     print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")

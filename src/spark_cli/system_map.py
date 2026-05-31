@@ -26,6 +26,7 @@ REPO_BOARD_SCHEMA = "spark.repo_board.compiled.v0"
 VOICE_SURFACE_SCHEMA = "spark.voice_surface_view.compiled.v0"
 OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
+CONTRACT_COVERAGE_SCHEMA = "spark.contract_coverage.compiled.v0"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
@@ -101,6 +102,252 @@ OWNER_SURFACES = {
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
+
+CONTRACT_COVERAGE_ACTION_EDGES = (
+    {
+        "id": "telegram.mission_launch",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/routeFirewall.ts"),
+        "legacy_markers": ("deterministicRouteAllowed", "mission", "Spawner"),
+    },
+    {
+        "id": "telegram.memory_write",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "writes_memory",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("remember", "memory", "builderBridge"),
+    },
+    {
+        "id": "telegram.schedule_mutation",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("schedule", "calendar", "builderBridge"),
+    },
+    {
+        "id": "telegram.chip_creation",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "creates_chip",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/spawner.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("chip", "creatorMission", "domain"),
+    },
+    {
+        "id": "telegram.external_research",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "uses_network",
+        "risk": "network",
+        "files": ("src/index.ts", "src/llm.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("external", "research", "search"),
+    },
+    {
+        "id": "telegram.provider_run",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_provider",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/modelSwitch.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("provider", "codex", "model"),
+    },
+    {
+        "id": "telegram.access_change",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "changes_access",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/routeFirewall.ts"),
+        "legacy_markers": ("access.change", "setSparkAccessProfile", "parseNaturalAccessChangeIntent"),
+    },
+    {
+        "id": "telegram.operator_safe_action",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "local_operator_probe",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/operatorActions.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("operator.safe_action", "runSafeOperatorAction", "level5_smoke"),
+    },
+    {
+        "id": "telegram.sparkqa_run_control",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_qa_loop",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/sparkQaOperator.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("sparkqa.run", "runSparkQaAutoloopRound", "pauseSparkQaOperatorLoop"),
+    },
+    {
+        "id": "telegram.recursive_proposal",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "recursive_proposal",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/recursive.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("recursive.proposal", "handleRecursiveCommand", "propose"),
+    },
+    {
+        "id": "telegram.self_improvement",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "self_improvement_plan",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spark.self_improvement", "runBuilderSelfImprovementPlan", "improve"),
+    },
+    {
+        "id": "telegram.wiki_promotion",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "writes_wiki_memory",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spark_wiki.promote", "runBuilderWikiPromoteImprovement", "wiki"),
+    },
+    {
+        "id": "telegram.diagnostics_scan",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_diagnostics",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("diagnostics.scan", "runBuilderDiagnosticsScan", "diagnostics"),
+    },
+    {
+        "id": "telegram.mission_control_command",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/spawner.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spawner.mission_control", "missionCommand", "pendingMissionCancelConfirmations"),
+    },
+    {
+        "id": "spawner.dispatch",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/dispatch/+server.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("dispatch", "assertCapability", "execute"),
+    },
+    {
+        "id": "spawner.prd_auto_dispatch",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/lib/server/prd-auto-dispatch.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("autoRun", "dispatch", "missionId"),
+    },
+    {
+        "id": "spawner.creator_mission_create",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "creates_chip",
+        "risk": "high_agency",
+        "files": ("src/routes/api/creator/mission/+server.ts", "src/lib/server/creator-mission.ts"),
+        "legacy_markers": ("executionPolicy", "creator", "mission"),
+    },
+    {
+        "id": "spawner.creator_mission_execute",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/creator/mission/execute/+server.ts", "src/lib/server/creator-mission.ts"),
+        "legacy_markers": ("executeCreatorMission", "missionId", "requestId"),
+    },
+    {
+        "id": "builder.memory_bridge",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_memory",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bot_drafts/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("memory", "draft", "save"),
+    },
+    {
+        "id": "builder.schedule_bridge",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/schedule_bridge/service.py",
+            "src/spark_intelligence/schedule_create_bridge/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("schedule", "create", "delete"),
+    },
+    {
+        "id": "builder.loop_mission_chip_bridges",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "starts_loop_or_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/loop_bridge/service.py",
+            "src/spark_intelligence/mission_bridge/service.py",
+            "src/spark_intelligence/chip_create_bridge/service.py",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("loop", "mission", "chip"),
+    },
+    {
+        "id": "voice.install_transcribe_speak",
+        "surface": "spark-voice-comms",
+        "owner_repo": "spark-voice-comms",
+        "mutation_class": "local_install_or_network_voice",
+        "risk": "high_agency",
+        "files": ("src/voice_comms_chip/spark_hook.py",),
+        "legacy_markers": ("install", "transcribe", "speak"),
+    },
+    {
+        "id": "memory.promotion",
+        "surface": "domain-chip-memory",
+        "owner_repo": "domain-chip-memory",
+        "mutation_class": "evidence_promotion",
+        "risk": "evidence",
+        "files": ("tests/test_promotion_gates.py", "src/domain_chip_memory"),
+        "legacy_markers": ("promotion", "memory", "protected"),
+    },
+    {
+        "id": "researcher.self_edit",
+        "surface": "spark-researcher",
+        "owner_repo": "spark-researcher",
+        "mutation_class": "proposal_or_self_edit",
+        "risk": "proposal",
+        "files": ("src/spark_researcher/self_edit.py",),
+        "legacy_markers": ("self_edit", "apply", "proposal"),
+    },
+    {
+        "id": "character.live_data",
+        "surface": "spark-character",
+        "owner_repo": "spark-character",
+        "mutation_class": "network_context",
+        "risk": "network",
+        "files": ("src/spark_character/search_adapter.py",),
+        "legacy_markers": ("detect_needs_live_data", "search", "network"),
+    },
+)
 
 TRACE_REPAIR_COMPONENT_OWNERS = {
     "agent_operating_context": {
@@ -3504,6 +3751,198 @@ def read_text_or_none(path: Path) -> str | None:
         return None
 
 
+def resolve_contract_repo_root(repo_name: str, desktop: Path, spark_home: Path) -> Path:
+    if repo_name == "spark-cli":
+        return Path(__file__).resolve().parents[2]
+    installed_root = spark_home / "modules" / repo_name / "source"
+    if installed_root.exists():
+        return installed_root
+    return desktop / repo_name
+
+
+def contract_edge_file_records(root: Path, rel_paths: tuple[str, ...]) -> list[dict[str, Any]]:
+    records = []
+    for rel_path in rel_paths:
+        path = root / rel_path
+        records.append(
+            {
+                "rel_path": rel_path,
+                "exists": path.exists(),
+                "is_dir": path.is_dir(),
+                "helper_contract": any(
+                    hint in rel_path
+                    for hint in (
+                        "harnessContract",
+                        "harness_contract",
+                        "harness-authority",
+                        "intent-boundary",
+                        "intent_boundary",
+                    )
+                ),
+            }
+        )
+    return records
+
+
+def contract_edge_text(root: Path, rel_paths: tuple[str, ...], *, helpers: bool | None = None) -> str:
+    parts: list[str] = []
+    for record in contract_edge_file_records(root, rel_paths):
+        if helpers is not None and bool(record.get("helper_contract")) is not helpers:
+            continue
+        path = root / str(record.get("rel_path") or "")
+        if path.is_dir():
+            for child in sorted(path.rglob("*"))[:30]:
+                if child.suffix not in {".py", ".ts", ".tsx", ".js", ".svelte"}:
+                    continue
+                text = read_text_or_none(child)
+                if text:
+                    parts.append(text)
+            continue
+        text = read_text_or_none(path)
+        if text:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def contract_marker_summary(text: str) -> dict[str, bool]:
+    return {
+        "turn_intent_schema": "spark.turn_intent.v1" in text or "TurnIntentEnvelope" in text,
+        "turn_intent_authorizer": (
+            "authorizeToolCallFromEnvelope" in text
+            or "assert_authorized_tool_call" in text
+            or "authorize_builder_bridge_action" in text
+            or "parse_turn_intent_envelope" in text
+        ),
+        "machine_origin_policy": (
+            "spark.machine_origin_policy.v1" in text
+            or "buildMachineOriginPolicy" in text
+            or "assertHarnessAuthority" in text
+        ),
+        "deterministic_local_route": "deterministicRouteAllowed" in text
+        or "evaluateExecutionIntentBoundary" in text,
+        "auto_state_trigger": "autoRun" in text or "missionId" in text or "pending" in text,
+        "evidence_or_proposal_only": (
+            "evidence-only" in text
+            or "proposal-only" in text
+            or "must not auto-apply" in text
+            or "protected prompt" in text
+            or "promotion gate" in text
+            or ("proposal" in text and "auto-apply" in text)
+            or ("promotion" in text and "protected" in text)
+        ),
+        "network_policy": "networkPolicy" in text or "network_policy" in text,
+        "telegram_action_authority": "telegramActionAuthorityAllowed" in text
+        or "authorizeTelegramActionFromEnvelope" in text,
+    }
+
+
+def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
+    rel_paths = tuple(str(path) for path in edge.get("files", ()))
+    files = contract_edge_file_records(root, rel_paths)
+    all_text = contract_edge_text(root, rel_paths)
+    action_text = contract_edge_text(root, rel_paths, helpers=False)
+    action_markers = contract_marker_summary(action_text)
+    all_markers = contract_marker_summary(all_text)
+    source_exists = any(bool(record.get("exists")) for record in files)
+    risk = str(edge.get("risk") or "high_agency")
+
+    if not source_exists:
+        status = "legacy_local_gate"
+        reason = "source_missing_for_active_edge"
+    elif risk in {"evidence", "proposal"} and all_markers["evidence_or_proposal_only"]:
+        status = "evidence_only"
+        reason = "surface_declares_evidence_or_proposal_only_behavior"
+    elif action_markers["telegram_action_authority"] and all_markers["turn_intent_authorizer"]:
+        status = "envelope_verified"
+        reason = "action_edge_uses_shared_telegram_turn_intent_authority"
+    elif action_markers["deterministic_local_route"]:
+        status = "legacy_local_gate"
+        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
+    elif action_markers["machine_origin_policy"]:
+        status = "machine_origin_policy"
+        reason = "action_edge_checks_machine_origin_or_harness_authority"
+    elif risk == "network" and action_markers["network_policy"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_explicit_network_policy"
+    elif action_markers["turn_intent_schema"] and action_markers["turn_intent_authorizer"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_turn_intent_envelope"
+    elif any(marker in action_text for marker in edge.get("legacy_markers", ())):
+        status = "legacy_local_gate"
+        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
+    elif all_markers["turn_intent_schema"] or all_markers["machine_origin_policy"]:
+        status = "legacy_local_gate"
+        reason = "contract_helper_present_but_action_edge_does_not_import_authority"
+    else:
+        status = "legacy_local_gate"
+        reason = "no_contract_authority_marker_found"
+
+    release_blocker = risk in {"high_agency", "network"} and status == "legacy_local_gate"
+    return {
+        "id": edge.get("id"),
+        "surface": edge.get("surface"),
+        "owner_repo": edge.get("owner_repo"),
+        "mutation_class": edge.get("mutation_class"),
+        "risk": risk,
+        "status": status,
+        "release_blocker": release_blocker,
+        "reason_code": reason,
+        "source_root": str(root),
+        "source_exists": source_exists,
+        "source_files": files,
+        "markers": action_markers,
+        "helper_markers": all_markers,
+        "redaction": "source paths and marker booleans only; source text, prompts, logs, and runtime payloads omitted",
+    }
+
+
+def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
+    edges = []
+    for edge in CONTRACT_COVERAGE_ACTION_EDGES:
+        root = resolve_contract_repo_root(str(edge.get("owner_repo")), desktop, spark_home)
+        edges.append(classify_contract_edge(edge, root))
+
+    status_counts = Counter(str(edge.get("status") or "unknown") for edge in edges)
+    surface_counts = Counter(str(edge.get("surface") or "unknown") for edge in edges)
+    blocker_edges = [edge for edge in edges if edge.get("release_blocker")]
+    optional_surfaces = {
+        "spark-skill-graphs": {
+            "root": str(resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home)),
+            "exists": resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home).exists(),
+            "status": (
+                "not_installed_optional_surface"
+                if not resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home).exists()
+                else "installed"
+            ),
+            "handling": "reported_explicitly_not_silently_assumed",
+        }
+    }
+    return {
+        "schema_version": CONTRACT_COVERAGE_SCHEMA,
+        "generated_at": utc_now(),
+        "authority": "observability_non_authoritative",
+        "redaction": "metadata-only contract coverage; no source text, raw prompts, logs, secrets, chat ids, memory bodies, transcripts, or provider output",
+        "status_values": ["envelope_verified", "machine_origin_policy", "evidence_only", "legacy_local_gate"],
+        "summary": {
+            "edge_count": len(edges),
+            "status_counts": dict(sorted(status_counts.items())),
+            "surface_counts": dict(sorted(surface_counts.items())),
+            "release_blocker_count": len(blocker_edges),
+        },
+        "release_blockers": [
+            {
+                "id": edge.get("id"),
+                "surface": edge.get("surface"),
+                "mutation_class": edge.get("mutation_class"),
+                "reason_code": edge.get("reason_code"),
+            }
+            for edge in blocker_edges
+        ],
+        "optional_surfaces": optional_surfaces,
+        "edges": edges,
+    }
+
+
 def literal_assignment(text: str | None, name: str) -> Any:
     if not text:
         return None
@@ -5398,6 +5837,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     compiled = {
         "system_map": system_map,
         "authority_view": build_authority_view(desktop, setup_summary, spark_home),
+        "contract_coverage": build_contract_coverage(desktop, spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
@@ -5458,6 +5898,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
     paths = {
         "system_map": out_dir / "system-map.json",
         "authority_view": out_dir / "authority-view.json",
+        "contract_coverage": out_dir / "contract-coverage.json",
         "capability_catalog": out_dir / "capability-catalog.json",
         "trace_index": out_dir / "trace-index.json",
         "memory_movement_index": out_dir / "memory-movement-index.json",
@@ -5468,6 +5909,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
     }
     write_json(paths["system_map"], system_map)
     write_json(paths["authority_view"], compiled["authority_view"])
+    write_json(paths["contract_coverage"], compiled["contract_coverage"])
     write_json(paths["capability_catalog"], compiled["capability_catalog"])
     write_json(paths["trace_index"], compiled["trace_index"])
     write_json(paths["memory_movement_index"], compiled["memory_movement_index"])
@@ -5481,6 +5923,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
 def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = None) -> dict[str, Any]:
     system_map = as_dict(compiled["system_map"])
     capability_catalog = as_dict(compiled["capability_catalog"])
+    contract_coverage = as_dict(compiled.get("contract_coverage"))
     trace_index = as_dict(compiled["trace_index"])
     memory_index = as_dict(compiled["memory_movement_index"])
     repo_board = as_dict(compiled.get("repo_board"))
@@ -5504,6 +5947,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "creator_system_surfaces": len(as_list(capability_catalog.get("creator_system_surfaces"))),
         "specialization_path_surfaces": len(as_list(capability_catalog.get("specialization_path_surfaces"))),
         "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
+        "contract_coverage": as_dict(contract_coverage.get("summary")),
         "authority_sources": {
             key: as_dict(value).get("exists")
             for key, value in as_dict(as_dict(compiled["authority_view"]).get("observed_sources")).items()
