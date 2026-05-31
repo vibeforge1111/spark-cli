@@ -536,4 +536,86 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+    # dd of=<path> bypasses normal write guards — raw destructive overwrite of any file
+    if first == "dd":
+        of_target = next(
+            (p.split("=", 1)[1] for p in parts if p.lower().startswith("of=")), ""
+        )
+        if of_target:
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "critical",
+                "dd of= can overwrite any file on the system, including secrets, config, and OS files.",
+                target_display=of_target,
+                confirmation_phrase=f"overwrite {of_target}"[:80],
+            )
+
+    # tee <path> writes stdin to a file, bypassing normal write-path guards
+    if first == "tee":
+        tee_target = next((p for p in parts[1:] if not p.startswith("-")), "")
+        if tee_target:
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "high",
+                "tee writes its input to a file and can overwrite sensitive paths.",
+                target_display=tee_target,
+                confirmation_phrase=f"write {tee_target}"[:80],
+            )
+
+    # truncate -s <path> can zero out or resize critical files
+    if first == "truncate":
+        trunc_target = next(
+            (p for p in parts[1:] if not p.startswith("-")), ""
+        )
+        if trunc_target:
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "high",
+                "truncate can zero out or resize any file, including secrets and config.",
+                target_display=trunc_target,
+                confirmation_phrase=f"truncate {trunc_target}"[:80],
+            )
+
+    # nc/ncat with -e or piped exec pattern = reverse shell
+    if first in {"nc", "ncat", "netcat"} and _contains_any(lowered, {"-e", "--exec", "-c", "--sh-exec"}):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "nc -e / -c can create a reverse shell or execute arbitrary commands over the network.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve remote shell",
+        )
+
+    # crontab <file> installs a new crontab — persistent code execution
+    if first == "crontab" and not _contains_any(lowered, {"-l", "--list", "-r", "--remove"}):
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "crontab can install persistent scheduled commands.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve crontab change",
+        )
+
+    # at <time> schedules one-shot code execution
+    if first == "at":
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "at schedules a command for deferred execution.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve scheduled execution",
+        )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
