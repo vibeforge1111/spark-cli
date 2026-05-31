@@ -10654,7 +10654,10 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         auth_mode = str(state.get("auth_mode") or "not_configured")
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
+            env_var = spec.get("api_key_env", "")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key and env_var:
+                api_key = os.environ.get(env_var) or None
             if api_key:
                 return {
                     "provider": provider,
