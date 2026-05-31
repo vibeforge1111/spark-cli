@@ -3847,6 +3847,8 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
 def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
     module_sources = spark_home / "modules" if spark_home is not None else None
+    spark_cli_package_root = Path(__file__).resolve().parent
+    spark_cli_repo_root = spark_cli_package_root.parent.parent
     installed_suffixes: dict[str, tuple[str, Path]] = {
         "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
         "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
@@ -3879,6 +3881,18 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
             installed_path = module_sources / module_name / "source" / suffix
             if installed_path.exists():
                 return installed_path
+        if module_name == "spark-cli":
+            local_repo_path = spark_cli_repo_root / suffix
+            if local_repo_path.exists():
+                return local_repo_path
+            package_suffix = (
+                Path(*suffix.parts[2:])
+                if suffix.parts[:2] == ("src", "spark_cli")
+                else suffix
+            )
+            local_package_path = spark_cli_package_root / package_suffix
+            if local_package_path.exists():
+                return local_package_path
         return desktop_path
 
     def resolve_repo_root(repo_name: str) -> Path:
