@@ -105,6 +105,52 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["status"], "ready")
 
+    def test_status_surfaces_latest_browser_action_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            screenshot = status_path.parent / "probe-screenshot.png"
+            action_dir = status_path.parent / "actions"
+            action_receipt = action_dir / "spark-browser-timeout.json"
+            status_path.parent.mkdir(parents=True)
+            action_dir.mkdir(parents=True)
+            screenshot.write_bytes(b"png")
+            status_path.write_text(
+                cli.json.dumps(
+                    {
+                        "status": "ready",
+                        "last_success_at": datetime.now(timezone.utc).isoformat(),
+                        "proofs": ["doctor", "public_page_open", "screenshot_capture", "state_read"],
+                        "screenshot_path": str(screenshot),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            action_receipt.write_text(
+                cli.json.dumps(
+                    {
+                        "action": "open",
+                        "url": "https://compete.sparkswarm.ai/#agent-playbook",
+                        "status": "failed",
+                        "ok": False,
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                        "last_failure_at": datetime.now(timezone.utc).isoformat(),
+                        "last_failure_reason": "Page.navigate() timed out after 20.0s",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True):
+                payload = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["latest_action"]["action"], "open")
+        self.assertEqual(payload["latest_action"]["status"], "failed")
+        self.assertIn("Page.navigate", payload["latest_action"]["last_failure_reason"])
+
     def test_probe_writes_ready_receipt_for_public_page_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"

@@ -5693,6 +5693,7 @@ def browser_use_status_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     package_available = browser_use_package_available()
     status_doc = browser_use_status_file_payload()
+    latest_action = browser_use_latest_action_receipt()
     raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
     proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
     proof_set = set(proofs)
@@ -5732,6 +5733,7 @@ def browser_use_status_payload() -> dict[str, Any]:
         "proof_fresh": proof_fresh,
         "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
         "proven_scope": browser_use_proven_scope(proofs),
+        "latest_action": latest_action,
         "unproven_scope": [
             "logged-in pages",
             "cookies/profile reuse",
@@ -5741,6 +5743,42 @@ def browser_use_status_payload() -> dict[str, Any]:
         ],
         "next_action": browser_use_next_action(status),
     }
+
+
+def browser_use_latest_action_receipt() -> dict[str, Any]:
+    action_dir = BROWSER_USE_STATUS_DIR / "actions"
+    if not action_dir.exists():
+        return {}
+    try:
+        candidates = sorted(
+            [path for path in action_dir.glob("*.json") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "action": str(payload.get("action") or ""),
+            "url": str(payload.get("url") or ""),
+            "status": str(payload.get("status") or ""),
+            "ok": bool(payload.get("ok")),
+            "checked_at": str(payload.get("checked_at") or ""),
+            "last_success_at": str(payload.get("last_success_at") or ""),
+            "last_failure_at": str(payload.get("last_failure_at") or ""),
+            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+            "final_url": str(payload.get("final_url") or ""),
+            "title": str(payload.get("title") or ""),
+            "receipt_path": public_local_path_ref(path),
+            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+        }
+    return {}
 
 
 def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
@@ -6425,6 +6463,13 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Proven scope: " + ", ".join(payload["proven_scope"]))
         if payload["last_failure_reason"]:
             print(f"Last failure: {payload['last_failure_reason']}")
+        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+        if latest_action:
+            action_label = str(latest_action.get("action") or "action")
+            action_status = str(latest_action.get("status") or "unknown")
+            print(f"Latest action: {action_label} -> {action_status}")
+            if latest_action.get("last_failure_reason"):
+                print(f"Latest action failure: {latest_action['last_failure_reason']}")
         print(f"Next: {payload['next_action']}")
         return 0 if payload["status"] != "failed" else 1
 
