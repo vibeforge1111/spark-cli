@@ -1606,6 +1606,50 @@ class SparkCliTests(unittest.TestCase):
             if os.name != "nt":
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_atomic_write_json_temp_file_created_with_mode_at_syscall(self) -> None:
+        """The temp file is born with PRIVATE_FILE_MODE at the create syscall.
+
+        This is what closes the TOCTOU window: the mode bits are applied by
+        ``os.open(O_CREAT|O_EXCL, mode=...)`` at the kernel boundary, not by
+        a follow-up ``os.chmod`` call after the file has already been
+        published with looser permissions.
+
+        We track every ``os.chmod`` invocation made inside ``atomic_write_json``
+        and assert none of them target the ``.tmp`` path. Any chmod on the
+        temp path would mean the file briefly existed with non-0o600 mode
+        between ``write`` and ``chmod`` — which is exactly the race the fix
+        eliminates. We also relax umask to its widest setting so a passing
+        test cannot be explained by environmental umask narrowing.
+        """
+        if os.name == "nt":
+            self.skipTest("POSIX file modes only")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "state.json"
+            chmod_targets: list[str] = []
+            real_chmod = os.chmod
+
+            def tracking_chmod(target, mode, *args, **kwargs):
+                chmod_targets.append(str(target))
+                return real_chmod(target, mode, *args, **kwargs)
+
+            old_umask = os.umask(0o000)
+            try:
+                with patch("spark_cli.cli.os.chmod", side_effect=tracking_chmod):
+                    atomic_write_json(path, {"ok": True})
+            finally:
+                os.umask(old_umask)
+
+            tmp_chmods = [t for t in chmod_targets if ".tmp" in t]
+            self.assertEqual(
+                tmp_chmods,
+                [],
+                f"atomic_write_json invoked os.chmod on temp file(s) {tmp_chmods!r}; "
+                "this indicates a window where the temp file existed with non-restrictive "
+                "permissions before being tightened — the TOCTOU race the fix is meant to close.",
+            )
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_atomic_write_json_cleans_tmp_on_interrupt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "state.json"
