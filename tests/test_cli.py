@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
 from argparse import Namespace
 from contextlib import redirect_stdout
 from io import StringIO
@@ -148,7 +149,8 @@ from spark_cli.cli import (
     step_previously_completed,
     manifest_schema_version,
     manual_telegram_profiles,
-    needs_capabilities,
+    openai_compatible_chat_completion,
+    OPENAI_COMPAT_HTTP_USER_AGENT,
     parse_secret_pairs,
     parse_version_constraint,
     parse_version_tuple,
@@ -9957,6 +9959,33 @@ class SparkCliTests(unittest.TestCase):
             self.assertTrue(payload["roles"][role]["ready"])
             self.assertEqual(payload["roles"][role]["auth_mode"], "api_key")
             self.assertEqual(payload["roles"][role]["model"], "glm-5.1")
+
+    def test_openai_compatible_chat_completion_sends_user_agent(self) -> None:
+        captured: dict[str, str] = {}
+
+        class FakeResponse:
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "PING_OK"}}]}).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured["User-Agent"] = request.headers.get("User-agent") or request.headers.get("User-Agent", "")
+            return FakeResponse()
+
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = openai_compatible_chat_completion(target, "ping")
+        self.assertEqual(result, "PING_OK")
+        self.assertEqual(captured["User-Agent"], OPENAI_COMPAT_HTTP_USER_AGENT)
 
     def test_collect_verify_payload_reports_launch_ready_stack(self) -> None:
         expected = [

@@ -201,6 +201,7 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
@@ -10409,6 +10410,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
         },
         method="POST",
     )
