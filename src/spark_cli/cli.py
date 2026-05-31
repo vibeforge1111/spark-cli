@@ -13217,6 +13217,16 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if payload["ok"] else 1
 
 
+def _unknown_module_message(name: str, installed: dict[str, Module] | list[str]) -> str:
+    if isinstance(installed, dict):
+        names = sorted(installed.keys())
+    else:
+        names = sorted(installed)
+    if not names:
+        return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
+    return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
+
+
 def resolve_installed_target_modules(target: str | None) -> list[Module]:
     modules = resolve_installed_modules()
     if not modules:
@@ -13226,7 +13236,7 @@ def resolve_installed_target_modules(target: str | None) -> list[Module]:
     for name in names:
         module = modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(_unknown_module_message(name, modules))
         resolved.append(module)
     return resolved
 
@@ -13273,7 +13283,7 @@ def resolve_start_modules(target: str | None, installed_modules: dict[str, Modul
         name = stack.pop()
         module = installed_modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(_unknown_module_message(name, installed_modules))
         if name in needed_names:
             continue
         needed_names.add(name)
@@ -15247,7 +15257,7 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 def cmd_logs(args: argparse.Namespace) -> int:
     installed = resolve_installed_modules()
     if args.target not in installed:
-        raise SystemExit(f"Unknown installed module: {args.target}")
+        raise SystemExit(_unknown_module_message(args.target, installed))
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
         raise SystemExit("--profile only applies to spark-telegram-bot logs.")

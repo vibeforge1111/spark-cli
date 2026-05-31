@@ -6142,6 +6142,27 @@ class SparkCliTests(unittest.TestCase):
             resolve_start_modules("spark-telegram-bot", {gateway.name: gateway})
         self.assertIn("required modules are not installed", str(error.exception))
 
+    def test_resolve_start_modules_lists_installed_names_in_unknown_module_error(self) -> None:
+        builder = Module(
+            name="spark-intelligence-builder",
+            path=Path("C:/tmp/spark-intelligence-builder"),
+            manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
+        )
+        spawner = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={"module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"}},
+        )
+        with self.assertRaises(SystemExit) as error:
+            resolve_start_modules(
+                "nonexistent-module",
+                {builder.name: builder, spawner.name: spawner},
+            )
+        message = str(error.exception)
+        self.assertIn("Unknown installed module: nonexistent-module", message)
+        self.assertIn("spark-intelligence-builder", message)
+        self.assertIn("spawner-ui", message)
+
     def test_start_command_does_not_warn_for_non_runnable_dependencies(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
