@@ -9145,7 +9145,7 @@ def _has_endpoint_space_or_control(value: str) -> bool:
 def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
     raw_value = str(raw_url or "")
     value = raw_value.strip()
-    if not value or value.startswith("${"):
+    if not value or (value.startswith("${") and value.endswith("}") and "${" not in value[2:]):
         return []
 
     errors: list[str] = []
@@ -9162,7 +9162,7 @@ def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
 
 def _endpoint_url_for_policy(raw_url: str) -> str:
     value = str(raw_url or "").strip()
-    if not value or value.startswith("${"):
+    if not value or (value.startswith("${") and value.endswith("}") and "${" not in value[2:]):
         return value
 
     parse_value = value if "://" in value else f"http://{value}"
