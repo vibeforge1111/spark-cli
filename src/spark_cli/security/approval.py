@@ -536,4 +536,49 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+
+    # iptables/ip6tables: flush rules, change default policy, delete rules — disables host firewall
+    if first in {"iptables", "ip6tables", "nftables", "ufw"}:
+        dangerous_flags = {"-f", "--flush", "-p", "--policy", "-d", "--delete", "-x", "--delete-chain", "-z", "--zero"}
+        dangerous_subcmds = {"disable", "reset", "delete"}
+        if any(p.lower() in dangerous_flags for p in parts[1:]) or            (len(parts) > 1 and parts[1].lower() in dangerous_subcmds):
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "critical",
+                f"{first} can flush firewall rules or set permissive default policy, disabling host network isolation.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase=f"approve {first} policy change",
+            )
+
+    # sysctl -w: write kernel parameters — can disable ASLR, enable core dumps to arbitrary paths, etc.
+    if first == "sysctl" and any(p in {"-w", "--write"} for p in parts[1:]):
+        target_param = next((parts[i + 1] for i, p in enumerate(parts[:-1]) if p in {"-w", "--write"}), "")
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "sysctl -w modifies live kernel parameters and can disable security mitigations (ASLR, ptrace restrictions, etc.).",
+            target_display=target_param or "sysctl -w",
+            confirmation_phrase="approve sysctl write",
+        )
+
+    # ip route/link/addr with mutating subcommands — can redirect traffic or disable interfaces
+    if first == "ip" and len(parts) > 2:
+        ip_object = parts[1].lower() if len(parts) > 1 else ""
+        ip_action = parts[2].lower() if len(parts) > 2 else ""
+        mutating_actions = {"add", "del", "delete", "change", "replace", "flush", "set"}
+        if ip_object in {"route", "link", "addr", "rule", "neigh"} and ip_action in mutating_actions:
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "high",
+                f"ip {ip_object} {ip_action} can manipulate network routing, disable interfaces, or redirect traffic.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase=f"approve ip {ip_object} change",
+            )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
