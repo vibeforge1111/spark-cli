@@ -1071,9 +1071,11 @@ def harden_secret_file(path: Path) -> None:
             check=False,
             capture_output=True,
             text=True,
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         pass
+
 
 
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
