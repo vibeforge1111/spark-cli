@@ -221,7 +221,11 @@ function Ensure-UvxForBrowserUse {
     if ($uvxOnPath) {
         return (Split-Path -Parent $uvxOnPath.Source)
     }
-    throw "Pinned uv install did not provide uvx.exe, which browser-use needs to install Chromium."
+    $managedRoot = Join-Path $Script:SparkPrefix "tools"
+    if ($Script:UvExe -and $Script:UvExe.StartsWith($managedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Managed uv at $Script:UvExe did not provide a paired uvx.exe, which browser-use needs to install Chromium. Remove $uvDir and re-run install.ps1 to refresh the bundled uv."
+    }
+    throw "Found uv at $Script:UvExe but no paired uvx.exe (and uvx is not on PATH). browser-use needs uvx to install Chromium. Install uv with its bundled uvx (https://docs.astral.sh/uv/getting-started/installation/), or remove the existing uv so install.ps1 can fetch the bundled copy."
 }
 
 function Ensure-PythonRuntime {
