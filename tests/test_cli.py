@@ -3676,6 +3676,23 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("ADMIN_TELEGRAM_IDS=123", contents)
             self.assertNotIn("OLD=1", contents)
 
+    def test_update_env_file_escapes_newlines_in_managed_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            update_env_file(env_path, {"BOT_TOKEN": "line1\nline2"})
+            contents = env_path.read_text(encoding="utf-8")
+            self.assertIn("BOT_TOKEN=line1\\nline2", contents)
+            self.assertNotIn("line1\nline2", contents)
+
+    def test_update_env_file_uses_atomic_write_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            with patch("spark_cli.cli.atomic_write_text") as atomic_mock:
+                update_env_file(env_path, {"BOT_TOKEN": "abc"})
+            atomic_mock.assert_called_once()
+            written = atomic_mock.call_args.args[1]
+            self.assertIn("BOT_TOKEN=abc", written)
+
     def test_resolve_install_target_prefers_registry_module_name(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         resolved = resolve_install_target("spark-telegram-bot", {"spark-telegram-bot": gateway})

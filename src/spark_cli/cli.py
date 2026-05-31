@@ -4433,6 +4433,15 @@ def module_env_path(module: Module) -> Path | None:
     return module.path / str(output)
 
 
+def format_env_file_value(value: str) -> str:
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+    )
+
+
 def update_env_file(path: Path, values: dict[str, str]) -> None:
     assert_no_linked_write_path(path)
     require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env write")
@@ -4457,9 +4466,9 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
         lines.append("")
     lines.append(start)
     for key, value in values.items():
-        lines.append(f"{key}={value}")
+        lines.append(f"{key}={format_env_file_value(value)}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def remove_managed_env_block(path: Path) -> None:
