@@ -536,4 +536,61 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve deep verification",
         )
 
+
+    # su -c <cmd>: execute command as another user — privilege escalation
+    if first == "su":
+        exec_flags = {"-c", "--command", "-s", "--shell"}
+        if any(p in exec_flags for p in parts[1:]):
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "critical",
+                "su -c executes a command as another user, bypassing the current user's permission boundary.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve su execution",
+            )
+
+    # sudo with arbitrary command — escalation if present; -l/--list/-v are safe reads
+    _sudo_safe = {"-l", "--list", "-v", "--validate", "--version"}
+    if first == "sudo" and len(parts) > 1 and parts[1] not in _sudo_safe:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "critical",
+            "sudo executes commands with elevated privileges.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve sudo execution",
+        )
+
+    # env LD_PRELOAD=<lib>: inject shared library into target process — code injection
+    if first == "env":
+        has_ldpreload = any(p.upper().startswith("LD_PRELOAD=") for p in parts[1:])
+        has_ldlib = any(p.upper().startswith("LD_LIBRARY_PATH=") for p in parts[1:])
+        if has_ldpreload or has_ldlib:
+            return _decision(
+                parts,
+                ctx,
+                "destructive_filesystem",
+                "critical",
+                "LD_PRELOAD/LD_LIBRARY_PATH can inject a malicious shared library into any process.",
+                target_display=" ".join(p for p in parts[1:] if p.upper().startswith("LD_"))[:60],
+                confirmation_phrase="approve LD injection",
+            )
+
+    # socat with EXEC: or SYSTEM: — arbitrary command via relay
+    if first == "socat":
+        exec_specs = {"exec:", "system:", "exec,", "system,"}
+        if any(p.lower().startswith(tuple(exec_specs)) for p in parts[1:]):
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "critical",
+                "socat EXEC:/SYSTEM: relays a shell or command over a network socket.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve socat execution",
+            )
+
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
