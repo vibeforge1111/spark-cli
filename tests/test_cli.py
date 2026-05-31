@@ -7373,6 +7373,20 @@ class SparkCliTests(unittest.TestCase):
             ["spawner-ui", "spark-telegram-bot:spark-agi"],
         )
 
+    def test_expected_runtime_process_names_keeps_autostart_profile_for_external_ingress(self) -> None:
+        setup_state = {
+            "telegram_ingress_mode": "external",
+            "telegram_profiles": {
+                "primary": {"relay_port": 8789},
+                "tester": {"relay_port": 8790, "autostart": False},
+            },
+        }
+
+        self.assertEqual(
+            expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+            ["spawner-ui", "spark-telegram-bot:primary"],
+        )
+
     def test_expected_runtime_process_names_uses_default_bot_without_profiles(self) -> None:
         self.assertEqual(
             expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, {}),
