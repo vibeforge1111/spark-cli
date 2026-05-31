@@ -556,6 +556,11 @@ spark sandbox modal smoke --json
 - [docs/SANDBOX_TEST_RUNBOOK_2026-05-09.md](./docs/SANDBOX_TEST_RUNBOOK_2026-05-09.md) - detailed operator checklist for SSH, Modal, Railway/VPS, and Telegram sandbox tests
 - [docs/SANDBOX_TEST_EVIDENCE_TEMPLATE.md](./docs/SANDBOX_TEST_EVIDENCE_TEMPLATE.md) - evidence sheet for recording pass/fail results without leaking secrets
 
+## Windows VPS Troubleshooting Note
+
+When using Kimi K2.6 on Windows VPS, `spark providers status` may report `[OK]` even when the provider cannot process chat requests due to temperature/auth mismatches. Users should verify actual chat functionality with `spark verify --deep` and check `spark logs spark-telegram-bot` for HTTP 400 errors.
+
+
 ## More Docs
 
 - [docs/SPARK_ECOSYSTEM_LAUNCH.md](./docs/SPARK_ECOSYSTEM_LAUNCH.md) - public launch contract
@@ -575,5 +580,4 @@ LICENSE file says otherwise. Spark Pro hosted services, private corpuses,
 brand assets, deployment secrets, and Pro drops are not included in
 open-source licenses. Pro drops do not grant redistribution rights unless
 a separate written license says so.
-
 
