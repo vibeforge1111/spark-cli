@@ -178,6 +178,48 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
                 confirmation_phrase="approve environment reveal",
             )
 
+    shell_inline_exec = {
+        "bash": {"-c", "-lc"},
+        "sh": {"-c", "-lc"},
+        "zsh": {"-c", "-lc"},
+        "fish": {"-c"},
+    }
+    if first in shell_inline_exec and _contains_any(lowered, shell_inline_exec[first]):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "Command runs an inline shell script, which can execute arbitrary code.",
+            target_display=f"{parts[0]} {parts[1]}".strip(),
+            confirmation_phrase="approve shell code execution",
+        )
+
+    if first in {"cmd", "cmd.exe"} and _contains_any(lowered, {"/c", "/k"}):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "Command runs an inline Windows shell command, which can execute arbitrary code.",
+            target_display="cmd /c",
+            confirmation_phrase="approve shell code execution",
+        )
+
+    if first in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"} and _contains_any(
+        lowered,
+        {"-command", "/command", "-c", "/c", "-encodedcommand", "/encodedcommand"},
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "Command runs inline PowerShell code, which can execute arbitrary code.",
+            target_display=parts[0],
+            confirmation_phrase="approve shell code execution",
+        )
+
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
     if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"]):
