@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import io
 import json
 import shutil
 import signal
@@ -9901,6 +9902,76 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["roles"]["chat"]["auth_mode"], "api_key")
         self.assertEqual(payload["roles"]["mission"]["bot_provider"], "minimax")
+
+    def test_provider_status_live_probe_marks_kimi_not_ready_on_http_400(self) -> None:
+        setup_state = {
+            "secret_keys": ["llm.kimi.api_key"],
+            "llm": {
+                "provider": "kimi",
+                "roles": {
+                    role: {
+                        "provider": "kimi",
+                        "model": "kimi-k2.6",
+                        "auth_mode": "api_key",
+                        "bot_provider": "kimi",
+                    }
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            },
+        }
+        http_error = urllib.error.HTTPError(
+            url="https://api.moonshot.ai/v1/models",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"invalid temperature"}'),
+        )
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.fetch_secret", return_value="sk-test-kimi"), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=http_error):
+            payload = provider_status_payload()
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["roles"]["chat"]["ready"])
+        self.assertFalse(payload["roles"]["chat"]["live_probe"]["ok"])
+        self.assertIn("HTTP 400", payload["roles"]["chat"]["live_probe"]["detail"])
+        self.assertTrue(any("failed live API probe" in hint for hint in payload["repair_hints"]))
+
+    def test_provider_status_live_probe_keeps_kimi_ready_when_models_list_ok(self) -> None:
+        setup_state = {
+            "secret_keys": ["llm.kimi.api_key"],
+            "llm": {
+                "provider": "kimi",
+                "roles": {
+                    "chat": {
+                        "provider": "kimi",
+                        "model": "kimi-k2.6",
+                        "auth_mode": "api_key",
+                        "bot_provider": "kimi",
+                    }
+                },
+            },
+        }
+        response = io.BytesIO(json.dumps({"object": "list", "data": []}).encode("utf-8"))
+
+        class FakeResponse:
+            def __init__(self, payload: io.BytesIO) -> None:
+                self._payload = payload
+
+            def read(self) -> bytes:
+                return self._payload.read()
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.fetch_secret", return_value="sk-test-kimi"), \
+             patch("spark_cli.cli.urllib.request.urlopen", return_value=FakeResponse(response)):
+            payload = provider_status_payload()
+        self.assertTrue(payload["roles"]["chat"]["ready"])
+        self.assertTrue(payload["roles"]["chat"]["live_probe"]["ok"])
 
     def test_provider_status_payload_does_not_mask_local_openai_compatible_as_codex(self) -> None:
         setup_state = {

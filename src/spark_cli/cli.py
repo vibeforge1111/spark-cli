@@ -202,6 +202,9 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/var/run/docker.sock",
 )
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
+PROVIDER_STATUS_PROBE_PROVIDERS = frozenset({"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"})
+PROVIDER_STATUS_PROBE_TIMEOUT_SECONDS = 10
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
     "trusted": "critical",
@@ -11249,6 +11252,51 @@ def provider_catalog_payload() -> dict[str, Any]:
     }
 
 
+def resolve_llm_role_api_key(provider_spec: dict[str, str], secret_keys: set[str]) -> str:
+    api_key_env = provider_spec.get("api_key_env")
+    if api_key_env:
+        env_value = os.environ.get(api_key_env)
+        if env_value:
+            return env_value
+    api_key_secret = provider_spec.get("api_key_secret")
+    if api_key_secret and api_key_secret in secret_keys:
+        return fetch_secret(api_key_secret) or ""
+    return ""
+
+
+def probe_openai_compatible_models(*, base_url: str, api_key: str) -> dict[str, Any]:
+    url = f"{str(base_url).rstrip('/')}/models"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=PROVIDER_STATUS_PROBE_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:200]
+        return {"ok": False, "detail": f"HTTP {error.code}: {redact_sensitive_text(body)}"}
+    except (OSError, TimeoutError, json.JSONDecodeError) as error:
+        return {"ok": False, "detail": f"{error.__class__.__name__}: {error}"}
+    if isinstance(payload, dict) and (payload.get("data") is not None or payload.get("object") == "list"):
+        return {"ok": True}
+    return {"ok": False, "detail": "Unexpected models response shape"}
+
+
+def provider_role_needs_live_probe(provider: str, auth_mode: str, base_url: str) -> bool:
+    if provider not in PROVIDER_STATUS_PROBE_PROVIDERS:
+        return False
+    if auth_mode != "api_key":
+        return False
+    if provider == "openai" and openai_base_url_kind(base_url) == "local":
+        return False
+    return True
+
+
 def provider_status_payload() -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
@@ -11265,6 +11313,7 @@ def provider_status_payload() -> dict[str, Any]:
     if not isinstance(roles, dict):
         roles = {role: llm_state for role in LLM_ROLES}
     role_payload: dict[str, Any] = {}
+    live_probe_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
     for role in LLM_ROLES:
         state = roles.get(role, {})
         if not isinstance(state, dict):
@@ -11290,17 +11339,48 @@ def provider_status_payload() -> dict[str, Any]:
                 auth_mode = "claude_oauth"
             elif provider == "ollama":
                 auth_mode = "local"
-        role_payload[role] = {
+        base_url = str(
+            state.get("base_url")
+            or llm_state.get("base_url")
+            or provider_spec.get("base_url_default")
+            or ""
+        )
+        ready = provider != "not_configured" and auth_mode != "not_configured"
+        role_entry: dict[str, Any] = {
             "provider": provider,
             "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
             "model": state.get("model") or llm_state.get("model") or "",
             "auth_mode": auth_mode,
-            "base_url": state.get("base_url") or llm_state.get("base_url") or "",
-            "ready": provider != "not_configured" and auth_mode != "not_configured",
+            "base_url": base_url,
+            "ready": ready,
         }
+        if ready and provider_role_needs_live_probe(provider, auth_mode, base_url):
+            api_key = resolve_llm_role_api_key(provider_spec, secret_keys)
+            if api_key:
+                probe_key = (provider, base_url, api_key)
+                if probe_key not in live_probe_cache:
+                    live_probe_cache[probe_key] = probe_openai_compatible_models(base_url=base_url, api_key=api_key)
+                live_probe = live_probe_cache[probe_key]
+                role_entry["live_probe"] = live_probe
+                if not live_probe.get("ok"):
+                    role_entry["ready"] = False
+        role_payload[role] = role_entry
         if provider == "codex" and auth_mode == "codex_oauth":
             role_payload[role]["codex_client"] = codex_client_config_payload()
-    repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
+    repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload}, secret_keys=secret_keys)
+    for role in LLM_ROLES:
+        state = role_payload.get(role, {})
+        live_probe = state.get("live_probe") if isinstance(state, dict) else None
+        if isinstance(live_probe, dict) and live_probe.get("ok") is False:
+            detail = str(live_probe.get("detail") or "live probe failed")
+            repair_hints.append(
+                f"LLM role `{role}` provider `{state.get('provider')}` failed live API probe: {detail}. Run `spark providers test --role {role}` for a full chat probe."
+            )
+    deduped_hints: list[str] = []
+    for hint in repair_hints:
+        if hint not in deduped_hints:
+            deduped_hints.append(hint)
+    repair_hints = deduped_hints
     return {
         "ok": not repair_hints,
         "configured": bool(llm_state.get("provider") and llm_state.get("provider") != "not_configured"),
@@ -11397,11 +11477,19 @@ def cmd_providers(args: argparse.Namespace) -> int:
         print(payload["summary"])
         for role in LLM_ROLES:
             state = payload["roles"].get(role, {})
-            marker = "[OK]" if state.get("ready") else "[FIX]"
+            if state.get("ready"):
+                marker = "[OK]"
+            elif isinstance(state.get("live_probe"), dict) and state["live_probe"].get("ok") is False:
+                marker = "[FAIL]"
+            else:
+                marker = "[FIX]"
             print(
                 f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
                 f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
             )
+            live_probe = state.get("live_probe") if isinstance(state, dict) else None
+            if isinstance(live_probe, dict) and live_probe.get("ok") is False:
+                print(f"          live_probe={live_probe.get('detail')}")
             codex_client = state.get("codex_client") if isinstance(state, dict) else None
             if isinstance(codex_client, dict) and codex_client.get("ok"):
                 values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
