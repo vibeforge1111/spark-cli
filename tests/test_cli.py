@@ -1349,6 +1349,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "git_history_mutation")
 
+    def test_approval_classifier_flags_git_filter_branch(self) -> None:
+        decision = approval_required_for_command(["git", "filter-branch", "--all"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "git_history_mutation")
+        self.assertEqual(decision.risk, "critical")
+
+    def test_approval_classifier_flags_git_filter_branch_no_flags(self) -> None:
+        decision = approval_required_for_command(["git", "filter-branch"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "git_history_mutation")
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)

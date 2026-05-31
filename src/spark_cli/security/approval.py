@@ -214,6 +214,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "git" and (
         "filter-repo" in lowered
+        or "filter-branch" in lowered
         or "--force" in lowered
         or "--force-with-lease" in lowered
         or "-f" in lowered and second in {"push", "tag"}
