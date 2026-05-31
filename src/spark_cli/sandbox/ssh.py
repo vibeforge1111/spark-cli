@@ -205,6 +205,8 @@ def validate_ssh_host(host: str) -> str:
         raise ValueError("SSH host contains unsupported characters.")
     if _is_metadata_host(value):
         raise ValueError("SSH host must not point at a cloud metadata service.")
+    if value in ("0.0.0.0", "::"):
+        raise ValueError("SSH host must not be a bind-all address (0.0.0.0 or ::).")
     return value
 
 
