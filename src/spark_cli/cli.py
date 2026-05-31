@@ -14044,6 +14044,57 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
     return None
 
 
+def listening_tcp_ports_for_pid(pid: int) -> list[int]:
+    if pid <= 0:
+        return []
+    if os.name != "nt":
+        result = subprocess.run(
+            ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        ports: set[int] = set()
+        for line in result.stdout.splitlines()[1:]:
+            match = re.search(r":(\d+)\s+\(LISTEN\)$", line.strip())
+            if not match:
+                continue
+            try:
+                ports.add(int(match.group(1)))
+            except ValueError:
+                continue
+        return sorted(ports)
+    result = subprocess.run(
+        ["netstat", "-ano", "-p", "tcp"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    ports: set[int] = set()
+    pid_text = str(pid)
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        local_address = parts[1]
+        state = parts[-2].upper()
+        line_pid = parts[-1]
+        if state != "LISTENING" or line_pid != pid_text:
+            continue
+        match = re.search(r":(\d+)$", local_address)
+        if not match:
+            continue
+        try:
+            ports.add(int(match.group(1)))
+        except ValueError:
+            continue
+    return sorted(ports)
+
+
 def module_runtime_listener_ports(module: Module, profile: str | None = None) -> list[int]:
     if module.name == "spark-telegram-bot":
         raw_port = module_runtime_env(module, profile).get("TELEGRAM_RELAY_PORT", "8788")
@@ -14217,13 +14268,34 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
                 pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
+        running = bool(pid and pid_is_running(pid))
+        configured_relay_port = profile_state.get("relay_port")
+        runtime_relay_port = configured_relay_port
+        listener_ports = listening_tcp_ports_for_pid(pid) if running else []
+        relay_ports = [port for port in listener_ports if 8700 <= port <= 8899]
+        try:
+            configured_relay_port_int = int(configured_relay_port)
+        except (TypeError, ValueError):
+            configured_relay_port_int = 0
+        if relay_ports:
+            if configured_relay_port_int in relay_ports:
+                runtime_relay_port = configured_relay_port_int
+            elif len(relay_ports) == 1:
+                runtime_relay_port = relay_ports[0]
+            else:
+                runtime_relay_port = configured_relay_port
+        relay_port_mismatch = (
+            bool(running and relay_ports and configured_relay_port_int and runtime_relay_port != configured_relay_port_int)
+        )
         statuses.append(
             {
                 "profile": normalized,
                 "process_key": process_key,
                 "pid": pid or None,
-                "running": bool(pid and pid_is_running(pid)),
-                "relay_port": profile_state.get("relay_port"),
+                "running": running,
+                "relay_port": runtime_relay_port,
+                "configured_relay_port": configured_relay_port,
+                "relay_port_mismatch": relay_port_mismatch,
                 "primary": normalized == primary_profile,
                 "autostart": telegram_profile_should_autostart(profile_state),
                 "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
