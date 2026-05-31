@@ -1285,6 +1285,8 @@ def assert_no_linked_write_path(path: Path) -> None:
         if not item.exists() and not item.is_symlink():
             continue
         if _path_is_reparse_point(item):
+            if sys.platform == "darwin" and str(item) in ("/var", "/tmp", "/etc"):
+                continue
             raise SystemExit(f"Refusing private write through linked path: {item}")
 
 
@@ -16373,15 +16375,8 @@ def main(argv: list[str] | None = None) -> int:
     approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
     if approval_exit is not None:
         return approval_exit
-    
-    try:
-        return int(args.func(args))
-    except Exception as e:
-        print(f"\nSpark CLI Error: Something went wrong while executing the command.")
-        print(f"Details: {str(e)}")
-        print("\nHint: This is often caused by a missing dependency or invalid configuration.")
-        print("To see the full technical details, check the logs or run `spark doctor`.")
-        return 1
+    return int(args.func(args))
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
