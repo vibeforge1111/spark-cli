@@ -3460,7 +3460,7 @@ def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in LLM_PROVIDER_CHOICES:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Known providers: {', '.join(LLM_PROVIDER_CHOICES)}.")
         return None
     return provider
 
@@ -3478,7 +3478,7 @@ def prompt_for_provider_choice_from(prompt: str, default: str, options: Iterable
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in ordered:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Pick one of: {', '.join(ordered)}.")
         return None
     return provider
 
@@ -3505,7 +3505,11 @@ def prompt_for_provider_role_mode(default_provider: str) -> str:
         return "mission"
     if answer in {"3", "both", "custom", "agent"}:
         return "custom"
-    print(f"  Unknown layout `{answer}`. Using the same provider for Agent and Mission.")
+    print(
+        f"  Unknown layout `{answer}`. "
+        "Pick one of: 1/same, 2/mission, 3/custom. "
+        "Using the same provider for Agent and Mission."
+    )
     return "same"
 
 
@@ -3585,7 +3589,11 @@ def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
         return provider
     if answer in LLM_PROVIDER_CHOICES:
         return answer
-    print(f"  Unknown provider path `{answer}`.")
+    print(
+        f"  Unknown provider path `{answer}`. "
+        "Pick one of: 1/codex, 2/claude, 3/api, 4/local, 5/skip — "
+        f"or type a provider name directly: {', '.join(LLM_PROVIDER_CHOICES)}."
+    )
     return None
 
 
