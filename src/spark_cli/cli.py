@@ -16373,8 +16373,15 @@ def main(argv: list[str] | None = None) -> int:
     approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
     if approval_exit is not None:
         return approval_exit
-    return int(args.func(args))
-
+    
+    try:
+        return int(args.func(args))
+    except Exception as e:
+        print(f"\nSpark CLI Error: Something went wrong while executing the command.")
+        print(f"Details: {str(e)}")
+        print("\nHint: This is often caused by a missing dependency or invalid configuration.")
+        print("To see the full technical details, check the logs or run `spark doctor`.")
+        return 1
 
 if __name__ == "__main__":
     raise SystemExit(main())
