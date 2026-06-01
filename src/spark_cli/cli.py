@@ -14429,7 +14429,15 @@ def windows_cmd_c(command: str) -> str:
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except OSError as e:
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=127,
+            stdout="",
+            stderr=f"Autostart command missing or OS error: {e}"
+        )
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
