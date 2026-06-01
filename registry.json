@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "bfff920bfccaf3ceb221398fabb95dc064794d44",
+      "commit": "d7c819d32655b7b7527307d3db5d547f58f5f442",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,19 +34,19 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "bfff920bfccaf3ceb221398fabb95dc064794d44"
+        "commit": "d7c819d32655b7b7527307d3db5d547f58f5f442"
       }
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "5af5df726082d2ba1029b4a5a9f6014d755a84de",
+      "commit": "b52f4932b7ffcdb488ae8eb191f3d6ed24503d08",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "5af5df726082d2ba1029b4a5a9f6014d755a84de"
+        "commit": "b52f4932b7ffcdb488ae8eb191f3d6ed24503d08"
       }
     },
     "domain-chip-memory": {
@@ -63,14 +63,14 @@
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "d897d1a67070caf2c7148ee12d1de903d5592a35",
+      "commit": "71da184f8a41a2196ef61fd7851e3577faf7439c",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "d897d1a67070caf2c7148ee12d1de903d5592a35"
+        "commit": "71da184f8a41a2196ef61fd7851e3577faf7439c"
       }
     },
     "spawner-ui": {
