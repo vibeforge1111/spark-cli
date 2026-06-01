@@ -7,6 +7,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from ..env_files import normalize_env_file_value
@@ -26,6 +27,20 @@ LEVEL5_ENV = {
 DEFAULT_ACCESS_LEVEL = 4
 DEFAULT_SANDBOX_LANE = "spark_workspace"
 DEFAULT_CODEX_SANDBOX = "workspace-write"
+WORKSPACE_DENIED_HOME_PREFIXES = (
+    ".aws",
+    ".codex",
+    ".config/gh",
+    ".config/gcloud",
+    ".docker",
+    ".gnupg",
+    ".hermes",
+    ".kube",
+    ".ssh",
+)
+WORKSPACE_DENIED_HOME_PATHS = (
+    ".spark/config/secrets.local.json",
+)
 LOWER_ACCESS_PROFILES: dict[int, dict[str, str]] = {
     1: {
         "id": "chat_memory",
@@ -62,7 +77,42 @@ def access_os_family(platform: str | None = None) -> str:
     return "unknown"
 
 
-def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+def _resolve_workspace_policy_path(path: Path) -> Path:
+    expanded = path.expanduser() if isinstance(path, Path) else Path(path).expanduser()
+    real_path = expanded.__class__(os.path.realpath(os.fspath(expanded)))
+    return real_path.resolve(strict=False)
+
+
+def _workspace_path_is_same_or_child(candidate: Path, parent: Path) -> bool:
+    candidate_text = os.path.normcase(os.path.normpath(os.fspath(_resolve_workspace_policy_path(candidate))))
+    parent_text = os.path.normcase(os.path.normpath(os.fspath(_resolve_workspace_policy_path(parent))))
+    try:
+        return os.path.commonpath([candidate_text, parent_text]) == parent_text
+    except ValueError:
+        return False
+
+
+def configured_workspace_root_policy_error(root: Path, *, env: Mapping[str, str] | None = None) -> str:
+    env_values = env or os.environ
+    if not (env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")):
+        return ""
+    try:
+        home_path = _resolve_workspace_policy_path(Path.home())
+    except RuntimeError:
+        home_path = _resolve_workspace_policy_path(Path(env_values.get("HOME", "~")).expanduser())
+    resolved_root = _resolve_workspace_policy_path(root)
+    for relative in WORKSPACE_DENIED_HOME_PREFIXES:
+        denied = home_path / relative
+        if _workspace_path_is_same_or_child(resolved_root, denied):
+            return f"Configured workspace root is inside denied write path {denied}. Choose a non-sensitive workspace directory."
+    for relative in WORKSPACE_DENIED_HOME_PATHS:
+        denied_path = home_path / relative
+        if _resolve_workspace_policy_path(resolved_root) == _resolve_workspace_policy_path(denied_path):
+            return f"Configured workspace root matches denied write path {denied_path}. Choose a non-sensitive workspace directory."
+    return ""
+
+
+def spark_workspace_root(*, home: Path | None = None, env: Mapping[str, str] | None = None) -> Path:
     env_values = env or os.environ
     configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
     if configured:
@@ -71,8 +121,11 @@ def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None
     return spark_home / "workspaces"
 
 
-def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+def ensure_level4_workspace(*, home: Path | None = None, env: Mapping[str, str] | None = None) -> Path:
     root = spark_workspace_root(home=home, env=env)
+    policy_error = configured_workspace_root_policy_error(root, env=env)
+    if policy_error:
+        raise ValueError(policy_error)
     default_workspace = root / "default"
     default_workspace.mkdir(parents=True, exist_ok=True)
     return default_workspace
@@ -663,12 +716,21 @@ def access_lane_payload(
         written_level5_env = persist_level5_guardrails(home=home, env=env_values)
     family = access_os_family()
     workspace_root = spark_workspace_root(home=home, env=env_values)
-    workspace_path = ensure_level4_workspace(home=home, env=env_values) if setup else workspace_root / "default"
-    workspace_preflight = probe_workspace_writable(workspace_path) if setup or workspace_path.exists() else {
-        "exists": False,
-        "writable": False,
-        "detail": "Workspace is not created yet. Run `spark access setup`.",
-    }
+    workspace_policy_error = configured_workspace_root_policy_error(workspace_root, env=env_values)
+    workspace_path = workspace_root / "default"
+    if setup and workspace_policy_error:
+        workspace_preflight = {
+            "exists": workspace_path.exists(),
+            "writable": False,
+            "detail": workspace_policy_error,
+        }
+    else:
+        workspace_path = ensure_level4_workspace(home=home, env=env_values) if setup else workspace_path
+        workspace_preflight = probe_workspace_writable(workspace_path) if setup or workspace_path.exists() else {
+            "exists": False,
+            "writable": False,
+            "detail": "Workspace is not created yet. Run `spark access setup`.",
+        }
     ssh_targets = load_ssh_targets(home=home)
     modal_auth = modal_auth_markers(home=home)
     modal_configured = modal_sdk_available() and bool(modal_auth.get("env_auth") or modal_auth.get("config_present"))
