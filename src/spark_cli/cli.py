@@ -897,8 +897,8 @@ def ensure_state_dirs() -> None:
         path.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(path, 0o700)
-        except OSError:
-            pass
+        except OSError as e:
+            print(f"[cli] Failed to chmod {path}: {e}")
 
 
 def keychain_available() -> bool:
@@ -906,7 +906,8 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except Exception as e:
+        print(f"[cli] Keychain probe failed: {e}")
         return False
     return True
 

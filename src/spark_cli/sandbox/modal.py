@@ -200,12 +200,12 @@ def modal_smoke_script() -> str:
             if sandbox is not None:
                 try:
                     sandbox.terminate()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[modal] Failed to terminate sandbox: {e}")
                 try:
                     sandbox.detach()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[modal] Failed to detach sandbox: {e}")
         """
     ).strip()
 

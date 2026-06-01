@@ -419,8 +419,7 @@ def git_summary(path: Path) -> dict[str, Any]:
             timeout=2,
             check=False,
         )
-    except Exception as e:
-        print(f"[system_map] Git summary failed for {path}: {e}")
+    except Exception:
         return {"available": True, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
@@ -434,8 +433,7 @@ def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
             timeout=timeout,
             check=False,
         )
-    except Exception as e:
-        print(f"[system_map] Git command failed: {e}")
+    except Exception:
         return 1, ""
     return result.returncode, result.stdout.strip()
 
@@ -713,8 +711,7 @@ def count_safe_jsonl(path: Path) -> dict[str, Any]:
                 line_count += 1
                 try:
                     payload = json.loads(line)
-                except Exception as e:
-                    print(f"[system_map] Failed to parse JSONL line: {e}")
+                except Exception:
                     parse_errors += 1
                     continue
                 parsed_count += 1
@@ -771,8 +768,7 @@ def inspect_safe_jsonl_samples(
                 line_count += 1
                 try:
                     payload = json.loads(line)
-                except Exception as e:
-                    print(f"[system_map] Failed to parse JSONL line: {e}")
+                except Exception:
                     parse_errors += 1
                     continue
                 parsed_count += 1
@@ -873,8 +869,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         continue
                     try:
                         payload = json.loads(line)
-                    except Exception as e:
-                        print(f"[system_map] Failed to parse trace JSONL line: {e}")
+                    except Exception:
                         continue
                     if not isinstance(payload, dict):
                         continue
@@ -1021,8 +1016,7 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
                     continue
                 try:
                     payload = json.loads(line)
-                except Exception as e:
-                    print(f"[system_map] Failed to parse JSONL line: {e}")
+                except Exception:
                     parse_errors += 1
                     continue
                 if not isinstance(payload, dict):
@@ -1098,8 +1092,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                     continue
                 try:
                     payload = json.loads(line)
-                except Exception as e:
-                    print(f"[system_map] Failed to parse JSONL line: {e}")
+                except Exception:
                     parse_errors += 1
                     continue
                 if not isinstance(payload, dict):
@@ -1681,8 +1674,7 @@ def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
             candidate = run_dir / rel_path
             if candidate.exists():
                 return candidate
-    except Exception as e:
-        print(f"[system_map] Failed to find run artifact {rel_path}: {e}")
+    except Exception:
         return None
     return None
 
@@ -1847,8 +1839,8 @@ def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
                 for label, rel_path in LABS_CREATOR_RUN_ARTIFACTS.items():
                     if (run_dir / rel_path).exists():
                         artifact_counts[label] += 1
-        except Exception as e:
-            print(f"[system_map] Failed to iterate runs in {repo_path}: {e}")
+        except Exception:
+            pass
 
     return {
         "repo": repo_path.name,
@@ -1876,8 +1868,7 @@ def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | No
     if schemas_dir.exists():
         try:
             has_specialization_schema = any(schemas_dir.glob("spark-specialization-path*.schema.json"))
-        except Exception as e:
-            print(f"[system_map] Failed to glob specialization schemas in {repo_path}: {e}")
+        except Exception:
             has_specialization_schema = False
     if (
         not config_path.exists()
@@ -1913,8 +1904,7 @@ def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | No
         try:
             promotion_packet_count = sum(1 for path in collective_root.glob("*/promotion-packet.json") if path.is_file())
             evidence_ledger_count = sum(1 for path in collective_root.glob("*/evidence-ledger.jsonl") if path.is_file())
-        except Exception as e:
-            print(f"[system_map] Failed to count collective files in {repo_path}: {e}")
+        except Exception:
             promotion_packet_count = 0
             evidence_ledger_count = 0
 
@@ -3510,8 +3500,7 @@ def read_text_or_none(path: Path) -> str | None:
         return None
     try:
         return path.read_text(encoding="utf-8-sig")
-    except Exception as e:
-        print(f"[system_map] Failed to read text from {path}: {e}")
+    except Exception:
         return None
 
 
@@ -3527,15 +3516,13 @@ def literal_assignment(text: str | None, name: str) -> Any:
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
                 try:
                     return ast.literal_eval(node.value)
-                except Exception as e:
-                    print(f"[system_map] Failed to eval assignment in AnnAssign: {e}")
+                except Exception:
                     return None
             continue
         if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
             try:
                 return ast.literal_eval(node.value)
-            except Exception as e:
-                print(f"[system_map] Failed to eval assignment: {e}")
+            except Exception:
                 return None
     return None
 
@@ -3858,20 +3845,8 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
     }
 
 
-def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
-    module_sources = spark_home / "modules" if spark_home is not None else None
-    installed_suffixes: dict[str, tuple[str, Path]] = {
-        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
-        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
-        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
-        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
-        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
-        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
-        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
-        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
-        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
-    }
-    desktop_files = {
+def build_authority_view(desktop: Path, setup_summary: dict[str, Any]) -> dict[str, Any]:
+    source_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
         "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
@@ -3882,33 +3857,13 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
         "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
         "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
     }
-
-    def resolve_source_file(key: str) -> Path:
-        desktop_path = desktop_files[key]
-        if desktop_path.exists():
-            return desktop_path
-        module_name, suffix = installed_suffixes[key]
-        if module_sources is not None:
-            installed_path = module_sources / module_name / "source" / suffix
-            if installed_path.exists():
-                return installed_path
-        return desktop_path
-
-    def resolve_repo_root(repo_name: str) -> Path:
-        if module_sources is not None:
-            installed_root = module_sources / repo_name / "source"
-            if installed_root.exists():
-                return installed_root
-        return desktop / repo_name
-
-    source_files = {key: resolve_source_file(key) for key in desktop_files}
     observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
 
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
-    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
+    spawner_execution_policy = inspect_spawner_access_sources(desktop / "spawner-ui")
+    browser_authority = inspect_browser_authority(desktop / "spark-browser-extension")
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
@@ -5410,7 +5365,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
     compiled = {
         "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary, spark_home),
+        "authority_view": build_authority_view(desktop, setup_summary),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
