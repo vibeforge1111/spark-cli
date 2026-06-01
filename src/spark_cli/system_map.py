@@ -517,6 +517,23 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.researcher_active_chip_evaluate",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "active_domain_chip_evaluate_hook",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_run_active_chip_evaluate",
+            "select_chips_for_message",
+            "run_chip_hook",
+            "active_chip_evaluate",
+        ),
+    },
+    {
         "id": "builder.voice_search_network",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
