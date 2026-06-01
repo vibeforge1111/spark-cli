@@ -1528,6 +1528,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "swarm_bridge_autoloop()\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='chip.evaluate')\n"
                 "run_chip_hook()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='route.probe.run')\n"
+                "run_route_probe_and_record()\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.install')\n"
                 "run_first_chip_hook_supporting(hook='voice.install')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.profile.tune')\n"
@@ -1561,6 +1563,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["builder.direct_chip_commands"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.route_probe_commands"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.swarm_runtime_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_runtime_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
@@ -1569,6 +1572,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
         self.assertFalse(by_id["builder.direct_chip_commands"]["release_blocker"])
+        self.assertFalse(by_id["builder.route_probe_commands"]["release_blocker"])
         self.assertFalse(by_id["builder.swarm_runtime_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_runtime_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])

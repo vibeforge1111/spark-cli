@@ -371,6 +371,24 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.route_probe_commands",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "records_route_probe_evidence",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "route.probe.run",
+            "run_route_probe_and_record",
+            "record_route_probe_evidence",
+        ),
+    },
+
+    {
         "id": "builder.swarm_runtime_actions",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
