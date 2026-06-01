@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import build_parser, cmd_access
 from spark_cli.cli import cmd_sandbox
+from spark_cli.sandbox.access import read_env_file
 from spark_cli.sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
 
 
@@ -38,6 +39,26 @@ DOCKER_READY = {
 
 
 class AccessSetupTests(unittest.TestCase):
+    def test_read_env_file_trims_values_and_matching_outer_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "module.env"
+            env_path.write_text(
+                "\ufeffSPARK_CODEX_SANDBOX = \"danger-full-access\" \n"
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS='1'\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS= 1 \n"
+                "MISMATCHED=\"leave-alone'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_env_file(env_path),
+                {
+                    "SPARK_CODEX_SANDBOX": "danger-full-access",
+                    "SPARK_ALLOW_HIGH_AGENCY_WORKERS": "1",
+                    "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS": "1",
+                    "MISMATCHED": "\"leave-alone'",
+                },
+            )
+
     def run_access(
         self,
         *argv: str,
