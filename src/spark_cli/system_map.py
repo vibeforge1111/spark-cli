@@ -419,7 +419,7 @@ def git_summary(path: Path) -> dict[str, Any]:
             timeout=2,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return {"available": False, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
@@ -433,7 +433,7 @@ def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
             timeout=timeout,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return 1, ""
     return result.returncode, result.stdout.strip()
 
