@@ -5647,7 +5647,10 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"Failed to install Graphiti/Kuzu sidecar (exit code {e.returncode}). Please check your python environment.")
 
 
 def browser_use_cli_path() -> str | None:
@@ -6433,7 +6436,10 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f"Failed to install browser-use extra (exit code {e.returncode}).")
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
