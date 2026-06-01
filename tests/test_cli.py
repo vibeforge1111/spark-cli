@@ -114,6 +114,7 @@ from spark_cli.cli import (
     check_runtime_version_for_module,
     clear_install_progress,
     coerce_config_value,
+    codex_cli_auth_payload,
     codex_client_config_payload,
     dotted_get,
     dotted_set,
@@ -6310,10 +6311,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(ordered, ["spawner-ui"])
 
     def test_live_restart_targets_starter_bundle_with_cascade(self) -> None:
-        args = build_parser().parse_args(["live", "restart"])
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            args = build_parser().parse_args(["live", "restart"])
 
-        with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
-            self.assertEqual(cmd_live(args), 0)
+            with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
+                self.assertEqual(cmd_live(args), 0)
 
         live_args = restart.call_args.args[0]
         self.assertEqual(live_args.target, "telegram-starter")
@@ -6325,15 +6328,50 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(args.live_command, "status")
 
     def test_live_run_starts_stack_and_follows_logs(self) -> None:
-        args = build_parser().parse_args(["live", "run", "--lines", "5"])
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            args = build_parser().parse_args(["live", "run", "--lines", "5"])
 
-        with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
-             patch("spark_cli.cli.follow_live_logs") as follow:
-            self.assertEqual(cmd_live(args), 0)
+            with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
+                 patch("spark_cli.cli.follow_live_logs") as follow:
+                self.assertEqual(cmd_live(args), 0)
 
         live_args = start.call_args.args[0]
         self.assertEqual(live_args.target, "telegram-starter")
         follow.assert_called_once_with(lines=5)
+
+    def test_live_run_external_ingress_targets_spawner_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            (Path(tmp_dir) / "setup.json").write_text(
+                json.dumps({"telegram_ingress_mode": "external"}),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["live", "run", "--lines", "5"])
+
+            with patch("spark_cli.cli.cmd_start", return_value=0) as start, \
+                 patch("spark_cli.cli.follow_live_logs") as follow:
+                self.assertEqual(cmd_live(args), 0)
+
+        live_args = start.call_args.args[0]
+        self.assertEqual(live_args.target, "spawner-ui")
+        follow.assert_called_once_with(lines=5)
+
+    def test_live_restart_external_ingress_targets_spawner_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            (Path(tmp_dir) / "setup.json").write_text(
+                json.dumps({"telegram_ingress_mode": "external"}),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["live", "restart"])
+
+            with patch("spark_cli.cli.cmd_restart", return_value=0) as restart:
+                self.assertEqual(cmd_live(args), 0)
+
+        live_args = restart.call_args.args[0]
+        self.assertEqual(live_args.target, "spawner-ui")
+        self.assertTrue(live_args.cascade)
 
     def test_live_follow_zero_lines_starts_at_new_output_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -8300,6 +8338,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["values"]["service_tier"], "fast")
         self.assertNotIn("slow", json.dumps(payload))
 
+    def test_codex_cli_auth_payload_reports_missing_auth_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            payload = codex_cli_auth_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["exists"])
+        self.assertIn("codex login", payload["notes"][0])
+
+    def test_codex_cli_auth_payload_does_not_echo_auth_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            auth = Path(tmp_dir) / "auth.json"
+            auth.write_text('{"tokens": {"access_token": "secret-token"}}\n', encoding="utf-8")
+
+            payload = codex_cli_auth_payload({"CODEX_HOME": tmp_dir})
+
+        self.assertTrue(payload["ok"])
+        self.assertNotIn("secret-token", json.dumps(payload))
+
     def test_save_codex_client_config_updates_top_level_values_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = Path(tmp_dir) / "config.toml"
@@ -8348,14 +8404,43 @@ class SparkCliTests(unittest.TestCase):
             "secret_keys": [],
         }
         codex_payload = {"ok": True, "values": {"service_tier": "fast", "model_reasoning_effort": "high"}}
+        auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
         with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
              patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
             payload = provider_status_payload()
 
+        self.assertTrue(payload["roles"]["chat"]["ready"])
         self.assertEqual(payload["roles"]["chat"]["codex_client"], codex_payload)
+        self.assertEqual(payload["roles"]["chat"]["codex_auth"], auth_payload)
         self.assertEqual(payload["roles"]["memory"]["codex_client"], codex_payload)
         self.assertNotIn("codex_client", payload["roles"]["builder"])
         self.assertNotIn("codex_client", payload["roles"]["mission"])
+
+    def test_provider_status_marks_codex_oauth_unready_without_auth(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "codex",
+                "roles": {
+                    role: {"provider": "codex", "model": "gpt-5.5", "auth_mode": "codex_oauth"}
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            }
+        }
+        auth_payload = {
+            "ok": False,
+            "exists": False,
+            "source": "codex_cli_auth",
+            "notes": ["Codex auth.json was not found. Run `codex login` first."],
+        }
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value={"ok": True, "values": {}}):
+            payload = provider_status_payload()
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["roles"]["chat"]["ready"])
+        self.assertIn("codex login", payload["repair_hints"][0])
 
     def test_cmd_recommend_llms_prints_same_normie_paths(self) -> None:
         args = build_parser().parse_args(["recommend", "llms"])
@@ -9745,6 +9830,58 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(route_context["data_boundary"]["exports_secret"], False)
         self.assertNotIn("BOT_TOKEN", json.dumps(route_context))
 
+    def test_collect_telegram_fix_payload_uses_configured_bundle_for_repairs(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [
+                {"name": "spark-telegram-bot", "healthy": True, "detail": "Relay auth: configured"},
+            ],
+            "tracked_pids": {},
+            "llm": {
+                "provider": "zai",
+                "roles": {
+                    "chat": {"provider": "zai", "auth_mode": "api_key"},
+                    "builder": {"provider": "zai", "auth_mode": "api_key"},
+                    "memory": {"provider": "zai", "auth_mode": "api_key"},
+                    "mission": {"provider": "zai", "auth_mode": "api_key"},
+                },
+            },
+            "repair_hints": [
+                "Missing Spark-supervised runtime process(es): spawner-ui. Run `spark start telegram-voice-starter`."
+            ],
+        }
+        setup_state = {
+            "bundle": "telegram-voice-starter",
+            "secret_keys": ["telegram.bot_token", "telegram.admin_ids"],
+        }
+
+        def fake_env(path: Path) -> dict[str, str]:
+            if path.name == "spark-telegram-bot.env":
+                return {"SPARK_BUILDER_BRIDGE_MODE": "required", "SPARK_BUILDER_HOME": "/tmp/spark-builder"}
+            if path.name == "spark-intelligence-builder.env":
+                return {
+                    "SPARK_INTELLIGENCE_HOME": "/tmp/spark-home",
+                    "SPARK_DOMAIN_CHIP_MEMORY_ROOT": "/tmp/domain-chip-memory",
+                    "SPARK_RESEARCHER_ROOT": "/tmp/spark-researcher",
+                }
+            return {}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.read_generated_env", side_effect=fake_env), \
+             patch("spark_cli.cli.tail_log_lines", return_value=[]):
+            payload = collect_telegram_fix_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["starter_installed"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_bridge"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_memory_roots"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["telegram_process"]["repair"], "spark restart telegram-voice-starter")
+        self.assertIn("spark restart telegram-voice-starter", payload["next_commands"])
+        self.assertIn("spark setup telegram-voice-starter", payload["next_commands"])
+        self.assertNotIn("spark restart telegram-starter", payload["next_commands"])
+        self.assertNotIn("spark setup telegram-starter", payload["next_commands"])
+
     def test_collect_simple_fix_payload_exports_builder_route_context(self) -> None:
         status_payload = {
             "ok": False,
@@ -9766,6 +9903,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(route_context["health_evidence"], "fresh_degraded")
         self.assertEqual(route_context["authority_verdict"]["decision"], "not_required")
         self.assertEqual(route_context["data_boundary"]["exports_raw_prompt"], False)
+
+    def test_collect_simple_fix_payload_update_requires_installed_modules(self) -> None:
+        status_payload = {"ok": False, "summary": "No installed Spark modules recorded.", "modules": []}
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No provider"}):
+            payload = collect_simple_fix_payload("update")
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["installed modules"]["ok"])
+        self.assertEqual(checks["installed modules"]["repair"], "spark setup telegram-starter")
+        self.assertIn("spark setup telegram-starter", payload["next_commands"])
+        self.assertNotIn("spark update --skip-dirty", payload["next_commands"])
+        self.assertEqual(payload["route_context"]["health_evidence"], "fresh_degraded")
+
+    def test_collect_simple_fix_payload_update_keeps_dirty_hint_when_modules_exist(self) -> None:
+        status_payload = {"ok": False, "modules": [{"name": "spawner-ui", "healthy": True, "detail": "OK"}]}
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True, "summary": "providers ready"}):
+            payload = collect_simple_fix_payload("update")
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(payload["ok"])
+        self.assertTrue(checks["installed modules"]["ok"])
+        self.assertTrue(checks["dirty module safety"]["ok"])
+        self.assertIn("spark update --skip-dirty", payload["next_commands"])
 
     def test_doctor_prints_plain_first_user_summary(self) -> None:
         status_payload = {
@@ -9874,7 +10037,8 @@ class SparkCliTests(unittest.TestCase):
                 },
             }
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True, "exists": True, "notes": []}):
             payload = provider_status_payload()
         self.assertFalse(payload["ok"])
         self.assertTrue(payload["roles"]["chat"]["ready"])
@@ -9896,7 +10060,8 @@ class SparkCliTests(unittest.TestCase):
                 },
             },
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True, "exists": True, "notes": []}):
             payload = provider_status_payload()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["roles"]["chat"]["auth_mode"], "api_key")
@@ -10041,6 +10206,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["spawner_mission_relay"]["ok"])
         self.assertTrue(checks["runtime_processes"]["ok"])
         self.assertIn("spark-telegram-bot:spark-agi", checks["runtime_processes"]["detail"])
+
+    def test_collect_verify_payload_uses_configured_bundle_for_repair_commands(self) -> None:
+        expected = [
+            "spark-researcher",
+            "spark-character",
+            "spark-intelligence-builder",
+            "domain-chip-memory",
+            "spawner-ui",
+            "spark-telegram-bot",
+            "spark-voice-comms",
+        ]
+        status_payload = {"ok": False, "modules": [], "tracked_pids": {}, "repair_hints": []}
+        provider_payload = {"ok": False, "roles": {}, "repair_hints": ["configure providers"]}
+        setup_state = {"bundle": "telegram-voice-starter", "secret_keys": [], "voice": {"enabled": True}}
+
+        def fake_load_json(path: Path, default: object) -> object:
+            if Path(path).name == "setup.json":
+                return setup_state
+            if Path(path).name == "installed.json":
+                return {}
+            return default
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.load_json", side_effect=fake_load_json), \
+             patch("spark_cli.cli.read_generated_env", return_value={}), \
+             patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+             patch("spark_cli.cli.resolve_bundle_names", return_value=expected):
+            payload = collect_verify_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["starter_bundle"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["telegram_long_polling_security"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_memory_bridge"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["runtime_processes"]["repair"], "spark start telegram-voice-starter")
+        self.assertIn("spark start telegram-voice-starter", payload["next_commands"])
+        self.assertNotIn("spark start telegram-starter", payload["next_commands"])
 
     def test_verify_onboarding_prints_first_run_checklist(self) -> None:
         args = build_parser().parse_args(["verify", "--onboarding"])
