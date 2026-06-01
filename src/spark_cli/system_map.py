@@ -3927,15 +3927,15 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     elif action_markers["telegram_action_authority"] and all_markers["turn_intent_authorizer"]:
         status = "envelope_verified"
         reason = "action_edge_uses_shared_telegram_turn_intent_authority"
-    elif action_markers["machine_origin_policy"]:
-        status = "machine_origin_policy"
-        reason = "action_edge_checks_machine_origin_or_harness_authority"
     elif risk == "network" and action_markers["network_policy"]:
         status = "envelope_verified"
         reason = "action_edge_checks_explicit_network_policy"
     elif action_markers["turn_intent_schema"] and action_markers["turn_intent_authorizer"]:
         status = "envelope_verified"
         reason = "action_edge_checks_turn_intent_envelope"
+    elif action_markers["machine_origin_policy"]:
+        status = "machine_origin_policy"
+        reason = "action_edge_checks_machine_origin_or_harness_authority"
     elif action_markers["deterministic_local_route"]:
         status = "legacy_local_gate"
         reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
