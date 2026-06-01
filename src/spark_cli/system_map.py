@@ -2006,9 +2006,9 @@ def capability_trust_fields(
 def build_capability_cards(
     creator_system_surfaces: list[dict[str, Any]],
     specialization_path_surfaces: list[dict[str, Any]],
+    module_capabilities: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
-
     for surface in creator_system_surfaces:
         repo = str(surface.get("repo") or "unknown")
         schema_inventory = as_dict(surface.get("schema_inventory"))
@@ -2085,7 +2085,6 @@ def build_capability_cards(
                 "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
             }
         )
-
     for surface in specialization_path_surfaces:
         repo = str(surface.get("repo") or "unknown")
         config = as_dict(surface.get("config"))
@@ -2173,7 +2172,55 @@ def build_capability_cards(
                 "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
             }
         )
-
+    covered = {card.get("owner_repo") for card in cards}
+    for mc in as_list(module_capabilities):
+        repo = str(mc.get("module_name") or mc.get("repo") or "unknown")
+        if repo in covered:
+            continue
+        caps = as_list(mc.get("capabilities"))
+        cards.append({
+            "schema_version": CAPABILITY_CARD_SCHEMA,
+            "id": f"module:{repo}",
+            "name": f"{repo} module capabilities",
+            "owner_repo": repo,
+            "surface_type": "module",
+            "status": "seen",
+            "trust_status": "untrusted",
+            "proof_state": "proof_incomplete",
+            "trust_scope": "none",
+            "trust_basis": [],
+            "compiled_proofs": {"capabilities_declared": len(caps) > 0},
+            "proof_verdicts": {},
+            "proof_summary": {
+                "overall_status": "missing_required_verdicts",
+                "required_proofs": [],
+                "passed_proofs": [],
+                "blocked_proofs": [],
+                "unverified_proofs": [],
+                "missing_proofs": [],
+                "unsatisfied_proofs": [],
+                "status_counts": {},
+            },
+            "proof_blockers": [],
+            "missing_proofs": [],
+            "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
+            "plane": mc.get("plane"),
+            "capabilities": caps,
+            "requested_authority": ["local_files_read"],
+            "memory_policy": "non_authoritative_evidence_only",
+            "evidence_summary": {"capabilities_count": len(caps)},
+            "benchmark_summary": {},
+            "review_summary": {},
+            "trace_refs": [],
+            "rollback_refs": [],
+            "privacy_boundary": "Module capabilities are declared in spark.toml only; no proof surfaces are present.",
+            "public_boundary": "Network publication requires explicit approval and proof gates.",
+            "blockers": [
+                "No creator-system or specialization-path surface found for this module.",
+                "Capability remains untrusted until required proof domains pass.",
+            ],
+            "next_action": "Add a creator-system surface to enable proof verification for this module.",
+        })
     return cards
 
 
@@ -2356,15 +2403,20 @@ def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
     export_status = str(status.get("status") or "missing")
     row_count = int(status.get("row_count") or 0)
     if export_status != "supported":
+        is_missing = export_status in {"missing", ""}
         items.append(
             memory_review_item(
                 item_id="memory-export-not-supported",
-                severity="critical",
+                severity="warning" if is_missing else "critical",
                 category="movement_export",
                 owner_repo="spark-intelligence-builder",
                 source_surface="Builder memory movement export",
                 reason_code="memory_movement_export_not_supported",
-                recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
+                recommended_action=(
+                    "Configure Builder's metadata-only memory movement status export to enable Cockpit memory review."
+                    if is_missing
+                    else "Restore Builder's metadata-only memory movement status export before Cockpit review."
+                ),
                 count=1,
                 target_kind="status_export",
                 target_ref="memory-movement-status",
@@ -3491,7 +3543,9 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_sources": contract_sources,
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
-        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        "capability_cards": build_capability_cards(
+            creator_system_surfaces, specialization_path_surfaces, module_capabilities
+        ),
     }
 
 
@@ -3846,28 +3900,27 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
 
 def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
-    module_sources = spark_home / "modules" if spark_home is not None else None
-    installed_suffixes: dict[str, tuple[str, Path]] = {
-        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
-        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
-        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
-        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
-        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
-        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
-        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
-        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
-        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
-    }
-    desktop_files = {
-        "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
-        "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
-        "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
-        "builder_aoc": desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "self_awareness" / "operating_context.py",
-        "spawner_access_lanes": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-lanes.ts",
-        "spawner_access_actions": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-actions.ts",
-        "browser_constants": desktop / "spark-browser-extension" / "src" / "protocol" / "constants.js",
-        "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
-        "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
+    search_roots = []
+    if spark_home:
+        search_roots += [spark_home / "modules", spark_home / "tools"]
+    search_roots.append(desktop)
+
+    def _resolve(*parts: str) -> Path:
+        for root in search_roots:
+            candidate = root.joinpath(*parts)
+            if candidate.exists():
+                return candidate
+        return desktop.joinpath(*parts)
+    source_files = {
+        "cli_access_policy": _resolve("spark-cli", "src", "spark_cli", "sandbox", "access.py"),
+        "cli_capabilities": _resolve("spark-cli", "src", "spark_cli", "sandbox", "capabilities.py"),
+        "telegram_access_policy": _resolve("spark-telegram-bot", "src", "accessPolicy.ts"),
+        "builder_aoc": _resolve("spark-intelligence-builder", "src", "spark_intelligence", "self_awareness", "operating_context.py"),
+        "spawner_access_lanes": _resolve("spawner-ui", "src", "lib", "server", "access-execution-lanes.ts"),
+        "spawner_access_actions": _resolve("spawner-ui", "src", "lib", "server", "access-execution-actions.ts"),
+        "browser_constants": _resolve("spark-browser-extension", "src", "protocol", "constants.js"),
+        "browser_policy": _resolve("spark-browser-extension", "src", "protocol", "policy.js"),
+        "swarm_sync_validation": _resolve("spark-swarm", "apps", "api", "src", "collective", "sync-validation.ts"),
     }
 
     def resolve_source_file(key: str) -> Path:
@@ -3894,8 +3947,8 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
     cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
-    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
+    spawner_execution_policy = inspect_spawner_access_sources(_resolve("spawner-ui"))
+    browser_authority = inspect_browser_authority(_resolve("spark-browser-extension"))
     public_output_authority = inspect_public_output_authority(desktop)
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
@@ -4057,10 +4110,15 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
         )
 
     rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
+    seen_ids: set[str] = set()
     for row in rows[:10]:
         row = as_dict(row)
         component = str(row.get("component") or "unknown")
         event_type = str(row.get("event_type") or "unknown")
+        repair_id = trace_repair_id("builder", component, event_type, "missing-trace-ref")
+        if repair_id in seen_ids:
+            continue
+        seen_ids.add(repair_id)
         owner = trace_repair_owner(component)
         rank_reason = "largest Builder producer bucket missing trace_ref"
         safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
@@ -4080,7 +4138,7 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
             )
         queue.append(
             {
-                "id": trace_repair_id("builder", component, event_type, "missing-trace-ref"),
+                "id": repair_id,
                 "priority": "medium" if historical_scope or latest_clean or stale_missing else "high",
                 "rank_reason": rank_reason,
                 "owner_repo": owner.get("owner_repo"),
@@ -4096,7 +4154,11 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
                 "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
                 "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
                 "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "current_health_status": current_health.get("status"),
+               "current_health_status": (
+                    "stale_missing_trace_ref" if stale_missing
+                    else "latest_clean" if latest_clean
+                    else current_health.get("status")
+                ),
                 "current_window": current_health.get("window"),
                 "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
                 "safe_fix": safe_fix,
@@ -4137,7 +4199,7 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
     current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
     repair_queue = [as_dict(item) for item in as_list(trace_index.get("trace_repair_queue"))]
     cards: list[dict[str, Any]] = []
-
+    seen_ids: set[str] = set()
     for item in repair_queue:
         if item.get("owner_repo") != "spark-intelligence-builder" or item.get("missing_field") != "trace_ref":
             continue
@@ -4156,10 +4218,14 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
             status = "historical_backlog"
         else:
             status = "unknown"
+        card_id = item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref")
+        if card_id in seen_ids:
+            continue
+        seen_ids.add(card_id)
         cards.append(
             {
                 "schema_version": "spark.builder_trace_repair_card.v0",
-                "id": item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref"),
+                "id": card_id,
                 "category": "missing_trace_ref",
                 "title": f"Thread trace_ref into {component} / {event_type}",
                 "status": status,
@@ -5397,7 +5463,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
     compiled = {
         "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary, spark_home),
+       "authority_view": build_authority_view(desktop, setup_summary, spark_home=spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
         "memory_movement_index": build_memory_movement_index(builder_home),
