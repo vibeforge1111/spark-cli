@@ -9238,6 +9238,26 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(path.name, "process.log")
         self.assertEqual(path.parent.name, "spark-telegram-bot")
 
+    def test_logs_command_defaults_to_primary_telegram_profile_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "logs"
+            profile_log = log_dir / "spark-telegram-bot" / "primary.log"
+            profile_log.parent.mkdir(parents=True)
+            profile_log.write_text("primary-ready\n", encoding="utf-8")
+            setup_state = {
+                "primary_telegram_profile": "primary",
+                "telegram_profiles": {"primary": {"relay_port": 8789}},
+            }
+            args = build_parser().parse_args(["logs", "spark-telegram-bot", "--lines", "1"])
+
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.load_json", return_value=setup_state), \
+                 patch("spark_cli.cli.resolve_installed_modules", return_value={"spark-telegram-bot": make_telegram_gateway()}), \
+                 redirect_stdout(StringIO()) as output:
+                self.assertEqual(args.func(args), 0)
+
+        self.assertEqual(output.getvalue(), "primary-ready\n")
+
     def test_remove_managed_env_block_strips_only_managed_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             env_path = Path(tmp_dir) / ".env"
