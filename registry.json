@@ -2,14 +2,14 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28",
+      "commit": "4ca1d5a14644d8b902f253ec11cabca2181a013e",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28"
+        "commit": "4ca1d5a14644d8b902f253ec11cabca2181a013e"
       }
     },
     "spark-character": {
