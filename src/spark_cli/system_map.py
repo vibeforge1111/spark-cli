@@ -403,6 +403,23 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.voice_delivery_actions",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_voice_delivery",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.speak",
+            "_authorize_voice_delivery_action",
+            "force_voice",
+        ),
+    },
+    {
         "id": "builder.style_state_mutations",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",

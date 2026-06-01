@@ -1529,6 +1529,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.install')\n"
                 "run_first_chip_hook_supporting(hook='voice.install')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.profile.tune')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.speak')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='style.train')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='style.feedback.record')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='think.visibility.set')\n",
@@ -1560,12 +1561,14 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.swarm_runtime_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_runtime_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_delivery_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
         self.assertFalse(by_id["builder.swarm_runtime_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_runtime_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_delivery_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
