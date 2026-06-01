@@ -61,6 +61,18 @@
         "commit": "aae23128776a129decefb4fca98ad6915bf179f8"
       }
     },
+    "spark-harness-core": {
+      "source": "https://github.com/vibeforge1111/spark-harness-core",
+      "commit": "80aac5a9b455078160d91ee797af056368466e18",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/spark-harness-core",
+        "commit": "80aac5a9b455078160d91ee797af056368466e18"
+      }
+    },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
       "commit": "708147b3f2d160caed3dda44c39017bae99bf7b7",
@@ -94,6 +106,7 @@
         "spark-character",
         "spark-intelligence-builder",
         "domain-chip-memory",
+        "spark-harness-core",
         "spawner-ui",
         "spark-telegram-bot"
       ],
@@ -105,6 +118,7 @@
         "spark-character",
         "spark-intelligence-builder",
         "domain-chip-memory",
+        "spark-harness-core",
         "spark-voice-comms",
         "spawner-ui",
         "spark-telegram-bot"
