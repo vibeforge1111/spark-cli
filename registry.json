@@ -61,6 +61,18 @@
         "commit": "aae23128776a129decefb4fca98ad6915bf179f8"
       }
     },
+    "domain-chip-spark-qa-evidence-lane": {
+      "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+      "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Evidence-only QA validation chip for Spark answer quality, source precedence, and conversational surface checks",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+        "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5"
+      }
+    },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
       "commit": "52bb7e9f5f65be53106bd4df4d8f23cf4993d8d5",
@@ -71,6 +83,18 @@
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
         "commit": "52bb7e9f5f65be53106bd4df4d8f23cf4993d8d5"
+      }
+    },
+    "spark-skill-graphs": {
+      "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+      "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Metadata-only Spark specialist routing catalog and H70-C+ skill corpus",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+        "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21"
       }
     },
     "spark-voice-comms": {
@@ -106,7 +130,9 @@
         "spark-character",
         "spark-intelligence-builder",
         "domain-chip-memory",
+        "domain-chip-spark-qa-evidence-lane",
         "spark-harness-core",
+        "spark-skill-graphs",
         "spawner-ui",
         "spark-telegram-bot"
       ],
@@ -118,7 +144,9 @@
         "spark-character",
         "spark-intelligence-builder",
         "domain-chip-memory",
+        "domain-chip-spark-qa-evidence-lane",
         "spark-harness-core",
+        "spark-skill-graphs",
         "spark-voice-comms",
         "spawner-ui",
         "spark-telegram-bot"
