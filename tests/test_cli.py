@@ -7720,6 +7720,16 @@ class SparkCliTests(unittest.TestCase):
 
         run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True)
 
+    def test_stop_module_uses_recorded_posix_process_group(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.subprocess.run") as run, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spawner-ui", 22222, process_group_pid=11111)
+
+        killpg.assert_called_once_with(11111, signal.SIGTERM)
+        run.assert_not_called()
+
     def test_required_runtimes_for_modules_dedups_across_bundle(self) -> None:
         python_module = Module(
             name="python-a",
@@ -9307,6 +9317,36 @@ class SparkCliTests(unittest.TestCase):
         stop.assert_called_once_with("spawner-ui", 12345)
         save.assert_called_once_with({})
         install.assert_called_once_with(module)
+
+    def test_cmd_update_stops_runtime_pid_with_launcher_process_group(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
+            },
+        )
+
+        class Args:
+            target = None
+            skip_install_commands = False
+            skip_dirty = False
+
+        with patch("spark_cli.cli.resolve_installed_target_modules", return_value=[module]), \
+             patch("spark_cli.cli.print_install_summary"), \
+             patch("spark_cli.cli.load_pids", return_value={"spawner-ui": {"pid": 22222, "launcher_pid": 11111}}), \
+             patch("spark_cli.cli.pid_is_running", return_value=True), \
+             patch("spark_cli.cli.stop_module") as stop, \
+             patch("spark_cli.cli.save_pids"), \
+             patch("spark_cli.cli.module_is_git_managed", return_value=False), \
+             patch("spark_cli.cli.execute_install_commands"), \
+             patch("spark_cli.cli.run_module_hook"), \
+             patch("spark_cli.cli.load_json", return_value={"spawner-ui": {"installed_via": {"kind": "git", "target": "repo"}}}), \
+             patch("spark_cli.cli.install_module_record"), \
+             patch("spark_cli.cli.sync_generated_env_to_module"):
+            self.assertEqual(cmd_update(Args()), 0)
+
+        stop.assert_called_once_with("spawner-ui", 22222, process_group_pid=11111)
 
     def test_cmd_update_reloads_manifest_after_git_update_before_install_commands(self) -> None:
         stale = Module(

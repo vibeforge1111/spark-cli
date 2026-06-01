@@ -13423,6 +13423,17 @@ def save_pids(payload: dict[str, Any]) -> None:
     save_json(PID_PATH, payload)
 
 
+def tracked_process_group_pid(record: dict[str, Any]) -> int | None:
+    for key in ("process_group_pid", "launcher_pid"):
+        try:
+            value = int(record.get(key, 0))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
 @contextmanager
 def pid_file_lock(timeout_seconds: float = 15.0):
     PID_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -13763,6 +13774,8 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
         if isinstance(record, dict) and int(record.get("pid", 0)) == int(launched_pid):
             record["pid"] = int(runtime_pid)
             record["launcher_pid"] = int(launched_pid)
+            if os.name != "nt":
+                record["process_group_pid"] = int(launched_pid)
             save_pids(pids)
 
 
@@ -14003,6 +14016,8 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
             "log_path": str(log_path),
             "ready_check": ready_check,
         }
+        if os.name != "nt":
+            pids[process_key]["process_group_pid"] = int(process.pid)
         save_pids(pids)
     print(f"Started {display_name} (pid {process.pid})")
     ready, detail = wait_for_ready_check(module, process=process, profile=profile, ready_check_override=ready_check)
@@ -14061,12 +14076,13 @@ def cmd_start(args: argparse.Namespace) -> int:
     return exit_code
 
 
-def stop_module(name: str, pid: int) -> None:
+def stop_module(name: str, pid: int, *, process_group_pid: int | None = None) -> None:
     if os.name == "nt":
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
+        group_pid = process_group_pid or pid
         try:
-            os.killpg(pid, signal.SIGTERM)
+            os.killpg(group_pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
     print(f"Stopped {name} (pid {pid})")
@@ -14080,7 +14096,11 @@ def stop_tracked_process_key(process_key: str) -> bool:
             return False
         pid = int(record.get("pid", 0))
         if pid and pid_is_running(pid):
-            stop_module(process_key, pid)
+            process_group_pid = tracked_process_group_pid(record)
+            if process_group_pid:
+                stop_module(process_key, pid, process_group_pid=process_group_pid)
+            else:
+                stop_module(process_key, pid)
         pids.pop(process_key, None)
         save_pids(pids)
     return True
