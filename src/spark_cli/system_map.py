@@ -353,6 +353,24 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("loop", "mission", "chip"),
     },
     {
+        "id": "builder.direct_chip_commands",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "runs_local_chip_hook",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "run_chip_hook",
+            "chip.evaluate",
+            "chip.suggest",
+            "record_chip_hook_execution",
+        ),
+    },
+    {
         "id": "builder.swarm_runtime_actions",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
