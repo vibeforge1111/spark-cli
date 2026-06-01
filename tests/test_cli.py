@@ -7720,6 +7720,37 @@ class SparkCliTests(unittest.TestCase):
 
         run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True)
 
+    def test_stop_module_waits_for_process_exit(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.time.monotonic", side_effect=[0.0, 0.1, 0.2]), \
+             patch("spark_cli.cli.pid_is_running", side_effect=[True, False]), \
+             patch("spark_cli.cli.time.sleep") as sleep, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spawner-ui", 12345)
+
+        killpg.assert_called_once_with(12345, signal.SIGTERM)
+        sleep.assert_called_once_with(0.1)
+
+    def test_stop_module_force_kills_when_graceful_exit_times_out(self) -> None:
+        sigkill = getattr(signal, "SIGKILL", None)
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.time.monotonic", side_effect=[0.0, 1.0, 6.0]), \
+             patch("spark_cli.cli.pid_is_running", return_value=True), \
+             patch("spark_cli.cli.time.sleep"), \
+             patch("spark_cli.cli.subprocess.run") as run, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spawner-ui", 12345)
+
+        killpg.assert_any_call(12345, signal.SIGTERM)
+        if sigkill is None:
+            run.assert_called_once_with(["kill", "-9", "12345"], check=False, capture_output=True)
+        else:
+            self.assertEqual(killpg.call_count, 2)
+            killpg.assert_any_call(12345, sigkill)
+            run.assert_not_called()
+
     def test_required_runtimes_for_modules_dedups_across_bundle(self) -> None:
         python_module = Module(
             name="python-a",

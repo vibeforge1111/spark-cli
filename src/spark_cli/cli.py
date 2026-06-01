@@ -14069,6 +14069,20 @@ def stop_module(name: str, pid: int) -> None:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not pid_is_running(pid):
+                break
+            time.sleep(0.1)
+        else:
+            sigkill = getattr(signal, "SIGKILL", None)
+            if sigkill is None:
+                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+            else:
+                try:
+                    os.killpg(pid, sigkill)
+                except OSError:
+                    subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
     print(f"Stopped {name} (pid {pid})")
 
 
