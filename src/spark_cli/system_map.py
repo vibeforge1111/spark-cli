@@ -437,6 +437,24 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
             "_run_voice_self_test_command",
         ),
     },
+    {
+        "id": "builder.voice_search_network",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_voice_search",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.search.run",
+            "_render_elevenlabs_voice_search_reply",
+            "_list_elevenlabs_voices",
+            "urlopen",
+        ),
+    },
 
     {
         "id": "builder.voice_state_mutations",
