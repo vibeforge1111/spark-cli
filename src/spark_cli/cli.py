@@ -8602,8 +8602,30 @@ def collect_secret_surface_payload() -> dict[str, Any]:
 def redact_secret_surface_logs() -> dict[str, Any]:
     changed: list[str] = []
     scanned = 0
-    if not LOG_DIR.exists():
-        return {"changed": changed, "scanned_files": scanned}
+    roots = [LOG_DIR, MODULE_CONFIG_DIR]
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            files = [path for path in root.rglob("*") if path.is_file()]
+        except OSError:
+            continue
+        for path in files:
+            scanned += 1
+            try:
+                if path.stat().st_size > SECRET_SURFACE_MAX_FILE_BYTES:
+                    continue
+                original = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            redacted = redact_sensitive_text(original)
+            if redacted != original:
+                try:
+                    path.write_text(redacted, encoding="utf-8")
+                except OSError:
+                    continue
+                changed.append(redact_shareable_text(str(path)))
+    return {"changed": changed, "scanned_files": scanned}
     try:
         files = [path for path in LOG_DIR.rglob("*") if path.is_file()]
     except OSError:
