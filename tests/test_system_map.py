@@ -1623,7 +1623,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
 
             (spawner_spark_run / "+server.ts").write_text(
                 "evaluateExecutionIntentBoundary(goal);\n"
-                "assertNativeVNextHarnessAuthority({ toolName: 'spawner.run' });\n",
+                "assertNativeGovernorOrVNextHarnessAuthority({ toolName: 'spawner.run' });\n",
                 encoding="utf-8",
             )
             (spawner_dispatch / "+server.ts").write_text(
