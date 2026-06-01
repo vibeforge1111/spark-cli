@@ -25,16 +25,20 @@ from spark_cli.system_map import (
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
+    count_files_under,
     count_safe_jsonl,
+    count_schema_files,
     dirty_family_for_path,
     inspect_builder_event_samples,
     inspect_builder_trace_health,
     inspect_builder_trace_groups,
+    inspect_file_metadata,
     inspect_spawner_authority_verdicts,
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
     parse_branch_status,
     safe_builder_event_value,
+    summarize_memory_run_artifacts,
     summarize_pids,
     summarize_setup,
 )
@@ -1912,6 +1916,78 @@ routes = []
             self.assertEqual(memory_exit_code, 0)
             self.assertEqual(memory_summary["schema_version"], "spark.os_memory.summary.v0")
             self.assertIn("movement_counts", memory_summary)
+
+    def test_inspect_file_metadata_records_os_error_when_stat_fails(self) -> None:
+        # path.exists() returns True (so the early return is skipped), but
+        # path.stat() raises OSError on the second call. The narrow OSError
+        # tuple still catches it and surfaces it via out["error"]; the
+        # introspection contract is the same.
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "marker.txt"
+            target.write_text("hi", encoding="utf-8")
+            real_stat = Path.stat
+
+            def flaky_stat(self, *args, **kwargs):
+                # The helper does its in-body stat() without passing
+                # follow_symlinks; Path.exists() always passes it as a kw arg.
+                # Let exists()-style stat calls succeed and only fail the
+                # bare-arg stat() inside the try block.
+                if "follow_symlinks" in kwargs:
+                    return real_stat(self, *args, **kwargs)
+                raise PermissionError("denied")
+
+            with patch.object(Path, "stat", flaky_stat):
+                meta = inspect_file_metadata(target)
+        self.assertIn("error", meta)
+        self.assertIn("PermissionError", meta["error"])
+        self.assertNotIn("Exception:", meta["error"])
+
+    def test_count_files_under_records_os_error_when_rglob_fails(self) -> None:
+        # Path.rglob may surface a permission error during iteration on
+        # restricted subtrees. The narrow OSError tuple still catches the
+        # error and the helper still returns out["error"] rather than crashing.
+        from unittest.mock import patch
+
+        def boom(*_args, **_kwargs):
+            raise PermissionError("subtree denied")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(Path, "rglob", side_effect=boom):
+                result = count_files_under(Path(tmp))
+        self.assertIn("error", result)
+        self.assertIn("PermissionError", result["error"])
+        self.assertNotIn("Exception:", result["error"])
+
+    def test_count_schema_files_records_os_error_when_glob_fails(self) -> None:
+        from unittest.mock import patch
+
+        def boom(*_args, **_kwargs):
+            raise PermissionError("denied")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(Path, "glob", side_effect=boom):
+                result = count_schema_files(Path(tmp))
+        self.assertIn("error", result)
+        self.assertIn("PermissionError", result["error"])
+        self.assertNotIn("Exception:", result["error"])
+
+    def test_summarize_memory_run_artifacts_records_os_error_when_iterdir_fails(self) -> None:
+        from unittest.mock import patch
+
+        def boom(*_args, **_kwargs):
+            raise PermissionError("denied")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            artifacts = builder_home / "artifacts"
+            artifacts.mkdir(parents=True)
+            with patch.object(Path, "iterdir", side_effect=boom):
+                result = summarize_memory_run_artifacts(builder_home)
+        self.assertIn("error", result)
+        self.assertIn("PermissionError", result["error"])
+        self.assertNotIn("Exception:", result["error"])
 
 
 if __name__ == "__main__":

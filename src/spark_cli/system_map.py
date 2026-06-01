@@ -1384,7 +1384,7 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
         return out
     try:
         stat = path.stat()
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
     out["size_bytes"] = int(stat.st_size)
@@ -1510,7 +1510,7 @@ def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
             if file_count >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -1540,7 +1540,7 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
             if len(names) >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -2226,7 +2226,7 @@ def summarize_memory_run_artifacts(builder_home: Path) -> dict[str, Any]:
                     else None
                 ),
             }
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
