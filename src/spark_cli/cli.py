@@ -536,12 +536,18 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
-        cwd=str(cwd) if cwd else None,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command(*args),
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: could not start git. "
+            "Install Git and make sure it is on PATH."
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git operation failed for {name}: {detail}")
@@ -1256,7 +1262,13 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Configuration error: '{path}' contains invalid JSON at "
+            f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
+        ) from None
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -1805,6 +1817,10 @@ def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
             break
         except subprocess.TimeoutExpired as error:
             last_timeout = error
+        except OSError as error:
+            raise RuntimeError(
+                f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
+            ) from error
     else:
         raise RuntimeError(
             f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
@@ -5073,7 +5089,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except Exception as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
         return {
@@ -5670,7 +5686,18 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except OSError as exc:
+        raise SystemExit(
+            "Optional Graphiti/Kuzu memory sidecar install could not start. "
+            "Check Python/pip availability, or re-run setup with --skip-install-commands."
+        ) from exc
 
 
 def browser_use_cli_path() -> str | None:
@@ -6456,12 +6483,26 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(
+                f"browser-use package install failed with exit code {exc.returncode}. "
+                "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except OSError as exc:
+            raise SystemExit(
+                "browser-use package install could not start. "
+                "Check Python/pip availability, then rerun `spark browser-use install`."
+            ) from exc
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
-        run_browser_use_command(cli_path, "install", timeout=180)
-        run_browser_use_command(cli_path, "doctor", timeout=60)
+        try:
+            run_browser_use_command(cli_path, "install", timeout=180)
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
         print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
         return 0
 
@@ -8271,8 +8312,10 @@ def spawner_state_dir_for_revoke_all() -> Path:
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 

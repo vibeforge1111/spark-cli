@@ -59,6 +59,7 @@ from spark_cli.cli import (
     cmd_setup,
     cmd_uninstall,
     cmd_update,
+    cmd_browser_use,
     console_safe_text,
     CONFIG_PATH,
     detect_runtime_binary,
@@ -81,6 +82,7 @@ from spark_cli.cli import (
     is_dirty_update_failure,
     installer_manifest_payload,
     git_command,
+    run_git_or_exit,
     is_git_source,
     module_is_git_managed,
     normalize_git_url,
@@ -90,12 +92,14 @@ from spark_cli.cli import (
     runtime_supply_chain_warnings,
     purge_spark_home,
     resolve_install_executable,
+    resolve_remote_git_ref,
     install_module_record,
     keychain_account,
     keychain_env_for_module,
     keychain_env_for_telegram_profile,
     list_stored_secrets,
     load_json,
+    load_json_best_effort,
     long_path_aware,
     module_log_path,
     live_log_targets,
@@ -777,6 +781,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(store_payload["targets"]["odyssey-vps"]["identity_file"], str(key.resolve()))
             self.assertNotIn("PRIVATE KEY MATERIAL", store_text)
 
+    def test_ssh_target_store_malformed_json_raises_bounded_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = Path(tmpdir) / "config"
+            config.mkdir(parents=True)
+            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "not valid JSON"):
+                load_ssh_targets(home=Path(tmpdir))
+
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
             validate_ssh_user("root")
@@ -1400,6 +1413,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
+        for command in (
+            ["curl", "-f", "https://example.test/health"],
+            ["curl", "--fail", "https://example.test/health"],
+            ["curl", "-t", "TTYPE=xterm", "telnet://example.test"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertFalse(decision.requires_approval)
+
+    def test_approval_classifier_flags_curl_upload_forms_and_data(self) -> None:
+        for command in (
+            ["curl", "-F", "file=@report.txt", "https://example.test/upload"],
+            ["curl", "-T", "report.txt", "https://example.test/upload"],
+            ["curl", "--data-raw", "x=1", "https://example.test/upload"],
+            ["curl", "--data-urlencode", "x=1", "https://example.test/upload"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
@@ -1617,6 +1652,27 @@ class SparkCliTests(unittest.TestCase):
             path = Path(tmp_dir) / "registry.json"
             path.write_text('\ufeff{"ok": true}', encoding="utf-8")
             self.assertEqual(load_json(path, {}), {"ok": True})
+
+    def test_load_json_reports_invalid_json_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "setup.json"
+            path.write_text("{not valid json", encoding="utf-8")
+
+            with self.assertRaises(SystemExit) as error:
+                load_json(path, {})
+
+            message = str(error.exception)
+            self.assertIn("Configuration error", message)
+            self.assertIn("invalid JSON", message)
+            self.assertIn("setup.json", message)
+            self.assertIn("line 1, column 2", message)
+
+    def test_load_json_best_effort_returns_default_for_invalid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "mission-control.json"
+            path.write_text("{not valid json", encoding="utf-8")
+
+            self.assertEqual(load_json_best_effort(path, {"fallback": True}), {"fallback": True})
 
     def test_atomic_write_json_writes_private_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -3952,6 +4008,40 @@ class SparkCliTests(unittest.TestCase):
 
         run.assert_not_called()
 
+    def test_install_memory_sidecar_dependencies_reports_pip_failure_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            memory_root = Path(tmp_dir) / "domain-chip-memory"
+            memory_root.mkdir()
+            memory = Module(
+                name="domain-chip-memory",
+                path=memory_root,
+                manifest={"module": {"name": "domain-chip-memory", "version": "0.1.0"}},
+            )
+            args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+            setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+            with patch(
+                "spark_cli.cli.subprocess.run",
+                side_effect=subprocess.CalledProcessError(2, [sys.executable, "-m", "pip"]),
+            ):
+                with self.assertRaises(SystemExit) as error:
+                    install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        message = str(error.exception)
+        self.assertIn("Optional Graphiti/Kuzu memory sidecar install failed", message)
+        self.assertIn("--skip-install-commands", message)
+
+    def test_install_memory_sidecar_dependencies_reports_start_failure_without_traceback(self) -> None:
+        memory = make_module("domain-chip-memory", ["spark.memory.substrate"])
+        args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+        setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("python")):
+            with self.assertRaises(SystemExit) as error:
+                install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        self.assertIn("could not start", str(error.exception))
+
     def test_profile_flags_parse_for_setup_start_stop_restart_and_logs(self) -> None:
         setup_args = build_parser().parse_args(
             [
@@ -4453,6 +4543,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["checks"][0]["remote_head"], "")
         self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
+
+    def test_run_git_or_exit_reports_missing_git_without_traceback(self) -> None:
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
+            with self.assertRaises(SystemExit) as error:
+                run_git_or_exit("domain-chip-memory", ["status"])
+
+        message = str(error.exception)
+        self.assertIn("git operation failed for domain-chip-memory", message)
+        self.assertIn("could not start git", message)
+        self.assertIn("PATH", message)
+
+    def test_resolve_remote_git_ref_reports_missing_git_without_traceback(self) -> None:
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
+            with self.assertRaises(RuntimeError) as error:
+                resolve_remote_git_ref("https://github.com/vibeforge1111/spark-cli")
+
+        message = str(error.exception)
+        self.assertIn("could not start git", message)
+        self.assertIn("PATH", message)
 
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
@@ -7649,6 +7758,46 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertTrue(result["healthy"])
         self.assertEqual(result["healthcheck_command"], "GET http://127.0.0.1:8080/api/health/live")
+        run_runtime.assert_not_called()
+
+    def test_spawner_health_records_liveness_url_error(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=urllib.error.URLError("down")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
+        run_runtime.assert_not_called()
+
+    def test_spawner_health_records_liveness_timeout(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=TimeoutError("slow")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
         run_runtime.assert_not_called()
 
     def test_spawner_health_does_not_trust_untracked_local_port(self) -> None:
@@ -11236,6 +11385,19 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["ssh_target_store"]["ok"])
         self.assertEqual(checks["ssh_target_store"]["repair"], "Review <spark-home>/config/ssh_targets.json.")
 
+    def test_collect_sandbox_verify_payload_fails_malformed_ssh_target_json_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}), \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={"ok": True, "checks": []}):
+            config = Path(tmpdir) / "config"
+            config.mkdir(parents=True)
+            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
+            payload = collect_sandbox_verify_payload()
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["ssh_target_store"]["ok"])
+        self.assertIn("not valid JSON", checks["ssh_target_store"]["detail"])
+        self.assertNotIn("private-ish", checks["ssh_target_store"]["detail"])
+
     def test_collect_hosted_security_payload_requires_keys_for_public_bind(self) -> None:
         with patch.dict(
             os.environ,
@@ -12206,6 +12368,37 @@ class SparkCliTests(unittest.TestCase):
                 CONFIG_PATH.write_text(original, encoding="utf-8")
             elif CONFIG_PATH.exists():
                 CONFIG_PATH.unlink()
+
+    def test_browser_use_install_reports_package_install_failure_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.CalledProcessError(2, [sys.executable, "-m", "pip"]),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use package install failed", message)
+        self.assertIn("exit code 2", message)
+
+    def test_browser_use_install_reports_browser_setup_failure_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+        completed = subprocess.CompletedProcess([sys.executable, "-m", "pip"], 0, "", "")
+
+        with patch("spark_cli.cli.subprocess.run", return_value=completed), \
+            patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+            patch(
+                "spark_cli.cli.run_browser_use_command",
+                side_effect=subprocess.TimeoutExpired(["browser-use", "install"], 180),
+            ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use setup failed", message)
+        self.assertIn("timed out", message)
 
     def test_install_script_bootstraps_local_prefix_contract(self) -> None:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
