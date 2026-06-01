@@ -10696,6 +10696,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
 def collect_telegram_fix_payload() -> dict[str, Any]:
     status_payload = collect_status_payload()
     setup_state = load_json(CONFIG_PATH, {})
+    bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     modules_by_name = {
         item.get("name"): item for item in status_payload.get("modules", []) if isinstance(item, dict)
@@ -10722,7 +10723,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "starter_installed",
             "ok": bool(status_payload.get("modules")),
             "detail": "Spark starter modules are installed." if status_payload.get("modules") else "No installed Spark modules recorded.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
@@ -10764,7 +10765,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_bridge",
             "ok": bridge_mode == "required" and bool(env_values.get("SPARK_BUILDER_HOME")),
             "detail": "Telegram is configured to require the Builder bridge." if bridge_mode == "required" else "Telegram is not configured to require the Builder bridge.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     memory_roots_ok = bool(
@@ -10777,7 +10778,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_memory_roots",
             "ok": memory_roots_ok,
             "detail": "Builder has Spark home, domain-chip-memory, and Researcher roots." if memory_roots_ok else "Builder memory/Researcher roots are not fully wired.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
@@ -10804,10 +10805,10 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
         if process_running and isinstance(process_record, dict)
         else "spark-telegram-bot is not running under Spark supervision."
     )
-    process_repair = "spark restart telegram-starter"
+    process_repair = f"spark restart {bundle_name}"
     if not process_running and polling_conflict:
         process_detail += " Recent logs show Telegram 409 getUpdates conflict, which means another copy of this bot is already polling Telegram."
-        process_repair = "Stop the other bot process or use a fresh BotFather token, then run `spark restart telegram-starter`."
+        process_repair = f"Stop the other bot process or use a fresh BotFather token, then run `spark restart {bundle_name}`."
     checks.append(
         {
             "name": "telegram_process",
@@ -10827,9 +10828,9 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "spark status",
             "spark verify --onboarding",
             "spark verify --deep",
-            "spark restart telegram-starter",
+            f"spark restart {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
-            "spark setup telegram-starter",
+            f"spark setup {bundle_name}",
         ],
     }
     payload["route_context"] = build_fix_route_context("telegram", payload)
@@ -12136,7 +12137,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if telegram_security_ok
                 else "Telegram token/admin setup, long-polling mode, or generated secret hygiene needs repair."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
 
@@ -12173,7 +12174,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if builder_bridge_ok
                 else "Builder bridge, domain-chip-memory root, or spark-researcher root is not wired."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     builder_ref_errors = builder_runtime_ref_errors(installed, gateway_env)
@@ -12232,7 +12233,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 "ok": bool(smoke.get("ok")),
                 "required": True,
                 "detail": str(smoke.get("detail") or ""),
-                "repair": str(smoke.get("repair") or "spark setup telegram-starter"),
+                "repair": str(smoke.get("repair") or f"spark setup {bundle_name}"),
             }
         )
 
@@ -12272,7 +12273,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "ok": process_ok,
             "required": True,
             "detail": process_detail,
-            "repair": "spark start telegram-starter",
+            "repair": f"spark start {bundle_name}",
         }
     )
 
@@ -12290,7 +12291,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "spark verify --onboarding",
             "spark verify --deep",
             "spark fix telegram",
-            "spark start telegram-starter",
+            f"spark start {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
             "spark logs spawner-ui --lines 80",
         ],

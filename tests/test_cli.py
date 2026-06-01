@@ -9825,6 +9825,52 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(route_context["data_boundary"]["exports_secret"], False)
         self.assertNotIn("BOT_TOKEN", json.dumps(route_context))
 
+    def test_collect_telegram_fix_payload_uses_configured_bundle_for_repairs(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [{"name": "spark-telegram-bot", "healthy": True, "detail": "Relay auth: configured"}],
+            "tracked_pids": {},
+            "llm": {
+                "provider": "zai",
+                "roles": {
+                    role: {"provider": "zai", "auth_mode": "api_key"}
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            },
+            "repair_hints": [],
+        }
+        setup_state = {
+            "bundle": "telegram-voice-starter",
+            "secret_keys": ["telegram.bot_token", "telegram.admin_ids"],
+        }
+
+        def fake_env(path: Path) -> dict[str, str]:
+            if path.name == "spark-telegram-bot.env":
+                return {"SPARK_BUILDER_BRIDGE_MODE": "required", "SPARK_BUILDER_HOME": "/tmp/spark-builder"}
+            if path.name == "spark-intelligence-builder.env":
+                return {
+                    "SPARK_INTELLIGENCE_HOME": "/tmp/spark-home",
+                    "SPARK_DOMAIN_CHIP_MEMORY_ROOT": "/tmp/domain-chip-memory",
+                    "SPARK_RESEARCHER_ROOT": "/tmp/spark-researcher",
+                }
+            return {}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.read_generated_env", side_effect=fake_env), \
+             patch("spark_cli.cli.tail_log_lines", return_value=[]):
+            payload = collect_telegram_fix_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["starter_installed"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_bridge"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_memory_roots"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["telegram_process"]["repair"], "spark restart telegram-voice-starter")
+        self.assertIn("spark restart telegram-voice-starter", payload["next_commands"])
+        self.assertIn("spark setup telegram-voice-starter", payload["next_commands"])
+        self.assertNotIn("spark restart telegram-starter", payload["next_commands"])
+        self.assertNotIn("spark setup telegram-starter", payload["next_commands"])
+
     def test_collect_simple_fix_payload_exports_builder_route_context(self) -> None:
         status_payload = {
             "ok": False,
@@ -10151,6 +10197,84 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["spawner_mission_relay"]["ok"])
         self.assertTrue(checks["runtime_processes"]["ok"])
         self.assertIn("spark-telegram-bot:spark-agi", checks["runtime_processes"]["detail"])
+
+    def test_collect_verify_payload_uses_configured_bundle_for_repair_commands(self) -> None:
+        expected = [
+            "spark-researcher",
+            "spark-character",
+            "spark-intelligence-builder",
+            "domain-chip-memory",
+            "spawner-ui",
+            "spark-telegram-bot",
+            "spark-voice-comms",
+        ]
+        status_payload = {
+            "ok": False,
+            "modules": [{"name": name, "healthy": name != "spawner-ui"} for name in expected],
+            "tracked_pids": {},
+            "repair_hints": [],
+        }
+        provider_payload = {
+            "ok": True,
+            "roles": {
+                role: {"provider": "codex", "auth_mode": "codex_oauth", "ready": True}
+                for role in ("chat", "builder", "memory", "mission")
+            },
+        }
+        setup_state = {
+            "bundle": "telegram-voice-starter",
+            "secret_keys": ["telegram.bot_token", "telegram.admin_ids"],
+            "builder_home": "C:/tmp/spark/state/spark-intelligence",
+            "voice": {"enabled": True},
+        }
+        installed = {name: {"path": f"C:/tmp/spark/modules/{name}"} for name in expected}
+
+        def fake_load_json(path: Path, default: object) -> object:
+            if Path(path).name == "setup.json":
+                return setup_state
+            if Path(path).name == "installed.json":
+                return installed
+            return default
+
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spark-telegram-bot.env":
+                return {
+                    "TELEGRAM_GATEWAY_MODE": "polling",
+                    "SPARK_BUILDER_BRIDGE_MODE": "required",
+                    "SPARK_BUILDER_HOME": "C:/tmp/spark/state/spark-intelligence",
+                }
+            if Path(path).name == "spark-intelligence-builder.env":
+                return {
+                    "SPARK_INTELLIGENCE_HOME": "C:/tmp/spark/state/spark-intelligence",
+                    "SPARK_DOMAIN_CHIP_MEMORY_ROOT": "C:/tmp/spark/modules/domain-chip-memory",
+                    "SPARK_RESEARCHER_ROOT": "C:/tmp/spark/modules/spark-researcher",
+                    "SPARK_VOICE_COMMS_ROOT": "C:/tmp/spark/modules/spark-voice-comms",
+                }
+            if Path(path).name == "spawner-ui.env":
+                return {
+                    "MISSION_CONTROL_WEBHOOK_URLS": "http://127.0.0.1:8788/spawner-events",
+                    "TELEGRAM_RELAY_SECRET": "relay",
+                    "DEFAULT_MISSION_PROVIDER": "codex",
+                }
+            return {}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.load_json", side_effect=fake_load_json), \
+             patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch("spark_cli.cli.load_module", return_value=make_module("spawner-ui", ["mission.execution"], ["telegram.relay_secret"])), \
+             patch("spark_cli.cli.module_runtime_env", return_value={"TELEGRAM_RELAY_SECRET": "relay"}), \
+             patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+             patch("spark_cli.cli.Path.exists", return_value=True), \
+             patch("spark_cli.cli.resolve_bundle_names", return_value=expected):
+            payload = collect_verify_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["telegram_long_polling_security"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["builder_memory_bridge"]["repair"], "spark setup telegram-voice-starter")
+        self.assertEqual(checks["runtime_processes"]["repair"], "spark start telegram-voice-starter")
+        self.assertIn("spark start telegram-voice-starter", payload["next_commands"])
+        self.assertNotIn("spark start telegram-starter", payload["next_commands"])
 
     def test_verify_onboarding_prints_first_run_checklist(self) -> None:
         args = build_parser().parse_args(["verify", "--onboarding"])
