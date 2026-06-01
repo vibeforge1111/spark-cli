@@ -22,6 +22,7 @@ from spark_cli.cli import (
     apply_setup_feature_aliases,
     atomic_write_json,
     ALLOW_INSECURE_FILE_SECRETS_ENV,
+    assert_no_linked_write_path,
     build_module_repair_hints,
     build_llm_env,
     build_parser,
@@ -1634,6 +1635,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("linked path", str(error.exception))
             self.assertEqual(load_json(target, {}), {"owned": True})
             self.assertFalse(list(root.glob(".state.json.*.tmp")))
+
+    def test_linked_write_guard_allows_root_level_platform_alias(self) -> None:
+        path = Path("/tmp") / "spark-state.json"
+
+        def fake_reparse_point(item: Path) -> bool:
+            return item == Path("/tmp")
+
+        with patch("spark_cli.cli._path_is_reparse_point", side_effect=fake_reparse_point):
+            assert_no_linked_write_path(path)
 
     def test_atomic_write_json_refuses_reparse_point_leaf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -51,14 +51,15 @@ def is_windows_reserved_name(name: str) -> bool:
 
 
 def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
-    root_resolved = root.expanduser().resolve()
+    root_path = root.expanduser()
+    root_resolved = root_path.resolve()
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
-        candidate = root_resolved / candidate
+        candidate = root_path / candidate
     resolved = candidate.resolve()
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ValueError(f"Path must stay inside {root_resolved}.")
     relative = resolved.relative_to(root_resolved) if resolved != root_resolved else Path()
     if any(is_windows_reserved_name(part) for part in relative.parts):
         raise ValueError("Path must not use a Windows reserved device name.")
-    return resolved
+    return candidate
