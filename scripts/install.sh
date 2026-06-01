@@ -31,6 +31,9 @@ SPARK_ZAI_API_KEY="${SPARK_ZAI_API_KEY:-}"
 SPARK_OPENAI_API_KEY="${SPARK_OPENAI_API_KEY:-}"
 SPARK_ANTHROPIC_API_KEY="${SPARK_ANTHROPIC_API_KEY:-}"
 SPARK_MINIMAX_API_KEY="${SPARK_MINIMAX_API_KEY:-}"
+SPARK_KIMI_API_KEY="${SPARK_KIMI_API_KEY:-}"
+SPARK_OPENROUTER_API_KEY="${SPARK_OPENROUTER_API_KEY:-}"
+SPARK_HUGGINGFACE_API_KEY="${SPARK_HUGGINGFACE_API_KEY:-}"
 SPARK_NON_INTERACTIVE_SETUP="${SPARK_NON_INTERACTIVE_SETUP:-0}"
 SPARK_SETUP_SKIP_INSTALL_COMMANDS="${SPARK_SETUP_SKIP_INSTALL_COMMANDS:-0}"
 SPARK_SETUP_SKIP_RUNTIME_CHECK="${SPARK_SETUP_SKIP_RUNTIME_CHECK:-0}"
@@ -70,6 +73,9 @@ Options:
   --openai-api-key KEY      OpenAI API key passed to setup
   --anthropic-api-key KEY   Anthropic API key passed to setup
   --minimax-api-key KEY     MiniMax API key passed to setup
+  --kimi-api-key KEY        Kimi/Moonshot API key passed to setup
+  --openrouter-api-key KEY  OpenRouter API key passed to setup
+  --huggingface-api-key KEY Hugging Face token passed to setup
   --non-interactive-setup   Pass --non-interactive to setup
   --setup-skip-install-commands
                             Pass --skip-install-commands to setup
@@ -94,7 +100,7 @@ Environment mirrors these flags:
   SPARK_AUTOSTART, SPARK_ALLOW_DEV_SOURCE, SPARK_MANAGED_NODE,
   SPARK_BOT_TOKEN, SPARK_ADMIN_TELEGRAM_IDS, SPARK_LLM_PROVIDER,
   SPARK_ZAI_API_KEY, SPARK_OPENAI_API_KEY, SPARK_ANTHROPIC_API_KEY,
-  SPARK_MINIMAX_API_KEY,
+  SPARK_MINIMAX_API_KEY, SPARK_KIMI_API_KEY, SPARK_OPENROUTER_API_KEY, SPARK_HUGGINGFACE_API_KEY,
   SPARK_NON_INTERACTIVE_SETUP, SPARK_SETUP_SKIP_INSTALL_COMMANDS,
   SPARK_SETUP_SKIP_RUNTIME_CHECK, SPARK_SHELL_PROFILE,
   SPARK_NODE_PLATFORM, SPARK_DRY_RUN, SPARK_PREFLIGHT_ONLY,
@@ -171,6 +177,15 @@ while [ "$#" -gt 0 ]; do
     --minimax-api-key)
       require_non_option_value "$@"
       SPARK_MINIMAX_API_KEY="$2"; shift 2 ;;
+    --kimi-api-key)
+      require_non_option_value "$@"
+      SPARK_KIMI_API_KEY="$2"; shift 2 ;;
+    --openrouter-api-key)
+      require_non_option_value "$@"
+      SPARK_OPENROUTER_API_KEY="$2"; shift 2 ;;
+    --huggingface-api-key)
+      require_non_option_value "$@"
+      SPARK_HUGGINGFACE_API_KEY="$2"; shift 2 ;;
     --non-interactive-setup)
       SPARK_NON_INTERACTIVE_SETUP=1; shift ;;
     --setup-skip-install-commands)
@@ -706,6 +721,15 @@ EOF
     if [ -n "$SPARK_MINIMAX_API_KEY" ]; then
       preview_setup_cmd+=("--minimax-api-key" "<redacted>")
     fi
+    if [ -n "$SPARK_KIMI_API_KEY" ]; then
+      preview_setup_cmd+=("--kimi-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_OPENROUTER_API_KEY" ]; then
+      preview_setup_cmd+=("--openrouter-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_HUGGINGFACE_API_KEY" ]; then
+      preview_setup_cmd+=("--huggingface-api-key" "<redacted>")
+    fi
     if [ -n "$SPARK_SETUP_ARGS" ]; then
       # shellcheck disable=SC2206
       local setup_words=($SPARK_SETUP_ARGS)
@@ -749,7 +773,10 @@ redact_install_log_stream() {
       "$SPARK_ZAI_API_KEY" \
       "$SPARK_OPENAI_API_KEY" \
       "$SPARK_ANTHROPIC_API_KEY" \
-      "$SPARK_MINIMAX_API_KEY"; do
+      "$SPARK_MINIMAX_API_KEY" \
+      "$SPARK_KIMI_API_KEY" \
+      "$SPARK_OPENROUTER_API_KEY" \
+      "$SPARK_HUGGINGFACE_API_KEY"; do
       if [ -n "$secret" ]; then
         line="${line//$secret/[redacted]}"
       fi
@@ -1067,6 +1094,18 @@ run_setup() {
   if [ -n "$SPARK_MINIMAX_API_KEY" ]; then
     spark_secret_ref "$SPARK_MINIMAX_API_KEY"
     spark_setup_cmd+=("--minimax-api-key" "$spark_secret_ref_value")
+  fi
+  if [ -n "$SPARK_KIMI_API_KEY" ]; then
+    spark_secret_ref "$SPARK_KIMI_API_KEY"
+    spark_setup_cmd+=("--kimi-api-key" "$spark_secret_ref_value")
+  fi
+  if [ -n "$SPARK_OPENROUTER_API_KEY" ]; then
+    spark_secret_ref "$SPARK_OPENROUTER_API_KEY"
+    spark_setup_cmd+=("--openrouter-api-key" "$spark_secret_ref_value")
+  fi
+  if [ -n "$SPARK_HUGGINGFACE_API_KEY" ]; then
+    spark_secret_ref "$SPARK_HUGGINGFACE_API_KEY"
+    spark_setup_cmd+=("--huggingface-api-key" "$spark_secret_ref_value")
   fi
   if [ -n "$SPARK_SETUP_ARGS" ]; then
     # shellcheck disable=SC2206
