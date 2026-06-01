@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -1933,6 +1934,67 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(memory_index["status_export_refresh"]["status"], "refreshed")
         self.assertEqual(memory_index["safe_status_export"]["status"]["status"], "supported")
         self.assertEqual(memory_index["safe_status_export"]["status"]["row_count"], 5)
+        self.assertNotIn("private memory should not appear", encoded)
+
+    def test_compile_system_map_reuses_fresh_memory_movement_status_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            state = spark_home / "state"
+            builder_home = state / "spark-intelligence"
+            builder_repo = spark_home / "modules" / "spark-intelligence-builder" / "source"
+            status_path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+            (builder_repo / "src" / "spark_intelligence").mkdir(parents=True)
+            desktop.mkdir()
+            builder_home.mkdir(parents=True)
+            status_path.parent.mkdir(parents=True)
+            (state / "installed.json").write_text("{}", encoding="utf-8")
+            (state / "setup.json").write_text(json.dumps({"builder_home": str(builder_home)}), encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+            (builder_home / "state.db").write_text("", encoding="utf-8")
+            registry = root / "registry.json"
+            registry.write_text('{"modules":{},"bundles":{}}', encoding="utf-8")
+            (builder_repo / "spark.toml").write_text(
+                "[module]\n"
+                'name = "spark-intelligence-builder"\n'
+                'version = "0.1.0"\n'
+                'kind = "runtime"\n'
+                'plane = "runtime"\n',
+                encoding="utf-8",
+            )
+            (builder_repo / "src" / "spark_intelligence" / "cli.py").write_text("# test cli marker\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.memory_movement_status_export.v1",
+                        "status": "supported",
+                        "authority": "observability_non_authoritative",
+                        "movement_counts": {"captured": 3},
+                        "row_count": 3,
+                        "rows": [{"raw_text": "private memory should not appear"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(builder_home / "state.db", (100.0, 100.0))
+            os.utime(status_path, (200.0, 200.0))
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("spark_cli.system_map.subprocess.run", side_effect=fake_run) as run_mock:
+                compiled = compile_system_map(desktop, spark_home, registry)
+
+        memory_index = compiled["memory_movement_index"]
+        encoded = json.dumps(memory_index)
+        export_command_count = sum(
+            1 for call in run_mock.call_args_list if "export-movement-status" in call.args[0]
+        )
+        self.assertEqual(export_command_count, 0)
+        self.assertEqual(memory_index["status_export_refresh"]["status"], "fresh_existing")
+        self.assertEqual(memory_index["status_export_refresh"]["freshness"]["reason"], "status_export_current")
+        self.assertEqual(memory_index["safe_status_export"]["status"]["row_count"], 3)
         self.assertNotIn("private memory should not appear", encoded)
 
     def test_builder_event_samples_omit_event_bodies(self) -> None:

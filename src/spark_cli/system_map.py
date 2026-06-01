@@ -2203,11 +2203,62 @@ def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
     return out
 
 
+def file_modified_at(path: Path) -> str | None:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return None
+
+
+def memory_movement_status_freshness(builder_home: Path) -> dict[str, Any]:
+    status_path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+    state_db = builder_home / "state.db"
+    out: dict[str, Any] = {
+        "status_path": str(status_path),
+        "status_exists": status_path.exists(),
+        "state_db": str(state_db),
+        "state_db_exists": state_db.exists(),
+        "redaction": "mtime metadata only; no memory rows, state rows, or evidence bodies read",
+    }
+    if not status_path.exists():
+        out["fresh"] = False
+        out["reason"] = "status_export_missing"
+        return out
+    out["status_modified_at"] = file_modified_at(status_path)
+    if not state_db.exists():
+        out["fresh"] = True
+        out["reason"] = "status_export_present_state_db_missing"
+        return out
+    out["state_db_modified_at"] = file_modified_at(state_db)
+    try:
+        fresh = status_path.stat().st_mtime >= state_db.stat().st_mtime
+    except OSError:
+        fresh = False
+    out["fresh"] = fresh
+    out["reason"] = "status_export_current" if fresh else "status_export_older_than_state_db"
+    return out
+
+
 def refresh_memory_movement_status_export(builder_repo: Path | None, builder_home: Path) -> dict[str, Any]:
+    freshness = memory_movement_status_freshness(builder_home)
+    if freshness.get("fresh") is True:
+        status = as_dict(read_memory_movement_status_export(builder_home).get("status"))
+        return {
+            "status": "fresh_existing",
+            "builder_repo": str(builder_repo) if builder_repo is not None else None,
+            "builder_home": str(builder_home),
+            "path": freshness.get("status_path"),
+            "movement_status": safe_memory_status_value(status.get("status")),
+            "row_count": safe_memory_status_value(status.get("row_count")),
+            "freshness": freshness,
+            "redaction": "freshness metadata and allowlisted status fields only; Builder refresh command not run",
+        }
+
     out: dict[str, Any] = {
         "status": "skipped",
         "builder_repo": str(builder_repo) if builder_repo is not None else None,
         "builder_home": str(builder_home),
+        "freshness": freshness,
         "redaction": "command status only; stdout parsed for allowlisted export status fields",
     }
     if builder_repo is None:
