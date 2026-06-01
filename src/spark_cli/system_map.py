@@ -4263,6 +4263,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "buildServerTurnIntentVNextAuthority" in text
             or "buildClientTurnIntentVNextAuthority" in text
             or "createHarnessCoreActionEnvelopeVNext" in text
+            or "assertNativeVNextHarnessAuthority" in text
             or "build_vnext_action_intent_envelope" in text
             or "build_vnext_tool_intent_envelope" in text
             or ("HarnessKernel" in text and "create_envelope" in text)
@@ -4276,6 +4277,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "browser_use_harness_authorize" in text
             or "kernel.authorize" in text
             or "assertHarnessAuthority" in text
+            or "assertNativeVNextHarnessAuthority" in text
             or ("HarnessKernel" in text and "def authorize(" in text)
         ),
         "machine_origin_policy": (

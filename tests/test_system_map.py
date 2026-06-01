@@ -1568,12 +1568,12 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
 
             (spawner_spark_run / "+server.ts").write_text(
                 "evaluateExecutionIntentBoundary(goal);\n"
-                "assertHarnessAuthority({ toolName: 'spawner.run' });\n",
+                "assertNativeVNextHarnessAuthority({ toolName: 'spawner.run' });\n",
                 encoding="utf-8",
             )
             (spawner_dispatch / "+server.ts").write_text(
-                "import { assertHarnessAuthority } from '../../../lib/server/harness-authority';\n"
-                "assertHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
+                "import { assertNativeVNextHarnessAuthority } from '../../../lib/server/harness-authority';\n"
+                "assertNativeVNextHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
                 encoding="utf-8",
             )
             (spawner_scheduled / "+server.ts").write_text(
@@ -1722,8 +1722,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
         self.assertEqual(by_id["harness_core.authority_kernel"]["status"], "envelope_verified")
         self.assertFalse(by_id["harness_core.authority_kernel"]["markers"]["auto_state_trigger"])
-        self.assertEqual(by_id["spawner.spark_run"]["status"], "machine_origin_policy")
-        self.assertEqual(by_id["spawner.dispatch"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.spark_run"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.dispatch"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
