@@ -538,6 +538,14 @@ class SparkCliTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         resolve_safe_output_path(value, root=root)
 
+    def test_sandbox_output_path_rejects_windows_unsafe_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for value in ["safe:evil.txt", "nested/aux:data", "file?.txt"]:
+                with self.subTest(value=value):
+                    with self.assertRaises(ValueError):
+                        resolve_safe_output_path(value, root=root)
+
     def test_sandbox_audit_event_redacts_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir)
