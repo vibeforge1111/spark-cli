@@ -906,7 +906,7 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except _keyring_errors.KeyringError:
         return False
     return True
 
@@ -1086,7 +1086,7 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
+        except _keyring_errors.KeyringError:
             pass
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     try:
@@ -1111,7 +1111,7 @@ def fetch_secret(secret_id: str) -> str | None:
             if default_home_uses_legacy_keychain():
                 return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
             return None
-        except Exception:
+        except _keyring_errors.KeyringError:
             return None
     if backend == "file":
         value = load_json(SECRETS_FILE_PATH, {}).get(secret_id)
@@ -1185,13 +1185,13 @@ def delete_secret(secret_id: str) -> bool:
         try:
             _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
-        except Exception:
+        except _keyring_errors.KeyringError:
             pass
         if default_home_uses_legacy_keychain():
             try:
                 _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
                 removed = True
-            except Exception:
+            except _keyring_errors.KeyringError:
                 pass
     if backend == "file":
         file_secrets = load_json(SECRETS_FILE_PATH, {})
