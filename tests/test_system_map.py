@@ -1515,6 +1515,25 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_uses_running_cli_source_when_cli_module_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            desktop.mkdir()
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        observed = view["observed_sources"]
+        access_path = Path(observed["cli_access_policy"]["path"])
+        capabilities_path = Path(observed["cli_capabilities"]["path"])
+        self.assertTrue(observed["cli_access_policy"]["exists"])
+        self.assertTrue(observed["cli_capabilities"]["exists"])
+        self.assertEqual(access_path.name, "access.py")
+        self.assertEqual(capabilities_path.name, "capabilities.py")
+        self.assertNotIn(str(desktop), str(access_path))
+        self.assertNotIn(str(desktop), str(capabilities_path))
+
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             builder_home = Path(tmp) / "spark-intelligence"
