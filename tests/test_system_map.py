@@ -1579,10 +1579,12 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "authorize_tool_call(turn_intent_envelope, tool_name='browser.navigate', owner_system='spark-browser')\n"
                 "authorize_tool_call(turn_intent_envelope, tool_name='chip.evaluate', owner_system='spark-intelligence-builder')\n"
                 "authorize_tool_call(turn_intent_envelope, tool_name='memory.write', owner_system='domain-chip-memory')\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='memory.read', owner_system='domain-chip-memory')\n"
                 "_build_browser_search_context()\n"
                 "_execute_browser_hook()\n"
                 "_run_active_chip_evaluate()\n"
                 "_authorize_researcher_memory_write()\n"
+                "_authorize_researcher_memory_read()\n"
                 "_researcher_memory_read_side_effects_authorized()\n"
                 "select_chips_for_message()\n"
                 "run_chip_hook()\n"
@@ -1620,6 +1622,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.researcher_browser_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_active_chip_evaluate"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_memory_write"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_memory_read"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.memory_doctor_diagnostics"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.memory_read_side_effects"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_diagnostic_tools"]["status"], "envelope_verified")
@@ -1639,6 +1642,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.researcher_browser_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_active_chip_evaluate"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_memory_write"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_memory_read"]["release_blocker"])
         self.assertFalse(by_id["builder.memory_doctor_diagnostics"]["release_blocker"])
         self.assertFalse(by_id["builder.memory_read_side_effects"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_diagnostic_tools"]["release_blocker"])
