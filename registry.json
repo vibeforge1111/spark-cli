@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "d7c819d32655b7b7527307d3db5d547f58f5f442",
+      "commit": "2fd2331d11cff91bdbf6a3d84f938de6ed00a813",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,19 +34,19 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "d7c819d32655b7b7527307d3db5d547f58f5f442"
+        "commit": "2fd2331d11cff91bdbf6a3d84f938de6ed00a813"
       }
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "b52f4932b7ffcdb488ae8eb191f3d6ed24503d08",
+      "commit": "e70758286f95f980d963793e688fa50d22500362",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "b52f4932b7ffcdb488ae8eb191f3d6ed24503d08"
+        "commit": "e70758286f95f980d963793e688fa50d22500362"
       }
     },
     "domain-chip-memory": {
