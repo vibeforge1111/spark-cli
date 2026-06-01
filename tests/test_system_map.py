@@ -27,6 +27,7 @@ from spark_cli.system_map import (
     compile_system_map,
     count_safe_jsonl,
     dirty_family_for_path,
+    identifier_hash,
     inspect_builder_event_samples,
     inspect_builder_trace_health,
     inspect_builder_trace_groups,
@@ -34,6 +35,7 @@ from spark_cli.system_map import (
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
     parse_branch_status,
+    redacted_identifier,
     safe_builder_event_value,
     summarize_pids,
     summarize_setup,
@@ -1639,6 +1641,39 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertTrue(str(redacted).startswith("trace_ref:redacted:"))
         self.assertNotIn("8319079055", str(redacted))
         self.assertEqual(safe_builder_event_value("trace_ref", "trace-1"), "trace-1")
+
+    def test_identifier_hash_is_deterministic_and_redaction_safe(self) -> None:
+        raw = "trace:agent:human:telegram:8319079055:telegram:13152322"
+
+        # Determinism: same input always yields the same hash.
+        self.assertEqual(identifier_hash(raw), identifier_hash(raw))
+
+        # None safety: the helper passes None through unchanged so callers can
+        # forward optional values without branching.
+        self.assertIsNone(identifier_hash(None))
+
+        # Redaction safety: the opaque hash must not contain the raw id or any
+        # of its identity-bearing substrings.
+        digest = identifier_hash(raw)
+        self.assertIsNotNone(digest)
+        self.assertNotIn("8319079055", str(digest))
+        self.assertNotIn("13152322", str(digest))
+        self.assertNotIn("telegram", str(digest))
+
+        # Linkability: two rows that reference the same raw id (e.g. the same
+        # request_id appearing in two events) emit the same *_hash so
+        # downstream join surfaces can correlate them without seeing the raw
+        # value. Different ids must emit different hashes.
+        self.assertEqual(identifier_hash("req-1"), identifier_hash("req-1"))
+        self.assertNotEqual(identifier_hash("req-1"), identifier_hash("req-2"))
+
+        # Compatibility: identifier_hash and redacted_identifier share the
+        # same SHA-256-12 prefix so existing redacted_identifier outputs can
+        # still be linked to identifier_hash outputs by suffix match.
+        column_tag = "request_id"
+        tagged = redacted_identifier(column_tag, raw)
+        suffix = tagged.split(":")[-1]
+        self.assertEqual(suffix, identifier_hash(raw))
 
     def test_builder_trace_health_reports_counts_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
