@@ -2,14 +2,14 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "1f0a5d72347867f24e1021c47d22879bcf4b4391",
+      "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "1f0a5d72347867f24e1021c47d22879bcf4b4391"
+        "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28"
       }
     },
     "spark-character": {
@@ -75,7 +75,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "dfabce64b4a5177cace723d2fb62473d158d4d85",
+      "commit": "0ad8242eafaea688c8de4c32b4bbdc29c5fb0846",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -83,7 +83,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "dfabce64b4a5177cace723d2fb62473d158d4d85"
+        "commit": "0ad8242eafaea688c8de4c32b4bbdc29c5fb0846"
       }
     }
   },
