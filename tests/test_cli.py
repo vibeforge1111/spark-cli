@@ -1400,6 +1400,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
+        for command in (
+            ["curl", "-f", "https://example.test/health"],
+            ["curl", "--fail", "https://example.test/health"],
+            ["curl", "-t", "TTYPE=xterm", "telnet://example.test"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertFalse(decision.requires_approval)
+
+    def test_approval_classifier_flags_curl_upload_forms_and_data(self) -> None:
+        for command in (
+            ["curl", "-F", "file=@report.txt", "https://example.test/upload"],
+            ["curl", "-T", "report.txt", "https://example.test/upload"],
+            ["curl", "--data-raw", "x=1", "https://example.test/upload"],
+            ["curl", "--data-urlencode", "x=1", "https://example.test/upload"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
