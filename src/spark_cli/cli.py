@@ -14004,6 +14004,18 @@ def stop_module(name: str, pid: int) -> None:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+        # Wait for the process to exit so callers (e.g. restart) do not hit
+        # EADDRINUSE when the port is still held by the dying process.
+        for _ in range(10):
+            if not pid_is_running(pid):
+                break
+            time.sleep(0.5)
+        else:
+            # Process did not exit gracefully; force-kill as a last resort.
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except OSError:
+                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
     print(f"Stopped {name} (pid {pid})")
 
 

@@ -7682,6 +7682,33 @@ class SparkCliTests(unittest.TestCase):
 
         run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True)
 
+    def test_stop_module_waits_for_process_exit(self) -> None:
+        """stop_module polls pid_is_running after SIGTERM to avoid port races."""
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.pid_is_running", side_effect=[True, True, False]), \
+             patch("spark_cli.cli.time.sleep") as mock_sleep, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spark-telegram-bot", 99999)
+
+        killpg.assert_called_once_with(99999, signal.SIGTERM)
+        self.assertEqual(mock_sleep.call_count, 2)
+        mock_sleep.assert_called_with(0.5)
+
+    def test_stop_module_force_kills_when_graceful_fails(self) -> None:
+        """If the process never exits, stop_module escalates to SIGKILL."""
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.pid_is_running", return_value=True), \
+             patch("spark_cli.cli.time.sleep"), \
+             patch("spark_cli.cli.subprocess.run") as run, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spark-telegram-bot", 99999)
+
+        self.assertEqual(killpg.call_count, 2)
+        killpg.assert_any_call(99999, signal.SIGTERM)
+        killpg.assert_any_call(99999, signal.SIGKILL)
+
     def test_required_runtimes_for_modules_dedups_across_bundle(self) -> None:
         python_module = Module(
             name="python-a",
