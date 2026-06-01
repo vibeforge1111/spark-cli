@@ -35,6 +35,7 @@ from spark_cli.system_map import (
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
     parse_branch_status,
+    repo_release_status,
     safe_builder_event_value,
     summarize_pids,
     summarize_setup,
@@ -264,6 +265,38 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("send raw prompts", encoded)
         self.assertNotIn("prompt-injection", encoded)
         self.assertNotIn("unsafe-benchmark", encoded)
+
+    def test_installed_module_source_repos_use_module_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / ".spark" / "modules" / "spark-telegram-bot" / "source"
+            standalone = root / "spark-example"
+            source.mkdir(parents=True)
+            standalone.mkdir()
+
+            installed_metadata = collect_repo_metadata(source)
+            standalone_metadata = collect_repo_metadata(standalone)
+
+        self.assertEqual(installed_metadata["name"], "spark-telegram-bot")
+        self.assertEqual(standalone_metadata["name"], "spark-example")
+
+    def test_private_office_repo_missing_runtime_manifest_is_not_blocked(self) -> None:
+        clean_git = {"available": True, "dirty_tracked_count": 0, "untracked_count": 0, "behind": 0}
+        no_manifest = {
+            "spark_toml": False,
+            "spark_chip": False,
+            "skill_manifest": False,
+            "agents_md": False,
+            "contract_file_count": False,
+        }
+
+        systems_status = repo_release_status("spark-intelligence-systems", clean_git, no_manifest, False)
+        runtime_status = repo_release_status("spark-telegram-bot", clean_git, no_manifest, True)
+
+        self.assertEqual(systems_status[0], "not_release_candidate")
+        self.assertIn("private office", systems_status[1] or "")
+        self.assertEqual(runtime_status[0], "blocked")
+        self.assertEqual(runtime_status[1], "core repo missing Spark manifest")
 
     def test_compile_surfaces_duplicate_truths_for_legacy_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

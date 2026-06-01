@@ -108,6 +108,7 @@ OWNER_SURFACES = {
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
+PRIVATE_OFFICE_REPOS = {"spark-intelligence-systems"}
 
 CONTRACT_COVERAGE_ACTION_EDGES = (
     {
@@ -1206,8 +1207,14 @@ def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
     return None
 
 
+def repo_display_name(path: Path) -> str:
+    if path.name == "source" and path.parent.name and path.parent.parent.name == "modules":
+        return path.parent.name
+    return path.name
+
+
 def collect_repo_metadata(path: Path) -> dict[str, Any]:
-    record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
+    record: dict[str, Any] = {"name": repo_display_name(path), "path": str(path), "exists": path.exists()}
     if not path.exists():
         return record
 
@@ -5430,6 +5437,12 @@ def repo_release_status(name: str, git: dict[str, Any], manifest: dict[str, bool
         return "blocked", "dirty worktree", "curate local changes before merge or release"
     if behind:
         return "blocked", "behind upstream", "pull or merge upstream before release"
+    if name in PRIVATE_OFFICE_REPOS:
+        return (
+            "not_release_candidate",
+            "private office repo intentionally excluded from runtime manifests",
+            "publish docs and plans through the owner repo, but keep runtime contracts in installed surfaces",
+        )
     if name in CORE_REPOS and not any(manifest.values()):
         return "blocked", "core repo missing Spark manifest", "add or confirm owner manifest before release"
     if name == "spark-cli" and any(manifest.values()):
