@@ -15722,6 +15722,17 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def _positive_int(value: str) -> int:
+    """argparse helper: accept only strictly positive integers."""
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {value!r}")
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {ivalue}")
+    return ivalue
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -16053,7 +16064,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
     browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
-    browser_use_task_parser.add_argument("--max-steps", type=int, default=25, help="Maximum Browser Use Agent steps")
+    browser_use_task_parser.add_argument("--max-steps", type=_positive_int, default=25, help="Maximum Browser Use Agent steps (must be a positive integer)")
     browser_use_task_parser.add_argument("--json", action="store_true")
     browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
     browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
