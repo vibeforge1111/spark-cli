@@ -524,6 +524,12 @@ def clone_target_for_module(name: str) -> Path:
 def git_command(*args: str) -> list[str]:
     return ["git", "-c", "core.longpaths=true", *args]
 
+def run_git_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(*args, **kwargs)
+    except FileNotFoundError as e:
+        raise SystemExit(f"git operation failed: git is not installed or not in PATH ({e})")
+
 
 def validate_commit_pin(commit: str | None) -> str | None:
     value = (commit or "").strip()
@@ -535,8 +541,7 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
+    result = run_git_subprocess(git_command(*args),
         cwd=str(cwd) if cwd else None,
         capture_output=True,
         text=True,
@@ -548,8 +553,7 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
+    verify_result = run_git_subprocess(git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
     )
@@ -661,8 +665,7 @@ def clone_module_source(
     if (target / "spark.toml").exists() and (target / ".git").exists():
         pinned_commit = validate_commit_pin(commit)
         if pinned_commit:
-            resolved = subprocess.run(
-                git_command("-C", str(target), "rev-parse", "HEAD"),
+            resolved = run_git_subprocess(git_command("-C", str(target), "rev-parse", "HEAD"),
                 capture_output=True,
                 text=True,
             )
@@ -686,8 +689,7 @@ def clone_module_source(
         run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
         verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
+    result = run_git_subprocess(git_command("clone", "--depth=1", url, str(target)),
         capture_output=True,
         text=True,
     )
@@ -698,8 +700,7 @@ def clone_module_source(
 
 
 def pull_module_source(path: Path) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(path), "pull", "--ff-only"),
+    result = run_git_subprocess(git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
     )
@@ -713,8 +714,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if not (is_git_source(source) and pinned_commit):
         return pull_module_source(module.path)
 
-    status = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
+    status = run_git_subprocess(git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
     )
@@ -723,8 +723,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if status.stdout.strip():
         return False, "working tree has local changes; commit or stash them before updating"
 
-    current = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
+    current = run_git_subprocess(git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
     )
@@ -734,8 +733,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if current_commit == pinned_commit:
         return True, f"already at pinned commit {pinned_commit[:12]}"
 
-    fetch = subprocess.run(
-        git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
+    fetch = run_git_subprocess(git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
         text=True,
     )
@@ -743,24 +741,21 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         return False, summarize_command_output(fetch)
 
     if bool(registry_metadata.get("require_signed_commit", False)):
-        verify = subprocess.run(
-            git_command("-C", str(module.path), "verify-commit", pinned_commit),
+        verify = run_git_subprocess(git_command("-C", str(module.path), "verify-commit", pinned_commit),
             capture_output=True,
             text=True,
         )
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
 
-    checkout = subprocess.run(
-        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
+    checkout = run_git_subprocess(git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
         capture_output=True,
         text=True,
     )
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
 
-    resolved = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
+    resolved = run_git_subprocess(git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
     )
@@ -781,8 +776,7 @@ def is_dirty_update_failure(detail: str) -> bool:
 
 
 def module_git_status(module: Module) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
+    result = run_git_subprocess(git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
     )
@@ -804,8 +798,7 @@ def dirty_update_modules(modules: list[Module]) -> list[tuple[Module, str]]:
 
 def stash_module_local_changes(module: Module) -> tuple[bool, str]:
     label = datetime.now(timezone.utc).strftime("spark-update-local-runtime-%Y%m%dT%H%M%SZ")
-    result = subprocess.run(
-        git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
+    result = run_git_subprocess(git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
         capture_output=True,
         text=True,
     )
@@ -1255,7 +1248,10 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Configuration error: '{path}' contains invalid JSON: {e}")
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -5651,7 +5647,10 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"Failed to install Graphiti/Kuzu sidecar (exit code {e.returncode}). Please check your python environment.")
 
 
 def browser_use_cli_path() -> str | None:
@@ -6437,7 +6436,10 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f"Failed to install browser-use extra (exit code {e.returncode}).")
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
@@ -8252,8 +8254,10 @@ def spawner_state_dir_for_revoke_all() -> Path:
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 
@@ -8781,8 +8785,7 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
 
 
 def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
+    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -8791,8 +8794,7 @@ def git_short_status(path: Path) -> str:
 
 
 def git_current_head(path: Path) -> str | None:
-    result = subprocess.run(
-        git_command("-C", str(path), "rev-parse", "HEAD"),
+    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -10542,17 +10544,20 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
             "Use --prompt-out to review the redacted prompt, or configure OpenAI Codex/Anthropic Claude/Z.AI GLM/Kimi/OpenRouter/Hugging Face/MiniMax/OpenAI/Ollama."
         )
     provider = target["provider"]
-    if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
-        if target.get("auth_mode") == "codex_oauth":
+    try:
+        if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
+            if target.get("auth_mode") == "codex_oauth":
+                return codex_cli_completion(target, prompt)
+            return openai_compatible_chat_completion(target, prompt)
+        if provider == "codex":
             return codex_cli_completion(target, prompt)
-        return openai_compatible_chat_completion(target, prompt)
-    if provider == "codex":
-        return codex_cli_completion(target, prompt)
-    if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
-    if provider == "ollama":
-        return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+        if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
+            return claude_cli_completion(target, prompt)
+        if provider == "ollama":
+            return ollama_chat_completion(target, prompt)
+        raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        raise SystemExit(f"Error: Failed to communicate with LLM provider API ({provider}): {e}")
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
@@ -16377,4 +16382,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        import sys
+        print("\nOperation cancelled by user.", file=sys.stderr)
+        raise SystemExit(130)
