@@ -1645,7 +1645,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             )
             (spawner_server / "scheduler.ts").write_text(
                 "assertHarnessAuthority({ toolName: 'spawner.schedule.create' });\n"
-                "buildServerTurnIntentVNextAuthority({ toolName: 'spawner.run' });\n",
+                "buildServerGovernorDecisionAuthority({ toolName: 'spawner.run' });\n",
                 encoding="utf-8",
             )
             (spawner_server / "mission-control-command.ts").write_text(

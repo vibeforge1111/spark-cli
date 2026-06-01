@@ -4403,6 +4403,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "turn-intent-envelope-vnext" in text
             or "TurnIntentEnvelope" in text
             or "buildServerTurnIntentVNextAuthority" in text
+            or "buildServerGovernorDecisionAuthority" in text
             or "buildClientTurnIntentVNextAuthority" in text
             or "createHarnessCoreActionEnvelopeVNext" in text
             or "assertNativeVNextHarnessAuthority" in text
@@ -4424,6 +4425,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "assertHarnessAuthority" in text
             or "assertNativeVNextHarnessAuthority" in text
             or "assertNativeGovernorOrVNextHarnessAuthority" in text
+            or "buildServerGovernorDecisionAuthority" in text
             or "governorDecisionVerdict" in text
             or ("HarnessKernel" in text and "def authorize(" in text)
         ),
