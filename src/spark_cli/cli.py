@@ -15166,9 +15166,15 @@ npm-debug.log*
 
 
 INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
+INIT_MAX_NAME_LENGTH = 64
 
 
 def validate_init_module_name(name: str) -> None:
+    if len(name) > INIT_MAX_NAME_LENGTH:
+        raise SystemExit(
+            "Module name is too long "
+            f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
@@ -15451,6 +15457,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_uninstall(args: argparse.Namespace) -> int:
     if getattr(args, "all", False) and args.target:
         raise SystemExit("Use either a target or --all, not both.")
+    if not getattr(args, "all", False) and not args.target:
+        raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
 
@@ -15801,6 +15809,20 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def positive_int_arg(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {parsed}"
+        )
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -16132,7 +16154,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
     browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
-    browser_use_task_parser.add_argument("--max-steps", type=int, default=25, help="Maximum Browser Use Agent steps")
+    browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
     browser_use_task_parser.add_argument("--json", action="store_true")
     browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
     browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")

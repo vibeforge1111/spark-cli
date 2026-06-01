@@ -1519,6 +1519,17 @@ class SparkCliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 validate_init_module_name(bad)
 
+    def test_validate_init_module_name_rejects_long_names_without_echoing_them(self) -> None:
+        long_name = "a" * 65
+        with self.assertRaises(SystemExit) as raised:
+            validate_init_module_name(long_name)
+
+        message = str(raised.exception)
+        self.assertIn("too long", message)
+        self.assertIn("64", message)
+        self.assertNotIn(long_name, message)
+        validate_init_module_name("a" * 64)
+
     def test_render_init_spark_toml_produces_parseable_manifest(self) -> None:
         import tomllib as _toml
         rendered = render_init_spark_toml("my-module", "python", "Demo module")
@@ -5052,6 +5063,13 @@ class SparkCliTests(unittest.TestCase):
         args = build_parser().parse_args(["uninstall", "--purge-home"])
         with self.assertRaises(SystemExit):
             cmd_uninstall(args)
+
+    def test_uninstall_requires_target_or_all(self) -> None:
+        args = build_parser().parse_args(["uninstall"])
+        with self.assertRaises(SystemExit) as raised:
+            cmd_uninstall(args)
+
+        self.assertIn("Specify a module", str(raised.exception))
 
     def test_uninstall_full_cleanup_runs_autostart_path_and_home_cleanup(self) -> None:
         args = build_parser().parse_args(["uninstall", "--all", "--remove-autostart", "--remove-user-path", "--purge-home", "--yes"])
