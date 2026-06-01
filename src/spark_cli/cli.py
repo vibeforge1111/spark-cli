@@ -7473,6 +7473,7 @@ def collect_status_payload() -> dict[str, Any]:
     tracked_pids = load_pids()
     public_tracked_pids = public_diagnostic_payload(tracked_pids)
     repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
+    profile_warnings = telegram_profile_warnings(setup_state)
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
     payload = {
         "ok": ok,
@@ -7480,6 +7481,7 @@ def collect_status_payload() -> dict[str, Any]:
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
+        "telegram_profile_warnings": profile_warnings,
         "modules": module_results,
         "tracked_pids": public_tracked_pids,
         "config_dir": public_local_path_ref(CONFIG_DIR),
@@ -7850,6 +7852,8 @@ def cmd_status(args: argparse.Namespace) -> int:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
         print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
+    for warning in payload.get("telegram_profile_warnings", []):
+        print(f"Warning: {warning}")
     print("")
 
     exit_code = 0
@@ -8010,6 +8014,8 @@ def cmd_live_status(args: argparse.Namespace) -> int:
         running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
         stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
         print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
+    for warning in payload.get("telegram_profile_warnings", []):
+        print(f"Warning: {warning}")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
         module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
@@ -14062,17 +14068,105 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
     external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
+    shared_token_exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    polling_conflict_exclusions = polling_conflict_excluded_autostart_profiles(setup_state)
     if "spark-telegram-bot" in installed_names and not has_profiles and not external_telegram:
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
     if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
         for profile, profile_state in sorted(profiles.items()):
+            normalized = normalize_telegram_profile(str(profile))
+            if normalized in shared_token_exclusions or normalized in polling_conflict_exclusions:
+                continue
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
-                process_key = module_process_key("spark-telegram-bot", str(profile))
+                process_key = module_process_key("spark-telegram-bot", normalized)
                 if process_key not in names:
                     names.append(process_key)
     return names
+
+
+def telegram_profile_token_fingerprint(profile: str) -> str:
+    token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def shared_token_autostart_profile_groups(setup_state: dict[str, Any]) -> list[list[str]]:
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if not isinstance(profiles, dict):
+        return []
+    autostart_profiles = [
+        normalize_telegram_profile(str(profile))
+        for profile, profile_state in profiles.items()
+        if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)
+    ]
+    if len(autostart_profiles) < 2:
+        return []
+    groups_by_fingerprint: dict[str, list[str]] = {}
+    for profile in autostart_profiles:
+        fingerprint = telegram_profile_token_fingerprint(profile)
+        if fingerprint:
+            groups_by_fingerprint.setdefault(fingerprint, []).append(profile)
+    return [sorted(set(group)) for group in groups_by_fingerprint.values() if len(set(group)) > 1]
+
+
+def shared_token_excluded_autostart_profiles(setup_state: dict[str, Any]) -> dict[str, str]:
+    primary_profile = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
+    excluded: dict[str, str] = {}
+    for group in shared_token_autostart_profile_groups(setup_state):
+        owner = primary_profile if primary_profile in group else group[0]
+        for profile in group:
+            if profile != owner:
+                excluded[profile] = owner
+    return excluded
+
+
+def telegram_profile_warnings(setup_state: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    for group in shared_token_autostart_profile_groups(setup_state):
+        owner = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
+        if owner not in group:
+            owner = group[0]
+        blocked = [profile for profile in group if exclusions.get(profile) == owner]
+        if not blocked:
+            continue
+        warnings.append(
+            "Telegram profiles share one bot token: "
+            f"{', '.join(group)}. Only `{owner}` is expected to poll; "
+            "configure distinct tokens or mark the extra profile manual."
+        )
+    for profile in sorted(polling_conflict_excluded_autostart_profiles(setup_state)):
+        warnings.append(
+            f"Telegram profile `{profile}` has a recent getUpdates polling conflict. "
+            "Spark Live will not expect that non-primary profile to poll until the competing poller stops "
+            "or the profile is marked manual."
+        )
+    return warnings
+
+
+def telegram_profile_has_polling_conflict(profile: str) -> bool:
+    log_text = "".join(tail_log_lines(module_log_path("spark-telegram-bot", profile), 200))
+    return "409: Conflict" in log_text and "getUpdates" in log_text
+
+
+def polling_conflict_excluded_autostart_profiles(setup_state: dict[str, Any]) -> set[str]:
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if not isinstance(profiles, dict):
+        return set()
+    primary_profile = primary_telegram_profile(setup_state)
+    excluded: set[str] = set()
+    for profile, profile_state in profiles.items():
+        normalized = normalize_telegram_profile(str(profile))
+        if normalized == primary_profile:
+            continue
+        if not isinstance(profile_state, dict) or not telegram_profile_should_autostart(profile_state):
+            continue
+        if telegram_profile_has_polling_conflict(normalized):
+            excluded.add(normalized)
+    return excluded
 
 
 def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
@@ -14081,6 +14175,8 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         return []
     statuses: list[dict[str, Any]] = []
     primary_profile = primary_telegram_profile(setup_state)
+    shared_token_exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    polling_conflict_exclusions = polling_conflict_excluded_autostart_profiles(setup_state)
     for profile, profile_state in sorted(profiles.items()):
         if not isinstance(profile_state, dict):
             continue
@@ -14093,18 +14189,25 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
                 pid = int(record.get("pid", 0))
             except (TypeError, ValueError):
                 pid = 0
-        statuses.append(
-            {
-                "profile": normalized,
-                "process_key": process_key,
-                "pid": pid or None,
-                "running": bool(pid and pid_is_running(pid)),
-                "relay_port": profile_state.get("relay_port"),
-                "primary": normalized == primary_profile,
-                "autostart": telegram_profile_should_autostart(profile_state),
-                "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
-            }
-        )
+        status = {
+            "profile": normalized,
+            "process_key": process_key,
+            "pid": pid or None,
+            "running": bool(pid and pid_is_running(pid)),
+            "relay_port": profile_state.get("relay_port"),
+            "primary": normalized == primary_profile,
+            "autostart": telegram_profile_should_autostart(profile_state),
+            "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
+        }
+        if normalized in shared_token_exclusions:
+            status["autostart_effective"] = False
+            status["exclusive_with_profile"] = shared_token_exclusions[normalized]
+            status["status_note"] = "shares one bot token; only one Telegram profile can poll at a time"
+        if normalized in polling_conflict_exclusions:
+            status["autostart_effective"] = False
+            status["blocked_by_polling_conflict"] = True
+            status["status_note"] = "recent Telegram getUpdates conflict; another poller owns this bot token"
+        statuses.append(status)
     return statuses
 
 

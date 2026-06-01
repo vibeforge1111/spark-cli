@@ -233,6 +233,7 @@ from spark_cli.cli import (
     scan_module_trust,
     telegram_first_message_seen,
     telegram_profile_runtime_status,
+    telegram_profile_warnings,
     validate_telegram_profile_token_identity,
     tracked_process_keys_for_module,
     wait_for_telegram_first_message,
@@ -2804,6 +2805,57 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(statuses[0]["autostart"])
         self.assertFalse(statuses[1]["primary"])
         self.assertFalse(statuses[1]["autostart"])
+
+    def test_shared_token_telegram_profiles_do_not_create_false_missing_runtime(self) -> None:
+        setup_state = {
+            "primary_telegram_profile": "primary",
+            "telegram_profiles": {
+                "primary": {"relay_port": 8789},
+                "sparkqa-bot": {"relay_port": 8791},
+            },
+        }
+
+        def fake_fetch(secret_id: str) -> str | None:
+            if secret_id.endswith(".bot_token"):
+                return "shared-token"
+            return None
+
+        with patch("spark_cli.cli.fetch_secret", side_effect=fake_fetch):
+            expected = expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state)
+            statuses = telegram_profile_runtime_status(setup_state, {})
+            warnings = telegram_profile_warnings(setup_state)
+
+        self.assertEqual(expected, ["spawner-ui", "spark-telegram-bot:primary"])
+        by_profile = {item["profile"]: item for item in statuses}
+        self.assertEqual(by_profile["sparkqa-bot"]["exclusive_with_profile"], "primary")
+        self.assertFalse(by_profile["sparkqa-bot"]["autostart_effective"])
+        self.assertIn("primary, sparkqa-bot", warnings[0])
+        self.assertIn("Only `primary` is expected to poll", warnings[0])
+
+    def test_polling_conflict_profile_does_not_create_false_missing_runtime(self) -> None:
+        setup_state = {
+            "primary_telegram_profile": "primary",
+            "telegram_profiles": {
+                "primary": {"relay_port": 8789},
+                "sparkqa-bot": {"relay_port": 8791},
+            },
+        }
+
+        def fake_tail(path: Path, _: int) -> list[str]:
+            if "sparkqa-bot" in str(path):
+                return ["Telegram polling stopped: Error: 409: Conflict by another getUpdates request"]
+            return []
+
+        with patch("spark_cli.cli.tail_log_lines", side_effect=fake_tail):
+            expected = expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state)
+            statuses = telegram_profile_runtime_status(setup_state, {})
+            warnings = telegram_profile_warnings(setup_state)
+
+        self.assertEqual(expected, ["spawner-ui", "spark-telegram-bot:primary"])
+        by_profile = {item["profile"]: item for item in statuses}
+        self.assertTrue(by_profile["sparkqa-bot"]["blocked_by_polling_conflict"])
+        self.assertFalse(by_profile["sparkqa-bot"]["autostart_effective"])
+        self.assertIn("getUpdates polling conflict", warnings[0])
 
     def test_normalize_telegram_admin_ids_merges_and_deduplicates(self) -> None:
         self.assertEqual(
