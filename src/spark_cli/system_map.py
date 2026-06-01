@@ -231,6 +231,15 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("spawner.mission_control", "missionCommand", "pendingMissionCancelConfirmations"),
     },
     {
+        "id": "spawner.spark_run",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/spark/run/+server.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("evaluateExecutionIntentBoundary", "providerRuntime.dispatch", "createSparkMission"),
+    },
+    {
         "id": "spawner.dispatch",
         "surface": "spawner-ui",
         "owner_repo": "spawner-ui",
@@ -265,6 +274,38 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "risk": "high_agency",
         "files": ("src/routes/api/creator/mission/execute/+server.ts", "src/lib/server/creator-mission.ts"),
         "legacy_markers": ("executeCreatorMission", "missionId", "requestId"),
+    },
+    {
+        "id": "spawner.schedule_mutation",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": ("src/routes/api/scheduled/+server.ts", "src/lib/server/scheduler.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("createSchedule", "deleteSchedule", "cron"),
+    },
+    {
+        "id": "spawner.scheduler_fire",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission_or_loop",
+        "risk": "high_agency",
+        "files": ("src/lib/server/scheduler.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("execFileAsync", "/api/spark/run", "loops"),
+    },
+    {
+        "id": "spawner.mission_control_command",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/lib/server/mission-control-command.ts",
+            "src/routes/api/mission-control/command/+server.ts",
+            "src/routes/api/mission-control/discord-command/+server.ts",
+            "src/lib/server/harness-authority.ts",
+        ),
+        "legacy_markers": ("pauseMission", "resumeMission", "cancelMission", "kill"),
     },
     {
         "id": "builder.memory_bridge",
@@ -3855,9 +3896,6 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     elif action_markers["telegram_action_authority"] and all_markers["turn_intent_authorizer"]:
         status = "envelope_verified"
         reason = "action_edge_uses_shared_telegram_turn_intent_authority"
-    elif action_markers["deterministic_local_route"]:
-        status = "legacy_local_gate"
-        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
     elif action_markers["machine_origin_policy"]:
         status = "machine_origin_policy"
         reason = "action_edge_checks_machine_origin_or_harness_authority"
@@ -3867,6 +3905,9 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     elif action_markers["turn_intent_schema"] and action_markers["turn_intent_authorizer"]:
         status = "envelope_verified"
         reason = "action_edge_checks_turn_intent_envelope"
+    elif action_markers["deterministic_local_route"]:
+        status = "legacy_local_gate"
+        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
     elif any(marker in action_text for marker in edge.get("legacy_markers", ())):
         status = "legacy_local_gate"
         reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"

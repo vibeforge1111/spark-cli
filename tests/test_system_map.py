@@ -1460,20 +1460,53 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             root = Path(tmp)
             desktop = root / "Desktop"
             spark_home = root / ".spark"
+            spawner_spark_run = desktop / "spawner-ui" / "src" / "routes" / "api" / "spark" / "run"
             spawner_dispatch = desktop / "spawner-ui" / "src" / "routes" / "api" / "dispatch"
+            spawner_scheduled = desktop / "spawner-ui" / "src" / "routes" / "api" / "scheduled"
+            spawner_mc_command = desktop / "spawner-ui" / "src" / "routes" / "api" / "mission-control" / "command"
             spawner_server = desktop / "spawner-ui" / "src" / "lib" / "server"
             telegram_src = desktop / "spark-telegram-bot" / "src"
             memory_tests = desktop / "domain-chip-memory" / "tests"
-            for path in (spawner_dispatch, spawner_server, telegram_src, memory_tests):
+            for path in (
+                spawner_spark_run,
+                spawner_dispatch,
+                spawner_scheduled,
+                spawner_mc_command,
+                spawner_server,
+                telegram_src,
+                memory_tests,
+            ):
                 path.mkdir(parents=True)
 
+            (spawner_spark_run / "+server.ts").write_text(
+                "evaluateExecutionIntentBoundary(goal);\n"
+                "assertHarnessAuthority({ toolName: 'spawner.run' });\n",
+                encoding="utf-8",
+            )
             (spawner_dispatch / "+server.ts").write_text(
                 "import { assertHarnessAuthority } from '../../../lib/server/harness-authority';\n"
                 "assertHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
                 encoding="utf-8",
             )
+            (spawner_scheduled / "+server.ts").write_text(
+                "createSchedule({ executionAuthority }); deleteSchedule({ executionAuthority });\n",
+                encoding="utf-8",
+            )
+            (spawner_mc_command / "+server.ts").write_text(
+                "executeMissionControlAction({ executionAuthority });\n",
+                encoding="utf-8",
+            )
             (spawner_server / "harness-authority.ts").write_text(
                 "export const schema = 'spark.machine_origin_policy.v1';\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "scheduler.ts").write_text(
+                "assertHarnessAuthority({ toolName: 'spawner.schedule.create' });\n"
+                "buildMachineOriginPolicy({ allowedTools: ['spawner.run'] });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "mission-control-command.ts").write_text(
+                "assertHarnessAuthority({ toolName: 'spawner.mission_control.command' });\n",
                 encoding="utf-8",
             )
             (telegram_src / "index.ts").write_text(
@@ -1495,7 +1528,11 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             by_id = {item["id"]: item for item in coverage["edges"]}
 
         self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(by_id["spawner.spark_run"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.dispatch"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
