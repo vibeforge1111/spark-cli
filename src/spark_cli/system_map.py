@@ -663,6 +663,20 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "spark_cli.browser_use_actions",
+        "surface": "spark-cli",
+        "owner_repo": "spark-cli",
+        "mutation_class": "external_browser_or_computer_use_action",
+        "risk": "high_agency",
+        "files": ("src/spark_cli/cli.py",),
+        "legacy_markers": (
+            "browser_use_action_payload",
+            "browser_use_task_payload",
+            "run_browser_use_agent_task",
+            "browser-use",
+        ),
+    },
+    {
         "id": "builder.style_state_mutations",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
@@ -4193,12 +4207,18 @@ def contract_edge_text(root: Path, rel_paths: tuple[str, ...], *, helpers: bool 
 
 def contract_marker_summary(text: str) -> dict[str, bool]:
     return {
-        "turn_intent_schema": "spark.turn_intent.v1" in text or "TurnIntentEnvelope" in text,
+        "turn_intent_schema": (
+            "spark.turn_intent.v1" in text
+            or "TurnIntentEnvelope" in text
+            or ("HarnessKernel" in text and "create_envelope" in text)
+        ),
         "turn_intent_authorizer": (
             "authorizeToolCallFromEnvelope" in text
             or "assert_authorized_tool_call" in text
             or "authorize_builder_bridge_action" in text
             or "parse_turn_intent_envelope" in text
+            or "browser_use_harness_authorize" in text
+            or "kernel.authorize" in text
         ),
         "machine_origin_policy": (
             "spark.machine_origin_policy.v1" in text

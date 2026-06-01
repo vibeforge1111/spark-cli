@@ -123,6 +123,7 @@ BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
 BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
 BROWSER_USE_ACTION_TEXT_LIMIT = 1800
 BROWSER_USE_TASK_TEXT_LIMIT = 2600
+BROWSER_USE_HARNESS_CORE_SOURCE_ENV = "SPARK_HARNESS_CORE_SOURCE"
 BROWSER_USE_AGENT_SYSTEM_NUDGE = (
     "Spark wrapper instruction: every assistant response in the browser-use loop must use the "
     "available action schema only. Do not answer with plain prose during intermediate steps. "
@@ -5843,6 +5844,159 @@ def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], scree
         raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
 
 
+def harness_core_source_roots() -> list[Path]:
+    roots: list[Path] = []
+    env_root = os.environ.get(BROWSER_USE_HARNESS_CORE_SOURCE_ENV)
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    roots.append(SPARK_HOME / "modules" / "spark-harness-core" / "source" / "src")
+    return roots
+
+
+def load_harness_core_symbols() -> tuple[Any, Any]:
+    try:
+        from spark_harness_core import HarnessKernel, evidence_ref
+
+        return HarnessKernel, evidence_ref
+    except ModuleNotFoundError:
+        pass
+
+    for root in harness_core_source_roots():
+        if root.exists() and str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+            try:
+                from spark_harness_core import HarnessKernel, evidence_ref
+
+                return HarnessKernel, evidence_ref
+            except ModuleNotFoundError:
+                continue
+    raise RuntimeError("Spark Harness Core is not importable from the active Spark installation.")
+
+
+def browser_use_harness_authorize(
+    *,
+    action_type: str,
+    risk_tier: str,
+    summary: str,
+    raw_turn_summary: str,
+    args_path: Path,
+    requires_confirmation: bool,
+) -> dict[str, Any]:
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    evidence = [
+        evidence_ref(
+            "positive_command",
+            "spark-cli.browser-use",
+            "Fresh explicit Spark CLI browser-use command requested this action.",
+            confidence=0.99,
+        )
+    ]
+    action = kernel.proposed_action(
+        capability_id="capability:browser-use",
+        action_type=action_type,
+        risk_tier=risk_tier,
+        summary=summary,
+        args_path=str(args_path),
+        requires_confirmation=requires_confirmation,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=summary,
+        raw_turn_summary=raw_turn_summary,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier=risk_tier,
+        confidence=0.98,
+        evidence=evidence,
+        requires_human_confirmation=False,
+    )
+    approval_ref = (
+        evidence_ref(
+            "human_confirmation",
+            "spark-cli.browser-use",
+            "The local operator invoked this explicit Spark CLI command.",
+            confidence=1.0,
+        )
+        if requires_confirmation
+        else None
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    return {
+        "kernel": kernel,
+        "envelope": envelope,
+        "action": action,
+        "authorization": authorization,
+    }
+
+
+def browser_use_harness_summary(authority: dict[str, Any], *, ledger_path: Path | None = None) -> dict[str, Any]:
+    envelope = authority.get("envelope") if isinstance(authority.get("envelope"), dict) else {}
+    action = authority.get("action") if isinstance(authority.get("action"), dict) else {}
+    authorization = authority.get("authorization") if isinstance(authority.get("authorization"), dict) else {}
+    return {
+        "schema_version": "spark.browser_use.harness_authority.v1",
+        "turn_id": envelope.get("turn_id"),
+        "action_id": action.get("action_id"),
+        "decision_id": authorization.get("decision_id"),
+        "verdict": authorization.get("verdict"),
+        "risk_tier": authorization.get("risk_tier"),
+        "approval": authorization.get("approval"),
+        "restrictions": authorization.get("restrictions"),
+        "ledger_path": str(ledger_path) if ledger_path is not None else "",
+    }
+
+
+def browser_use_write_harness_ledger(
+    *,
+    authority: dict[str, Any],
+    tool_name: str,
+    status: str,
+    output_path: Path,
+    summary: str,
+    ledger_path: Path,
+) -> dict[str, Any]:
+    kernel = authority["kernel"]
+    ledger = kernel.record_tool_call(
+        envelope=authority["envelope"],
+        action=authority["action"],
+        authorization=authority["authorization"],
+        tool_name=tool_name,
+        status=status,
+        output_path=str(output_path),
+        summary=summary,
+    )
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(ledger_path, ledger)
+    return ledger
+
+
+def browser_use_authority_block_payload(
+    *,
+    base_payload: dict[str, Any],
+    receipt_path: Path,
+    reason: str,
+    authority: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        **base_payload,
+        "ok": False,
+        "status": "blocked",
+        "last_failure_reason": reason,
+        "receipt_path": str(receipt_path),
+        "harness_authority": browser_use_harness_summary(authority)
+        if authority is not None
+        else {
+            "schema_version": "spark.browser_use.harness_authority.v1",
+            "verdict": "unavailable",
+            "reason": reason,
+        },
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(receipt_path, payload)
+    return payload
+
+
 def browser_use_probe_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -5969,6 +6123,39 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
     session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    args_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-args.json"
+    ledger_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-ledger.json"
+    atomic_write_json(
+        args_path,
+        {
+            "schema_version": "spark.browser_use.args.v1",
+            "action": base_payload["action"],
+            "url": url,
+            "screenshot": bool(screenshot),
+        },
+    )
+    try:
+        authority = browser_use_harness_authorize(
+            action_type="browser_action",
+            risk_tier="read",
+            summary=f"Use browser-use to {'capture a screenshot of' if screenshot else 'open and read'} a URL.",
+            raw_turn_summary=f"spark browser-use {'screenshot' if screenshot else 'open'} {url}",
+            args_path=args_path,
+            requires_confirmation=False,
+        )
+    except RuntimeError as exc:
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason=str(exc),
+        )
+    if authority["authorization"]["verdict"] != "allow":
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason="Harness Core did not authorize the browser-use action.",
+            authority=authority,
+        )
     proofs: list[str] = []
     try:
         run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
@@ -6000,6 +6187,15 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
                 "sensitive click workflows",
             ],
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name="browser-use open/screenshot",
+            status="success",
+            output_path=receipt_path,
+            summary="browser-use read action completed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
         return payload
@@ -6014,6 +6210,15 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
             "proofs": proofs,
             "receipt_path": str(receipt_path),
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name="browser-use open/screenshot",
+            status="failure",
+            output_path=receipt_path,
+            summary="browser-use read action failed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
         return payload
@@ -6101,6 +6306,8 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
     task_dir = BROWSER_USE_STATUS_DIR / "tasks"
     receipt_path = task_dir / f"{session}.json"
     history_path = task_dir / f"{session}-history.json"
+    args_path = task_dir / f"{session}-args.json"
+    ledger_path = task_dir / f"{session}-ledger.json"
     base_payload: dict[str, Any] = {
         "backend_kind": "browser_use_agent",
         "action": "task",
@@ -6124,6 +6331,39 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         }
 
     task_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        args_path,
+        {
+            "schema_version": "spark.browser_use.args.v1",
+            "action": "task",
+            "task_excerpt": browser_use_bounded_text(cleaned_goal, 1200),
+            "url": url,
+            "max_steps": steps,
+        },
+    )
+    try:
+        authority = browser_use_harness_authorize(
+            action_type="browser_action",
+            risk_tier="high",
+            summary="Run a browser-use agent task through Spark CLI.",
+            raw_turn_summary=f"spark browser-use task {browser_use_bounded_text(cleaned_goal, 500)}",
+            args_path=args_path,
+            requires_confirmation=True,
+        )
+    except RuntimeError as exc:
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason=str(exc),
+        )
+    if authority["authorization"]["verdict"] != "allow":
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason="Harness Core did not authorize the browser-use task.",
+            authority=authority,
+        )
+
     start_page: dict[str, Any] = {}
     if url:
         start_page = browser_use_task_start_page(url)
@@ -6136,6 +6376,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
                 "last_failure_at": now,
                 "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
             }
+            browser_use_write_harness_ledger(
+                authority=authority,
+                tool_name="browser-use agent task",
+                status="failure",
+                output_path=receipt_path,
+                summary="browser-use task failed before agent execution because the starting page could not be read.",
+                ledger_path=ledger_path,
+            )
+            payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
             atomic_write_json(receipt_path, payload)
             return payload
     try:
@@ -6161,6 +6410,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         else:
             payload["last_failure_at"] = now
             payload["last_failure_reason"] = browser_use_task_failure_reason(result)
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name="browser-use agent task",
+            status="success" if completed else "failure",
+            output_path=receipt_path,
+            summary="browser-use task completed." if completed else "browser-use task failed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         atomic_write_json(receipt_path, payload)
         return payload
     except Exception as exc:
@@ -6171,6 +6429,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             "last_failure_at": now,
             "last_failure_reason": browser_use_command_failure_message(exc),
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name="browser-use agent task",
+            status="failure",
+            output_path=receipt_path,
+            summary="browser-use task raised an exception.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         atomic_write_json(receipt_path, payload)
         return payload
 

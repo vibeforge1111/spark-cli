@@ -188,12 +188,16 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
                 payload = cli.browser_use_action_payload("https://example.com")
+                ledger_exists = Path(payload["harness_authority"]["ledger_path"]).exists()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "open")
         self.assertEqual(payload["title"], "Example Domain")
         self.assertIn("Learn more", payload["text_excerpt"])
         self.assertIn("public URL open", payload["proven_scope"])
+        self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertEqual(payload["harness_authority"]["risk_tier"], "read")
+        self.assertTrue(ledger_exists)
         called_commands = [call.args[0] for call in run.call_args_list]
         self.assertIn("open", called_commands[0])
         self.assertIn("https://example.com", called_commands[0])
@@ -287,12 +291,20 @@ class BrowserUseCliTests(unittest.TestCase):
                 payload = cli.browser_use_task_payload("review the page", start_url="http://127.0.0.1:3333", max_steps=4)
                 receipt_exists = Path(payload["receipt_path"]).exists()
                 history_exists = Path(payload["history_path"]).exists()
+                ledger_exists = Path(payload["harness_authority"]["ledger_path"]).exists()
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["action"], "task")
         self.assertEqual(payload["number_of_steps"], 2)
         self.assertIn("multi-step browser task", payload["proven_scope"])
         self.assertEqual(payload["start_page"]["title"], "Local")
+        self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertEqual(payload["harness_authority"]["risk_tier"], "high")
+        self.assertTrue(payload["harness_authority"]["approval"]["required"])
+        self.assertEqual(payload["harness_authority"]["approval"]["status"], "approved")
+        self.assertTrue(payload["harness_authority"]["restrictions"]["network_allowed"])
+        self.assertTrue(payload["harness_authority"]["restrictions"]["write_allowed"])
+        self.assertTrue(ledger_exists)
         self.assertTrue(receipt_exists)
         self.assertTrue(history_exists)
 
@@ -329,10 +341,28 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "https://example.com", "title": "Example", "text_excerpt": "Example Domain"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="https://example.com", max_steps=3)
+                ledger_exists = Path(payload["harness_authority"]["ledger_path"]).exists()
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "failed")
         self.assertIn("maximum steps", payload["last_failure_reason"])
+        self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertTrue(ledger_exists)
+
+    def test_task_blocks_when_harness_core_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")):
+                payload = cli.browser_use_task_payload("review the page", start_url="https://example.com", max_steps=3)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["harness_authority"]["verdict"], "unavailable")
+        self.assertIn("missing harness", payload["last_failure_reason"])
 
     def test_task_receipt_fails_when_agent_reports_unsuccessful_result(self) -> None:
         payload = {
