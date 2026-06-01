@@ -4258,13 +4258,17 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
     return {
         "turn_intent_schema": (
             "spark.turn_intent.v1" in text
+            or "turn-intent-envelope-vnext" in text
             or "TurnIntentEnvelope" in text
+            or "build_vnext_action_intent_envelope" in text
+            or "build_vnext_tool_intent_envelope" in text
             or ("HarnessKernel" in text and "create_envelope" in text)
         ),
         "turn_intent_authorizer": (
             "authorizeToolCallFromEnvelope" in text
             or "assert_authorized_tool_call" in text
             or "authorize_builder_bridge_action" in text
+            or "authorize_vnext_tool_call" in text
             or "parse_turn_intent_envelope" in text
             or "browser_use_harness_authorize" in text
             or "kernel.authorize" in text
