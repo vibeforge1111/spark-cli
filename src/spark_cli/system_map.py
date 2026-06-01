@@ -648,7 +648,7 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
                 out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -941,7 +941,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             out["matched_builder_request_id_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -983,7 +983,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             out["matched_builder_trace_ref_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2576,7 +2576,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
                 out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2684,7 +2684,7 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
                 out[f"missing_{column}_count"] = int(missing)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2742,7 +2742,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 

@@ -1524,6 +1524,21 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertNotIn("secret", encoded)
         self.assertNotIn("facts_json", encoded)
 
+    def test_inspect_builder_event_samples_records_sqlite_error_when_db_corrupt(self) -> None:
+        # The narrow exception classes (sqlite3.Error, OSError) still catch a
+        # corrupt-db scenario and surface it via out["error"], so the
+        # introspection contract for callers is unchanged.
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            (builder_home / "state.db").write_text("this is not a sqlite database")
+            samples = inspect_builder_event_samples(builder_home)
+        self.assertIn("error", samples)
+        # Caught by sqlite3.Error (or OSError on some platforms when sqlite
+        # surfaces the corruption as an I/O error); the precise class name is
+        # platform-specific, but it must NOT be a generic 'Exception'.
+        self.assertNotIn("Exception:", samples["error"])
+
     def test_builder_trace_groups_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             builder_home = Path(tmp) / "spark-intelligence"
