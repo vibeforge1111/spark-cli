@@ -869,7 +869,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         continue
                     try:
                         payload = json.loads(line)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     if not isinstance(payload, dict):
                         continue
@@ -884,7 +884,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
                     if isinstance(trace_ref, str) and trace_ref.strip():
                         trace_refs.add(trace_ref.strip())
-        except Exception as exc:
+        except OSError as exc:
             out["join_error"] = f"{type(exc).__name__}: {exc}"
     effective_trace_refs = set(trace_refs)
     effective_trace_refs.update(derived_trace_refs)
