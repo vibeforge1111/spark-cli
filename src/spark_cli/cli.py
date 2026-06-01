@@ -1248,7 +1248,10 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Configuration error: '{path}' contains invalid JSON: {e}")
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -8245,8 +8248,10 @@ def spawner_state_dir_for_revoke_all() -> Path:
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 
