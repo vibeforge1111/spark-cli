@@ -15372,6 +15372,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_uninstall(args: argparse.Namespace) -> int:
     if getattr(args, "all", False) and args.target:
         raise SystemExit("Use either a target or --all, not both.")
+    if not getattr(args, "all", False) and not args.target:
+        raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
 
