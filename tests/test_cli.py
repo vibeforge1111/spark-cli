@@ -7547,6 +7547,57 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result["healthcheck_command"], "GET http://127.0.0.1:8080/api/health/live")
         run_runtime.assert_not_called()
 
+    def test_spawner_health_records_url_error_via_narrow_tuple(self) -> None:
+        # When the liveness urlopen call raises urllib.error.URLError (the
+        # parent class for HTTPError plus the connection-refused / DNS / socket
+        # cases), the narrow tuple (urllib.error.URLError, TimeoutError) still
+        # catches it and the helper records detail="Spawner UI live health
+        # failed: ...". Programming bugs in the try body would no longer be
+        # silently swallowed.
+        import urllib.error
+
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1", "SPARK_SPAWNER_PORT": "8080"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
+        self.assertIn("Connection refused", result["detail"])
+        run_runtime.assert_not_called()
+
+    def test_spawner_health_records_timeout_via_narrow_tuple(self) -> None:
+        # urllib.request.urlopen can also surface TimeoutError directly when
+        # the socket-level timeout fires; the narrow tuple still catches it.
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1", "SPARK_SPAWNER_PORT": "8080"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=TimeoutError("timed out")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
+        run_runtime.assert_not_called()
+
     def test_spawner_health_does_not_trust_untracked_local_port(self) -> None:
         module = Module(
             name="spawner-ui",
