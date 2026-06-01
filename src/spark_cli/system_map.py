@@ -420,7 +420,7 @@ def git_summary(path: Path) -> dict[str, Any]:
             check=False,
         )
     except Exception:
-        return {"available": True, "head_short": None}
+        return {"available": False, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
 

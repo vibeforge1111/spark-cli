@@ -33,6 +33,7 @@ from spark_cli.system_map import (
     inspect_spawner_authority_verdicts,
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
+    git_summary,
     parse_branch_status,
     safe_builder_event_value,
     summarize_pids,
@@ -52,6 +53,16 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_git_summary_marks_subprocess_failure_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".git").mkdir()
+            with unittest.mock.patch("spark_cli.system_map.subprocess.run", side_effect=OSError("git missing")):
+                summary = git_summary(repo)
+
+        self.assertFalse(summary["available"])
+        self.assertIsNone(summary["head_short"])
+
     def test_dirty_family_for_path_coarsens_private_artifact_names(self) -> None:
         self.assertEqual(dirty_family_for_path("src/spark_intelligence/memory/orchestrator.py"), "src/spark_intelligence")
         self.assertEqual(dirty_family_for_path("artifacts/telegram-updates/private-row.json"), "artifacts")
