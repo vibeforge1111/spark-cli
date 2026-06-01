@@ -353,6 +353,24 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("loop", "mission", "chip"),
     },
     {
+        "id": "builder.swarm_runtime_actions",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "launches_mission_or_external_swarm_action",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "swarm_bridge_run_specialization_path",
+            "swarm_bridge_autoloop",
+            "swarm_absorb_insight",
+            "swarm_deliver_upgrade",
+        ),
+    },
+    {
         "id": "voice.install_transcribe_speak",
         "surface": "spark-voice-comms",
         "owner_repo": "spark-voice-comms",

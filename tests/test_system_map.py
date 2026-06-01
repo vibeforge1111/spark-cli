@@ -1466,6 +1466,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             spawner_mc_command = desktop / "spawner-ui" / "src" / "routes" / "api" / "mission-control" / "command"
             spawner_server = desktop / "spawner-ui" / "src" / "lib" / "server"
             telegram_src = desktop / "spark-telegram-bot" / "src"
+            builder_telegram = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "adapters" / "telegram"
+            builder_src = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence"
             memory_tests = desktop / "domain-chip-memory" / "tests"
             for path in (
                 spawner_spark_run,
@@ -1474,6 +1476,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 spawner_mc_command,
                 spawner_server,
                 telegram_src,
+                builder_src,
+                builder_telegram,
                 memory_tests,
             ):
                 path.mkdir(parents=True)
@@ -1519,6 +1523,20 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "export type TurnIntentEnvelope = { schema: 'spark.turn_intent.v1' };\n",
                 encoding="utf-8",
             )
+            (builder_telegram / "runtime.py").write_text(
+                "authorize_builder_bridge_action(update_payload, tool_name='swarm.autoloop.run')\n"
+                "swarm_bridge_autoloop()\n",
+                encoding="utf-8",
+            )
+            (builder_src / "bridge_authority.py").write_text(
+                "def authorize_builder_bridge_action(): pass\n"
+                "TurnIntentEnvelope = object\n",
+                encoding="utf-8",
+            )
+            (builder_src / "harness_contract.py").write_text(
+                "schema = 'spark.turn_intent.v1'\n",
+                encoding="utf-8",
+            )
             (memory_tests / "test_promotion_gates.py").write_text(
                 "# promotion gate keeps protected prompt changes evidence-only\n",
                 encoding="utf-8",
@@ -1533,7 +1551,9 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["builder.swarm_runtime_actions"]["status"], "envelope_verified")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
+        self.assertFalse(by_id["builder.swarm_runtime_actions"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
         self.assertEqual(by_id["memory.promotion"]["status"], "evidence_only")
