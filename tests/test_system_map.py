@@ -25,17 +25,26 @@ from spark_cli.system_map import (
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
+    count_files_under,
     count_safe_jsonl,
+    count_schema_files,
     dirty_family_for_path,
+    inspect_builder_event_trace,
     inspect_builder_event_samples,
+    inspect_builder_memory_tables,
+    inspect_builder_request_id_overlap,
+    inspect_builder_state_db,
     inspect_builder_trace_health,
+    inspect_builder_trace_ref_overlap,
     inspect_builder_trace_groups,
+    inspect_file_metadata,
     inspect_spawner_authority_verdicts,
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
     git_summary,
     parse_branch_status,
     safe_builder_event_value,
+    summarize_memory_run_artifacts,
     summarize_pids,
     summarize_setup,
 )
@@ -53,6 +62,47 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_filesystem_readers_report_os_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = root / "artifact.json"
+            existing.write_text("{}", encoding="utf-8")
+            (root / "artifacts").mkdir()
+
+            with unittest.mock.patch.object(Path, "exists", return_value=True), \
+                 unittest.mock.patch.object(Path, "stat", side_effect=PermissionError("stat denied")):
+                metadata = inspect_file_metadata(existing)
+            with unittest.mock.patch.object(Path, "rglob", side_effect=PermissionError("walk denied")):
+                file_counts = count_files_under(root)
+            with unittest.mock.patch.object(Path, "glob", side_effect=PermissionError("glob denied")):
+                schema_counts = count_schema_files(root)
+            with unittest.mock.patch.object(Path, "iterdir", side_effect=PermissionError("iter denied")):
+                run_counts = summarize_memory_run_artifacts(root)
+
+        self.assertIn("PermissionError", metadata["error"])
+        self.assertIn("PermissionError", file_counts["error"])
+        self.assertIn("PermissionError", schema_counts["error"])
+        self.assertIn("PermissionError", run_counts["error"])
+
+    def test_builder_db_readers_report_sqlite_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp)
+            (builder_home / "state.db").write_text("not sqlite", encoding="utf-8")
+
+            readers = [
+                inspect_builder_state_db(builder_home),
+                inspect_builder_request_id_overlap(builder_home, {"request-1"}),
+                inspect_builder_trace_ref_overlap(builder_home, {"trace-1"}),
+                inspect_builder_memory_tables(builder_home),
+                inspect_builder_event_trace(builder_home),
+                inspect_builder_event_samples(builder_home),
+                inspect_builder_trace_groups(builder_home),
+                inspect_builder_trace_health(builder_home),
+            ]
+
+        for result in readers:
+            self.assertIn("DatabaseError", result["error"])
+
     def test_git_summary_marks_subprocess_failure_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

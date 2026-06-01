@@ -7760,6 +7760,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result["healthcheck_command"], "GET http://127.0.0.1:8080/api/health/live")
         run_runtime.assert_not_called()
 
+    def test_spawner_health_records_liveness_url_error(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=urllib.error.URLError("down")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
+        run_runtime.assert_not_called()
+
+    def test_spawner_health_records_liveness_timeout(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "healthcheck": {"command": "npm run health:spark"},
+                "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+
+        with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=TimeoutError("slow")), \
+             patch("spark_cli.cli.run_runtime_command") as run_runtime:
+            result = evaluate_module_health(module)
+
+        self.assertFalse(result["healthy"])
+        self.assertIn("Spawner UI live health failed", result["detail"])
+        run_runtime.assert_not_called()
+
     def test_spawner_health_does_not_trust_untracked_local_port(self) -> None:
         module = Module(
             name="spawner-ui",

@@ -5089,7 +5089,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except Exception as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
         return {
