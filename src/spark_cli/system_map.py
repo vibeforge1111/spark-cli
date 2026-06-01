@@ -222,6 +222,25 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("diagnostics.scan", "runBuilderDiagnosticsScan", "diagnostics"),
     },
     {
+        "id": "telegram.route_probe_commands",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "records_route_probe_evidence",
+        "risk": "high_agency",
+        "files": (
+            "src/index.ts",
+            "src/harnessContract.ts",
+            "src/telegramActionAuthority.ts",
+            "src/telegramCommandAuthority.ts",
+            "src/routeFirewall.ts",
+        ),
+        "legacy_markers": (
+            "route.probe",
+            "authorizeRouteProbeCommand",
+            "recordTelegramHarnessCoreExecution",
+        ),
+    },
+    {
         "id": "telegram.mission_control_command",
         "surface": "spark-telegram-bot",
         "owner_repo": "spark-telegram-bot",

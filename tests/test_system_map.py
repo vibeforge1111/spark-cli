@@ -1594,12 +1594,26 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             )
             (telegram_src / "index.ts").write_text(
                 "buildTelegramTurnIntentEnvelope();\n"
-                "if (deterministicRouteAllowed('mission')) launchMission();\n",
+                "if (deterministicRouteAllowed('mission')) launchMission();\n"
+                "authorizeRouteProbeCommand(ctx, text, ['spark_browser']);\n"
+                "recordTelegramHarnessCoreExecution(authorization, { toolName: 'route.probe' });\n",
                 encoding="utf-8",
             )
             (telegram_src / "harnessContract.ts").write_text(
                 "export function authorizeToolCallFromEnvelope() {}\n"
                 "export type TurnIntentEnvelope = { schema: 'spark.turn_intent.v1' };\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "telegramActionAuthority.ts").write_text(
+                "export function authorizeTelegramActionFromEnvelope() {}\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "telegramCommandAuthority.ts").write_text(
+                "buildTelegramTurnIntentEnvelope(); route: 'route.probe';\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "routeFirewall.ts").write_text(
+                "'route.probe'; evaluateDeterministicRoute(route, text);\n",
                 encoding="utf-8",
             )
             (builder_telegram / "runtime.py").write_text(
@@ -1704,6 +1718,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.voice_search_network"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_delivery_actions"]["status"], "envelope_verified")
+        self.assertEqual(by_id["telegram.route_probe_commands"]["status"], "envelope_verified")
         self.assertEqual(by_id["spark_cli.browser_use_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
@@ -1725,6 +1740,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.voice_search_network"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_delivery_actions"]["release_blocker"])
+        self.assertFalse(by_id["telegram.route_probe_commands"]["release_blocker"])
         self.assertFalse(by_id["spark_cli.browser_use_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
