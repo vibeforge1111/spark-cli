@@ -2,14 +2,14 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28",
+      "commit": "4ca1d5a14644d8b902f253ec11cabca2181a013e",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "2ef5c7eccad99bdb0669f120880b9472cb829e28"
+        "commit": "4ca1d5a14644d8b902f253ec11cabca2181a013e"
       }
     },
     "spark-character": {
@@ -63,14 +63,14 @@
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "b1a8295d3c3e700d9c01fe109b540ec6e9635de8",
+      "commit": "734b61e0ee3b18ec38c541f74ab9f1bd6f867fb8",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "b1a8295d3c3e700d9c01fe109b540ec6e9635de8"
+        "commit": "734b61e0ee3b18ec38c541f74ab9f1bd6f867fb8"
       }
     },
     "spawner-ui": {
