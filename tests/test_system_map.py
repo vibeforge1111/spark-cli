@@ -1720,6 +1720,32 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
 
+    def test_inspect_builder_trace_groups_records_sqlite_error_when_db_corrupt(self) -> None:
+        # The narrow exception classes (sqlite3.Error, OSError) still catch a
+        # corrupt-db scenario and surface it via out["error"], so the
+        # introspection contract for callers is unchanged.
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            (builder_home / "state.db").write_text("this is not a sqlite database")
+            groups = inspect_builder_trace_groups(builder_home)
+        self.assertIn("error", groups)
+        # Caught by sqlite3.Error (file_is_not_a_database surfaces as
+        # DatabaseError, a sqlite3.Error subclass); the precise class name
+        # is platform-specific but it must NOT be a generic 'Exception'.
+        self.assertNotIn("Exception:", groups["error"])
+
+    def test_inspect_builder_trace_health_records_sqlite_error_when_db_corrupt(self) -> None:
+        # Same narrow-tuple contract for the trace-health helper: a corrupt
+        # state.db still surfaces via out["error"] with a non-generic class.
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            (builder_home / "state.db").write_text("this is not a sqlite database")
+            health = inspect_builder_trace_health(builder_home)
+        self.assertIn("error", health)
+        self.assertNotIn("Exception:", health["error"])
+
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

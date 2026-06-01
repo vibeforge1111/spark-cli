@@ -2845,7 +2845,7 @@ def inspect_builder_trace_groups(
             out["group_count"] = len(groups)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -3108,7 +3108,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             out["health_flags"] = flags
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
