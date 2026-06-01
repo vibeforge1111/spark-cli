@@ -6364,7 +6364,10 @@ def browser_use_normalize_structured_agent_json(raw: str) -> str:
         if start >= 0 and end > start:
             text = text[start:end + 1]
 
-    payload = json.loads(text)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
     if not isinstance(payload, dict):
         return text
 
