@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
 import re
 import sqlite3
 import subprocess
+import sys
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1276,6 +1278,18 @@ def collect_repo_metadata(path: Path) -> dict[str, Any]:
     return record
 
 
+def find_repo_path(repos: list[dict[str, Any]], repo_name: str) -> Path | None:
+    for repo in repos:
+        name = str(repo.get("name") or "")
+        module_name = str(as_dict(repo.get("spark_toml")).get("module_name") or "")
+        if repo_name not in {name, module_name}:
+            continue
+        path = Path(str(repo.get("path") or "")).expanduser()
+        if path.exists():
+            return path
+    return None
+
+
 def repo_ids(repo: dict[str, Any]) -> set[str]:
     toml = as_dict(repo.get("spark_toml"))
     module_name = toml.get("module_name")
@@ -2186,6 +2200,76 @@ def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
         str(key) for key in data.keys() if key not in SAFE_MEMORY_STATUS_KEYS and not key_has_raw_memory_hint(key)
     )[:80]
     out["raw_hint_key_count"] = count_raw_memory_hint_keys(data)
+    return out
+
+
+def refresh_memory_movement_status_export(builder_repo: Path | None, builder_home: Path) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "status": "skipped",
+        "builder_repo": str(builder_repo) if builder_repo is not None else None,
+        "builder_home": str(builder_home),
+        "redaction": "command status only; stdout parsed for allowlisted export status fields",
+    }
+    if builder_repo is None:
+        out["reason"] = "builder_repo_not_found"
+        return out
+    cli_path = builder_repo / "src" / "spark_intelligence" / "cli.py"
+    if not cli_path.exists():
+        out["reason"] = "builder_cli_not_found"
+        return out
+
+    env = dict(os.environ)
+    src_path = str(builder_repo / "src")
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_path if not existing_pythonpath else f"{src_path}{os.pathsep}{existing_pythonpath}"
+    env["SPARK_INTELLIGENCE_HOME"] = str(builder_home)
+    command = [
+        sys.executable,
+        "-m",
+        "spark_intelligence.cli",
+        "memory",
+        "export-movement-status",
+        "--home",
+        str(builder_home),
+        "--json",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=12,
+            check=False,
+            env=env,
+            cwd=str(builder_repo),
+        )
+    except Exception as exc:
+        out.update({"status": "error", "reason": f"{type(exc).__name__}: {exc}"})
+        return out
+
+    out["returncode"] = int(result.returncode)
+    if result.returncode != 0:
+        out["status"] = "error"
+        out["reason"] = "builder_export_command_failed"
+        if result.stderr.strip():
+            out["stderr_excerpt"] = safe_short_string(result.stderr.strip(), limit=240)
+        return out
+
+    data: Any = None
+    if result.stdout.strip():
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            data = None
+    payload = as_dict(as_dict(data).get("payload"))
+    out.update(
+        {
+            "status": "refreshed",
+            "path": as_dict(data).get("path"),
+            "movement_status": safe_memory_status_value(payload.get("status")),
+            "row_count": safe_memory_status_value(payload.get("row_count")),
+        }
+    )
     return out
 
 
@@ -5313,7 +5397,11 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
     return trace_index
 
 
-def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
+def build_memory_movement_index(
+    builder_home: Path,
+    *,
+    status_export_refresh: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     builder_memory_tables = inspect_builder_memory_tables(builder_home)
     trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
     trace_bridge_instruction = (
@@ -5321,6 +5409,17 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
         if trace_join.get("status") == "present"
         else "Join memory movement events to trace ids once Builder event envelopes carry stable trace refs."
     )
+    safe_status_export = read_memory_movement_status_export(builder_home)
+    next_required_bridges = [
+        "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
+        trace_bridge_instruction,
+        "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
+    ]
+    if as_dict(safe_status_export).get("exists") is not True:
+        next_required_bridges.insert(
+            0,
+            "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
+        )
     memory_index = {
         "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
         "generated_at": utc_now(),
@@ -5330,15 +5429,11 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
             "conversation turns, evidence payloads, or Telegram update payloads emitted"
         ),
         "builder_memory_tables": builder_memory_tables,
-        "safe_status_export": read_memory_movement_status_export(builder_home),
+        "safe_status_export": safe_status_export,
+        "status_export_refresh": status_export_refresh or {"status": "not_requested"},
         "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
         "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
-        "next_required_bridges": [
-            "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
-            "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
-            trace_bridge_instruction,
-            "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
-        ],
+        "next_required_bridges": next_required_bridges,
     }
     memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
     return memory_index
@@ -6388,6 +6483,8 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None, spark_home)
     repos = [collect_repo_metadata(path) for path in repo_paths]
     builder_home = Path(str(setup_summary.get("builder_home") or state_dir / "spark-intelligence")).expanduser()
+    builder_repo = find_repo_path(repos, "spark-intelligence-builder")
+    memory_status_refresh = refresh_memory_movement_status_export(builder_repo, builder_home)
 
     system_map: dict[str, Any] = {
         "schema_version": SYSTEM_MAP_SCHEMA,
@@ -6420,7 +6517,10 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
         "contract_coverage": build_contract_coverage(desktop, spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
-        "memory_movement_index": build_memory_movement_index(builder_home),
+        "memory_movement_index": build_memory_movement_index(
+            builder_home,
+            status_export_refresh=memory_status_refresh,
+        ),
     }
     compiled["repo_board"] = build_repo_board(system_map)
     compiled["voice_surface_view"] = build_voice_surface_view(system_map, compiled["trace_index"])
@@ -6464,7 +6564,7 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
             "",
             "1. Promote this generated map into Builder's AOC panel as a read-only source.",
             "2. Deepen trace-index compilation from aggregate counts into redacted trace drilldowns.",
-            "3. Have Builder publish a safe memory movement status export for the compiler to ingest.",
+            "3. Keep Builder's safe memory movement status export refreshed before compiler ingestion.",
             "4. Add per-gap owner assignment before any runtime behavior changes.",
             "",
         ]
