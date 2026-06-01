@@ -498,6 +498,25 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.researcher_browser_hooks",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_browser_chip_hooks",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_build_browser_search_context",
+            "_execute_browser_hook",
+            "browser.navigate",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
         "id": "builder.voice_search_network",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",

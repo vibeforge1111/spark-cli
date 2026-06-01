@@ -1469,6 +1469,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             builder_telegram = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "adapters" / "telegram"
             builder_src = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence"
             builder_harness_runtime = builder_src / "harness_runtime"
+            builder_researcher_bridge = builder_src / "researcher_bridge"
             memory_tests = desktop / "domain-chip-memory" / "tests"
             for path in (
                 spawner_spark_run,
@@ -1480,6 +1481,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 builder_src,
                 builder_telegram,
                 builder_harness_runtime,
+                builder_researcher_bridge,
                 memory_tests,
             ):
                 path.mkdir(parents=True)
@@ -1568,6 +1570,15 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "run_first_chip_hook_supporting(config_manager, hook='voice.speak', payload=payload)\n",
                 encoding="utf-8",
             )
+            (builder_researcher_bridge / "advisory.py").write_text(
+                "TurnIntentEnvelope = object\n"
+                "parse_turn_intent_envelope(payload)\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='browser.navigate', owner_system='spark-browser')\n"
+                "_build_browser_search_context()\n"
+                "_execute_browser_hook()\n"
+                "run_first_chip_hook_supporting(config_manager, hook='browser.navigate', payload=payload)\n",
+                encoding="utf-8",
+            )
             (memory_tests / "test_promotion_gates.py").write_text(
                 "# promotion gate keeps protected prompt changes evidence-only\n",
                 encoding="utf-8",
@@ -1589,6 +1600,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.voice_runtime_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_transcription_ingress"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.harness_runtime_voice_io"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_browser_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_diagnostic_tools"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_search_network"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
@@ -1603,6 +1615,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.voice_runtime_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_transcription_ingress"]["release_blocker"])
         self.assertFalse(by_id["builder.harness_runtime_voice_io"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_browser_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_diagnostic_tools"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_search_network"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
