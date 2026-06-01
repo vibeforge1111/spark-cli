@@ -337,6 +337,25 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("schedule", "create", "delete"),
     },
     {
+        "id": "builder.schedule_read_tools",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "reads_schedule_state",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/schedule_bridge/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "schedule.list",
+            "format_schedule_list_from_spawner",
+            "fetch_schedules",
+            "urlopen",
+        ),
+    },
+    {
         "id": "builder.loop_mission_chip_bridges",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
