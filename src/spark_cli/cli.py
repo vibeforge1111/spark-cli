@@ -6430,21 +6430,58 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
 
     if action == "install":
         if getattr(args, "dry_run", False):
+            payload = {
+                "ok": True,
+                "dry_run": True,
+                "preview_commands": [
+                    f"{sys.executable} -m pip install -e {REPO_ROOT}[browser-use]",
+                    "browser-use install",
+                    "browser-use doctor",
+                ],
+                "next": "Run `spark browser-use probe` to create a fresh proof receipt.",
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 0
             print("Spark browser-use install preview")
             print("Would run:")
-            print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
-            print("  browser-use install")
-            print("  browser-use doctor")
-            print("Then run: spark browser-use probe")
+            for cmd in payload["preview_commands"]:
+                print(f"  {cmd}")
+            print(payload["next"])
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
-        cli_path = browser_use_cli_path()
-        if not cli_path:
-            raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
-        run_browser_use_command(cli_path, "install", timeout=180)
-        run_browser_use_command(cli_path, "doctor", timeout=60)
-        print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
-        return 0
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+            cli_path = browser_use_cli_path()
+            if not cli_path:
+                payload = {
+                    "ok": False,
+                    "error": "browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.",
+                }
+                if getattr(args, "json", False):
+                    print(json.dumps(payload, indent=2))
+                    return 1
+                raise SystemExit(payload["error"])
+            run_browser_use_command(cli_path, "install", timeout=180)
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+            payload = {
+                "ok": True,
+                "installed": True,
+                "message": "browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.",
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 0
+            print(payload["message"])
+            return 0
+        except subprocess.CalledProcessError as exc:
+            payload = {
+                "ok": False,
+                "error": f"browser-use install failed: {exc}",
+            }
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 1
+            raise
 
     if action == "probe":
         payload = browser_use_probe_payload()
@@ -9942,7 +9979,7 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "approval":
+    if getattr(args, "approval_command", None) is not None:
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
@@ -13967,19 +14004,28 @@ def cmd_start(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = resolve_installed_modules()
     if not modules:
-        print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
+        payload = {"ok": False, "error": "No installed Spark modules recorded. Run `spark setup telegram-starter` first."}
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 1
+        print(payload["error"])
         return 1
     exit_code = 0
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     target_modules = resolve_start_modules(args.target, modules)
     ensure_runtime_telegram_relay_secret(target_modules)
     if not emit_runtime_supply_chain_guard(target_modules, args):
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": "Runtime supply chain guard failed."}, indent=2))
         return 1
     requested_names = set(expand_targets(args.target, modules, include_all=True))
+    started = []
+    failed = []
     for module in target_modules:
         if not module.run_command:
             if module.name in requested_names:
-                print(f"Skipping {module.name}: no run.default command declared")
+                if not getattr(args, "json", False):
+                    print(f"Skipping {module.name}: no run.default command declared")
             continue
         if module.name == "spark-telegram-bot" and profile == DEFAULT_TELEGRAM_PROFILE:
             for telegram_profile in telegram_profiles_to_start_by_default():
@@ -13989,10 +14035,19 @@ def cmd_start(args: argparse.Namespace) -> int:
                     profile=telegram_profile,
                 ):
                     exit_code = 1
+                    failed.append(module.name)
+                else:
+                    started.append(module.name)
             continue
         module_profile = profile if module.name == "spark-telegram-bot" else DEFAULT_TELEGRAM_PROFILE
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False), profile=module_profile):
             exit_code = 1
+            failed.append(module.name)
+        else:
+            started.append(module.name)
+    if getattr(args, "json", False):
+        payload = {"ok": exit_code == 0, "started": started, "failed": failed}
+        print(json.dumps(payload, indent=2))
     return exit_code
 
 
@@ -14025,7 +14080,11 @@ def cmd_stop(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
-        print("No tracked Spark processes.")
+        payload = {"ok": True, "stopped": [], "message": "No tracked Spark processes."}
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0
+        print(payload["message"])
         return 0
 
     installed_modules = resolve_installed_modules()
@@ -14033,7 +14092,11 @@ def cmd_stop(args: argparse.Namespace) -> int:
     if profile != DEFAULT_TELEGRAM_PROFILE:
         requested_names = expand_targets(args.target, installed_modules, include_all=True)
         if "spark-telegram-bot" not in requested_names:
-            print(f"Profile {profile} only applies to spark-telegram-bot; no profiled process stopped.")
+            msg = f"Profile {profile} only applies to spark-telegram-bot; no profiled process stopped."
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": True, "stopped": [], "message": msg}, indent=2))
+                return 0
+            print(msg)
             return 0
         target_names = [module_process_key("spark-telegram-bot", profile)]
     else:
@@ -14041,9 +14104,15 @@ def cmd_stop(args: argparse.Namespace) -> int:
             target_names = resolve_stop_module_names(args.target, installed_modules, pids)
         else:
             target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
+    stopped = []
     for name in target_names:
         if not stop_tracked_process_key(name):
-            print(f"Skipping {name}: no tracked pid")
+            if not getattr(args, "json", False):
+                print(f"Skipping {name}: no tracked pid")
+        else:
+            stopped.append(name)
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": True, "stopped": stopped}, indent=2))
     return 0
 
 
@@ -14051,17 +14120,24 @@ def cmd_restart(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     installed_modules = resolve_installed_modules()
     if not installed_modules:
-        print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
+        payload = {"ok": False, "error": "No installed Spark modules recorded. Run `spark setup telegram-starter` first."}
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 1
+        print(payload["error"])
         return 1
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     if profile != DEFAULT_TELEGRAM_PROFILE:
         requested_names = expand_targets(args.target, installed_modules, include_all=True)
         if "spark-telegram-bot" not in requested_names:
-            print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
+            if not getattr(args, "json", False):
+                print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
             stop_code = cmd_stop(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
+                if getattr(args, "json", False):
+                    print(json.dumps({"ok": False, "error": "Runtime supply chain guard failed."}, indent=2))
                 return 1
             start_code = 0
             if not start_module(
@@ -14070,19 +14146,27 @@ def cmd_restart(args: argparse.Namespace) -> int:
                 profile=profile,
             ):
                 start_code = 1
-            return start_code or stop_code
+            exit_code = start_code or stop_code
+            if getattr(args, "json", False):
+                print(json.dumps({"ok": exit_code == 0, "restarted": [module.name] if exit_code == 0 else [], "failed": [module.name] if exit_code != 0 else []}, indent=2))
+            return exit_code
     restart_modules = (
         resolve_restart_modules(args.target, installed_modules, load_pids())
         if getattr(args, "cascade", False)
         else resolve_start_modules(args.target, installed_modules)
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
+        if getattr(args, "json", False):
+            print(json.dumps({"ok": False, "error": "Runtime supply chain guard failed."}, indent=2))
         return 1
     stop_code = cmd_stop(args)
     start_code = 0
+    restarted = []
+    failed = []
     for module in restart_modules:
         if not module.run_command:
-            print(f"Skipping {module.name}: no run.default command declared")
+            if not getattr(args, "json", False):
+                print(f"Skipping {module.name}: no run.default command declared")
             continue
         if module.name == "spark-telegram-bot":
             for telegram_profile in telegram_profiles_to_start_by_default():
@@ -14092,10 +14176,19 @@ def cmd_restart(args: argparse.Namespace) -> int:
                     profile=telegram_profile,
                 ):
                     start_code = 1
+                    failed.append(module.name)
+                else:
+                    restarted.append(module.name)
             continue
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
             start_code = 1
-    return start_code or stop_code
+            failed.append(module.name)
+        else:
+            restarted.append(module.name)
+    exit_code = start_code or stop_code
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": exit_code == 0, "restarted": restarted, "failed": failed}, indent=2))
+    return exit_code
 
 
 def spark_invocation_args() -> list[str]:
@@ -16037,6 +16130,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
     browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
     browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.add_argument("--json", action="store_true")
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--json", action="store_true")
@@ -16226,12 +16320,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+    start_parser.add_argument("--json", action="store_true")
     start_parser.add_argument("target", nargs="?")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+    stop_parser.add_argument("--json", action="store_true")
     stop_parser.add_argument("target", nargs="?")
     stop_parser.set_defaults(func=cmd_stop)
 
@@ -16239,6 +16335,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+    restart_parser.add_argument("--json", action="store_true")
     restart_parser.add_argument("target", nargs="?")
     restart_parser.set_defaults(func=cmd_restart)
 
