@@ -10409,6 +10409,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": "spark-cli/1.0",
         },
         method="POST",
     )

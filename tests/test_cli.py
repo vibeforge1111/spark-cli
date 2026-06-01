@@ -2470,6 +2470,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "zai")
         self.assertNotIn("zai-secret", json.dumps(payload))
 
+    def test_openai_compatible_chat_sets_user_agent(self) -> None:
+        """openai_compatible_chat_completion must set a User-Agent header."""
+        from spark_cli.cli import openai_compatible_chat_completion
+        target = {
+            "provider": "openai",
+            "model": "gpt-5.5",
+            "base_url": "https://api.synterolink.com/v1",
+            "api_key": "test-key",
+            "auth_mode": "api_key",
+        }
+        captured_request = {}
+
+        def fake_urlopen(req, **kwargs):
+            captured_request["headers"] = dict(req.headers)
+            response_data = json.dumps({
+                "choices": [{"message": {"content": "PING_OK"}}]
+            }).encode()
+            from io import BytesIO
+            return BytesIO(response_data)
+
+        with patch("spark_cli.cli.urllib.request.urlopen", side_effect=fake_urlopen):
+            result = openai_compatible_chat_completion(target, "ping")
+
+        self.assertEqual(result, "PING_OK")
+        header_keys_lower = {k.lower() for k in captured_request["headers"]}
+        self.assertIn("user-agent", header_keys_lower)
+        ua = next(v for k, v in captured_request["headers"].items() if k.lower() == "user-agent")
+        self.assertEqual(ua, "spark-cli/1.0")
+
     def test_provider_test_can_call_codex_oauth_cli(self) -> None:
         completed = subprocess.CompletedProcess(
             ["codex"],
