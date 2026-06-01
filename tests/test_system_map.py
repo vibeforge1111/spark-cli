@@ -1455,6 +1455,81 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_uses_active_tool_and_adapter_sources_when_legacy_repos_are_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            desktop.mkdir()
+            cli_access = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py"
+            cli_capabilities = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py"
+            browser_policy = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "cli.py"
+            browser_service = (
+                spark_home
+                / "modules"
+                / "spark-intelligence-builder"
+                / "source"
+                / "src"
+                / "spark_intelligence"
+                / "browser"
+                / "service.py"
+            )
+            swarm_sync = (
+                spark_home
+                / "modules"
+                / "spark-intelligence-builder"
+                / "source"
+                / "src"
+                / "spark_intelligence"
+                / "swarm_bridge"
+                / "sync.py"
+            )
+            for path in (cli_access, cli_capabilities, browser_policy, browser_service, swarm_sync):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            cli_access.write_text(
+                "DEFAULT_ACCESS_LEVEL = 4\nDEFAULT_SANDBOX_LANE = 'spark_workspace'\nLEVEL5_ENV = {'SPARK_ALLOW_HIGH_AGENCY_WORKERS': '1'}\n",
+                encoding="utf-8",
+            )
+            cli_capabilities.write_text(
+                "TOXIC_CAPABILITY_PAIRS = (('network', 'secrets', 'never combine raw network and secrets'),)\n",
+                encoding="utf-8",
+            )
+            browser_policy.write_text(
+                "BROWSER_USE_REQUIRED_PROOFS = {'doctor', 'public_page_open'}\n"
+                "return {'status': 'blocked', 'last_failure_reason': 'metadata service blocked'}\n"
+                "'sensitive click workflows'\n",
+                encoding="utf-8",
+            )
+            browser_service.write_text(
+                "payload = {'risk_class': 'read_only', 'approval_mode': 'not_required', 'policy_context': {'sensitive_domain': False}}\n",
+                encoding="utf-8",
+            )
+            swarm_sync.write_text(
+                "payload_ready = True\napi_ready = True\nauth_state = 'configured'\ndef _record_swarm_sync_state(): pass\n",
+                encoding="utf-8",
+            )
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        observed = view["observed_sources"]
+        self.assertEqual(observed["cli_access_policy"]["path"], str(cli_access))
+        self.assertTrue(observed["cli_access_policy"]["exists"])
+        self.assertEqual(observed["cli_capabilities"]["path"], str(cli_capabilities))
+        self.assertTrue(observed["cli_capabilities"]["exists"])
+        self.assertEqual(observed["browser_constants"]["path"], str(browser_service))
+        self.assertTrue(observed["browser_constants"]["exists"])
+        self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
+        self.assertTrue(observed["browser_policy"]["exists"])
+        self.assertEqual(observed["swarm_sync_validation"]["path"], str(swarm_sync))
+        self.assertTrue(observed["swarm_sync_validation"]["exists"])
+        self.assertEqual(view["default_access_level_hint"], 4)
+        self.assertEqual(view["cli_capability_policy"]["toxic_pair_count"], 1)
+        self.assertEqual(view["browser_authority"]["source_kind"], "browser_use_adapter")
+        self.assertEqual(view["browser_authority"]["risk_class_counts"]["read_only"], 1)
+        self.assertTrue(view["browser_authority"]["sensitive_surface_policy_exists"])
+        self.assertEqual(view["public_output_authority"]["sync_source_kind"], "builder_swarm_bridge")
+        self.assertIn("swarm_payload_ready", view["public_output_authority"]["required_publication_checks"])
+
     def test_contract_coverage_marks_verified_machine_and_legacy_edges(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

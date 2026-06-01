@@ -4606,11 +4606,25 @@ def js_const_object_values(text: str | None, object_name: str) -> dict[str, str]
     return {key: value for key, value in re.findall(r"(\w+):\s*['\"]([^'\"]+)['\"]", match.group("body"))}
 
 
-def inspect_browser_authority(root: Path) -> dict[str, Any]:
+def inspect_browser_authority(
+    root: Path,
+    *,
+    active_constants_path: Path | None = None,
+    active_policy_path: Path | None = None,
+) -> dict[str, Any]:
     constants_path = root / "src" / "protocol" / "constants.js"
     policy_path = root / "src" / "protocol" / "policy.js"
     contract_path = root / "docs" / "BROWSER_HOOK_CONTRACT_V1.md"
+    source_kind = "legacy_browser_extension"
+    if not constants_path.exists() and active_constants_path is not None and active_constants_path.exists():
+        constants_path = active_constants_path
+        source_kind = "browser_use_adapter"
+    if not policy_path.exists() and active_policy_path is not None and active_policy_path.exists():
+        policy_path = active_policy_path
+        source_kind = "browser_use_adapter"
+
     constants_text = read_text_or_none(constants_path)
+    policy_text = read_text_or_none(policy_path)
     risk_values = js_const_object_values(constants_text, "RISK_CLASSES")
     approval_values = js_const_object_values(constants_text, "APPROVAL_MODES")
     risk_counts: Counter[str] = Counter()
@@ -4619,7 +4633,15 @@ def inspect_browser_authority(root: Path) -> dict[str, Any]:
         risk_counts[risk_values.get(risk_key, risk_key.lower())] += 1
     for approval_key in re.findall(r"approval_mode:\s*APPROVAL_MODES\.(\w+)", constants_text or ""):
         approval_counts[approval_values.get(approval_key, approval_key.lower())] += 1
+    if source_kind == "browser_use_adapter":
+        for risk in re.findall(r"['\"]risk_class['\"]:\s*['\"]([^'\"]+)['\"]", constants_text or ""):
+            risk_counts[risk] += 1
+            risk_values.setdefault(risk.upper(), risk)
+        for mode in re.findall(r"['\"]approval_mode['\"]:\s*['\"]([^'\"]+)['\"]", constants_text or ""):
+            approval_counts[mode] += 1
+            approval_values.setdefault(mode.upper(), mode)
     return {
+        "source_kind": source_kind,
         "sources": {
             "constants": {"path": str(constants_path), "exists": constants_path.exists()},
             "policy": {"path": str(policy_path), "exists": policy_path.exists()},
@@ -4631,21 +4653,46 @@ def inspect_browser_authority(root: Path) -> dict[str, Any]:
         "risk_class_counts": dict(sorted(risk_counts.items())),
         "approval_mode_counts": dict(sorted(approval_counts.items())),
         "origin_scoped_hook_count": len(re.findall(r"requires_origin_scope:\s*true", constants_text or "")),
-        "sensitive_surface_policy_exists": "classifySensitiveSurface" in (read_text_or_none(policy_path) or ""),
+        "sensitive_surface_policy_exists": (
+            "classifySensitiveSurface" in (policy_text or "")
+            or "metadata service" in (policy_text or "")
+            or "sensitive click workflows" in (policy_text or "")
+            or "sensitive_domain" in (constants_text or "")
+        ),
     }
 
 
-def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
+def inspect_public_output_authority(desktop: Path, *, active_sync_path: Path | None = None) -> dict[str, Any]:
     swarm_root = desktop / "spark-swarm"
     labs_root = desktop / "spark-domain-chip-labs"
     sync_validation_path = swarm_root / "apps" / "api" / "src" / "collective" / "sync-validation.ts"
+    source_kind = "spark_swarm_repo"
+    if not sync_validation_path.exists() and active_sync_path is not None and active_sync_path.exists():
+        sync_validation_path = active_sync_path
+        source_kind = "builder_swarm_bridge"
     sync_text = read_text_or_none(sync_validation_path)
     checks_match = re.search(r"REQUIRED_PUBLICATION_CHECKS\s*=\s*\[(?P<body>.*?)\]", sync_text or "", re.S)
     required_checks = clean_ts_union(re.findall(r"['\"]([^'\"]+)['\"]", checks_match.group("body") if checks_match else ""))
+    if not required_checks and source_kind == "builder_swarm_bridge" and sync_text:
+        required_checks = [
+            check
+            for check, marker in (
+                ("swarm_payload_ready", "payload_ready"),
+                ("swarm_api_ready", "api_ready"),
+                ("swarm_auth_state", "auth_state"),
+                ("swarm_state_recorded", "_record_swarm_sync_state"),
+            )
+            if marker in sync_text
+        ]
 
     swarm_files = {
         name: {"path": str(swarm_root / rel_path), "exists": (swarm_root / rel_path).exists()}
         for name, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
+    }
+    swarm_files["sync_validation"] = {
+        "path": str(sync_validation_path),
+        "exists": sync_validation_path.exists(),
+        "source_kind": source_kind,
     }
     labs_files = {
         name: {"path": str(labs_root / rel_path), "exists": (labs_root / rel_path).exists()}
@@ -4656,9 +4703,11 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
     return {
         "authority": "publication_not_granted_by_local_artifacts",
+        "sync_source_kind": source_kind,
         "swarm_governance_files": swarm_files,
         "labs_gate_files": labs_files,
-        "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]"),
+        "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]")
+        or ("builder-swarm-bridge-sync" if source_kind == "builder_swarm_bridge" else None),
         "required_publication_checks": required_checks,
         "creator_network_templates": {
             "proposal_bundle": {"path": str(proposal_template), "exists": proposal_template.exists()},
@@ -4684,6 +4733,16 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
         "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
         "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
     }
+    tool_suffixes: dict[str, Path] = {
+        "cli_access_policy": Path("tools/spark-cli/src/spark_cli/sandbox/access.py"),
+        "cli_capabilities": Path("tools/spark-cli/src/spark_cli/sandbox/capabilities.py"),
+        "browser_policy": Path("tools/spark-cli/src/spark_cli/cli.py"),
+    }
+    active_source_suffixes: dict[str, Path] = {
+        "browser_constants": Path("modules/spark-intelligence-builder/source/src/spark_intelligence/browser/service.py"),
+        "browser_policy": Path("tools/spark-cli/src/spark_cli/cli.py"),
+        "swarm_sync_validation": Path("modules/spark-intelligence-builder/source/src/spark_intelligence/swarm_bridge/sync.py"),
+    }
     desktop_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
@@ -4705,6 +4764,17 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
             installed_path = module_sources / module_name / "source" / suffix
             if installed_path.exists():
                 return installed_path
+        if spark_home is not None:
+            tool_suffix = tool_suffixes.get(key)
+            if tool_suffix is not None:
+                tool_path = spark_home / tool_suffix
+                if tool_path.exists():
+                    return tool_path
+            active_suffix = active_source_suffixes.get(key)
+            if active_suffix is not None:
+                active_path = spark_home / active_suffix
+                if active_path.exists():
+                    return active_path
         return desktop_path
 
     def resolve_repo_root(repo_name: str) -> Path:
@@ -4721,8 +4791,15 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
     spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
-    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
-    public_output_authority = inspect_public_output_authority(desktop)
+    browser_authority = inspect_browser_authority(
+        resolve_repo_root("spark-browser-extension"),
+        active_constants_path=source_files["browser_constants"],
+        active_policy_path=source_files["browser_policy"],
+    )
+    public_output_authority = inspect_public_output_authority(
+        desktop,
+        active_sync_path=source_files["swarm_sync_validation"],
+    )
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
 
