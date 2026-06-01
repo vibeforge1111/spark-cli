@@ -7215,7 +7215,7 @@ def collect_status_payload() -> dict[str, Any]:
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
     payload = {
         "ok": ok,
-        "summary": "Spark CLI spike status",
+        "summary": "Spark CLI status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
@@ -15787,9 +15787,21 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def cmd_show_help(args: argparse.Namespace) -> int:
+    """Show help for the current command or top-level help."""
+    parser = build_parser()
+    if hasattr(args, '_subparser') and args._subparser:
+        args._subparser.print_help()
+    else:
+        parser.print_help()
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI")
+    subparsers = parser.add_subparsers(dest="command", required=False)
+    help_parser = subparsers.add_parser("help", help="Show help for a command")
+    help_parser.set_defaults(func=lambda args: build_parser().print_help() or 0)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
     list_parser.set_defaults(func=cmd_list)
@@ -15971,7 +15983,8 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_parser.set_defaults(func=cmd_onboard)
 
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
-    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+    os_subparsers = os_parser.add_subparsers(dest="os_command", required=False)
+    os_parser.set_defaults(func=lambda args, p=os_parser: p.print_help() or 0)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
     os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
     os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
@@ -16033,7 +16046,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_llm_parser.set_defaults(func=cmd_doctor)
 
     support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
-    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+    support_subparsers = support_parser.add_subparsers(dest="support_command", required=False)
+    support_parser.set_defaults(func=lambda args, p=support_parser: p.print_help() or 0)
     support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
     support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
     support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
@@ -16055,7 +16069,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.set_defaults(func=cmd_verify)
 
     smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
-    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=False)
+    smoke_parser.set_defaults(func=lambda args, p=smoke_parser: p.print_help() or 0)
     first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
     first_run_smoke_parser.add_argument("--json", action="store_true")
     first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
@@ -16073,7 +16088,8 @@ def build_parser() -> argparse.ArgumentParser:
     fix_parser.set_defaults(func=cmd_fix)
 
     providers_parser = subparsers.add_parser("providers", help="Inspect Spark LLM provider choices and role wiring")
-    providers_sub = providers_parser.add_subparsers(dest="providers_command", required=True)
+    providers_sub = providers_parser.add_subparsers(dest="providers_command", required=False)
+    providers_parser.set_defaults(func=lambda args, p=providers_parser: p.print_help() or 0)
     providers_recommend_parser = providers_sub.add_parser("recommend", help="Recommend LLM paths for paid, API-key, and local setups")
     providers_recommend_parser.add_argument("--json", action="store_true")
     providers_recommend_parser.set_defaults(func=cmd_providers)
@@ -16401,7 +16417,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_list_parser.set_defaults(func=cmd_config_list)
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
-    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
+    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=False)
+    secrets_parser.set_defaults(func=lambda args, p=secrets_parser: p.print_help() or 0)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
@@ -16435,6 +16452,9 @@ def main(argv: list[str] | None = None) -> int:
     ensure_state_dirs()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not hasattr(args, "func") or args.func is None:
+        parser.print_help()
+        return 0
     approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
     if approval_exit is not None:
         return approval_exit
