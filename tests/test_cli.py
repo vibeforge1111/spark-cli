@@ -96,6 +96,7 @@ from spark_cli.cli import (
     keychain_env_for_telegram_profile,
     list_stored_secrets,
     load_json,
+    load_json_best_effort,
     long_path_aware,
     module_log_path,
     live_log_targets,
@@ -1639,6 +1640,27 @@ class SparkCliTests(unittest.TestCase):
             path = Path(tmp_dir) / "registry.json"
             path.write_text('\ufeff{"ok": true}', encoding="utf-8")
             self.assertEqual(load_json(path, {}), {"ok": True})
+
+    def test_load_json_reports_invalid_json_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "setup.json"
+            path.write_text("{not valid json", encoding="utf-8")
+
+            with self.assertRaises(SystemExit) as error:
+                load_json(path, {})
+
+            message = str(error.exception)
+            self.assertIn("Configuration error", message)
+            self.assertIn("invalid JSON", message)
+            self.assertIn("setup.json", message)
+            self.assertIn("line 1, column 2", message)
+
+    def test_load_json_best_effort_returns_default_for_invalid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "mission-control.json"
+            path.write_text("{not valid json", encoding="utf-8")
+
+            self.assertEqual(load_json_best_effort(path, {"fallback": True}), {"fallback": True})
 
     def test_atomic_write_json_writes_private_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
