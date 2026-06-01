@@ -781,6 +781,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(store_payload["targets"]["odyssey-vps"]["identity_file"], str(key.resolve()))
             self.assertNotIn("PRIVATE KEY MATERIAL", store_text)
 
+    def test_ssh_target_store_malformed_json_raises_bounded_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = Path(tmpdir) / "config"
+            config.mkdir(parents=True)
+            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "not valid JSON"):
+                load_ssh_targets(home=Path(tmpdir))
+
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
             validate_ssh_user("root")
@@ -11335,6 +11344,19 @@ class SparkCliTests(unittest.TestCase):
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["ssh_target_store"]["ok"])
         self.assertEqual(checks["ssh_target_store"]["repair"], "Review <spark-home>/config/ssh_targets.json.")
+
+    def test_collect_sandbox_verify_payload_fails_malformed_ssh_target_json_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"SPARK_HOME": tmpdir}), \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value={"ok": True, "checks": []}):
+            config = Path(tmpdir) / "config"
+            config.mkdir(parents=True)
+            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
+            payload = collect_sandbox_verify_payload()
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["ssh_target_store"]["ok"])
+        self.assertIn("not valid JSON", checks["ssh_target_store"]["detail"])
+        self.assertNotIn("private-ish", checks["ssh_target_store"]["detail"])
 
     def test_collect_hosted_security_payload_requires_keys_for_public_bind(self) -> None:
         with patch.dict(
