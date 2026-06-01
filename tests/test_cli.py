@@ -8385,6 +8385,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark setup --llm-provider kimi", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
 
+    def test_cmd_recommend_unknown_subcommand_names_valid_set(self) -> None:
+        from spark_cli.cli import cmd_recommend
+
+        class Args:
+            recommend_command = "agents"
+            json = False
+
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_recommend(Args())
+        message = str(ctx.exception)
+        self.assertIn("Unknown recommend command: agents", message)
+        self.assertIn("Known commands:", message)
+        self.assertIn("llms", message)
+        self.assertIn("providers", message)
+
+    def test_cmd_providers_unknown_subcommand_names_valid_set(self) -> None:
+        from spark_cli.cli import cmd_providers
+
+        class Args:
+            providers_command = "configure"
+            json = False
+
+        with self.assertRaises(SystemExit) as ctx:
+            cmd_providers(Args())
+        message = str(ctx.exception)
+        self.assertIn("Unknown providers command: configure", message)
+        self.assertIn("Known commands:", message)
+        for name in ("recommend", "list", "status", "codex", "test"):
+            self.assertIn(name, message)
+
     def test_collect_secret_values_prompts_when_interactive_and_missing(self) -> None:
         module = Module(
             name="spark-telegram-bot",

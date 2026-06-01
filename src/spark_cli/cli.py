@@ -11457,7 +11457,10 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if not payload.get("ok") and payload.get("repair"):
             print(f"Repair: {payload['repair']}")
         return 0 if payload["ok"] else 1
-    raise SystemExit(f"Unknown providers command: {args.providers_command}")
+    known = "recommend, list, status, codex, test"
+    raise SystemExit(
+        f"Unknown providers command: {args.providers_command}. Known commands: {known}."
+    )
 
 
 def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
@@ -11496,7 +11499,9 @@ def cmd_recommend(args: argparse.Namespace) -> int:
             return 0
         print_llm_provider_recommendations(payload)
         return 0
-    raise SystemExit(f"Unknown recommend command: {args.recommend_command}")
+    raise SystemExit(
+        f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers."
+    )
 
 
 def installed_record_path(installed: object, module_name: str) -> Path | None:
