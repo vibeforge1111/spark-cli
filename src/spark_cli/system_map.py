@@ -340,6 +340,24 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.memory_doctor_diagnostics",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "reads_memory_diagnostics",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/memory/doctor.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "memory.diagnose",
+            "run_memory_doctor",
+            "_match_natural_memory_doctor_command",
+        ),
+    },
+    {
         "id": "builder.schedule_bridge",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",

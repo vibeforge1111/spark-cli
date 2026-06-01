@@ -1536,6 +1536,9 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "format_schedule_list_from_spawner()\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='route.probe.run')\n"
                 "run_route_probe_and_record()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='memory.diagnose')\n"
+                "run_memory_doctor()\n"
+                "_match_natural_memory_doctor_command()\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.install')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.status')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.plan')\n"
@@ -1613,6 +1616,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.researcher_browser_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_active_chip_evaluate"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_memory_write"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.memory_doctor_diagnostics"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_diagnostic_tools"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_search_network"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
@@ -1630,6 +1634,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.researcher_browser_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_active_chip_evaluate"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_memory_write"]["release_blocker"])
+        self.assertFalse(by_id["builder.memory_doctor_diagnostics"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_diagnostic_tools"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_search_network"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
