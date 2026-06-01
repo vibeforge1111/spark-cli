@@ -49,6 +49,7 @@ from spark_cli.cli import (
     collect_verify_payload,
     configure_telegram_profile,
     cmd_list,
+    cmd_logs,
     cmd_secrets_set,
     cmd_live,
     cmd_onboard,
@@ -9133,6 +9134,10 @@ class SparkCliTests(unittest.TestCase):
             log_path = Path(tmp_dir) / "process.log"
             log_path.write_text("a\nb\nc\n", encoding="utf-8")
             self.assertEqual(tail_log_lines(log_path, 0), ["a\n", "b\n", "c\n"])
+
+    def test_cmd_logs_rejects_negative_line_count(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "zero or greater"):
+            cmd_logs(Namespace(target="spawner-ui", lines=-1, follow=False, profile=None))
 
     def test_tail_log_lines_empty_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

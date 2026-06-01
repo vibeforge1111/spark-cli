@@ -15324,6 +15324,8 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
+    if args.lines < 0:
+        raise SystemExit("--lines must be zero or greater.")
     installed = resolve_installed_modules()
     if args.target not in installed:
         raise SystemExit(f"Unknown installed module: {args.target}")
