@@ -10098,7 +10098,8 @@ class SparkCliTests(unittest.TestCase):
                 "auth_mode": "codex_oauth",
             }
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True, "exists": True, "notes": []}):
             payload = provider_status_payload()
         self.assertTrue(payload["ok"])
         for role in ("chat", "builder", "memory", "mission"):
