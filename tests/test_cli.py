@@ -1519,6 +1519,13 @@ class SparkCliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 validate_init_module_name(bad)
 
+    def test_validate_init_module_name_rejects_long_names(self) -> None:
+        long_name = "a" * 65
+        with self.assertRaises(SystemExit):
+            validate_init_module_name(long_name)
+        # 64 chars should still be valid
+        validate_init_module_name("a" * 64)
+
     def test_render_init_spark_toml_produces_parseable_manifest(self) -> None:
         import tomllib as _toml
         rendered = render_init_spark_toml("my-module", "python", "Demo module")

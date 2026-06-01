@@ -15169,6 +15169,10 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 
 
 def validate_init_module_name(name: str) -> None:
+    if len(name) > 64:
+        raise SystemExit(
+            f"Module name `{name[:20]}...` is too long ({len(name)} chars). Use 64 characters or fewer."
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
