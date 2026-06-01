@@ -481,6 +481,23 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         ),
     },
     {
+        "id": "builder.harness_runtime_voice_io",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "voice_io_harness_chip_hooks",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/harness_runtime/service.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.io",
+            "voice.status",
+            "voice.speak",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
         "id": "builder.voice_search_network",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
