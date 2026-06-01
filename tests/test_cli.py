@@ -59,6 +59,7 @@ from spark_cli.cli import (
     cmd_setup,
     cmd_uninstall,
     cmd_update,
+    cmd_browser_use,
     console_safe_text,
     CONFIG_PATH,
     detect_runtime_binary,
@@ -81,6 +82,7 @@ from spark_cli.cli import (
     is_dirty_update_failure,
     installer_manifest_payload,
     git_command,
+    run_git_or_exit,
     is_git_source,
     module_is_git_managed,
     normalize_git_url,
@@ -90,6 +92,7 @@ from spark_cli.cli import (
     runtime_supply_chain_warnings,
     purge_spark_home,
     resolve_install_executable,
+    resolve_remote_git_ref,
     install_module_record,
     keychain_account,
     keychain_env_for_module,
@@ -3996,6 +3999,40 @@ class SparkCliTests(unittest.TestCase):
 
         run.assert_not_called()
 
+    def test_install_memory_sidecar_dependencies_reports_pip_failure_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            memory_root = Path(tmp_dir) / "domain-chip-memory"
+            memory_root.mkdir()
+            memory = Module(
+                name="domain-chip-memory",
+                path=memory_root,
+                manifest={"module": {"name": "domain-chip-memory", "version": "0.1.0"}},
+            )
+            args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+            setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+            with patch(
+                "spark_cli.cli.subprocess.run",
+                side_effect=subprocess.CalledProcessError(2, [sys.executable, "-m", "pip"]),
+            ):
+                with self.assertRaises(SystemExit) as error:
+                    install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        message = str(error.exception)
+        self.assertIn("Optional Graphiti/Kuzu memory sidecar install failed", message)
+        self.assertIn("--skip-install-commands", message)
+
+    def test_install_memory_sidecar_dependencies_reports_start_failure_without_traceback(self) -> None:
+        memory = make_module("domain-chip-memory", ["spark.memory.substrate"])
+        args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+        setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("python")):
+            with self.assertRaises(SystemExit) as error:
+                install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        self.assertIn("could not start", str(error.exception))
+
     def test_profile_flags_parse_for_setup_start_stop_restart_and_logs(self) -> None:
         setup_args = build_parser().parse_args(
             [
@@ -4497,6 +4534,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["checks"][0]["remote_head"], "")
         self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
+
+    def test_run_git_or_exit_reports_missing_git_without_traceback(self) -> None:
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
+            with self.assertRaises(SystemExit) as error:
+                run_git_or_exit("domain-chip-memory", ["status"])
+
+        message = str(error.exception)
+        self.assertIn("git operation failed for domain-chip-memory", message)
+        self.assertIn("could not start git", message)
+        self.assertIn("PATH", message)
+
+    def test_resolve_remote_git_ref_reports_missing_git_without_traceback(self) -> None:
+        with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
+            with self.assertRaises(RuntimeError) as error:
+                resolve_remote_git_ref("https://github.com/vibeforge1111/spark-cli")
+
+        message = str(error.exception)
+        self.assertIn("could not start git", message)
+        self.assertIn("PATH", message)
 
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
@@ -12250,6 +12306,37 @@ class SparkCliTests(unittest.TestCase):
                 CONFIG_PATH.write_text(original, encoding="utf-8")
             elif CONFIG_PATH.exists():
                 CONFIG_PATH.unlink()
+
+    def test_browser_use_install_reports_package_install_failure_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.CalledProcessError(2, [sys.executable, "-m", "pip"]),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use package install failed", message)
+        self.assertIn("exit code 2", message)
+
+    def test_browser_use_install_reports_browser_setup_failure_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+        completed = subprocess.CompletedProcess([sys.executable, "-m", "pip"], 0, "", "")
+
+        with patch("spark_cli.cli.subprocess.run", return_value=completed), \
+            patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+            patch(
+                "spark_cli.cli.run_browser_use_command",
+                side_effect=subprocess.TimeoutExpired(["browser-use", "install"], 180),
+            ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use setup failed", message)
+        self.assertIn("timed out", message)
 
     def test_install_script_bootstraps_local_prefix_contract(self) -> None:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
