@@ -88,6 +88,7 @@ from spark_cli.cli import (
     runtime_supply_chain_warnings,
     purge_spark_home,
     resolve_install_executable,
+    resolve_default_desktop_root,
     install_module_record,
     keychain_account,
     keychain_env_for_module,
@@ -407,6 +408,25 @@ def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
 
 
 class SparkCliTests(unittest.TestCase):
+    def test_resolve_default_desktop_root_prefers_windows_desktop_under_wsl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win_profile = Path(tmpdir) / "Users" / "SparkUser"
+            desktop = win_profile / "Desktop"
+            desktop.mkdir(parents=True)
+            with patch("spark_cli.cli.running_under_wsl", return_value=True), patch.dict(
+                os.environ,
+                {"USERPROFILE": f"C:\\Users\\SparkUser"},
+                clear=False,
+            ), patch("spark_cli.cli.windows_path_to_wsl_path", return_value=win_profile):
+                self.assertEqual(resolve_default_desktop_root(), desktop)
+
+    def test_os_commands_share_wsl_aware_default_desktop_root(self) -> None:
+        with patch("spark_cli.cli.resolve_default_desktop_root", return_value=Path("/mnt/c/Users/SparkUser/Desktop")):
+            parser = build_parser()
+        for command in ["compile", "capabilities", "authority", "trace", "memory"]:
+            args = parser.parse_args(["os", command])
+            self.assertEqual(args.desktop, "/mnt/c/Users/SparkUser/Desktop")
+
     def test_sandbox_capability_manifest_serializes_stable_payload(self) -> None:
         manifest = CapabilityManifest(
             backend="ssh",

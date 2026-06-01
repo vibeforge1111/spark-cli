@@ -15722,6 +15722,28 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def resolve_default_desktop_root() -> Path:
+    """Return the default dev-checkout root for Spark OS discovery."""
+
+    linux_desktop = Path.home() / "Desktop"
+    if not running_under_wsl():
+        return linux_desktop
+
+    userprofile = os.environ.get("USERPROFILE", "").strip()
+    if not userprofile:
+        result = run_autostart_helper(["cmd.exe", "/d", "/c", "echo", "%USERPROFILE%"])
+        if result.returncode == 0:
+            lines = [line.strip() for line in (result.stdout or "").replace("\r", "").splitlines() if line.strip()]
+            userprofile = lines[-1] if lines else ""
+
+    if userprofile:
+        windows_desktop = windows_path_to_wsl_path(userprofile) / "Desktop"
+        if windows_desktop.exists():
+            return windows_desktop
+
+    return linux_desktop
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -15908,32 +15930,33 @@ def build_parser() -> argparse.ArgumentParser:
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
     os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
-    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    default_desktop_root = str(resolve_default_desktop_root())
+    os_compile_parser.add_argument("--desktop", default=default_desktop_root, help="Desktop root containing Spark repos")
     os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
     os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
-    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_capabilities_parser.add_argument("--desktop", default=default_desktop_root, help="Desktop root containing Spark repos")
     os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
     os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
     os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
-    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_authority_parser.add_argument("--desktop", default=default_desktop_root, help="Desktop root containing Spark repos")
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
-    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_trace_parser.add_argument("--desktop", default=default_desktop_root, help="Desktop root containing Spark repos")
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
-    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_memory_parser.add_argument("--desktop", default=default_desktop_root, help="Desktop root containing Spark repos")
     os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
