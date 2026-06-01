@@ -1546,6 +1546,9 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             builder_harness_runtime = builder_src / "harness_runtime"
             builder_researcher_bridge = builder_src / "researcher_bridge"
             memory_tests = desktop / "domain-chip-memory" / "tests"
+            harness_core = spark_home / "modules" / "spark-harness-core" / "source"
+            harness_core_src = harness_core / "src" / "spark_harness_core"
+            harness_core_schemas = harness_core / "schemas"
             for path in (
                 spawner_spark_run,
                 spawner_dispatch,
@@ -1558,6 +1561,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 builder_harness_runtime,
                 builder_researcher_bridge,
                 memory_tests,
+                harness_core_src,
+                harness_core_schemas,
             ):
                 path.mkdir(parents=True)
 
@@ -1691,11 +1696,32 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "# promotion gate keeps protected prompt changes evidence-only\n",
                 encoding="utf-8",
             )
+            (harness_core_src / "kernel.py").write_text(
+                "class HarnessKernel:\n"
+                "    def create_envelope(self): pass\n"
+                "    def authorize(self): pass\n"
+                "    def record_tool_call(self): pass\n",
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "turn-intent-envelope-vnext.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/turn-intent-envelope-vnext.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "authorization-decision-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/authorization-decision-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "tool-call-ledger-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/tool-call-ledger-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
 
             coverage = build_contract_coverage(desktop, spark_home)
             by_id = {item["id"]: item for item in coverage["edges"]}
 
         self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(by_id["harness_core.authority_kernel"]["status"], "envelope_verified")
+        self.assertFalse(by_id["harness_core.authority_kernel"]["markers"]["auto_state_trigger"])
         self.assertEqual(by_id["spawner.spark_run"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.dispatch"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "machine_origin_policy")
@@ -1744,6 +1770,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["spark_cli.browser_use_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
         self.assertEqual(by_id["memory.promotion"]["status"], "evidence_only")
@@ -1752,6 +1779,40 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             "not_installed_optional_surface",
         )
         self.assertIn("release_blocker_count", coverage["summary"])
+
+    def test_compile_system_map_discovers_local_harness_core_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            harness_core = spark_home / "modules" / "spark-harness-core" / "source"
+            state = spark_home / "state"
+            harness_core.mkdir(parents=True)
+            desktop.mkdir()
+            state.mkdir(parents=True)
+            (state / "installed.json").write_text("{}", encoding="utf-8")
+            (state / "setup.json").write_text("{}", encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+            registry = root / "registry.json"
+            registry.write_text('{"modules":{},"bundles":{}}', encoding="utf-8")
+            (harness_core / "spark.toml").write_text(
+                "[module]\n"
+                'name = "spark-harness-core"\n'
+                'version = "0.1.0"\n'
+                'kind = "runtime"\n'
+                'plane = "authority"\n'
+                'description = "Spark Genesis Harness canonical authority kernel."\n'
+                "\n[provides]\n"
+                'capabilities = ["spark.harness.core"]\n',
+                encoding="utf-8",
+            )
+
+            compiled = compile_system_map(desktop, spark_home, registry)
+
+        modules = {item["id"]: item for item in compiled["system_map"]["modules"]}
+        self.assertIn("spark-harness-core", modules)
+        self.assertEqual(modules["spark-harness-core"]["plane"], "authority")
+        self.assertEqual(modules["spark-harness-core"]["kind"], "runtime")
 
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

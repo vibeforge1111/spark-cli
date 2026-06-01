@@ -35,10 +35,15 @@ CONTRACT_FILE_HINTS = (
     "docs/SPARK_UPGRADE_LEDGER.yaml",
     "docs/SPARK_INTEGRATION_CONTRACT.md",
     "docs/BROWSER_HOOK_CONTRACT_V1.md",
+    "docs/RUNTIME_CHARTER.md",
+    "docs/SPARK_GENESIS_KERNEL_SCHEMA_DESIGN.md",
     "docs/reference/SPARK_PROVENANCE_AND_MUTATION_LEDGER_DOCTRINE.md",
     "SPARK_AGENT_HARNESS_V1.md",
     "docs/wiki/02_SPARK_SYSTEM_MAP.md",
     "docs/SPARK_SKILL_GRAPH_STANDARD.md",
+    "schemas/turn-intent-envelope-vnext.schema.json",
+    "schemas/authorization-decision-v1.schema.json",
+    "schemas/tool-call-ledger-v1.schema.json",
     "schemas/spark-skill-manifest.v1.schema.json",
     "spark-skill-manifest.json",
     "spark-chip.json",
@@ -99,11 +104,26 @@ OWNER_SURFACES = {
     "spark-swarm": "specialization paths and publication governance",
     "spark-skill-graphs": "specialist library and routing substrate",
     "spark-intelligence-systems": "doctrine, runbook, prototype read model",
+    "spark-harness-core": "canonical authority kernel and cross-surface contract package",
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
 
 CONTRACT_COVERAGE_ACTION_EDGES = (
+    {
+        "id": "harness_core.authority_kernel",
+        "surface": "spark-harness-core",
+        "owner_repo": "spark-harness-core",
+        "mutation_class": "canonical_authority_kernel",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_harness_core/kernel.py",
+            "schemas/turn-intent-envelope-vnext.schema.json",
+            "schemas/authorization-decision-v1.schema.json",
+            "schemas/tool-call-ledger-v1.schema.json",
+        ),
+        "legacy_markers": ("HarnessKernel", "authorize", "ToolCallLedgerV1"),
+    },
     {
         "id": "telegram.mission_launch",
         "surface": "spark-telegram-bot",
@@ -1060,12 +1080,22 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
-def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
+def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None, spark_home: Path | None = None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
         for child in desktop.iterdir():
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
+
+    if spark_home is not None:
+        module_root = spark_home / "modules"
+        if module_root.exists():
+            for source in sorted(module_root.glob("*/source")):
+                module_name = source.parent.name
+                has_manifest = (source / "spark.toml").exists() or (source / "spark-chip.json").exists()
+                looks_like_spark = any(hint in module_name.lower() for hint in SPARK_REPO_NAME_HINTS)
+                if source.is_dir() and (has_manifest or looks_like_spark):
+                    candidates[str(source.resolve()).lower()] = source
 
     for payload in as_dict(installed).values():
         path = as_dict(payload).get("path")
@@ -4238,6 +4268,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "parse_turn_intent_envelope" in text
             or "browser_use_harness_authorize" in text
             or "kernel.authorize" in text
+            or ("HarnessKernel" in text and "def authorize(" in text)
         ),
         "machine_origin_policy": (
             "spark.machine_origin_policy.v1" in text
@@ -4246,7 +4277,12 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
         ),
         "deterministic_local_route": "deterministicRouteAllowed" in text
         or "evaluateExecutionIntentBoundary" in text,
-        "auto_state_trigger": "autoRun" in text or "missionId" in text or "pending" in text,
+        "auto_state_trigger": bool(
+            re.search(
+                r"\b(autoRun|missionId|pendingMission|pendingTask|pendingState|pending_action|pending_route|pending_task)\b",
+                text,
+            )
+        ),
         "evidence_or_proposal_only": (
             "evidence-only" in text
             or "proposal-only" in text
@@ -6308,7 +6344,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     setup_summary = summarize_setup(setup if isinstance(setup, dict) else None)
     running = summarize_pids(pids if isinstance(pids, dict) else None)
 
-    repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None)
+    repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None, spark_home)
     repos = [collect_repo_metadata(path) for path in repo_paths]
     builder_home = Path(str(setup_summary.get("builder_home") or state_dir / "spark-intelligence")).expanduser()
 
