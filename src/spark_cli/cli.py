@@ -5060,7 +5060,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except Exception as exc:
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
         return {
@@ -8203,7 +8203,7 @@ def clear_telegram_webhook_state(tokens: list[dict[str, str]], *, dry_run: bool 
                 entry["description"] = redact_sensitive_text(str(payload.get("description") or "Telegram rejected deleteWebhook"))
                 failures.append({"secret_id": secret_id, "error": str(entry["description"])})
             results.append(entry)
-        except Exception as error:
+        except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as error:
             detail = revoke_all_error_detail(error)
             failures.append({"secret_id": secret_id, "error": detail})
             results.append({"secret_id": secret_id, "ok": False, "planned": False, "error": detail})
