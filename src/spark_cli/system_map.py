@@ -329,6 +329,7 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "risk": "high_agency",
         "files": (
             "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/bridge_authority.py",
             "src/spark_intelligence/harness_contract.py",
         ),
         "legacy_markers": (
