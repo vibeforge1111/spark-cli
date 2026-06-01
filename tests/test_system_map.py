@@ -1575,12 +1575,17 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "parse_turn_intent_envelope(payload)\n"
                 "authorize_tool_call(turn_intent_envelope, tool_name='browser.navigate', owner_system='spark-browser')\n"
                 "authorize_tool_call(turn_intent_envelope, tool_name='chip.evaluate', owner_system='spark-intelligence-builder')\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='memory.write', owner_system='domain-chip-memory')\n"
                 "_build_browser_search_context()\n"
                 "_execute_browser_hook()\n"
                 "_run_active_chip_evaluate()\n"
+                "_authorize_researcher_memory_write()\n"
                 "select_chips_for_message()\n"
                 "run_chip_hook()\n"
                 "active_chip_evaluate\n"
+                "write_profile_fact_to_memory()\n"
+                "delete_profile_fact_from_memory()\n"
+                "write_structured_evidence_to_memory()\n"
                 "run_first_chip_hook_supporting(config_manager, hook='browser.navigate', payload=payload)\n",
                 encoding="utf-8",
             )
@@ -1607,6 +1612,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.harness_runtime_voice_io"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_browser_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.researcher_active_chip_evaluate"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_memory_write"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_diagnostic_tools"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_search_network"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
@@ -1623,6 +1629,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.harness_runtime_voice_io"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_browser_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.researcher_active_chip_evaluate"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_memory_write"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_diagnostic_tools"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_search_network"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])

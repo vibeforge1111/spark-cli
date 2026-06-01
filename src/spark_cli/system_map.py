@@ -322,6 +322,23 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("memory", "draft", "save"),
     },
     {
+        "id": "builder.researcher_memory_write",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_or_deletes_memory",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_authorize_researcher_memory_write",
+            "write_profile_fact_to_memory",
+            "delete_profile_fact_from_memory",
+            "write_structured_evidence_to_memory",
+        ),
+    },
+    {
         "id": "builder.schedule_bridge",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
