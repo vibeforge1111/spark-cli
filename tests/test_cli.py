@@ -1771,6 +1771,23 @@ class SparkCliTests(unittest.TestCase):
                 resolve_secret_input(f"@file:{outside_secret}")
             self.assertIn("inside SPARK_HOME", str(error.exception))
 
+    def test_installers_write_setup_secret_refs_inside_spark_home(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        powershell_installer = (root / "scripts" / "install.ps1").read_text(encoding="utf-8")
+        shell_installer = (root / "scripts" / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('Join-Path $Script:SparkPrefix "state\\setup-secrets"', powershell_installer)
+        self.assertIn("[System.Guid]::NewGuid()", powershell_installer)
+        self.assertIn("Remove-Item -LiteralPath $secretFile -Force", powershell_installer)
+        self.assertNotIn("[System.IO.Path]::GetTempFileName()", powershell_installer)
+        self.assertIn('local secret_dir="$SPARK_PREFIX/state/setup-secrets"', shell_installer)
+        self.assertIn('mkdir -p "$secret_dir"', shell_installer)
+        self.assertIn('chmod 700 "$secret_dir"', shell_installer)
+        self.assertIn('mktemp "$secret_dir/spark-secret.XXXXXX"', shell_installer)
+        self.assertIn('chmod 600 "$secret_file"', shell_installer)
+        self.assertIn("cleanup_secret_files", shell_installer)
+        self.assertNotIn('mktemp "${TMPDIR:-/tmp}/spark-secret.XXXXXX"', shell_installer)
+
     def test_llm_doctor_redacts_tokens_and_secret_fields(self) -> None:
         text = "BOT_TOKEN=1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890 and Authorization: Bearer sk-proj-secretvalue1234567890"
         redacted = redact_sensitive_text(text)
