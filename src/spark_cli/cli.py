@@ -16373,4 +16373,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        import sys
+        print("\nOperation cancelled by user.", file=sys.stderr)
+        raise SystemExit(130)
