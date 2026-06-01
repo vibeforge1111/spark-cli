@@ -303,7 +303,7 @@ def read_json(path: Path) -> tuple[Any | None, str | None]:
         return None, "missing"
     try:
         return json.loads(path.read_text(encoding="utf-8-sig")), None
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError) as exc:
         return None, f"read_json_failed: {type(exc).__name__}: {exc}"
 
 
@@ -312,7 +312,7 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, "missing"
     try:
         return tomllib.loads(path.read_text(encoding="utf-8")), None
-    except Exception as exc:
+    except (tomllib.TOMLDecodeError, OSError) as exc:
         return None, f"read_toml_failed: {type(exc).__name__}: {exc}"
 
 
