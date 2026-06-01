@@ -5300,6 +5300,12 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
             hints.append(
                 f"{role_label} uses OpenAI Codex but the OpenAI Codex CLI is not signed in or not on PATH. Run `codex login` first, then rerun `spark setup {role_flag} codex`."
             )
+        elif auth_mode == "codex_oauth":
+            codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
+            if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                hints.append(
+                    f"{role_label} uses OpenAI Codex sign-in but Codex CLI auth is not ready. Run `codex login`, then rerun `spark providers status`."
+                )
     return hints
 
 
@@ -10104,6 +10110,43 @@ def codex_config_path(env: dict[str, str] | None = None) -> Path:
     return root / ".codex" / "config.toml"
 
 
+def codex_auth_path(env: dict[str, str] | None = None) -> Path:
+    source = env if env is not None else os.environ
+    codex_home = str(source.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+    root = Path(home).expanduser() if home else Path.home()
+    return root / ".codex" / "auth.json"
+
+
+def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    path = codex_auth_path(env)
+    payload: dict[str, Any] = {
+        "provider": "codex",
+        "path": public_local_path_ref(path),
+        "exists": path.exists(),
+        "source": "codex_cli_auth",
+        "notes": [],
+    }
+    if not path.exists():
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json was not found. Run `codex login` first.")
+        return payload
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        payload["ok"] = False
+        payload["notes"].append(redact_sensitive_text(str(exc)))
+        return payload
+    if not isinstance(parsed, dict) or not parsed:
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json is empty or invalid. Run `codex login` again.")
+        return payload
+    payload["ok"] = True
+    return payload
+
+
 def _safe_codex_client_value(value: Any) -> str:
     if value is None:
         return ""
@@ -10866,6 +10909,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     status_payload = collect_status_payload()
     provider_payload = provider_status_payload()
     status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    modules_installed = bool(status_modules)
     spawner_module = next(
         (module for module in status_modules if isinstance(module, dict) and module.get("name") == "spawner-ui"),
         None,
@@ -10933,13 +10977,27 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
             "summary": "Spark update repair",
             "checks": [
                 {
+                    "name": "installed modules",
+                    "ok": modules_installed,
+                    "detail": (
+                        "Spark modules are installed; update can check them safely."
+                        if modules_installed
+                        else "No installed Spark modules are recorded, so there is nothing for update to repair."
+                    ),
+                    "repair": "" if modules_installed else "spark setup telegram-starter",
+                },
+                {
                     "name": "dirty module safety",
-                    "ok": True,
+                    "ok": modules_installed,
                     "detail": "Use --skip-dirty when local module edits should not block clean modules from updating.",
-                    "repair": "",
+                    "repair": "" if modules_installed else "Install Spark modules before running update.",
                 }
             ],
-            "next_commands": ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"],
+            "next_commands": (
+                ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"]
+                if modules_installed
+                else ["spark setup telegram-starter", "spark status", "spark verify --onboarding"]
+            ),
         },
         "autostart": {
             "summary": "Spark autostart repair",
@@ -11290,7 +11348,7 @@ def provider_status_payload() -> dict[str, Any]:
                 auth_mode = "claude_oauth"
             elif provider == "ollama":
                 auth_mode = "local"
-        role_payload[role] = {
+        role_state = {
             "provider": provider,
             "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
             "model": state.get("model") or llm_state.get("model") or "",
@@ -11298,8 +11356,14 @@ def provider_status_payload() -> dict[str, Any]:
             "base_url": state.get("base_url") or llm_state.get("base_url") or "",
             "ready": provider != "not_configured" and auth_mode != "not_configured",
         }
+        if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
+            codex_auth = codex_cli_auth_payload()
+            role_state["codex_auth"] = codex_auth
+            if not codex_auth.get("ok"):
+                role_state["ready"] = False
         if provider == "codex" and auth_mode == "codex_oauth":
-            role_payload[role]["codex_client"] = codex_client_config_payload()
+            role_state["codex_client"] = codex_client_config_payload()
+        role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
     return {
         "ok": not repair_hints,
