@@ -83,6 +83,14 @@ def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = Non
     return spark_home / "config" / "modules"
 
 
+def _strip_env_quotes(value: str) -> str:
+    """Strip matching surrounding single or double quotes from an env value."""
+    v = value.strip()
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        return v[1:-1]
+    return value
+
+
 def read_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -92,7 +100,7 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = value
+        values[key.strip().lstrip("\ufeff")] = _strip_env_quotes(value)
     return values
 
 

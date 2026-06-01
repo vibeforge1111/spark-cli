@@ -3074,6 +3074,14 @@ def write_generated_env(path: Path, values: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _strip_env_quotes(value: str) -> str:
+    """Strip matching surrounding single or double quotes from an env value."""
+    v = value.strip()
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        return v[1:-1]
+    return value
+
+
 def read_generated_env(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -3083,7 +3091,7 @@ def read_generated_env(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = value
+        values[key.strip().lstrip("\ufeff")] = _strip_env_quotes(value)
     return values
 
 
@@ -4990,7 +4998,7 @@ def sync_generated_env_to_module(module: Module) -> None:
         if not line or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key] = value
+        values[key] = _strip_env_quotes(value)
     if values:
         update_env_file(env_path, values)
 
