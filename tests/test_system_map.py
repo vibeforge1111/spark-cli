@@ -1530,7 +1530,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "run_first_chip_hook_supporting(hook='voice.install')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.profile.tune')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='style.train')\n"
-                "authorize_builder_bridge_action(update_payload, tool_name='style.feedback.record')\n",
+                "authorize_builder_bridge_action(update_payload, tool_name='style.feedback.record')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='think.visibility.set')\n",
                 encoding="utf-8",
             )
             (builder_src / "bridge_authority.py").write_text(
@@ -1560,11 +1561,13 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.voice_runtime_hooks"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
         self.assertFalse(by_id["builder.swarm_runtime_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_runtime_hooks"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
         self.assertEqual(by_id["memory.promotion"]["status"], "evidence_only")
