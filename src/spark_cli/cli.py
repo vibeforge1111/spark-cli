@@ -13626,46 +13626,49 @@ def windows_service_creationflags() -> int:
 
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
-    if os.name != "nt":
+    try:
+        if os.name != "nt":
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return int(line)
+                except ValueError:
+                    continue
+            return None
         result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             return None
+        suffix = f":{port}"
         for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
+            parts = line.split()
+            if len(parts) < 5 or parts[0].upper() != "TCP":
                 continue
-            try:
-                return int(line)
-            except ValueError:
-                continue
+            local_address = parts[1]
+            state = parts[-2].upper()
+            pid_text = parts[-1]
+            if state == "LISTENING" and local_address.endswith(suffix):
+                try:
+                    return int(pid_text)
+                except ValueError:
+                    return None
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
+    except OSError:
         return None
-    suffix = f":{port}"
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or parts[0].upper() != "TCP":
-            continue
-        local_address = parts[1]
-        state = parts[-2].upper()
-        pid_text = parts[-1]
-        if state == "LISTENING" and local_address.endswith(suffix):
-            try:
-                return int(pid_text)
-            except ValueError:
-                return None
-    return None
 
 
 def module_runtime_listener_ports(module: Module, profile: str | None = None) -> list[int]:
