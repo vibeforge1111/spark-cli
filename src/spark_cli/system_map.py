@@ -6068,7 +6068,7 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
+def build_voice_surface_view(system_map: dict[str, Any], trace_index: dict[str, Any] | None = None) -> dict[str, Any]:
     repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
     repo_names = {str(repo.get("name")) for repo in repos}
     repo_paths = {
@@ -6147,6 +6147,12 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         "src/spark_intelligence/adapters/telegram/runtime.py",
         "voice.status",
     )
+    builder_has_voice_delivery_trace = source_file_contains(
+        "spark-intelligence-builder",
+        "src/spark_intelligence/adapters/telegram/runtime.py",
+        "_record_telegram_voice_delivery_runtime_state",
+        "telegram_delivery",
+    )
     builder_has_transcript_preview = source_file_contains(
         "spark-intelligence-builder",
         "src/spark_intelligence/adapters/telegram/runtime.py",
@@ -6184,7 +6190,16 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         runtime_mode = source_mode
 
     hard_blocked = not available or not installed or source_mode == "disabled" or builder_has_transcript_preview
-    final_answer_supported = delivery_ready and telegram_has_voice_bridge
+    trace_index = trace_index or {}
+    final_answer_gate_samples = as_dict(trace_index.get("telegram_final_answer_gate_samples"))
+    final_answer_trace_join = as_dict(final_answer_gate_samples.get("trace_join"))
+    final_answer_join_status = str(final_answer_trace_join.get("status") or "missing")
+    final_answer_join_supported = (
+        telegram_has_voice_bridge
+        and builder_has_voice_delivery_trace
+        and final_answer_join_status == "join_key_present"
+    )
+    final_answer_supported = runtime_egress_ready and final_answer_join_supported
 
     blockers = []
     if not available:
@@ -6199,7 +6214,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         blockers.append("voice synthesis is not ready")
     if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:
         blockers.append("voice Telegram delivery is not proven")
-    if not final_answer_supported:
+    if not final_answer_join_supported:
         blockers.append("voice final-answer join evidence is not compiled")
     if builder_has_transcript_preview:
         blockers.append("Builder retains raw voice transcript preview in private trace fields")
@@ -6207,7 +6222,9 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     trace_evidence = "missing_source_hooks"
     if source_mode != "disabled" and runtime_state_export_present:
         trace_evidence = "runtime_state_export_present"
-        if not final_answer_supported:
+        if not final_answer_join_supported:
+            trace_evidence = "runtime_state_export_present_final_answer_join_unproven"
+        elif not final_answer_supported:
             trace_evidence = "runtime_state_export_present_delivery_unproven"
     elif source_mode != "disabled":
         trace_evidence = "source_present_not_proven"
@@ -6259,7 +6276,8 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         },
         "trace": {
             "voice_events_supported": bool(runtime_sources),
-            "final_answer_check_supported": final_answer_supported,
+            "final_answer_check_supported": final_answer_join_supported,
+            "final_answer_trace_join_status": final_answer_join_status,
             "source_hooks_present": source_mode != "disabled",
             "telegram_delivery_bridge_present": telegram_has_voice_bridge,
             "runtime_state_export_present": runtime_state_export_present,
@@ -6405,7 +6423,7 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
         "memory_movement_index": build_memory_movement_index(builder_home),
     }
     compiled["repo_board"] = build_repo_board(system_map)
-    compiled["voice_surface_view"] = build_voice_surface_view(system_map)
+    compiled["voice_surface_view"] = build_voice_surface_view(system_map, compiled["trace_index"])
     compiled["operating_cockpit"] = build_operating_cockpit(compiled)
     return compiled
 

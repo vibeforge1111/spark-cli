@@ -528,7 +528,16 @@ class SparkSystemMapTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
-                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                "\n".join(
+                    [
+                        "voice.status",
+                        "voice.transcribe",
+                        "voice.speak",
+                        "_record_telegram_voice_delivery_runtime_state",
+                        "telegram_delivery",
+                    ]
+                )
+                + "\n",
                 encoding="utf-8",
             )
             (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
@@ -572,7 +581,16 @@ class SparkSystemMapTests(unittest.TestCase):
                         {"name": "spark-intelligence-builder", "path": str(builder)},
                         {"name": "spark-telegram-bot", "path": str(telegram)},
                     ],
-                }
+                },
+                {
+                    "telegram_final_answer_gate_samples": {
+                        "trace_join": {
+                            "request_id_field_present": True,
+                            "trace_ref_field_present": True,
+                            "status": "join_key_present",
+                        }
+                    }
+                },
             )
 
         encoded = json.dumps(view)
@@ -585,12 +603,14 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertFalse(view["provider"]["tts_ready"])
         self.assertEqual(view["profile"]["voice_style_ref"], "spark_core")
         self.assertTrue(view["trace"]["voice_events_supported"])
+        self.assertTrue(view["trace"]["final_answer_check_supported"])
+        self.assertEqual(view["trace"]["final_answer_trace_join_status"], "join_key_present")
         self.assertEqual(view["trace"]["trace_evidence"], "runtime_state_export_present_delivery_unproven")
         self.assertNotIn("not installed", joined_blockers)
         self.assertNotIn("runtime status is not exported", joined_blockers)
         self.assertIn("voice synthesis is not ready", joined_blockers)
         self.assertIn("voice Telegram delivery is not proven", joined_blockers)
-        self.assertIn("voice final-answer join evidence is not compiled", joined_blockers)
+        self.assertNotIn("voice final-answer join evidence is not compiled", joined_blockers)
         self.assertNotIn("private transcript body", encoded)
 
     def test_parse_branch_status_handles_unborn_branch(self) -> None:
