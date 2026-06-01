@@ -1590,7 +1590,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             )
             (spawner_server / "scheduler.ts").write_text(
                 "assertHarnessAuthority({ toolName: 'spawner.schedule.create' });\n"
-                "buildMachineOriginPolicy({ allowedTools: ['spawner.run'] });\n",
+                "buildServerTurnIntentVNextAuthority({ toolName: 'spawner.run' });\n",
                 encoding="utf-8",
             )
             (spawner_server / "mission-control-command.ts").write_text(
@@ -1724,8 +1724,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["harness_core.authority_kernel"]["markers"]["auto_state_trigger"])
         self.assertEqual(by_id["spawner.spark_run"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["spawner.dispatch"]["status"], "machine_origin_policy")
-        self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "machine_origin_policy")
-        self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
         self.assertEqual(by_id["builder.direct_chip_commands"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.schedule_read_tools"]["status"], "envelope_verified")
