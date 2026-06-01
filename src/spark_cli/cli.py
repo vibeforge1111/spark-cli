@@ -10544,17 +10544,20 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
             "Use --prompt-out to review the redacted prompt, or configure OpenAI Codex/Anthropic Claude/Z.AI GLM/Kimi/OpenRouter/Hugging Face/MiniMax/OpenAI/Ollama."
         )
     provider = target["provider"]
-    if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
-        if target.get("auth_mode") == "codex_oauth":
+    try:
+        if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
+            if target.get("auth_mode") == "codex_oauth":
+                return codex_cli_completion(target, prompt)
+            return openai_compatible_chat_completion(target, prompt)
+        if provider == "codex":
             return codex_cli_completion(target, prompt)
-        return openai_compatible_chat_completion(target, prompt)
-    if provider == "codex":
-        return codex_cli_completion(target, prompt)
-    if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
-    if provider == "ollama":
-        return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+        if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
+            return claude_cli_completion(target, prompt)
+        if provider == "ollama":
+            return ollama_chat_completion(target, prompt)
+        raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        raise SystemExit(f"Error: Failed to communicate with LLM provider API ({provider}): {e}")
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
