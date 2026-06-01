@@ -49,6 +49,8 @@ from spark_cli.cli import (
     collect_verify_payload,
     configure_telegram_profile,
     cmd_list,
+    cmd_providers,
+    cmd_recommend,
     cmd_secrets_set,
     cmd_live,
     cmd_onboard,
@@ -3717,6 +3719,14 @@ class SparkCliTests(unittest.TestCase):
             ],
         )
 
+    def test_resolve_bundle_names_unknown_bundle_lists_known_bundles(self) -> None:
+        with self.assertRaises(SystemExit) as error:
+            resolve_bundle_names("nonexistent-bundle")
+        message = str(error.exception)
+        self.assertIn("Unknown bundle: nonexistent-bundle", message)
+        self.assertIn("Known bundles:", message)
+        self.assertIn("telegram-starter", message)
+
     def test_resolve_setup_bundle_plan_allows_plain_telegram_without_voice(self) -> None:
         modules = make_starter_modules(include_voice=False)
         args = build_parser().parse_args(["setup", "telegram-starter", "--no-start-now", "--no-autostart"])
@@ -6161,6 +6171,25 @@ class SparkCliTests(unittest.TestCase):
             resolve_start_modules("spark-telegram-bot", {gateway.name: gateway})
         self.assertIn("required modules are not installed", str(error.exception))
 
+    def test_resolve_start_modules_lists_installed_names_in_unknown_module_error(self) -> None:
+        builder = Module(
+            name="spark-intelligence-builder",
+            path=Path("C:/tmp/spark-intelligence-builder"),
+            manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
+        )
+        spawner = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={"module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"}},
+        )
+        with self.assertRaises(SystemExit) as error:
+            resolve_start_modules("nonexistent-module", {builder.name: builder, spawner.name: spawner})
+        message = str(error.exception)
+        self.assertIn("Unknown installed module: nonexistent-module", message)
+        self.assertIn("Installed:", message)
+        self.assertIn("spark-intelligence-builder", message)
+        self.assertIn("spawner-ui", message)
+
     def test_start_command_does_not_warn_for_non_runnable_dependencies(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
@@ -8535,6 +8564,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark setup --llm-provider codex", output)
         self.assertIn("spark setup --llm-provider kimi", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+
+    def test_cmd_recommend_unknown_subcommand_names_valid_set(self) -> None:
+        class Args:
+            recommend_command = "agents"
+            json = False
+
+        with self.assertRaises(SystemExit) as error:
+            cmd_recommend(Args())
+        message = str(error.exception)
+        self.assertIn("Unknown recommend command: agents", message)
+        self.assertIn("Known commands:", message)
+        self.assertIn("llms", message)
+        self.assertIn("providers", message)
+
+    def test_cmd_providers_unknown_subcommand_names_valid_set(self) -> None:
+        class Args:
+            providers_command = "configure"
+            json = False
+
+        with self.assertRaises(SystemExit) as error:
+            cmd_providers(Args())
+        message = str(error.exception)
+        self.assertIn("Unknown providers command: configure", message)
+        self.assertIn("Known commands:", message)
+        for name in ("recommend", "list", "status", "codex", "test"):
+            self.assertIn(name, message)
 
     def test_collect_secret_values_prompts_when_interactive_and_missing(self) -> None:
         module = Module(
