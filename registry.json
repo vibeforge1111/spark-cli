@@ -63,14 +63,14 @@
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "6b16edf2b473a3285f9faac4bfb3b01add306ce3",
+      "commit": "7f9c38a64c55534eee3a98cbcc6283623faf399e",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "6b16edf2b473a3285f9faac4bfb3b01add306ce3"
+        "commit": "7f9c38a64c55534eee3a98cbcc6283623faf399e"
       }
     },
     "spark-voice-comms": {
