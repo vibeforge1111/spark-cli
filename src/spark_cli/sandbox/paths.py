@@ -14,6 +14,7 @@ WINDOWS_RESERVED_NAMES = {
     *(f"com{idx}" for idx in range(1, 10)),
     *(f"lpt{idx}" for idx in range(1, 10)),
 }
+WINDOWS_UNSAFE_NAME_PATTERN = re.compile(r'[<>:"\\|?*]')
 
 
 def spark_home() -> Path:
@@ -61,4 +62,6 @@ def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
     relative = resolved.relative_to(root_resolved) if resolved != root_resolved else Path()
     if any(is_windows_reserved_name(part) for part in relative.parts):
         raise ValueError("Path must not use a Windows reserved device name.")
+    if any(WINDOWS_UNSAFE_NAME_PATTERN.search(part) for part in relative.parts):
+        raise ValueError("Path must not use Windows-unsafe characters.")
     return resolved
