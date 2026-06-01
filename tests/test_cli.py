@@ -1389,6 +1389,23 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_ssh_remote_command_execution(self) -> None:
+        cases = [
+            ["ssh", "deploy@example.test", "systemctl", "restart", "spark-live"],
+            ["ssh", "-i", "~/.ssh/spark_key", "deploy@example.test", "sudo", "journalctl", "-u", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh remote command")
+
+        session = approval_required_for_command(["ssh", "deploy@example.test"], CommandContext(non_interactive=True))
+        self.assertFalse(session.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],

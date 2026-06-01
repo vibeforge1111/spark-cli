@@ -99,6 +99,23 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _ssh_positionals(parts: list[str]) -> list[str]:
+    value_options = {"-b", "-c", "-D", "-E", "-e", "-F", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}
+    positionals: list[str] = []
+    skip_next = False
+    for index, part in enumerate(parts[1:], start=1):
+        if skip_next:
+            skip_next = False
+            continue
+        if part in value_options:
+            skip_next = True
+            continue
+        if part.startswith("-"):
+            continue
+        positionals.append(part)
+    return positionals
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -336,6 +353,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=parts[0],
             confirmation_phrase="approve remote code execution",
         )
+    if first == "ssh":
+        ssh_positionals = _ssh_positionals(parts)
+        if len(ssh_positionals) > 1:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "high",
+                "Command can execute instructions on a remote host over SSH.",
+                target_display=" ".join(ssh_positionals[:2]),
+                confirmation_phrase="approve ssh remote command",
+            )
 
     if first == "find" and any(part in {"-exec", "-execdir"} for part in lowered):
         return _decision(
