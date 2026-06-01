@@ -420,6 +420,25 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("voice.install", "voice.onboard", "run_first_chip_hook_supporting"),
     },
     {
+        "id": "builder.voice_diagnostic_tools",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "read_or_network_voice_diagnostics",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.diagnostics.run",
+            "voice.self_test.run",
+            "_run_voice_doctor_command",
+            "_run_voice_self_test_command",
+        ),
+    },
+
+    {
         "id": "builder.voice_state_mutations",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
