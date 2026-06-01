@@ -1906,7 +1906,10 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise SystemExit(f"Error: Failed to load module manifest from {manifest_path}. The file may be missing or corrupt: {e}")
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
