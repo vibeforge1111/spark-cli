@@ -486,7 +486,13 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
         )
-    if first in {"curl", "wget"} and _contains_any(lowered, {"-t", "--upload-file", "-f", "--form", "--data", "--data-binary"}):
+    if first in {"curl", "wget"} and (
+        _contains_any(
+            lowered,
+            {"--upload-file", "--form", "--data", "--data-binary", "--data-raw", "--data-urlencode"},
+        )
+        or _contains_any(parts, {"-F", "-T"})
+    ):
         return _decision(
             parts,
             ctx,

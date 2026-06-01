@@ -155,6 +155,17 @@ class BrowserUseCliTests(unittest.TestCase):
         lines = [str(call.args[0]) for call in printed.call_args_list if call.args]
         self.assertTrue(any("pip install -e" in line for line in lines))
 
+    def test_task_rejects_non_positive_max_steps(self) -> None:
+        parser = cli.build_parser()
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["browser-use", "task", "--max-steps", "0", "review page"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["browser-use", "task", "--max-steps", "-1", "review page"])
+
+        args = parser.parse_args(["browser-use", "task", "--max-steps", "1", "review page"])
+        self.assertEqual(args.max_steps, 1)
+
     def test_discovers_checkout_root_from_current_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "spark-cli"
