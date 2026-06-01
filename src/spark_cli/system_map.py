@@ -429,14 +429,20 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "id": "builder.voice_runtime_hooks",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
-        "mutation_class": "writes_files_or_external_voice_setup",
+        "mutation_class": "read_or_write_voice_chip_hooks",
         "risk": "high_agency",
         "files": (
             "src/spark_intelligence/adapters/telegram/runtime.py",
             "src/spark_intelligence/bridge_authority.py",
             "src/spark_intelligence/harness_contract.py",
         ),
-        "legacy_markers": ("voice.install", "voice.onboard", "run_first_chip_hook_supporting"),
+        "legacy_markers": (
+            "voice.status",
+            "voice.plan",
+            "voice.install",
+            "voice.onboard",
+            "run_first_chip_hook_supporting",
+        ),
     },
     {
         "id": "builder.voice_transcription_ingress",

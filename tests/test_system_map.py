@@ -1533,6 +1533,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "authorize_builder_bridge_action(update_payload, tool_name='route.probe.run')\n"
                 "run_route_probe_and_record()\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.install')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.status')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.plan')\n"
                 "authorize_builder_bridge_action(update_payload, tool_name='voice.transcribe')\n"
                 "_prepare_telegram_media_input()\n"
                 "run_first_chip_hook_supporting(hook='voice.install')\n"
