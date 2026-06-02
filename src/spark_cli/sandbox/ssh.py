@@ -257,11 +257,13 @@ def resolve_identity_file(path: str | Path) -> tuple[Path, list[str]]:
 
 
 def _target_from_dict(name: str, data: dict[str, Any]) -> SshTarget:
+    raw_port = data.get("port")
+    port_value = 22 if raw_port is None else int(raw_port)
     return SshTarget(
         name=validate_target_name(str(data.get("name") or name)),
         host=validate_ssh_host(str(data.get("host") or "")),
         user=validate_ssh_user(str(data.get("user") or "")),
-        port=validate_ssh_port(int(data.get("port") or 22)),
+        port=validate_ssh_port(port_value),
         identity_file=str(data.get("identity_file") or ""),
         remote_workspace=validate_remote_workspace(str(data.get("remote_workspace") or "~/spark-live")),
         host_key_status=str(data.get("host_key_status") or "unverified"),
