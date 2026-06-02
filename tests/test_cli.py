@@ -7671,6 +7671,15 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.subprocess.run", return_value=completed):
             self.assertEqual(listening_pid_for_tcp_port(8788), 222)
 
+    def test_listening_pid_for_tcp_port_returns_none_when_port_tool_missing(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("lsof")):
+            self.assertIsNone(listening_pid_for_tcp_port(8788))
+
+        with patch("spark_cli.cli.os.name", "nt"), \
+             patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("netstat")):
+            self.assertIsNone(listening_pid_for_tcp_port(8788))
+
     def test_discover_runtime_pid_uses_listener_when_windows_launcher_exits(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])
         process = subprocess.Popen.__new__(subprocess.Popen)

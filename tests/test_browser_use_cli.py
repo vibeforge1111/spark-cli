@@ -385,6 +385,11 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["memory"], "Task result ready.")
         self.assertEqual(payload["action"][0]["done"]["text"], "Visible")
 
+    def test_normalize_agent_json_returns_raw_text_for_invalid_json(self) -> None:
+        raw = "The task completed, but this is not JSON."
+
+        self.assertEqual(cli.browser_use_normalize_structured_agent_json(raw), raw)
+
     def test_agent_task_uses_spark_stability_defaults(self) -> None:
         captured: dict[str, object] = {}
 
