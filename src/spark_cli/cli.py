@@ -473,6 +473,8 @@ def load_registry_definition() -> dict[str, Any]:
 
 
 def validate_registry_definition(registry: dict[str, Any]) -> None:
+    if not isinstance(registry, dict):
+        raise SystemExit("Registry definition must be a JSON object.")
     modules = registry.get("modules", {})
     if not isinstance(modules, dict):
         raise SystemExit("Registry `modules` must be an object.")
@@ -499,13 +501,15 @@ def is_git_source(source: str) -> bool:
     return False
 
 
-def is_hosted_git_shorthand(value: str) -> bool:
+def is_hosted_git_shorthand(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
     parts = value.strip().split("/")
     return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
 
 
-def normalize_git_url(source: str) -> str:
-    value = source.strip()
+def normalize_git_url(source: Any) -> str:
+    value = str(source or "").strip()
     if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
@@ -524,6 +528,12 @@ def clone_target_for_module(name: str) -> Path:
 def git_command(*args: str) -> list[str]:
     return ["git", "-c", "core.longpaths=true", *args]
 
+def run_git_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(*args, **kwargs)
+    except FileNotFoundError as e:
+        raise SystemExit(f"git operation failed: git is not installed or not in PATH ({e})")
+
 
 def validate_commit_pin(commit: str | None) -> str | None:
     value = (commit or "").strip()
@@ -535,8 +545,7 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
+    result = run_git_subprocess(git_command(*args),
         cwd=str(cwd) if cwd else None,
         capture_output=True,
         text=True,
@@ -548,8 +557,7 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
+    verify_result = run_git_subprocess(git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
     )
@@ -661,8 +669,7 @@ def clone_module_source(
     if (target / "spark.toml").exists() and (target / ".git").exists():
         pinned_commit = validate_commit_pin(commit)
         if pinned_commit:
-            resolved = subprocess.run(
-                git_command("-C", str(target), "rev-parse", "HEAD"),
+            resolved = run_git_subprocess(git_command("-C", str(target), "rev-parse", "HEAD"),
                 capture_output=True,
                 text=True,
             )
@@ -686,8 +693,7 @@ def clone_module_source(
         run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
         verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
+    result = run_git_subprocess(git_command("clone", "--depth=1", url, str(target)),
         capture_output=True,
         text=True,
     )
@@ -698,8 +704,7 @@ def clone_module_source(
 
 
 def pull_module_source(path: Path) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(path), "pull", "--ff-only"),
+    result = run_git_subprocess(git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
     )
@@ -713,8 +718,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if not (is_git_source(source) and pinned_commit):
         return pull_module_source(module.path)
 
-    status = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
+    status = run_git_subprocess(git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
     )
@@ -723,8 +727,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if status.stdout.strip():
         return False, "working tree has local changes; commit or stash them before updating"
 
-    current = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
+    current = run_git_subprocess(git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
     )
@@ -734,8 +737,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if current_commit == pinned_commit:
         return True, f"already at pinned commit {pinned_commit[:12]}"
 
-    fetch = subprocess.run(
-        git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
+    fetch = run_git_subprocess(git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
         text=True,
     )
@@ -743,24 +745,21 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         return False, summarize_command_output(fetch)
 
     if bool(registry_metadata.get("require_signed_commit", False)):
-        verify = subprocess.run(
-            git_command("-C", str(module.path), "verify-commit", pinned_commit),
+        verify = run_git_subprocess(git_command("-C", str(module.path), "verify-commit", pinned_commit),
             capture_output=True,
             text=True,
         )
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
 
-    checkout = subprocess.run(
-        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
+    checkout = run_git_subprocess(git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
         capture_output=True,
         text=True,
     )
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
 
-    resolved = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
+    resolved = run_git_subprocess(git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
     )
@@ -781,8 +780,7 @@ def is_dirty_update_failure(detail: str) -> bool:
 
 
 def module_git_status(module: Module) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
+    result = run_git_subprocess(git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
     )
@@ -804,8 +802,7 @@ def dirty_update_modules(modules: list[Module]) -> list[tuple[Module, str]]:
 
 def stash_module_local_changes(module: Module) -> tuple[bool, str]:
     label = datetime.now(timezone.utc).strftime("spark-update-local-runtime-%Y%m%dT%H%M%SZ")
-    result = subprocess.run(
-        git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
+    result = run_git_subprocess(git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
         capture_output=True,
         text=True,
     )
@@ -866,7 +863,10 @@ def module_is_git_managed(module_path: Path) -> bool:
 
 
 def long_path_aware(path: Path) -> str:
-    resolved = str(path.resolve())
+    try:
+        resolved = str(path.resolve())
+    except OSError:
+        resolved = str(path.absolute())
     if os.name == "nt" and not resolved.startswith("\\\\?\\"):
         return f"\\\\?\\{resolved}"
     return resolved
@@ -881,8 +881,13 @@ def remove_tree(path: Path) -> None:
     target = long_path_aware(path)
     try:
         shutil.rmtree(target, onexc=retry_remove_readonly)
+    except FileNotFoundError:
+        pass
     except TypeError:  # pragma: no cover - Python <3.12 fallback
-        shutil.rmtree(target, onerror=retry_remove_readonly)
+        try:
+            shutil.rmtree(target, onerror=retry_remove_readonly)
+        except FileNotFoundError:
+            pass
 
 
 def remove_module_clone(name: str) -> None:
@@ -894,7 +899,11 @@ def remove_module_clone(name: str) -> None:
 
 def ensure_state_dirs() -> None:
     for path in (SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR):
-        path.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if not path.is_dir():
+                raise SystemExit(f"Error: State path '{path}' exists and is not a directory.")
+        else:
+            path.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(path, 0o700)
         except OSError:
@@ -1145,7 +1154,7 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
             f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
             "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
         )
-    except (OSError, TimeoutError, json.JSONDecodeError) as error:
+    except (OSError, TimeoutError, json.JSONDecodeError, ValueError, TypeError) as error:
         raise SystemExit(
             f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}. "
             "Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
@@ -1255,7 +1264,12 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Configuration error: '{path}' contains invalid JSON: {e}")
+    except OSError as e:
+        raise SystemExit(f"Error reading configuration file '{path}': {e}")
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -1289,8 +1303,14 @@ def assert_no_linked_write_path(path: Path) -> None:
 
 
 def installer_release_pins() -> dict[str, Any]:
-    shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    try:
+        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        shell = ""
+    try:
+        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        powershell = ""
     return installer_release_pins_from_text(shell, powershell)
 
 
@@ -1883,7 +1903,11 @@ def collect_registry_pin_drift_payload(
 
 def atomic_write_json(path: Path, payload: Any) -> None:
     assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.exists():
+        if not path.parent.is_dir():
+            raise OSError(f"Parent path {path.parent} exists and is not a directory.")
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     try:
         temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -1910,7 +1934,10 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise SystemExit(f"Error: Failed to load module manifest from {manifest_path}. The file may be missing or corrupt: {e}")
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -2160,6 +2187,8 @@ def read_clipboard_text() -> str:
 
 def extract_telegram_bot_token(value: str) -> str:
     """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
+    if not isinstance(value, str):
+        value = str(value or "")
     stripped = value.strip().strip("\"'")
     if TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(stripped):
         return stripped
@@ -4915,7 +4944,7 @@ def clear_install_progress(target: str) -> None:
     if data:
         save_json(INSTALL_PROGRESS_PATH, data)
     elif INSTALL_PROGRESS_PATH.exists():
-        INSTALL_PROGRESS_PATH.unlink()
+        INSTALL_PROGRESS_PATH.unlink(missing_ok=True)
 
 
 def record_install_step(target: str, step: str) -> None:
@@ -5002,7 +5031,7 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
     remaining = [name for name in setup_state.get("modules", []) if name not in module_names]
     if not remaining:
         if CONFIG_PATH.exists():
-            CONFIG_PATH.unlink()
+            CONFIG_PATH.unlink(missing_ok=True)
         return
     setup_state["modules"] = remaining
     if setup_state.get("telegram_ingress_owner") in module_names:
@@ -5012,7 +5041,16 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    if not isinstance(installed, dict):
+        return {}
+    result: dict[str, Module] = {}
+    for name, data in installed.items():
+        if isinstance(data, dict) and "path" in data:
+            try:
+                result[name] = load_module(Path(data["path"]))
+            except (OSError, SystemExit):
+                pass
+    return result
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
@@ -5651,7 +5689,10 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"Failed to install Graphiti/Kuzu sidecar (exit code {e.returncode}). Please check your python environment.")
 
 
 def browser_use_cli_path() -> str | None:
@@ -6437,12 +6478,18 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f"Failed to install browser-use extra (exit code {e.returncode}).")
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
-        run_browser_use_command(cli_path, "install", timeout=180)
-        run_browser_use_command(cli_path, "doctor", timeout=60)
+        try:
+            run_browser_use_command(cli_path, "install", timeout=180)
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            raise SystemExit(f"Failed to complete browser-use setup (install/doctor failed): {e}")
         print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
         return 0
 
@@ -7698,11 +7745,16 @@ def follow_live_logs(*, lines: int = 80) -> None:
                 if not path.exists():
                     continue
                 position = positions.get(path, 0)
-                with path.open("r", encoding="utf-8", errors="replace") as handle:
-                    handle.seek(position)
-                    for line in handle:
-                        write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
-                    positions[path] = handle.tell()
+                try:
+                    if position > path.stat().st_size:
+                        position = 0
+                    with path.open("r", encoding="utf-8", errors="replace") as handle:
+                        handle.seek(position)
+                        for line in handle:
+                            write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
+                        positions[path] = handle.tell()
+                except OSError:
+                    positions[path] = 0
             sys.stdout.flush()
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -8252,8 +8304,10 @@ def spawner_state_dir_for_revoke_all() -> Path:
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 
@@ -8781,8 +8835,7 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
 
 
 def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
+    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -8791,8 +8844,7 @@ def git_short_status(path: Path) -> str:
 
 
 def git_current_head(path: Path) -> str | None:
-    result = subprocess.run(
-        git_command("-C", str(path), "rev-parse", "HEAD"),
+    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -10198,7 +10250,11 @@ def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
 
 def atomic_write_text(path: Path, content: str) -> None:
     assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.exists():
+        if not path.parent.is_dir():
+            raise OSError(f"Parent path {path.parent} exists and is not a directory.")
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     try:
         temp_path.write_text(content, encoding="utf-8")
@@ -10412,8 +10468,11 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError, TypeError) as exc:
+        raise SystemExit(f"OpenAI completion request failed: {exc}")
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -10441,8 +10500,11 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError, TypeError) as exc:
+        raise SystemExit(f"Ollama completion request failed: {exc}")
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
@@ -10542,17 +10604,20 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
             "Use --prompt-out to review the redacted prompt, or configure OpenAI Codex/Anthropic Claude/Z.AI GLM/Kimi/OpenRouter/Hugging Face/MiniMax/OpenAI/Ollama."
         )
     provider = target["provider"]
-    if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
-        if target.get("auth_mode") == "codex_oauth":
+    try:
+        if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
+            if target.get("auth_mode") == "codex_oauth":
+                return codex_cli_completion(target, prompt)
+            return openai_compatible_chat_completion(target, prompt)
+        if provider == "codex":
             return codex_cli_completion(target, prompt)
-        return openai_compatible_chat_completion(target, prompt)
-    if provider == "codex":
-        return codex_cli_completion(target, prompt)
-    if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
-    if provider == "ollama":
-        return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+        if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
+            return claude_cli_completion(target, prompt)
+        if provider == "ollama":
+            return ollama_chat_completion(target, prompt)
+        raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        raise SystemExit(f"Error: Failed to communicate with LLM provider API ({provider}): {e}")
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
@@ -12702,7 +12767,7 @@ def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
         )
         with urllib.request.urlopen(request, timeout=20) as response:
             start_payload = json.loads(response.read().decode("utf-8") or "{}")
-    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError) as exc:
         return {
             "name": "hosted_deep_mission_smoke",
             "ok": False,
@@ -13615,46 +13680,49 @@ def windows_service_creationflags() -> int:
 
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
-    if os.name != "nt":
+    try:
+        if os.name != "nt":
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return int(line)
+                except ValueError:
+                    continue
+            return None
         result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             return None
+        suffix = f":{port}"
         for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
+            parts = line.split()
+            if len(parts) < 5 or parts[0].upper() != "TCP":
                 continue
-            try:
-                return int(line)
-            except ValueError:
-                continue
+            local_address = parts[1]
+            state = parts[-2].upper()
+            pid_text = parts[-1]
+            if state == "LISTENING" and local_address.endswith(suffix):
+                try:
+                    return int(pid_text)
+                except ValueError:
+                    return None
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
+    except OSError:
         return None
-    suffix = f":{port}"
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or parts[0].upper() != "TCP":
-            continue
-        local_address = parts[1]
-        state = parts[-2].upper()
-        pid_text = parts[-1]
-        if state == "LISTENING" and local_address.endswith(suffix):
-            try:
-                return int(pid_text)
-            except ValueError:
-                return None
-    return None
 
 
 def module_runtime_listener_ports(module: Module, profile: str | None = None) -> list[int]:
@@ -13846,7 +13914,8 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
     if not listener_pid or not pid_is_running(listener_pid):
         return None
     listener_uid = proc_uid_for_pid(listener_pid)
-    if listener_uid is not None and listener_uid != os.getuid():
+    current_uid = getattr(os, "getuid", lambda: None)()
+    if listener_uid is not None and current_uid is not None and listener_uid != current_uid:
         return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
     try:
         os.kill(listener_pid, signal.SIGTERM)
@@ -13858,7 +13927,7 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
             return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
         time.sleep(0.1)
     try:
-        os.kill(listener_pid, signal.SIGKILL)
+        os.kill(listener_pid, getattr(signal, "SIGKILL", 9))
     except OSError:
         pass
     active_listener = listening_pid_for_tcp_port(port)
@@ -13922,10 +13991,19 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                 print(stale_listener_note)
                 append_process_log(module.name, stale_listener_note, profile=profile)
 
+        if log_path.parent.exists():
+            if not log_path.parent.is_dir():
+                print(f"Failed to start {display_name}: log path {log_path.parent} exists and is not a directory.")
+                return False
+        else:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = log_path.open("a", encoding="utf-8")
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
+        except FileNotFoundError as exc:
+            print(f"Failed to start {display_name}: command or path not found ({exc})")
+            return False
         finally:
             log_handle.close()
         pids[process_key] = {
@@ -13998,12 +14076,18 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 def stop_module(name: str, pid: int) -> None:
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+        try:
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+        except FileNotFoundError:
+            pass
     else:
         try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
-            subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+            try:
+                subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+            except FileNotFoundError:
+                pass
     print(f"Stopped {name} (pid {pid})")
 
 
@@ -14415,7 +14499,15 @@ def windows_cmd_c(command: str) -> str:
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except OSError as e:
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=127,
+            stdout="",
+            stderr=f"Autostart command missing or OS error: {e}"
+        )
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
@@ -14677,7 +14769,7 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
     if sys.platform.startswith("linux") and running_under_wsl():
         startup_path = wsl_windows_startup_script_path()
         if startup_path is not None and startup_path.exists():
-            startup_path.unlink()
+            startup_path.unlink(missing_ok=True)
             print(f"Removed WSL Windows-login fallback: {startup_path}")
         return 0
 
@@ -14690,11 +14782,11 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
             failures += 1
             print_helper_failure(disable_command, result)
         if service_path.exists():
-            service_path.unlink()
+            service_path.unlink(missing_ok=True)
             print(f"Removed Spark autostart service: {service_path}")
         xdg_path = linux_xdg_autostart_path()
         if xdg_path.exists():
-            xdg_path.unlink()
+            xdg_path.unlink(missing_ok=True)
             print(f"Removed Linux desktop autostart fallback: {xdg_path}")
         reload_command = systemctl_command(scope, "daemon-reload")
         result = run_autostart_helper(reload_command)
@@ -14712,7 +14804,7 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
             result = run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
             if result.returncode != 0:
                 print_helper_failure(["launchctl", "bootout", bootstrap_domain, str(plist_path)], result)
-            plist_path.unlink()
+            plist_path.unlink(missing_ok=True)
             print(f"Removed Spark LaunchAgent: {plist_path}")
         return 0
 
@@ -14725,12 +14817,12 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
             print(f"Removed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
         startup_path = windows_startup_script_path()
         if startup_path.exists():
-            startup_path.unlink()
+            startup_path.unlink(missing_ok=True)
             print(f"Removed Windows Startup fallback: {startup_path}")
             failures = 0 if failures else failures
         legacy_cmd_path = windows_startup_legacy_cmd_path()
         if legacy_cmd_path.exists():
-            legacy_cmd_path.unlink()
+            legacy_cmd_path.unlink(missing_ok=True)
             print(f"Removed legacy Windows Startup fallback: {legacy_cmd_path}")
             failures = 0 if failures else failures
         run_key_command = ["reg", "delete", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME, "/F"]
@@ -15144,8 +15236,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     name = args.name.strip()
     validate_init_module_name(name)
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
-    if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
-        raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
+    if target_dir.exists():
+        if not target_dir.is_dir():
+            raise SystemExit(f"Error: {target_dir} exists and is not a directory.")
+        if any(target_dir.iterdir()) and not args.force:
+            raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
     description = args.description or f"Spark {args.kind} module."
     created = scaffold_module_files(target_dir, name, args.kind, description)
 
@@ -15405,7 +15500,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             stop_tracked_process_key(process_key)
         generated_path = generated_module_env_path(module)
         if generated_path.exists():
-            generated_path.unlink()
+            generated_path.unlink(missing_ok=True)
         env_path = module_env_path(module)
         if env_path is not None:
             remove_managed_env_block(env_path)
@@ -16377,4 +16472,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        import sys
+        print("\nOperation cancelled by user.", file=sys.stderr)
+        raise SystemExit(130)
+    except BrokenPipeError:
+        import sys
+        import os
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(1)
