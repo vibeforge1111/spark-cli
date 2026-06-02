@@ -9013,7 +9013,11 @@ def module_supply_chain_errors() -> list[str]:
         if not isinstance(record, dict):
             errors.append(f"Installed module `{name}` has a malformed registry record.")
             continue
-        path = Path(str(record.get("path") or "")).expanduser()
+        raw_path = str(record.get("path") or "").strip()
+        if not raw_path:
+            errors.append(f"Installed module `{name}` registry record has an empty path field.")
+            continue
+        path = Path(raw_path).expanduser()
         if not path.exists():
             errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
             continue
