@@ -4558,7 +4558,7 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    atomic_write_text(path, (output + "\n") if output else "")
 
 
 def cmd_list(_: argparse.Namespace) -> int:

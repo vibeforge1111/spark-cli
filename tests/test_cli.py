@@ -9742,6 +9742,37 @@ class SparkCliTests(unittest.TestCase):
             )
             remove_managed_env_block(env_path)
             self.assertEqual(env_path.read_text(encoding="utf-8"), "KEEP=1\n")
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
+            if os.name != "nt":
+                self.assertEqual(env_path.stat().st_mode & 0o777, 0o600)
+
+    def test_remove_managed_env_block_can_atomically_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            env_path.write_text(
+                "# --- spark-cli managed start ---\nBOT_TOKEN=abc\n# --- spark-cli managed end ---\n",
+                encoding="utf-8",
+            )
+
+            remove_managed_env_block(env_path)
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), "")
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
+            if os.name != "nt":
+                self.assertEqual(env_path.stat().st_mode & 0o777, 0o600)
+
+    def test_remove_managed_env_block_preserves_file_when_replace_interrupts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            original = "KEEP=1\n# --- spark-cli managed start ---\nBOT_TOKEN=abc\n# --- spark-cli managed end ---\n"
+            env_path.write_text(original, encoding="utf-8")
+
+            with patch("spark_cli.cli.os.replace", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    remove_managed_env_block(env_path)
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), original)
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
 
     def test_execute_install_commands_runs_manifest_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
