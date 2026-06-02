@@ -5737,11 +5737,16 @@ def install_memory_sidecar_dependencies(
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
     try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True, timeout=300)
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
             f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
             "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+            "The package download may be slow or the network unreachable."
         ) from None
     except OSError as exc:
         raise SystemExit(
@@ -6604,11 +6609,16 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Then run: spark browser-use probe")
             return 0
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True, timeout=300)
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
                 f"browser-use package install failed with exit code {exc.returncode}. "
                 "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"browser-use package install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable."
             ) from None
         except OSError as exc:
             raise SystemExit(
