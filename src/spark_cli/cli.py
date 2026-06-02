@@ -10096,6 +10096,10 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     response = input("Approval phrase: ").strip().lower()
     if response != decision.confirmation_phrase:
         print("Approval not granted. Nothing changed.")
+        print(
+            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+            "at the prompt to proceed."
+        )
         return 2
     return None
 
