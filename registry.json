@@ -14,14 +14,14 @@
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "8166be2e7c02488af02669e82ed1424aecf95e5a",
+      "commit": "2e45cd95b0bb474b4a71a3673ccce742f0d0e31b",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "8166be2e7c02488af02669e82ed1424aecf95e5a"
+        "commit": "2e45cd95b0bb474b4a71a3673ccce742f0d0e31b"
       }
     },
     "spark-telegram-bot": {
