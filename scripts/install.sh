@@ -219,6 +219,35 @@ if [ "$SPARK_ASSUME_YES" = "1" ] || [ ! -t 0 ]; then
   SPARK_NON_INTERACTIVE_SETUP=1
 fi
 
+# Warn about secrets passed via CLI arguments (visible in process list)
+warn_cli_arg_secrets() {
+  local has_secrets=0
+  if [ -n "$SPARK_BOT_TOKEN" ]; then
+    echo "[spark-install] WARNING: --bot-token passed via CLI arg is visible in process list. Consider using SPARK_BOT_TOKEN env var instead." >&2
+    has_secrets=1
+  fi
+  if [ -n "$SPARK_ZAI_API_KEY" ]; then
+    echo "[spark-install] WARNING: --zai-api-key passed via CLI arg is visible in process list. Consider using SPARK_ZAI_API_KEY env var instead." >&2
+    has_secrets=1
+  fi
+  if [ -n "$SPARK_OPENAI_API_KEY" ]; then
+    echo "[spark-install] WARNING: --openai-api-key passed via CLI arg is visible in process list. Consider using SPARK_OPENAI_API_KEY env var instead." >&2
+    has_secrets=1
+  fi
+  if [ -n "$SPARK_ANTHROPIC_API_KEY" ]; then
+    echo "[spark-install] WARNING: --anthropic-api-key passed via CLI arg is visible in process list. Consider using SPARK_ANTHROPIC_API_KEY env var instead." >&2
+    has_secrets=1
+  fi
+  if [ -n "$SPARK_MINIMAX_API_KEY" ]; then
+    echo "[spark-install] WARNING: --minimax-api-key passed via CLI arg is visible in process list. Consider using SPARK_MINIMAX_API_KEY env var instead." >&2
+    has_secrets=1
+  fi
+  if [ "$has_secrets" = "1" ]; then
+    echo "[spark-install] Tip: Use environment variables instead of CLI args for sensitive values to prevent exposure in process listings." >&2
+  fi
+}
+warn_cli_arg_secrets
+
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
