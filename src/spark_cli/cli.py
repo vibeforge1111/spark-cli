@@ -15579,6 +15579,13 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
         # `spark secrets get --reveal` is an explicit local operator command.
+        # Prompt for confirmation to prevent accidental stdout leakage.
+        if stdin_is_tty():
+            print(f"Warning: This will print the full value of '{args.secret_id}' to stdout.")
+            confirm = input("Are you sure you want to reveal this secret? [y/N] ").strip().lower()
+            if confirm not in ("y", "yes"):
+                print("Aborted.")
+                return 1
         # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
@@ -15645,7 +15652,10 @@ def cmd_update(args: argparse.Namespace) -> int:
                 stash_failures.append((module, stash_detail))
         if stash_failures:
             print("")
-            print("Update stopped before touching running processes because stashing failed.")
+            print("WARNING: Update blocked — stashing local runtime edits failed.")
+            print("The update will not proceed until stash failures are resolved.")
+            print("Resolve by committing or discarding local changes in each module,")
+            print("then re-run `spark update --stash-local-runtime`.")
             for module, detail in stash_failures:
                 print(f"  - {module.name}: {detail}")
             return 1
