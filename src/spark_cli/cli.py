@@ -4503,7 +4503,15 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to a unique temp path, chmod to private mode, then
+    # os.replace into place so a concurrent reader never observes a half-written
+    # configuration file (the old direct write_text could be interrupted between
+    # the open() and the final flush, leaving zero-byte or truncated state).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def remove_managed_env_block(path: Path) -> None:
