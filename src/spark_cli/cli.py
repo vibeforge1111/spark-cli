@@ -6165,8 +6165,17 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         )
 
 
+_PAGE_SUMMARY_TEXT_LIMIT = 2000
+
+
 def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
-    script = "JSON.stringify({title:document.title,url:location.href,text:document.body.innerText.slice(0,2000)})"
+    summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
+    script = (
+        "(()=>{const text=document.body.innerText||'';"
+        f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
+        "textLength:text.length});"
+        "})()"
+    )
     result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
     raw = result.stdout.strip()
     if raw.lower().startswith("result:"):
@@ -6177,10 +6186,17 @@ def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
         return {"title": "", "url": "", "text": ""}
     if not isinstance(parsed, dict):
         return {"title": "", "url": "", "text": ""}
+    text = str(parsed.get("text") or "")
+    try:
+        text_length = int(parsed.get("textLength") or len(text))
+    except (TypeError, ValueError):
+        text_length = len(text)
+    if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
+        text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
     return {
         "title": str(parsed.get("title") or ""),
         "url": str(parsed.get("url") or ""),
-        "text": str(parsed.get("text") or ""),
+        "text": text,
     }
 
 
