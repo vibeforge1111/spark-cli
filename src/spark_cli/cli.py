@@ -787,7 +787,9 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"[Keychain] Probe failed: {e}", file=sys.stderr)
         return False
     return True
 
@@ -953,8 +955,9 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            print(f"[Secrets] Keychain store failed for {secret_id}: {e}", file=sys.stderr)
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     file_secrets[secret_id] = dpapi_protect(value)
     save_json(SECRETS_FILE_PATH, file_secrets)
@@ -1049,14 +1052,16 @@ def delete_secret(secret_id: str) -> bool:
         try:
             _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            print(f"[Secrets] Keychain delete failed for {secret_id}: {e}", file=sys.stderr)
         if default_home_uses_legacy_keychain():
             try:
                 _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
                 removed = True
-            except Exception:
-                pass
+            except Exception as e:
+                import sys
+                print(f"[Secrets] Legacy keychain delete failed for {secret_id}: {e}", file=sys.stderr)
     if backend == "file":
         file_secrets = load_json(SECRETS_FILE_PATH, {})
         if secret_id in file_secrets:
@@ -6372,7 +6377,9 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"[Modules] resolve_installed_modules failed: {e}", file=sys.stderr)
         return {}
 
 
