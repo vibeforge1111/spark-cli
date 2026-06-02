@@ -81,6 +81,8 @@ from spark_cli.cli import (
     delete_secret,
     execute_security_revoke_all,
     pause_revoke_all_missions,
+    resolve_installed_modules,
+    resolve_installed_modules_best_effort,
     fetch_secret,
     infer_module_name_from_url,
     initial_follow_log_lines,
@@ -2196,6 +2198,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("mission-os-error", payload["paused_mission_ids"])
         self.assertTrue(any(item["path"] == str(active_path) for item in payload["failures"]))
         self.assertTrue(all("PermissionError" in item["error"] for item in payload["failures"]))
+
+    def test_resolve_installed_modules_best_effort_survives_broken_manifest(self) -> None:
+        # load_module now raises SystemExit (a BaseException) on a missing/corrupt
+        # manifest, which is NOT caught by `except Exception`. The best-effort helper
+        # must still degrade to {} so a single broken installed module cannot abort
+        # callers like `spark security revoke-all` (which calls it directly).
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir).resolve()  # avoid the /tmp -> /private/tmp symlink write guard
+            ghost_dir = root / "ghost-module"  # registered, but has no spark.toml
+            ghost_dir.mkdir()
+            registry_path = root / "installed.json"
+            save_json(registry_path, {"ghost": {"path": str(ghost_dir)}})
+
+            with patch("spark_cli.cli.REGISTRY_PATH", registry_path):
+                # Sanity: load_module on the broken manifest raises SystemExit (not Exception).
+                with self.assertRaises(SystemExit):
+                    resolve_installed_modules()
+                # Best-effort contract: must swallow it and return {}.
+                self.assertEqual(resolve_installed_modules_best_effort(), {})
 
     def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \

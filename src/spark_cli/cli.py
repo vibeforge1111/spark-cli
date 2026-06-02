@@ -8274,7 +8274,12 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except (Exception, SystemExit):
+        # load_module raises SystemExit on a missing/corrupt module manifest.
+        # SystemExit is a BaseException (not an Exception), so it would otherwise
+        # escape this best-effort guard and abort callers that must degrade
+        # gracefully (e.g. `spark security revoke-all`). Treat it like any other
+        # module-resolution failure and fall back to no installed modules.
         return {}
 
 
