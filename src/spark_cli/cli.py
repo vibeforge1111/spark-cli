@@ -4613,7 +4613,27 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
         if not manifest_path.exists():
             raise SystemExit(f"{candidate} does not contain spark.toml")
         return load_module(candidate)
-    raise SystemExit(f"Unknown module target: {target}")
+    raise SystemExit(_unknown_install_target_message(target, modules, registry))
+
+
+def _unknown_install_target_message(
+    target: str, modules: dict[str, Module], registry: dict[str, Any]
+) -> str:
+    installed_names = sorted(modules.keys()) if modules else []
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    registry_names = sorted(name for name in registry_modules.keys() if name not in modules)
+    parts = [f"Unknown module target: {target}."]
+    if installed_names:
+        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+    else:
+        parts.append("No modules are installed yet.")
+    if registry_names:
+        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+    parts.append(
+        "Or pass a git URL (https://, git@, .git suffix, or owner/repo shorthand) "
+        "or a local directory containing a spark.toml manifest."
+    )
+    return " ".join(parts)
 
 
 def install_module_record(

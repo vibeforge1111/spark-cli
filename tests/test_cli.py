@@ -13273,6 +13273,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark autostart off", script)
         self.assertIn("spark autostart on telegram-starter --now", script)
 
+    def test_unknown_install_target_message_lists_installed_and_registry(self) -> None:
+        # Regression: resolve_install_target's `Unknown module target: <name>`
+        # SystemExit used to print only the offending value. It now names the
+        # installed modules, the registry-known modules, and the two
+        # alternative shapes (git URL / local manifest directory) so the
+        # operator can recover without leaving the shell.
+        from spark_cli.cli import _unknown_install_target_message
+
+        # Case A: both installed and registry have content.
+        installed = {
+            "spark-cli": object(),  # any non-None value; helper only inspects keys
+            "spark-telegram-bot": object(),
+        }
+        registry = {
+            "modules": {
+                "spark-cli": {},  # also installed; helper should not double-list
+                "spark-character": {},
+                "spark-researcher": {},
+            }
+        }
+        message = _unknown_install_target_message("typo", installed, registry)
+        self.assertIn("Unknown module target: typo.", message)
+        self.assertIn("Installed modules: spark-cli, spark-telegram-bot.", message)
+        self.assertIn(
+            "Registry-known modules: spark-character, spark-researcher.", message
+        )
+        self.assertIn("git URL", message)
+        self.assertIn("spark.toml", message)
+
+        # Case B: empty installed registry, empty registry definition.
+        message_empty = _unknown_install_target_message("typo", {}, {"modules": {}})
+        self.assertIn("Unknown module target: typo.", message_empty)
+        self.assertIn("No modules are installed yet.", message_empty)
+        # Registry-known line should not appear when registry is empty.
+        self.assertNotIn("Registry-known modules:", message_empty)
+        self.assertIn("git URL", message_empty)
+
     def test_readme_does_not_recommend_piping_remote_installers_to_shell(self) -> None:
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
         compact_readme = " ".join(readme.split())
