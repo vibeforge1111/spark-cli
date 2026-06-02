@@ -7017,6 +7017,29 @@ def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
     print("  spark live status")
 
 
+def _apply_setup_start(bundle: str, *, autostart: bool, start_now: bool) -> bool:
+    """Bring the agent up after setup wrote fresh config.
+
+    Setup has just (re)generated the provider/model/runtime config, so an
+    already-running module must be RESTARTED to load it, not merely "started"
+    (which `start_module` skips when a pid is already running, silently leaving
+    the live agent on the old model). Use cmd_restart, which stops any running
+    instance and starts a fresh one, and also handles the not-running case.
+    """
+    if autostart:
+        print("")
+        if start_now:
+            print("Installing login autostart and starting Spark now.")
+        else:
+            print("Installing login autostart. Turn it off with: spark autostart off")
+        return cmd_autostart_install(argparse.Namespace(target=bundle, now=start_now)) == 0
+    if start_now:
+        print("")
+        print("Starting Spark now.")
+        return cmd_restart(argparse.Namespace(target=bundle, profile=None)) == 0
+    return False
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
@@ -7061,18 +7084,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
         )
         clear_pending_setup_state()
         start_now = bool(getattr(args, "start_now", True))
-        start_ok = False
-        if getattr(args, "autostart", True):
-            print("")
-            if start_now:
-                print("Installing login autostart and starting Spark now.")
-            else:
-                print("Installing login autostart. Turn it off with: spark autostart off")
-            start_ok = cmd_autostart_install(argparse.Namespace(target=args.bundle, now=start_now)) == 0
-        elif start_now:
-            print("")
-            print("Starting Spark now.")
-            start_ok = cmd_start(argparse.Namespace(target=args.bundle, profile=None)) == 0
+        start_ok = _apply_setup_start(
+            args.bundle,
+            autostart=bool(getattr(args, "autostart", True)),
+            start_now=start_now,
+        )
         print_setup_summary(
             args,
             plan.ingress_owner,

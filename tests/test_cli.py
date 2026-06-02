@@ -60,6 +60,7 @@ from spark_cli.cli import (
     cmd_sandbox,
     cmd_start,
     cmd_setup,
+    _apply_setup_start,
     cmd_uninstall,
     cmd_update,
     cmd_browser_use,
@@ -2416,6 +2417,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(any("spawner-ui:" in warning for warning in warnings))
         self.assertFalse(any("spawner-ui-dev" in warning for warning in warnings))
         self.assertFalse(any("domain-chip-memory" in warning for warning in warnings))
+
+    def test_setup_start_restarts_running_agent_to_apply_new_config(self) -> None:
+        # Regression: setup has just rewritten provider/model config, so an
+        # already-running agent must be RESTARTED to load it. Using cmd_start
+        # (which start_module skips when a pid is already running) leaves the
+        # live agent on the stale model. The post-config start must use restart.
+        with patch("spark_cli.cli.cmd_restart", return_value=0) as restart, \
+             patch("spark_cli.cli.cmd_start", return_value=0) as start, \
+             patch("spark_cli.cli.cmd_autostart_install", return_value=0) as autostart, \
+             patch("sys.stdout", new_callable=StringIO):
+            ok = _apply_setup_start("telegram-starter", autostart=False, start_now=True)
+
+        self.assertTrue(ok)
+        restart.assert_called_once()
+        self.assertEqual(restart.call_args.args[0].target, "telegram-starter")
+        start.assert_not_called()
+        autostart.assert_not_called()
+
+    def test_setup_start_uses_autostart_install_when_autostart_enabled(self) -> None:
+        with patch("spark_cli.cli.cmd_autostart_install", return_value=0) as autostart, \
+             patch("spark_cli.cli.cmd_restart", return_value=0) as restart, \
+             patch("sys.stdout", new_callable=StringIO):
+            ok = _apply_setup_start("telegram-starter", autostart=True, start_now=True)
+
+        self.assertTrue(ok)
+        autostart.assert_called_once()
+        restart.assert_not_called()
+
+    def test_setup_start_is_noop_when_not_starting(self) -> None:
+        with patch("spark_cli.cli.cmd_restart") as restart, \
+             patch("spark_cli.cli.cmd_autostart_install") as autostart, \
+             patch("sys.stdout", new_callable=StringIO):
+            ok = _apply_setup_start("telegram-starter", autostart=False, start_now=False)
+
+        self.assertFalse(ok)
+        restart.assert_not_called()
+        autostart.assert_not_called()
 
     def test_cmd_start_warns_but_continues_when_runtime_is_dirty(self) -> None:
         module = Module(
