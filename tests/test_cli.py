@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from argparse import Namespace
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from http.client import HTTPMessage
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,7 @@ from spark_cli.cli import (
     list_stored_secrets,
     load_json,
     load_json_best_effort,
+    load_module,
     long_path_aware,
     module_log_path,
     live_log_targets,
@@ -1680,6 +1682,21 @@ class SparkCliTests(unittest.TestCase):
             loaded = load_module(target)
             self.assertEqual(loaded.name, "new-module")
             self.assertEqual(loaded.kind, "service")
+
+    def test_load_module_reports_missing_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(SystemExit) as raised:
+                load_module(Path(tmp_dir) / "missing-module")
+        self.assertIn("Module manifest not found", str(raised.exception))
+
+    def test_load_module_reports_invalid_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "bad-module"
+            target.mkdir()
+            (target / "spark.toml").write_text("[module\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                load_module(target)
+        self.assertIn("Invalid TOML in module manifest", str(raised.exception))
 
     def test_dotted_set_and_get_roundtrips_nested_paths(self) -> None:
         config: dict = {}
@@ -9062,6 +9079,14 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("want_local_private", payload["paths"])
         self.assertIn("lmstudio", payload["paths"]["want_local_private"])
 
+    def test_cmd_providers_list_json_is_agent_readable(self) -> None:
+        args = build_parser().parse_args(["providers", "list", "--json"])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertIn("providers", payload)
+
     def test_cmd_recommend_providers_is_alias_for_llms(self) -> None:
         args = build_parser().parse_args(["recommend", "providers"])
         with patch("sys.stdout", new_callable=StringIO) as stdout:
@@ -10881,6 +10906,58 @@ class SparkCliTests(unittest.TestCase):
             result = openai_compatible_chat_completion(target, "ping")
         self.assertEqual(result, "PING_OK")
         self.assertEqual(captured["User-Agent"], OPENAI_COMPAT_HTTP_USER_AGENT)
+
+    def test_openai_compatible_chat_completion_reports_http_error_safely(self) -> None:
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        error = urllib.error.HTTPError(
+            "https://api.example.test/v1/chat/completions",
+            400,
+            "Bad Request",
+            HTTPMessage(),
+            tempfile.SpooledTemporaryFile(),
+        )
+        error.fp.write(b'{"error":"api_key=sk-test-secret failed"}')
+        error.fp.seek(0)
+        with patch("urllib.request.urlopen", side_effect=error), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        message = str(raised.exception)
+        self.assertIn("LLM provider returned HTTP 400", message)
+        self.assertIn("[REDACTED]", message)
+        self.assertNotIn("sk-test-secret", message)
+
+    def test_openai_compatible_chat_completion_reports_network_error(self) -> None:
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        self.assertIn("Could not reach LLM provider", str(raised.exception))
+
+    def test_openai_compatible_chat_completion_reports_invalid_json(self) -> None:
+        class FakeResponse:
+            def read(self) -> bytes:
+                return b"not-json"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", return_value=FakeResponse()), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        self.assertIn("LLM provider returned invalid JSON", str(raised.exception))
 
     def test_collect_verify_payload_reports_launch_ready_stack(self) -> None:
         expected = [
