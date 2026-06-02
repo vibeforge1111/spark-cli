@@ -1115,7 +1115,7 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             # we never want in a log line. The file path it falls back to is
             # already chmod 0o600 by harden_secret_file below.
             sys.stderr.write(
-                f"spark-cli: system store write failed for {secret_id!r} "
+                f"spark-cli: system store write failed "
                 f"(error type: {type(_store_exc).__name__}); "
                 f"falling back to file storage.\n"
             )

@@ -9401,6 +9401,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("system store write failed", warning)
         self.assertIn("RuntimeError", warning)
         self.assertNotIn("secret-token", warning)
+        self.assertNotIn("telegram.bot_token", warning)
 
     def test_store_secret_refuses_file_backend_without_explicit_opt_in(self) -> None:
         if os.name == "nt":
