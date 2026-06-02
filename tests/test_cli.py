@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import hashlib
 import json
@@ -67,6 +68,8 @@ from spark_cli.cli import (
     detect_runtime_binary,
     direct_node_package_script_argv,
     DPAPI_SECRET_PREFIX,
+    dpapi_protect,
+    dpapi_unprotect,
     evaluate_module_health,
     clone_module_source,
     clone_target_for_module,
@@ -1580,6 +1583,8 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 2)
         delete_secret_command.assert_not_called()
         self.assertIn("Approval not granted", stdout.getvalue())
+        self.assertIn("Re-run the same command", stdout.getvalue())
+        self.assertIn("approve secret access", stdout.getvalue())
 
     def test_main_runs_sensitive_command_after_exact_phrase(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
@@ -3905,6 +3910,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("BOT_TOKEN=abc", contents)
             self.assertIn("ADMIN_TELEGRAM_IDS=123", contents)
             self.assertNotIn("OLD=1", contents)
+
+    def test_update_env_file_uses_atomic_temp_then_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+
+            update_env_file(env_path, {"BOT_TOKEN": "abc"})
+
+            self.assertIn("BOT_TOKEN=abc", env_path.read_text(encoding="utf-8"))
+            self.assertEqual(list(Path(tmp_dir).glob(".env.*.tmp")), [])
 
     def test_resolve_install_target_prefers_registry_module_name(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
@@ -9365,6 +9379,30 @@ class SparkCliTests(unittest.TestCase):
                 self.assertIsNone(fetch_secret("telegram.bot_token"))
                 self.assertEqual(list_stored_secrets(), {})
 
+    def test_store_secret_warns_on_keychain_fallback_without_leaking_value(self) -> None:
+        class FailingKeyring:
+            def set_password(self, *_: object) -> None:
+                raise RuntimeError("boom secret-token")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            index_path = Path(tmp_dir) / "secrets_index.json"
+            file_path = Path(tmp_dir) / "secrets.local.json"
+            stderr = StringIO()
+            with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
+                 patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
+                 patch("spark_cli.cli._keyring", FailingKeyring()), \
+                 patch("spark_cli.cli.keychain_available", return_value=True), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
+                 redirect_stderr(stderr):
+                backend = store_secret("telegram.bot_token", "secret-token", preferred="keychain")
+
+        self.assertEqual(backend, "file")
+        warning = stderr.getvalue()
+        self.assertIn("system store write failed", warning)
+        self.assertIn("RuntimeError", warning)
+        self.assertNotIn("secret-token", warning)
+        self.assertNotIn("telegram.bot_token", warning)
+
     def test_store_secret_refuses_file_backend_without_explicit_opt_in(self) -> None:
         if os.name == "nt":
             self.skipTest("Windows file secret backend uses DPAPI.")
@@ -9378,6 +9416,27 @@ class SparkCliTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as error:
                     store_secret("telegram.bot_token", "abc", preferred="keychain")
         self.assertIn("File secret backend is disabled", str(error.exception))
+
+    def test_dpapi_failures_include_windows_error_code_and_recovery_hint(self) -> None:
+        class FailingCrypt32:
+            def CryptProtectData(self, *_: object) -> bool:
+                return False
+
+            def CryptUnprotectData(self, *_: object) -> bool:
+                return False
+
+        with patch("spark_cli.cli.os.name", "nt"), \
+             patch("spark_cli.cli._crypt32", return_value=FailingCrypt32()), \
+             patch.object(ctypes, "get_last_error", return_value=5, create=True):
+            with self.assertRaises(OSError) as protect_error:
+                dpapi_protect("secret")
+            with self.assertRaises(OSError) as unprotect_error:
+                dpapi_unprotect(DPAPI_SECRET_PREFIX + "YmFk")
+
+        self.assertIn("Windows error code 5", str(protect_error.exception))
+        self.assertIn("interactive desktop session", str(protect_error.exception))
+        self.assertIn("Windows error code 5", str(unprotect_error.exception))
+        self.assertIn("same user account", str(unprotect_error.exception))
 
     def test_validate_telegram_bot_token_uses_getme_without_leaking_token_on_rejection(self) -> None:
         class FakeResponse:

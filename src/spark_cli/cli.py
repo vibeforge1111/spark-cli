@@ -1034,7 +1034,14 @@ def dpapi_protect(value: str) -> str:
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptProtectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptProtectData failed (Windows error code {err}). "
+            "Verify a user profile is loaded -- this call commonly fails under "
+            "SSH, scheduled tasks, or service accounts where the interactive "
+            "profile is unavailable. Re-run from an interactive desktop session, "
+            f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
+        )
     try:
         protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1053,7 +1060,14 @@ def dpapi_unprotect(value: str) -> str:
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptUnprotectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptUnprotectData failed (Windows error code {err}). "
+            "The stored value may have been written under a different user "
+            "profile, or the master key is unreachable. Re-run from the same "
+            "user account that wrote the value, or delete the stored entry "
+            "and re-enter it with `spark setup`."
+        )
     try:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1094,8 +1108,17 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as _store_exc:
+            # Surface the fall-back so the operator notices that the value
+            # landed on disk instead of in the system store. Log only the
+            # exception class name -- the message can echo the value, which
+            # we never want in a log line. The file path it falls back to is
+            # already chmod 0o600 by harden_secret_file below.
+            sys.stderr.write(
+                f"spark-cli: system store write failed "
+                f"(error type: {type(_store_exc).__name__}); "
+                f"falling back to file storage.\n"
+            )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     try:
         file_secrets[secret_id] = dpapi_protect(value)
@@ -4503,7 +4526,15 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to a unique temp path, chmod to private mode, then
+    # os.replace into place so a concurrent reader never observes a half-written
+    # configuration file (the old direct write_text could be interrupted between
+    # the open() and the final flush, leaving zero-byte or truncated state).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def remove_managed_env_block(path: Path) -> None:
@@ -10104,6 +10135,10 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     response = input("Approval phrase: ").strip().lower()
     if response != decision.confirmation_phrase:
         print("Approval not granted. Nothing changed.")
+        print(
+            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+            "at the prompt to proceed."
+        )
         return 2
     return None
 
