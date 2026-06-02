@@ -1601,6 +1601,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             builder_harness_runtime = builder_src / "harness_runtime"
             builder_researcher_bridge = builder_src / "researcher_bridge"
             voice_src = desktop / "spark-voice-comms" / "src" / "voice_comms_chip"
+            memory_src = desktop / "domain-chip-memory" / "src" / "domain_chip_memory"
             memory_tests = desktop / "domain-chip-memory" / "tests"
             researcher_src = desktop / "spark-researcher" / "src" / "spark_researcher"
             harness_core = spark_home / "modules" / "spark-harness-core" / "source"
@@ -1618,6 +1619,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 builder_harness_runtime,
                 builder_researcher_bridge,
                 voice_src,
+                memory_src,
                 memory_tests,
                 researcher_src,
                 harness_core_src,
@@ -1765,6 +1767,17 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "# promotion gate keeps protected prompt changes evidence-only\n",
                 encoding="utf-8",
             )
+            (memory_src / "cli.py").write_text(
+                "schema = 'governor-decision-v1'\n"
+                "auth = 'authorization-decision-v1'\n"
+                "ledger = 'tool-call-ledger-v1'\n"
+                "MEMORY_PROMOTION_PUBLISH_TOOL_NAME = 'domain-chip-memory.memory_promotion.publish'\n"
+                "MEMORY_PROMOTION_SHIP_TOOL_NAME = 'domain-chip-memory.memory_promotion.ship'\n"
+                "def _validate_memory_promotion_governor(payload): pass\n"
+                "def _publish_spark_memory_kb_refresh_manifest(governor_decision): pass\n"
+                "def _ship_spark_memory_kb_governed_release(governor_decision): pass\n",
+                encoding="utf-8",
+            )
             (researcher_src / "self_edit.py").write_text(
                 "schema = 'governor-decision-v1'\n"
                 "auth = 'authorization-decision-v1'\n"
@@ -1855,7 +1868,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
-        self.assertEqual(by_id["memory.promotion"]["status"], "evidence_only")
+        self.assertEqual(by_id["memory.promotion"]["status"], "envelope_verified")
+        self.assertFalse(by_id["memory.promotion"]["release_blocker"])
         self.assertEqual(
             coverage["optional_surfaces"]["spark-skill-graphs"]["status"],
             "not_installed_optional_surface",
