@@ -13273,6 +13273,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark autostart off", script)
         self.assertIn("spark autostart on telegram-starter --now", script)
 
+    def test_call_llm_doctor_unsupported_provider_names_supported_set(self) -> None:
+        # Regression: when call_llm_doctor falls through the provider if-chain
+        # (e.g. an experimental or mistyped provider id), the SystemExit message
+        # should name the valid providers so the operator can recover without
+        # leaving the shell.
+        target = {"provider": "experimental-xyz", "auth_mode": "api"}
+        with self.assertRaises(SystemExit) as captured:
+            call_llm_doctor(target, "Spark is not working correctly.")
+        message = str(captured.exception)
+        self.assertIn("`experimental-xyz`", message)
+        # Names the supported set the if-chain above accepts.
+        for provider in [
+            "anthropic",
+            "codex",
+            "huggingface",
+            "kimi",
+            "minimax",
+            "ollama",
+            "openai",
+            "openrouter",
+            "zai",
+        ]:
+            self.assertIn(provider, message)
+        # Names the recovery commands.
+        self.assertIn("spark providers list", message)
+        self.assertIn("spark setup", message)
+
     def test_readme_does_not_recommend_piping_remote_installers_to_shell(self) -> None:
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
         compact_readme = " ".join(readme.split())
