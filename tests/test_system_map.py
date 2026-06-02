@@ -1627,8 +1627,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 encoding="utf-8",
             )
             (spawner_dispatch / "+server.ts").write_text(
-                "import { assertNativeVNextHarnessAuthority } from '../../../lib/server/harness-authority';\n"
-                "assertNativeVNextHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
+                "import { assertNativeGovernorHarnessAuthority } from '../../../lib/server/harness-authority';\n"
+                "assertNativeGovernorHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
                 encoding="utf-8",
             )
             (spawner_scheduled / "+server.ts").write_text(
