@@ -9829,7 +9829,36 @@ def cmd_security(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_approval_status_payload() -> dict[str, Any]:
+    enforced = approval_enforcement_enabled()
+    return {
+        "ok": True,
+        "mode": "report_only",
+        "enforcement_enabled": enforced,
+        "enforcement_note": (
+            "Spark classifies sensitive commands but does not block them yet unless "
+            "SPARK_APPROVAL_ENFORCE is enabled for your environment."
+        ),
+        "classify_usage": "spark approval classify -- <command>",
+        "example": "spark approval classify -- git push --force",
+        "next": "Use classify before risky operations; pair with spark security audit for local posture.",
+    }
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
+    if args.approval_command == "status":
+        payload = collect_approval_status_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark approval status")
+        print(f"Mode: {payload['mode']}")
+        print(f"Enforcement: {'enabled' if payload['enforcement_enabled'] else 'report-only (classifier only)'}")
+        print(payload["enforcement_note"])
+        print(f"Classify: {payload['classify_usage']}")
+        print(f"Example: {payload['example']}")
+        print(f"Next: {payload['next']}")
+        return 0
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
     command = list(args.command or [])
@@ -9942,6 +9971,58 @@ def cmd_access(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_sandbox_status_payload() -> dict[str, Any]:
+    from .sandbox.docker import collect_docker_doctor_payload
+    from .sandbox.modal import collect_modal_doctor_payload
+    from .sandbox.ssh import list_ssh_targets
+
+    docker = collect_docker_doctor_payload(timeout=4)
+    modal = collect_modal_doctor_payload()
+    ssh_count = 0
+    ssh_ok = True
+    ssh_detail = "No SSH sandbox targets configured (optional)."
+    try:
+        targets = list_ssh_targets()
+        ssh_count = len(targets)
+        if ssh_count:
+            ssh_detail = f"{ssh_count} SSH target(s) configured."
+    except ValueError as error:
+        ssh_ok = False
+        ssh_detail = str(error)
+
+    docker_ok = bool(docker.get("ok"))
+    modal_ok = bool(modal.get("ok"))
+    backends = [
+        {
+            "backend": "docker",
+            "ok": docker_ok,
+            "detail": "Docker sandbox doctor ready." if docker_ok else "Docker CLI or daemon not ready (optional local lane).",
+        },
+        {
+            "backend": "modal",
+            "ok": modal_ok,
+            "detail": "Modal doctor ready." if modal_ok else "Modal not configured (optional cloud lane).",
+        },
+        {
+            "backend": "ssh",
+            "ok": ssh_ok,
+            "target_count": ssh_count,
+            "detail": ssh_detail,
+        },
+    ]
+    recommended = "docker" if docker_ok else ("modal" if modal_ok else ("ssh" if ssh_count and ssh_ok else "workspace"))
+    return {
+        "ok": docker_ok or modal_ok or (ssh_count > 0 and ssh_ok),
+        "summary": "Spark sandbox lane summary",
+        "recommended_lane": recommended,
+        "backends": backends,
+        "next": (
+            "Run `spark sandbox docker doctor` for Docker details, "
+            "`spark access guide` for access levels, or `spark verify --sandboxes` for full checks."
+        ),
+    }
+
+
 def cmd_sandbox(args: argparse.Namespace) -> int:
     from .sandbox.capabilities import CapabilityManifest
     from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
@@ -9957,6 +10038,22 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     )
 
     backend = getattr(args, "sandbox_backend", "") or "unknown"
+    if backend == "status":
+        payload = collect_sandbox_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print("Spark sandbox status")
+        print(f"Recommended lane: {payload['recommended_lane']}")
+        for lane in payload.get("backends", []):
+            marker = "OK" if lane.get("ok") else "WARN"
+            name = lane.get("backend", "unknown")
+            detail = lane.get("detail", "")
+            if name == "ssh" and lane.get("target_count"):
+                detail = f"{detail} ({lane['target_count']} targets)"
+            print(f"  [{marker}] {name}: {detail}")
+        print(payload["next"])
+        return 0 if payload.get("ok") else 1
     command = getattr(args, f"{backend}_command", "") or "unknown"
     if backend == "ssh" and command in {"add", "list", "remove", "doctor", "trust", "smoke"}:
         try:
@@ -16040,8 +16137,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark browser-use status|install|probe|open|screenshot|task", "use": "Inspect, prove, and use the browser-use adapter for browser evidence and task loops." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
-            { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
-            { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
+            { "command": "spark sandbox status|docker|ssh|modal", "use": "Summarize sandbox lane readiness or run Docker doctor/smoke, SSH target management, and Modal doctor/smoke." },
+            { "command": "spark approval status|classify -- <command>", "use": "Show approval classifier mode or classify whether a command requires approval." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
             { "command": "spark uninstall [target]", "use": "Remove installed modules and generated config." },
@@ -16569,6 +16666,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
+    sandbox_status_parser = sandbox_subparsers.add_parser("status", help="Summarize Docker, SSH, and Modal sandbox lane readiness")
+    sandbox_status_parser.add_argument("--json", action="store_true")
+    sandbox_status_parser.set_defaults(func=cmd_sandbox)
     sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
     sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
     sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
@@ -16626,6 +16726,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
     approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
+    approval_status_parser = approval_subparsers.add_parser("status", help="Show approval classifier mode and enforcement state")
+    approval_status_parser.add_argument("--json", action="store_true")
+    approval_status_parser.set_defaults(func=cmd_approval)
     approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
     approval_classify_parser.add_argument("--json", action="store_true")
     approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")

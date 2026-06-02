@@ -1597,6 +1597,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["decision"]["action_class"], "destructive_filesystem")
         self.assertTrue(payload["decision"]["requires_approval"])
 
+    def test_sandbox_status_parser_and_payload(self) -> None:
+        args = build_parser().parse_args(["sandbox", "status", "--json"])
+        self.assertEqual(args.sandbox_backend, "status")
+        docker_payload = {"ok": True, "summary": "docker ready"}
+        modal_payload = {"ok": False}
+        with patch("spark_cli.sandbox.docker.collect_docker_doctor_payload", return_value=docker_payload), \
+             patch("spark_cli.sandbox.modal.collect_modal_doctor_payload", return_value=modal_payload), \
+             patch("spark_cli.sandbox.ssh.list_ssh_targets", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["recommended_lane"], "docker")
+        self.assertEqual(len(payload["backends"]), 3)
+
+    def test_approval_status_parser_and_payload(self) -> None:
+        args = build_parser().parse_args(["approval", "status", "--json"])
+        self.assertEqual(args.approval_command, "status")
+        with patch("spark_cli.cli.approval_enforcement_enabled", return_value=False), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["mode"], "report_only")
+        self.assertFalse(payload["enforcement_enabled"])
+        self.assertIn("classify", payload["classify_usage"])
+
     def test_main_blocks_sensitive_command_in_non_interactive_shell(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=False), \
@@ -5701,8 +5727,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("preview links", output)
         self.assertIn("spark autostart off", output)
         self.assertIn("Full command reference", output)
-        self.assertIn("spark approval classify -- <command>", output)
-        self.assertIn("explicit no-secret Modal smoke", output)
+        self.assertIn("spark approval status|classify -- <command>", output)
+        self.assertIn("Modal doctor/smoke", output)
 
     def test_guide_json_is_agent_readable(self) -> None:
         args = build_parser().parse_args(["guide", "--json"])
@@ -5743,13 +5769,13 @@ class SparkCliTests(unittest.TestCase):
             if command.startswith("spark ") and len(command.split()) > 1
         }
         self.assertEqual(parser_commands - documented_top_level, set())
-        self.assertIn("spark approval classify -- <command>", command_reference)
+        self.assertIn("spark approval status|classify -- <command>", command_reference)
         self.assertIn("spark autostart install|on|uninstall|off|profile|status", command_reference)
         self.assertIn("spark verify [--onboarding|--deep|--installers|--sandboxes]", command_reference)
-        sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox docker|ssh|modal")
-        self.assertIn("Docker doctor", sandbox_entry["use"])
-        self.assertIn("host-key trust", sandbox_entry["use"])
-        self.assertIn("Modal smoke", sandbox_entry["use"])
+        sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox status|docker|ssh|modal")
+        self.assertIn("sandbox lane readiness", sandbox_entry["use"])
+        self.assertIn("SSH target", sandbox_entry["use"])
+        self.assertIn("Modal doctor", sandbox_entry["use"])
 
     def test_setup_default_bundle_registers_starter_stack(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
