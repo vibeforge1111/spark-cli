@@ -1879,6 +1879,11 @@ def resolve_remote_git_head(source: str) -> str:
     return resolve_remote_git_ref(source, "HEAD")
 
 
+def registry_entry_allows_unverified_private_pin(metadata: dict[str, Any]) -> bool:
+    visibility = str(metadata.get("visibility") or metadata.get("source_visibility") or "").strip().lower()
+    return visibility == "private" or bool(metadata.get("private_source") or metadata.get("verify_requires_auth"))
+
+
 def collect_registry_pin_drift_payload(
     *,
     registry: dict[str, Any] | None = None,
@@ -1906,6 +1911,21 @@ def collect_registry_pin_drift_payload(
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
         except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+            if registry_entry_allows_unverified_private_pin(metadata):
+                checks.append(
+                    {
+                        "name": str(name),
+                        "source": source,
+                        "pinned_commit": pinned,
+                        "remote_ref": remote_ref,
+                        "remote_head": "",
+                        "ok": True,
+                        "verified": False,
+                        "verification_status": "private_source_unavailable",
+                        "detail": f"Could not verify remote {remote_ref} without private-source credentials: {error}",
+                    }
+                )
+                continue
             checks.append(
                 {
                     "name": str(name),
@@ -1914,6 +1934,8 @@ def collect_registry_pin_drift_payload(
                     "remote_ref": remote_ref,
                     "remote_head": "",
                     "ok": False,
+                    "verified": False,
+                    "verification_status": "failed",
                     "detail": f"Could not verify remote {remote_ref}: {error}",
                 }
             )
@@ -1928,6 +1950,8 @@ def collect_registry_pin_drift_payload(
                 "remote_ref": remote_ref,
                 "remote_head": remote,
                 "ok": ok,
+                "verified": True,
+                "verification_status": "verified" if ok else "pin_drift",
                 "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
             }
         )

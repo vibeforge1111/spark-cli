@@ -64,6 +64,7 @@
     "domain-chip-spark-qa-evidence-lane": {
       "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
       "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5",
+      "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Evidence-only QA validation chip for Spark answer quality, source precedence, and conversational surface checks",
@@ -76,6 +77,7 @@
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
       "commit": "52bb7e9f5f65be53106bd4df4d8f23cf4993d8d5",
+      "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
@@ -88,6 +90,7 @@
     "spark-skill-graphs": {
       "source": "https://github.com/vibeforge1111/spark-skill-graphs",
       "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
+      "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Metadata-only Spark specialist routing catalog and H70-C+ skill corpus",
