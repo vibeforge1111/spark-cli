@@ -2092,6 +2092,9 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             coverage["summary"]["legacy_plane_cleanup_queue_count"],
             len(cleanup_queue),
         )
+        self.assertEqual(coverage["summary"]["uncovered_authority_source_count"], 0)
+        self.assertEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 0)
+        self.assertEqual(coverage["uncovered_authority_sources"], [])
         self.assertEqual(cleanup_queue[0]["edge_id"], "telegram.mission_launch")
         self.assertEqual(cleanup_queue[0]["priority"], "critical")
         self.assertTrue(cleanup_queue[0]["release_blocker"])
@@ -2106,6 +2109,43 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             "not_installed_optional_surface",
         )
         self.assertIn("release_blocker_count", coverage["summary"])
+
+    def test_contract_coverage_blocks_uncovered_high_agency_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            hidden_route = (
+                desktop
+                / "spawner-ui"
+                / "src"
+                / "routes"
+                / "api"
+                / "hidden-mission"
+                / "run"
+            )
+            hidden_route.mkdir(parents=True)
+            (hidden_route / "+server.ts").write_text(
+                "export async function POST() {\n"
+                "  return runGoal({ prompt: 'hidden mission' });\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            coverage = build_contract_coverage(desktop, spark_home)
+            uncovered = [
+                item
+                for item in coverage.get("uncovered_authority_sources", [])
+                if item.get("owner_repo") == "spawner-ui"
+                and item.get("rel_path") == "src/routes/api/hidden-mission/run/+server.ts"
+            ]
+
+        self.assertEqual(len(uncovered), 1)
+        self.assertTrue(uncovered[0]["release_blocker"])
+        self.assertIn("mission_execution", uncovered[0]["signals"])
+        self.assertEqual(uncovered[0]["reason_code"], "high_agency_source_not_declared_in_contract_coverage")
+        self.assertGreaterEqual(coverage["summary"]["uncovered_authority_source_count"], 1)
+        self.assertGreaterEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 1)
 
     def test_compile_system_map_discovers_local_harness_core_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

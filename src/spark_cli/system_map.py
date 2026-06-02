@@ -53,6 +53,37 @@ CONTRACT_FILE_HINTS = (
     "spark.toml",
 )
 
+AUTHORITY_SOURCE_SCAN_DIRS = ("src", "app", "apps", "server", "packages", "tools")
+AUTHORITY_SOURCE_SCAN_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".svelte"}
+AUTHORITY_SOURCE_SCAN_SKIP_PARTS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svelte-kit",
+    ".venv",
+    "__pycache__",
+    "__tests__",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "test",
+    "tests",
+    "vendor",
+}
+AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO = 1500
+AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES = 256 * 1024
+AUTHORITY_SOURCE_SCAN_PATTERNS = (
+    ("mission_execution", re.compile(r"\b(?:runGoal|launchMission|startMission|executeMissionControlAction|runMissionControlRegression)\b")),
+    ("memory_mutation", re.compile(r"\b(?:write_profile_fact_to_memory|delete_profile_fact_from_memory|write_structured_evidence_to_memory|archive_structured_evidence_from_memory|archive_raw_episode_from_memory|archive_belief_from_memory)\b")),
+    ("schedule_mutation", re.compile(r"\b(?:createSchedule|deleteSchedule|updateSchedule|scheduleDelete|scheduleCreate)\b")),
+    ("publish_deploy_pr", re.compile(r"\b(?:openPullRequest|createPullRequest|publishRelease|deployRelease|shipRelease|releasePublish)\b")),
+    ("tool_process", re.compile(r"\b(?:subprocess\.run|child_process|execFile|spawn\(|runProvider|callProvider)\b")),
+    ("chip_execution", re.compile(r"\b(?:run_chip_hook|run_first_chip_hook_supporting|creatorMission|createChip|active_chip_evaluate)\b")),
+    ("browser_computer_use", re.compile(r"\b(?:run_browser_use_agent_task|browser_use_task_payload|computerUse|browser-use task)\b")),
+)
+
 BUILDER_TABLES_OF_INTEREST = (
     "builder_events",
     "event_log",
@@ -4494,6 +4525,183 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
     }
 
 
+def contract_covered_source_paths(root: Path, repo_name: str) -> set[str]:
+    covered: set[str] = set()
+    for edge in CONTRACT_COVERAGE_ACTION_EDGES:
+        if str(edge.get("owner_repo") or "") != repo_name:
+            continue
+        for rel_path in edge.get("files", ()):
+            rel_text = str(rel_path or "").strip().replace("\\", "/")
+            if not rel_text:
+                continue
+            path = root / rel_text
+            if path.is_dir():
+                for suffix in AUTHORITY_SOURCE_SCAN_SUFFIXES:
+                    for child in sorted(path.rglob(f"*{suffix}")):
+                        if any(part in AUTHORITY_SOURCE_SCAN_SKIP_PARTS for part in child.relative_to(root).parts):
+                            continue
+                        covered.add(child.relative_to(root).as_posix())
+                continue
+            covered.add(rel_text)
+    return covered
+
+
+def iter_authority_source_files(root: Path) -> tuple[list[Path], dict[str, Any]]:
+    if not root.exists():
+        return [], {"status": "root_missing", "scanned_file_count": 0}
+
+    scan_roots = [root / rel for rel in AUTHORITY_SOURCE_SCAN_DIRS if (root / rel).exists()]
+    if not scan_roots:
+        return [], {"status": "no_source_dirs", "scanned_file_count": 0}
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    capped = False
+    for scan_root in scan_roots:
+        for path in sorted(scan_root.rglob("*")):
+            if len(files) >= AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO:
+                capped = True
+                break
+            if path in seen or not path.is_file() or path.suffix not in AUTHORITY_SOURCE_SCAN_SUFFIXES:
+                continue
+            try:
+                rel_parts = path.relative_to(root).parts
+            except ValueError:
+                continue
+            if any(part in AUTHORITY_SOURCE_SCAN_SKIP_PARTS for part in rel_parts):
+                continue
+            try:
+                if path.stat().st_size > AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            seen.add(path)
+            files.append(path)
+        if capped:
+            break
+
+    return files, {
+        "status": "capped" if capped else "scanned",
+        "scanned_file_count": len(files),
+        "max_files_per_repo": AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO,
+        "max_file_bytes": AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES,
+    }
+
+
+def authority_source_signals(text: str) -> list[str]:
+    return [label for label, pattern in AUTHORITY_SOURCE_SCAN_PATTERNS if pattern.search(text)]
+
+
+def authority_source_surface_hints(rel_path: str, text: str) -> list[str]:
+    hints: list[str] = []
+    normalized = rel_path.replace("\\", "/")
+    if "/src/routes/api/" in f"/{normalized}" or normalized.startswith("src/routes/api/"):
+        hints.append("http_api_route")
+    if "/adapters/telegram/" in f"/{normalized}" or normalized.endswith("src/index.ts"):
+        hints.append("telegram_or_chat_ingress")
+    if normalized.endswith("/cli.py") or normalized == "src/spark_cli/cli.py" or "\ndef cmd_" in text:
+        hints.append("cli_command_surface")
+    if "export async function POST" in text or "export const POST" in text:
+        hints.append("http_post_handler")
+    if "handleTextMessage" in text or "bot.on(" in text or "onText(" in text:
+        hints.append("message_handler")
+    return sorted(set(hints))
+
+
+def build_uncovered_authority_source_scan(desktop: Path, spark_home: Path) -> dict[str, Any]:
+    repo_names = sorted({str(edge.get("owner_repo") or "") for edge in CONTRACT_COVERAGE_ACTION_EDGES if edge.get("owner_repo")})
+    items: list[dict[str, Any]] = []
+    repo_summaries: dict[str, Any] = {}
+
+    for repo_name in repo_names:
+        root = resolve_contract_repo_root(repo_name, desktop, spark_home)
+        covered = contract_covered_source_paths(root, repo_name)
+        files, scan_summary = iter_authority_source_files(root)
+        repo_summaries[repo_name] = {
+            **scan_summary,
+            "covered_source_count": len(covered),
+        }
+        for path in files:
+            rel_path = path.relative_to(root).as_posix()
+            if rel_path in covered:
+                continue
+            text = read_text_or_none(path)
+            if not text:
+                continue
+            signals = authority_source_signals(text)
+            if not signals:
+                continue
+            surface_hints = authority_source_surface_hints(rel_path, text)
+            if not surface_hints:
+                continue
+            markers = contract_marker_summary(text)
+            authority_present = bool(
+                markers.get("turn_intent_authorizer")
+                or markers.get("telegram_action_authority")
+                or markers.get("machine_origin_policy")
+                or (markers.get("turn_intent_schema") and markers.get("turn_intent_authorizer"))
+            )
+            evidence_only = bool(markers.get("evidence_or_proposal_only"))
+            release_blocker = not authority_present and not evidence_only
+            reason_code = (
+                "high_agency_source_not_declared_in_contract_coverage"
+                if release_blocker
+                else "authorized_or_evidence_source_not_declared_in_contract_coverage"
+            )
+            digest = hashlib.sha256(f"{repo_name}:{rel_path}".encode("utf-8")).hexdigest()[:12]
+            items.append(
+                {
+                    "id": f"uncovered-authority-source:{repo_name}:{digest}",
+                    "owner_repo": repo_name,
+                    "rel_path": rel_path,
+                    "risk": "high_agency",
+                    "signals": signals,
+                    "surface_hints": surface_hints,
+                    "reason_code": reason_code,
+                    "release_blocker": release_blocker,
+                    "priority": "critical" if release_blocker else "high",
+                    "authority_markers": {
+                        "turn_intent_schema": bool(markers.get("turn_intent_schema")),
+                        "turn_intent_authorizer": bool(markers.get("turn_intent_authorizer")),
+                        "telegram_action_authority": bool(markers.get("telegram_action_authority")),
+                        "machine_origin_policy": bool(markers.get("machine_origin_policy")),
+                        "evidence_or_proposal_only": evidence_only,
+                    },
+                    "recommended_action": (
+                        "Bind this source path to Harness Core/Governor authority and add a declared contract edge, "
+                        "or remove/disable the source path so it cannot execute high-agency work."
+                        if release_blocker
+                        else "Add this source path to the declared contract coverage map or demote it to explicit evidence-only support."
+                    ),
+                    "verification_command": "spark os compile --json",
+                    "data_boundary": "metadata-only; no source text, prompts, logs, secrets, transcripts, or payload bodies",
+                }
+            )
+
+    items = sorted(
+        items,
+        key=lambda item: (
+            0 if item.get("release_blocker") else 1,
+            str(item.get("owner_repo") or ""),
+            str(item.get("rel_path") or ""),
+        ),
+    )
+    return {
+        "schema_version": "spark.uncovered_authority_source_scan.v0",
+        "generated_at": utc_now(),
+        "authority": "observability_non_authoritative",
+        "redaction": "metadata-only source coverage scan; source text, prompts, logs, secrets, chat ids, memory bodies, transcripts, and provider output omitted",
+        "summary": {
+            "repo_count": len(repo_summaries),
+            "scanned_file_count": sum(int(as_dict(summary).get("scanned_file_count") or 0) for summary in repo_summaries.values()),
+            "uncovered_authority_source_count": len(items),
+            "uncovered_authority_release_blocker_count": sum(1 for item in items if item.get("release_blocker")),
+        },
+        "repo_summaries": repo_summaries,
+        "items": items,
+    }
+
+
 def legacy_plane_retirement_classification(
     *,
     status: str,
@@ -4688,6 +4896,9 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
     surface_counts = Counter(str(edge.get("surface") or "unknown") for edge in edges)
     blocker_edges = [edge for edge in edges if edge.get("release_blocker")]
     legacy_plane_cleanup_queue = build_legacy_plane_cleanup_queue(edges)
+    uncovered_source_scan = build_uncovered_authority_source_scan(desktop, spark_home)
+    uncovered_source_items = as_list(uncovered_source_scan.get("items"))
+    uncovered_source_blockers = [item for item in uncovered_source_items if item.get("release_blocker")]
     optional_surfaces = {
         "spark-skill-graphs": {
             "root": str(resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home)),
@@ -4712,11 +4923,16 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
             "status_counts": dict(sorted(status_counts.items())),
             "legacy_plane_classification_counts": dict(sorted(legacy_plane_counts.items())),
             "surface_counts": dict(sorted(surface_counts.items())),
-            "release_blocker_count": len(blocker_edges),
+            "release_blocker_count": len(blocker_edges) + len(uncovered_source_blockers),
             "legacy_plane_release_blocker_count": sum(
                 1 for edge in edges if edge.get("legacy_plane_classification") == "blocked"
             ),
             "legacy_plane_cleanup_queue_count": len(legacy_plane_cleanup_queue),
+            "uncovered_authority_source_count": len(uncovered_source_items),
+            "uncovered_authority_release_blocker_count": len(uncovered_source_blockers),
+            "uncovered_authority_scanned_file_count": int(
+                as_dict(uncovered_source_scan.get("summary")).get("scanned_file_count") or 0
+            ),
         },
         "release_blockers": [
             {
@@ -4728,8 +4944,21 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
                 "legacy_plane_reason_code": edge.get("legacy_plane_reason_code"),
             }
             for edge in blocker_edges
+        ]
+        + [
+            {
+                "id": item.get("id"),
+                "surface": item.get("owner_repo"),
+                "mutation_class": "uncovered_authority_source",
+                "reason_code": item.get("reason_code"),
+                "rel_path": item.get("rel_path"),
+                "signals": item.get("signals"),
+            }
+            for item in uncovered_source_blockers
         ],
         "legacy_plane_cleanup_queue": legacy_plane_cleanup_queue,
+        "uncovered_authority_source_scan": uncovered_source_scan,
+        "uncovered_authority_sources": uncovered_source_items,
         "optional_surfaces": optional_surfaces,
         "edges": edges,
     }
