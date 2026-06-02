@@ -227,6 +227,7 @@ from spark_cli.cli import (
     format_start_warning,
     post_ready_watch_seconds,
     prompt_for_secret,
+    prompt_trust_non_blessed_install,
     ready_check_headers,
     ready_timeout_seconds,
     read_generated_env,
@@ -3345,6 +3346,27 @@ class SparkCliTests(unittest.TestCase):
             skip_install_commands = False
 
         ensure_trust_for_install(Args(), module, "thirdparty")
+
+    def test_prompt_trust_non_blessed_install_accepts_literal_yes(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", return_value="yes"), \
+             patch("builtins.print"):
+            self.assertTrue(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
+
+    def test_prompt_trust_non_blessed_install_rejects_short_y(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", return_value="y"), \
+             patch("builtins.print"):
+            self.assertFalse(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
+
+    def test_prompt_trust_non_blessed_install_rejects_eof(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", side_effect=EOFError), \
+             patch("builtins.print"):
+            self.assertFalse(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
 
     def test_module_trust_tier_treats_blessed_registry_entries_as_trusted(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])

@@ -4941,7 +4941,7 @@ def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str
         answer = input("Type 'yes' to proceed: ").strip().lower()
     except EOFError:
         return False
-    return answer in ("yes", "y")
+    return answer == "yes"
 
 
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
