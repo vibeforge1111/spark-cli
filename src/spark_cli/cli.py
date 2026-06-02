@@ -16759,6 +16759,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
     secrets_delete_parser.add_argument("secret_id")
+    secrets_delete_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt for non-interactive use")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
