@@ -1776,6 +1776,9 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             spawner_dispatch = desktop / "spawner-ui" / "src" / "routes" / "api" / "dispatch"
             spawner_scheduled = desktop / "spawner-ui" / "src" / "routes" / "api" / "scheduled"
             spawner_mc_command = desktop / "spawner-ui" / "src" / "routes" / "api" / "mission-control" / "command"
+            spawner_daily_orchestrator = (
+                desktop / "spawner-ui" / "src" / "routes" / "api" / "automation" / "daily-orchestrator" / "run"
+            )
             spawner_server = desktop / "spawner-ui" / "src" / "lib" / "server"
             telegram_src = desktop / "spark-telegram-bot" / "src"
             builder_telegram = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "adapters" / "telegram"
@@ -1794,6 +1797,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 spawner_dispatch,
                 spawner_scheduled,
                 spawner_mc_command,
+                spawner_daily_orchestrator,
                 spawner_server,
                 telegram_src,
                 builder_src,
@@ -1827,6 +1831,10 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "executeMissionControlAction({ executionAuthority });\n",
                 encoding="utf-8",
             )
+            (spawner_daily_orchestrator / "+server.ts").write_text(
+                "runMissionControlRegression({ execute: executeMissionControlAction });\n",
+                encoding="utf-8",
+            )
             (spawner_server / "harness-authority.ts").write_text(
                 "export const schema = 'spark.machine_origin_policy.v1';\n",
                 encoding="utf-8",
@@ -1838,6 +1846,11 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             )
             (spawner_server / "mission-control-command.ts").write_text(
                 "assertHarnessAuthority({ toolName: 'spawner.mission_control.command' });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "daily-orchestrator.ts").write_text(
+                "runMissionControlRegression();\n"
+                "buildServerGovernorDecisionAuthority({ toolName: 'spawner.mission_control.command' });\n",
                 encoding="utf-8",
             )
             (telegram_src / "index.ts").write_text(
@@ -2000,6 +2013,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.daily_orchestrator_run"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.direct_chip_commands"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.schedule_read_tools"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.route_probe_commands"]["status"], "envelope_verified")
@@ -2024,6 +2038,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
         self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
+        self.assertFalse(by_id["spawner.daily_orchestrator_run"]["release_blocker"])
         self.assertFalse(by_id["builder.direct_chip_commands"]["release_blocker"])
         self.assertFalse(by_id["builder.schedule_read_tools"]["release_blocker"])
         self.assertFalse(by_id["builder.route_probe_commands"]["release_blocker"])

@@ -351,6 +351,20 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("pauseMission", "resumeMission", "cancelMission", "kill"),
     },
     {
+        "id": "spawner.daily_orchestrator_run",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/routes/api/automation/daily-orchestrator/run/+server.ts",
+            "src/lib/server/daily-orchestrator.ts",
+            "src/lib/server/mission-control-command.ts",
+            "src/lib/server/harness-authority.ts",
+        ),
+        "legacy_markers": ("runMissionControlRegression", "executeMissionControlAction", "daily-orchestrator"),
+    },
+    {
         "id": "builder.memory_bridge",
         "surface": "spark-intelligence-builder",
         "owner_repo": "spark-intelligence-builder",
