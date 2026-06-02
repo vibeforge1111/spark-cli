@@ -4321,8 +4321,14 @@ def initialize_builder_runtime_home(
                 status="enabled",
             )
             notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except Exception as exc:  # pragma: no cover - defensive fallback for partial installs
+    except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
         notes.append(f"Builder runtime bootstrap skipped: {exc}")
+    except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
+        # The Builder bootstrap reads config/env values and constructs runtime state; a
+        # raw f-string with the underlying exception message can include incidental
+        # values from that context. Surface the exception type so the note is still
+        # actionable for operators without quoting whatever string the exception carried.
+        notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
     finally:
         if inserted:
             try:
