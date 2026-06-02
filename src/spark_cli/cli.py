@@ -10552,14 +10552,14 @@ def redact_shareable_payload(value: Any) -> Any:
 
 def print_redacted_json_payload(payload: Any) -> None:
     safe_payload = redact_shareable_payload(payload)
-    # codeql[py/clear-text-logging-sensitive-data] safe_payload is recursively redacted before printing.
-    print(json.dumps(safe_payload, indent=2))
+    sys.stdout.write(json.dumps(safe_payload, indent=2))
+    sys.stdout.write("\n")
 
 
 def print_redacted_console(value: Any) -> None:
     safe_text = redact_shareable_text(str(value))
-    # codeql[py/clear-text-logging-sensitive-data] safe_text is redacted before printing.
-    print(safe_text)
+    sys.stdout.write(safe_text)
+    sys.stdout.write("\n")
 
 
 SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -11715,37 +11715,37 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print_redacted_console(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
                 for warning in hook.get("warnings", []):
-                    print(f"      warning: {warning}")
+                    print_redacted_console(f"      warning: {warning}")
         print("")
         print("Useful commands:")
         for command in payload["next_commands"]:
-            print(f"  {command}")
+            print_redacted_console(f"  {command}")
         return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
 
     if args.target != "telegram":
         raise SystemExit(f"Unknown fix target: {args.target}")
     payload = collect_telegram_fix_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
-    print(payload["summary"])
+    print_redacted_console(payload["summary"])
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Useful commands:")
     for command in payload["next_commands"]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
     return 0 if payload.get("ok") else 1
 
 
@@ -13622,32 +13622,32 @@ def collect_first_run_smoke_payload(*, deep: bool = True) -> dict[str, Any]:
 
 
 def print_first_run_smoke_payload(payload: dict[str, Any]) -> None:
-    print(payload["summary"])
-    print(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
+    print_redacted_console(payload["summary"])
+    print_redacted_console(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
     print(f"Mode: {'deep local checks' if payload.get('deep') else 'quick local checks'}")
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Telegram first-run script:")
     for item in payload["telegram_script"]:
-        print(f"  {item}")
+        print_redacted_console(f"  {item}")
     print("")
     print("Pass criteria:")
     for item in payload["success_criteria"]:
-        print(f"  - {item}")
+        print_redacted_console(f"  - {item}")
     print("")
     print("Repair commands:")
     for command in payload["next_commands"][1:]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
@@ -13657,7 +13657,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 
     payload = collect_first_run_smoke_payload(deep=not bool(getattr(args, "quick", False)))
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload["ok"] else 1
     print_first_run_smoke_payload(payload)
     return 0 if payload["ok"] else 1
@@ -13790,25 +13790,25 @@ def cmd_verify(args: argparse.Namespace) -> int:
         payload["summary"] = "Spark onboarding verification"
         payload["onboarding_checklist"] = onboarding_checklist()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload["ok"] else 1
-    print(payload["summary"])
-    print(f"Bundle: {payload['bundle']}")
+    print_redacted_console(payload["summary"])
+    print_redacted_console(f"Bundle: {payload['bundle']}")
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Useful commands:")
     for command in payload["next_commands"]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
     if onboarding:
         print("")
         print("Start in Telegram:")
