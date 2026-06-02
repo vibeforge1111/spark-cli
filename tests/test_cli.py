@@ -10058,6 +10058,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertNotIn("codex_client", payload["roles"]["builder"])
         self.assertNotIn("codex_client", payload["roles"]["mission"])
 
+    def test_provider_status_prefers_codex_client_model_for_explicit_oauth_roles(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "openai",
+                "roles": {
+                    role: {
+                        "provider": "openai",
+                        "model": "gpt-5.3-codex-spark",
+                        "auth_mode": "codex_oauth",
+                        "bot_provider": "codex",
+                    }
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            },
+            "secret_keys": [],
+        }
+        codex_payload = {
+            "ok": True,
+            "values": {"model": "gpt-5.5", "model_reasoning_effort": "high"},
+        }
+        auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
+            payload = provider_status_payload()
+
+        for role in ("chat", "builder", "memory", "mission"):
+            self.assertEqual(payload["roles"][role]["model"], "gpt-5.5")
+            self.assertEqual(payload["roles"][role]["codex_client"], codex_payload)
+
     def test_provider_status_marks_codex_oauth_unready_without_auth(self) -> None:
         setup = {
             "llm": {
