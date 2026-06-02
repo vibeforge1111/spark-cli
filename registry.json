@@ -63,14 +63,14 @@
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "173c2f4f3455b11ecbc16924b542a11452877460",
+      "commit": "3e06a10137c1568e05edae6b6ccd1e5525728d58",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "173c2f4f3455b11ecbc16924b542a11452877460"
+        "commit": "3e06a10137c1568e05edae6b6ccd1e5525728d58"
       }
     },
     "spawner-ui": {
