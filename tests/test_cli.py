@@ -73,6 +73,7 @@ from spark_cli.cli import (
     ensure_bundle_modules_available,
     delete_secret,
     execute_security_revoke_all,
+    pause_revoke_all_missions,
     fetch_secret,
     infer_module_name_from_url,
     initial_follow_log_lines,
@@ -2069,6 +2070,22 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(provider_results["missions"]["mission-revoke-test"][0]["status"], "cancelled")
             self.assertTrue((spawner_state_dir / "security-revoke-all.json").exists())
             self.assertTrue(Path(payload["support_bundle_path"]).exists())
+
+    def test_security_revoke_all_reports_active_mission_pause_os_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_dir = Path(tmp_dir) / "spawner-ui"
+            state_dir.mkdir()
+            active_path = state_dir / "active-mission.json"
+            active_path.write_text('{"missionId": "mission-os-error", "status": "running"}', encoding="utf-8")
+
+            with patch("spark_cli.cli.spawner_state_dir_for_revoke_all", return_value=state_dir), \
+                 patch("spark_cli.cli.save_json", side_effect=PermissionError("write denied")):
+                payload = pause_revoke_all_missions(timestamp="2026-06-01T00:00:00Z")
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("mission-os-error", payload["paused_mission_ids"])
+        self.assertTrue(any(item["path"] == str(active_path) for item in payload["failures"]))
+        self.assertTrue(all("PermissionError" in item["error"] for item in payload["failures"]))
 
     def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \

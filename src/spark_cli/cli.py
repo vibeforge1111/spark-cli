@@ -8402,7 +8402,7 @@ def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = 
                     active["note"] = "Paused by spark security revoke-all"
                     active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
                     save_json(active_path, active)
-                except Exception as error:
+                except OSError as error:
                     failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
 
     provider_results = load_json_best_effort(provider_results_path, {})
