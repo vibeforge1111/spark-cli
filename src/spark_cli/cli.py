@@ -15161,7 +15161,7 @@ def module_runtime_listener_ports(module: Module, profile: str | None = None) ->
     return []
 
 
-def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int:
+def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int | None:
     launched_pid = int(process.pid)
     launched_running = pid_is_running(launched_pid)
     for port in module_runtime_listener_ports(module, profile):
@@ -15170,7 +15170,9 @@ def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile
             if int(pid) != launched_pid and launched_running:
                 continue
             return pid
-    return launched_pid
+    if pid_is_running(process.pid):
+        return int(process.pid)
+    return None
 
 
 def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
@@ -15470,8 +15472,11 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                     save_pids(latest_pids)
             return False
         runtime_pid = discover_runtime_pid(module, process, profile)
-        update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
-        pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
+        if runtime_pid is not None:
+            update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
+            pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
+        else:
+            pid_detail = f" pid={process.pid} (process exited)"
         print(f"Ready {display_name}: {detail}")
         append_process_log(module.name, f"ready{pid_detail} detail={detail}", profile=profile)
     else:
