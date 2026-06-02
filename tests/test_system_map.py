@@ -439,6 +439,14 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(telegram_pin_item["classification"], "runtime_ahead_of_registry_pin")
         self.assertIn("release metadata drift", telegram_pin_item["evidence"])
         self.assertEqual(repo_board["summary"]["duplicate_truth_count"], len(item_ids))
+        self.assertEqual(repo_board["summary"]["critical_duplicate_truth_count"], 1)
+        self.assertEqual(repo_board["summary"]["duplicate_truth_release_blocker_count"], 1)
+        self.assertEqual(
+            repo_board["summary"]["blocked_release_count"],
+            repo_board["summary"]["repo_blocked_release_count"]
+            + repo_board["summary"]["duplicate_truth_release_blocker_count"],
+        )
+        self.assertEqual(repo_board["summary"]["release_readiness"], "blocked")
         self.assertFalse(compiled["operating_cockpit"]["action_boundary"].startswith("Write"))
 
     def test_dirty_desktop_repo_is_backlog_when_installed_runtime_is_clean(self) -> None:

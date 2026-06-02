@@ -6190,7 +6190,7 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         "repo_count": len(rows),
         "git_repo_count": sum(1 for row in rows if row["git_available"]),
         "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
-        "blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+        "repo_blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
         "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
     }
     duplicate_truths = build_duplicate_truths(system_map)
@@ -6198,6 +6198,12 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     summary["critical_duplicate_truth_count"] = as_dict(
         as_dict(duplicate_truths.get("summary")).get("severity_counts")
     ).get("critical", 0)
+    summary["duplicate_truth_release_blocker_count"] = summary["critical_duplicate_truth_count"]
+    summary["blocked_release_count"] = (
+        int(summary["repo_blocked_release_count"] or 0)
+        + int(summary["duplicate_truth_release_blocker_count"] or 0)
+    )
+    summary["release_readiness"] = "blocked" if summary["blocked_release_count"] else "eligible"
     ranked = sorted(
         rows,
         key=lambda row: (
