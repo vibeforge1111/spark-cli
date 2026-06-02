@@ -11,7 +11,7 @@ import tempfile
 import unittest
 import urllib.error
 from argparse import Namespace
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -590,6 +590,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(modal_args.sandbox_backend, "modal")
         self.assertEqual(modal_args.modal_command, "smoke")
         self.assertIs(modal_args.func, cmd_sandbox)
+
+    def test_subcommand_groups_show_friendly_missing_subcommand_error(self) -> None:
+        cases = {
+            "os": "compile, capabilities, authority, trace, memory",
+            "recommend": "llms, providers",
+            "access": "status, guide, setup, disable-level5",
+            "sandbox": "docker, ssh, modal",
+            "approval": "classify",
+            "telegram": "connect",
+            "autostart": "status, install, on, uninstall, off, profile",
+            "config": "get, set, unset, list",
+            "secrets": "list, set, get, delete",
+        }
+        for command, subcommands in cases.items():
+            with self.subTest(command=command):
+                stderr = StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                    build_parser().parse_args([command])
+
+                self.assertEqual(error.exception.code, 2)
+                message = stderr.getvalue()
+                self.assertIn(
+                    f"spark {command} needs a subcommand. Try one of: {subcommands}.",
+                    message,
+                )
+                self.assertNotIn("arguments are required", message)
+                self.assertNotIn("_command", message)
 
     def test_modal_doctor_cli_json_runs_payload(self) -> None:
         args = build_parser().parse_args(["sandbox", "modal", "doctor", "--json"])
