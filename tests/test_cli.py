@@ -293,6 +293,7 @@ from spark_cli.cli import (
     write_runtime_shim,
     telegram_profile_secret_id,
     hosted_cloud_credential_env_errors,
+    hosted_allowed_host_errors,
     hosted_sensitive_mount_errors,
     hosted_local_provider_endpoint_errors,
     linux_effective_capabilities_dropped,
@@ -12048,6 +12049,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertFalse(checks["allowed_hosts"]["ok"])
         self.assertIn("private or local network", checks["allowed_hosts"]["detail"])
+
+    def test_hosted_allowed_hosts_rejects_bracketed_ipv6_with_port(self) -> None:
+        errors = hosted_allowed_host_errors(["[2001:4860:4860::8888]:443"])
+
+        self.assertEqual(
+            errors,
+            ["SPARK_ALLOWED_HOSTS must not include ports ('[2001:4860:4860::8888]:443')."],
+        )
+
+    def test_hosted_allowed_hosts_allows_bracketed_public_ipv6_without_port(self) -> None:
+        self.assertEqual(hosted_allowed_host_errors(["[2001:4860:4860::8888]"]), [])
 
     def test_collect_hosted_security_payload_requires_strict_pins_for_public_bind(self) -> None:
         with patch.dict(
