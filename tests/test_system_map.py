@@ -1897,6 +1897,21 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             coverage["summary"]["release_blocker_count"],
         )
         self.assertGreaterEqual(coverage["summary"]["legacy_plane_classification_counts"].get("blocked", 0), 1)
+        cleanup_queue = coverage["legacy_plane_cleanup_queue"]
+        cleanup_by_edge = {item["edge_id"]: item for item in cleanup_queue}
+        self.assertEqual(
+            coverage["summary"]["legacy_plane_cleanup_queue_count"],
+            len(cleanup_queue),
+        )
+        self.assertEqual(cleanup_queue[0]["edge_id"], "telegram.mission_launch")
+        self.assertEqual(cleanup_queue[0]["priority"], "critical")
+        self.assertTrue(cleanup_queue[0]["release_blocker"])
+        self.assertEqual(cleanup_queue[0]["legacy_plane_classification"], "blocked")
+        self.assertEqual(cleanup_by_edge["spawner.spark_run"]["priority"], "high")
+        self.assertFalse(cleanup_by_edge["spawner.spark_run"]["release_blocker"])
+        self.assertEqual(cleanup_by_edge["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
+        self.assertTrue(cleanup_by_edge["spawner.spark_run"]["marker_evidence"]["deterministic_local_route"])
+        self.assertNotIn("harness_core.authority_kernel", cleanup_by_edge)
         self.assertEqual(
             coverage["optional_surfaces"]["spark-skill-graphs"]["status"],
             "not_installed_optional_surface",

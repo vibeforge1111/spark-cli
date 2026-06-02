@@ -4568,6 +4568,83 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     }
 
 
+def build_legacy_plane_cleanup_queue(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    priority_rank = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+    }
+    surface_rank = {
+        "spark-telegram-bot": 0,
+        "spawner-ui": 1,
+        "spark-intelligence-builder": 2,
+        "spark-cli": 3,
+    }
+    mutation_rank = {
+        "launches_mission": 0,
+        "starts_loop_or_mission": 1,
+        "launches_mission_or_loop": 2,
+        "mutates_schedule": 3,
+        "writes_memory": 4,
+        "creates_chip": 5,
+    }
+
+    for edge in edges:
+        classification = str(edge.get("legacy_plane_classification") or "unknown")
+        if classification in {"retired", "evidence_only"}:
+            continue
+        risk = str(edge.get("risk") or "unknown")
+        markers = as_dict(edge.get("markers"))
+        helper_markers = as_dict(edge.get("helper_markers"))
+        release_blocker = bool(edge.get("release_blocker"))
+        priority = "critical" if release_blocker else "high" if risk in {"high_agency", "network"} else "medium"
+        cleanup_action = (
+            "Bind this edge to Harness Core/Governor authority before any execution or mutation, "
+            "or remove/disable the local authority path."
+            if release_blocker
+            else (
+                "Keep the Governor as the execution authority, then move local detectors, pending-state "
+                "checks, or route helpers into evidence-only adapters or narrower non-authority helpers."
+            )
+        )
+        queue.append(
+            {
+                "id": f"legacy-plane:{edge.get('id')}",
+                "edge_id": edge.get("id"),
+                "priority": priority,
+                "owner_repo": edge.get("owner_repo"),
+                "surface": edge.get("surface"),
+                "mutation_class": edge.get("mutation_class"),
+                "risk": risk,
+                "status": edge.get("status"),
+                "legacy_plane_classification": classification,
+                "legacy_plane_reason_code": edge.get("legacy_plane_reason_code"),
+                "release_blocker": release_blocker,
+                "marker_evidence": {
+                    "deterministic_local_route": bool(markers.get("deterministic_local_route")),
+                    "auto_state_trigger": bool(markers.get("auto_state_trigger")),
+                    "helper_deterministic_local_route": bool(helper_markers.get("deterministic_local_route")),
+                    "helper_auto_state_trigger": bool(helper_markers.get("auto_state_trigger")),
+                },
+                "recommended_action": cleanup_action,
+                "verification_command": "spark os compile --json",
+                "data_boundary": "metadata-only; no source text, prompts, logs, secrets, transcripts, or payload bodies",
+            }
+        )
+
+    return sorted(
+        queue,
+        key=lambda item: (
+            priority_rank.get(str(item.get("priority")), 9),
+            surface_rank.get(str(item.get("surface")), 99),
+            mutation_rank.get(str(item.get("mutation_class")), 50),
+            str(item.get("edge_id") or ""),
+        ),
+    )
+
+
 def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
     edges = []
     for edge in CONTRACT_COVERAGE_ACTION_EDGES:
@@ -4578,6 +4655,7 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
     legacy_plane_counts = Counter(str(edge.get("legacy_plane_classification") or "unknown") for edge in edges)
     surface_counts = Counter(str(edge.get("surface") or "unknown") for edge in edges)
     blocker_edges = [edge for edge in edges if edge.get("release_blocker")]
+    legacy_plane_cleanup_queue = build_legacy_plane_cleanup_queue(edges)
     optional_surfaces = {
         "spark-skill-graphs": {
             "root": str(resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home)),
@@ -4606,6 +4684,7 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
             "legacy_plane_release_blocker_count": sum(
                 1 for edge in edges if edge.get("legacy_plane_classification") == "blocked"
             ),
+            "legacy_plane_cleanup_queue_count": len(legacy_plane_cleanup_queue),
         },
         "release_blockers": [
             {
@@ -4618,6 +4697,7 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
             }
             for edge in blocker_edges
         ],
+        "legacy_plane_cleanup_queue": legacy_plane_cleanup_queue,
         "optional_surfaces": optional_surfaces,
         "edges": edges,
     }
