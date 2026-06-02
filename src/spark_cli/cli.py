@@ -15585,7 +15585,7 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
         masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
         # The value is masked by default; the printed id is a label.
         # codeql[py/clear-text-logging-sensitive-data]
-        print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
+        print(f"{args.secret_id} -> [masked: {masked}] (pass --reveal to print full value)")
     return 0
 
 
