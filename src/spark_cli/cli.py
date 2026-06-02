@@ -5922,11 +5922,13 @@ def browser_use_harness_authorize(
         else None
     )
     authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    governor_decision = kernel.governor_decision(envelope, authorizations=[authorization])
     return {
         "kernel": kernel,
         "envelope": envelope,
         "action": action,
         "authorization": authorization,
+        "governor_decision": governor_decision,
     }
 
 
@@ -5934,15 +5936,22 @@ def browser_use_harness_summary(authority: dict[str, Any], *, ledger_path: Path 
     envelope = authority.get("envelope") if isinstance(authority.get("envelope"), dict) else {}
     action = authority.get("action") if isinstance(authority.get("action"), dict) else {}
     authorization = authority.get("authorization") if isinstance(authority.get("authorization"), dict) else {}
+    governor_decision = authority.get("governor_decision") if isinstance(authority.get("governor_decision"), dict) else {}
+    execution_boundary = governor_decision.get("execution_boundary") if isinstance(governor_decision.get("execution_boundary"), dict) else {}
+    tool_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else {}
     return {
         "schema_version": "spark.browser_use.harness_authority.v1",
         "turn_id": envelope.get("turn_id"),
         "action_id": action.get("action_id"),
+        "governor_decision_id": governor_decision.get("decision_id"),
+        "governor_outcome": governor_decision.get("outcome"),
+        "governor_action_authorized": execution_boundary.get("action_authorized"),
         "decision_id": authorization.get("decision_id"),
         "verdict": authorization.get("verdict"),
         "risk_tier": authorization.get("risk_tier"),
         "approval": authorization.get("approval"),
         "restrictions": authorization.get("restrictions"),
+        "tool_ledger_id": tool_ledger.get("ledger_id"),
         "ledger_path": str(ledger_path) if ledger_path is not None else "",
     }
 
@@ -5968,6 +5977,12 @@ def browser_use_write_harness_ledger(
     )
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(ledger_path, ledger)
+    authority["tool_ledger"] = ledger
+    authority["governor_decision"] = kernel.governor_decision(
+        authority["envelope"],
+        authorizations=[authority["authorization"]],
+        tool_ledgers=[ledger],
+    )
     return ledger
 
 
@@ -6149,7 +6164,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
             receipt_path=receipt_path,
             reason=str(exc),
         )
-    if authority["authorization"]["verdict"] != "allow":
+    if authority["authorization"]["verdict"] != "allow" or authority["governor_decision"]["outcome"] != "execute":
         return browser_use_authority_block_payload(
             base_payload=base_payload,
             receipt_path=receipt_path,
@@ -6356,7 +6371,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             receipt_path=receipt_path,
             reason=str(exc),
         )
-    if authority["authorization"]["verdict"] != "allow":
+    if authority["authorization"]["verdict"] != "allow" or authority["governor_decision"]["outcome"] != "execute":
         return browser_use_authority_block_payload(
             base_payload=base_payload,
             receipt_path=receipt_path,

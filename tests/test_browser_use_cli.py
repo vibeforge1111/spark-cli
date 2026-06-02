@@ -196,13 +196,45 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("Learn more", payload["text_excerpt"])
         self.assertIn("public URL open", payload["proven_scope"])
         self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertEqual(payload["harness_authority"]["governor_outcome"], "execute")
+        self.assertTrue(payload["harness_authority"]["governor_action_authorized"])
         self.assertEqual(payload["harness_authority"]["risk_tier"], "read")
+        self.assertTrue(payload["harness_authority"]["governor_decision_id"])
+        self.assertTrue(payload["harness_authority"]["tool_ledger_id"])
         self.assertTrue(ledger_exists)
         called_commands = [call.args[0] for call in run.call_args_list]
         self.assertIn("open", called_commands[0])
         self.assertIn("https://example.com", called_commands[0])
         self.assertIn("state", called_commands[1])
         self.assertIn("eval", called_commands[2])
+
+    def test_action_blocks_when_governor_does_not_execute(self) -> None:
+        authority = {
+            "envelope": {"turn_id": "turn-test"},
+            "action": {"action_id": "action-test"},
+            "authorization": {"decision_id": "auth-test", "verdict": "allow", "risk_tier": "read"},
+            "governor_decision": {
+                "decision_id": "governor-test",
+                "outcome": "deny",
+                "execution_boundary": {"action_authorized": False},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_harness_authorize", return_value=authority), \
+                 patch("spark_cli.cli.subprocess.run") as run:
+                payload = cli.browser_use_action_payload("https://example.com")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertEqual(payload["harness_authority"]["governor_outcome"], "deny")
+        self.assertFalse(payload["harness_authority"]["governor_action_authorized"])
+        run.assert_not_called()
 
     def test_screenshot_writes_screenshot_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -299,11 +331,15 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("multi-step browser task", payload["proven_scope"])
         self.assertEqual(payload["start_page"]["title"], "Local")
         self.assertEqual(payload["harness_authority"]["verdict"], "allow")
+        self.assertEqual(payload["harness_authority"]["governor_outcome"], "execute")
+        self.assertTrue(payload["harness_authority"]["governor_action_authorized"])
         self.assertEqual(payload["harness_authority"]["risk_tier"], "high")
         self.assertTrue(payload["harness_authority"]["approval"]["required"])
         self.assertEqual(payload["harness_authority"]["approval"]["status"], "approved")
         self.assertTrue(payload["harness_authority"]["restrictions"]["network_allowed"])
         self.assertTrue(payload["harness_authority"]["restrictions"]["write_allowed"])
+        self.assertTrue(payload["harness_authority"]["governor_decision_id"])
+        self.assertTrue(payload["harness_authority"]["tool_ledger_id"])
         self.assertTrue(ledger_exists)
         self.assertTrue(receipt_exists)
         self.assertTrue(history_exists)

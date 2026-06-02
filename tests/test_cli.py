@@ -389,6 +389,12 @@ def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
         "spark-character": make_module("spark-character", ["spark.character"]),
         "spark-intelligence-builder": make_module("spark-intelligence-builder", ["spark.runtime"]),
         "domain-chip-memory": make_module("domain-chip-memory", ["memory.store"]),
+        "domain-chip-spark-qa-evidence-lane": make_module(
+            "domain-chip-spark-qa-evidence-lane",
+            ["spark.qa.evidence"],
+        ),
+        "spark-harness-core": make_module("spark-harness-core", ["spark.harness.authority"]),
+        "spark-skill-graphs": make_module("spark-skill-graphs", ["spark.skill_graphs"]),
         "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
         "spark-telegram-bot": make_telegram_gateway(),
     }
@@ -3640,19 +3646,12 @@ class SparkCliTests(unittest.TestCase):
             "spark-telegram-bot": object(),
             "spark-intelligence-builder": object(),
             "domain-chip-memory": object(),
+            "domain-chip-spark-qa-evidence-lane": object(),
+            "spark-harness-core": object(),
+            "spark-skill-graphs": object(),
             "spawner-ui": object(),
         }
-        self.assertEqual(
-            expand_targets("telegram-starter", modules, include_all=False),
-            [
-                "spark-researcher",
-                "spark-character",
-                "spark-intelligence-builder",
-                "domain-chip-memory",
-                "spawner-ui",
-                "spark-telegram-bot",
-            ],
-        )
+        self.assertEqual(expand_targets("telegram-starter", modules, include_all=False), resolve_bundle_names("telegram-starter"))
 
     def test_summarize_command_output_skips_npm_prefix_lines(self) -> None:
         result = subprocess.CompletedProcess(
@@ -3752,6 +3751,9 @@ class SparkCliTests(unittest.TestCase):
                 "spark-character",
                 "spark-intelligence-builder",
                 "domain-chip-memory",
+                "domain-chip-spark-qa-evidence-lane",
+                "spark-harness-core",
+                "spark-skill-graphs",
                 "spawner-ui",
                 "spark-telegram-bot",
             ],
