@@ -15,7 +15,83 @@ from unittest.mock import patch
 from spark_cli import cli
 
 
+class _FakeBrowserUseKernel:
+    def __init__(self, *, outcome: str = "execute") -> None:
+        self.outcome = outcome
+
+    def record_tool_call(
+        self,
+        *,
+        envelope: dict[str, object],
+        action: dict[str, object],
+        authorization: dict[str, object],
+        tool_name: str,
+        status: str,
+        output_path: str,
+        summary: str,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "tool-call-ledger-v1",
+            "ledger_id": "tool-ledger-test",
+            "tool_name": tool_name,
+            "result": {
+                "status": status,
+                "output_path": output_path,
+                "summary": summary,
+            },
+        }
+
+    def governor_decision(
+        self,
+        envelope: dict[str, object],
+        *,
+        authorizations: list[dict[str, object]],
+        tool_ledgers: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "governor-decision-v1",
+            "decision_id": "governor-test",
+            "outcome": self.outcome,
+            "execution_boundary": {
+                "action_authorized": self.outcome == "execute",
+                "authorized_action_count": 1 if self.outcome == "execute" else 0,
+            },
+            "tool_ledgers": tool_ledgers or [],
+        }
+
+
 class BrowserUseCliTests(unittest.TestCase):
+    def browser_use_authority(
+        self,
+        *,
+        risk_tier: str = "read",
+        requires_confirmation: bool = False,
+        outcome: str = "execute",
+    ) -> dict[str, object]:
+        kernel = _FakeBrowserUseKernel(outcome=outcome)
+        envelope = {"turn_id": "turn-browser-use-test"}
+        action = {"action_id": "action-browser-use-test"}
+        authorization = {
+            "decision_id": "auth-browser-use-test",
+            "verdict": "allow",
+            "risk_tier": risk_tier,
+            "approval": {
+                "required": bool(requires_confirmation),
+                "status": "approved" if requires_confirmation else "not_required",
+            },
+            "restrictions": {
+                "network_allowed": True,
+                "write_allowed": risk_tier == "high",
+            },
+        }
+        return {
+            "kernel": kernel,
+            "envelope": envelope,
+            "action": action,
+            "authorization": authorization,
+            "governor_decision": kernel.governor_decision(envelope, authorizations=[authorization]),
+        }
+
     def test_cli_path_discovers_installed_spark_venv_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             entrypoint = Path(tmp_dir) / "tools" / "spark-cli-venv" / "bin" / "browser-use"
@@ -243,6 +319,7 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_harness_authorize", return_value=self.browser_use_authority()), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run) as run:
                 payload = cli.browser_use_action_payload("https://example.com")
                 ledger_exists = Path(payload["harness_authority"]["ledger_path"]).exists()
@@ -367,6 +444,7 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_harness_authorize", return_value=self.browser_use_authority()), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run):
                 payload = cli.browser_use_action_payload("https://example.com", screenshot=True)
 
@@ -388,6 +466,7 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_harness_authorize", return_value=self.browser_use_authority()), \
                  patch("spark_cli.cli.subprocess.run", side_effect=fake_run):
                 payload = cli.browser_use_action_payload("http://127.0.0.1:3333")
 
@@ -429,6 +508,10 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch(
+                     "spark_cli.cli.browser_use_harness_authorize",
+                     return_value=self.browser_use_authority(risk_tier="high", requires_confirmation=True),
+                 ), \
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "http://127.0.0.1:3333", "title": "Local", "text_excerpt": "Kanban"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="http://127.0.0.1:3333", max_steps=4)
@@ -523,6 +606,10 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch(
+                     "spark_cli.cli.browser_use_harness_authorize",
+                     return_value=self.browser_use_authority(risk_tier="high", requires_confirmation=True),
+                 ), \
                  patch("spark_cli.cli.browser_use_task_start_page", return_value={"ok": True, "final_url": "https://example.com", "title": "Example", "text_excerpt": "Example Domain"}), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent):
                 payload = cli.browser_use_task_payload("review the page", start_url="https://example.com", max_steps=3)
