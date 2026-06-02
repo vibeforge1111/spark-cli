@@ -4558,7 +4558,14 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    # Write atomically: use a temp file and os.replace so that a
+    # concurrent reader never observes a half-written env file.
+    content = (output + "\n") if output else ""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def cmd_list(_: argparse.Namespace) -> int:
