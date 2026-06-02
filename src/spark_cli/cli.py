@@ -1460,7 +1460,10 @@ def hosted_installer_checksums() -> dict[str, str]:
         line = line.strip()
         if not line:
             continue
-        digest, relpath = line.split(maxsplit=1)
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            continue
+        digest, relpath = parts
         checksums[Path(relpath).name] = digest.lower()
     return checksums
 
