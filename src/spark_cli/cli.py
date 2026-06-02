@@ -5882,7 +5882,11 @@ def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], scree
         data = parsed.get("data") if isinstance(parsed, dict) else {}
         encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
         if not encoded:
-            raise ValueError("missing screenshot data")
+            backend_error = ""
+            if isinstance(parsed, dict):
+                backend_error = str(parsed.get("error") or "").strip()
+            detail = f": {backend_error}" if backend_error else ""
+            raise ValueError(f"missing screenshot data{detail}")
         screenshot_path.parent.mkdir(parents=True, exist_ok=True)
         screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
     except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:

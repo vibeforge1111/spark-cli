@@ -246,6 +246,7 @@ from spark_cli.cli import (
     wait_for_telegram_first_message,
     wait_for_ready_check,
     write_boundary_env,
+    write_browser_use_screenshot,
     write_denied_paths,
     write_denied_prefixes,
     windows_service_creationflags,
@@ -12443,6 +12444,21 @@ class SparkCliTests(unittest.TestCase):
         message = str(error.exception)
         self.assertIn("browser-use setup failed", message)
         self.assertIn("timed out", message)
+
+    def test_browser_use_screenshot_error_includes_backend_reason(self) -> None:
+        result = subprocess.CompletedProcess(
+            ["browser-use", "screenshot"],
+            0,
+            stdout=json.dumps({"success": False, "data": None, "error": "page not loaded yet"}),
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(RuntimeError) as error:
+                write_browser_use_screenshot(result, Path(tmpdir) / "screenshot.png")
+
+        message = str(error.exception)
+        self.assertIn("missing screenshot data", message)
+        self.assertIn("page not loaded yet", message)
 
     def test_install_script_bootstraps_local_prefix_contract(self) -> None:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
