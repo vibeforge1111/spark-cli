@@ -14097,6 +14097,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     popen_kwargs: dict[str, Any] = {
         "cwd": str(module.path),
         "shell": False,
+        "stdin": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
         "env": subprocess_env,
     }

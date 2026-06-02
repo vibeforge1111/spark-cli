@@ -7749,6 +7749,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("sys.stdout", new_callable=StringIO):
                 self.assertTrue(start_module(module, allow_boot_warnings=True))
             self.assertTrue(popen.call_args.kwargs["start_new_session"])
+            self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
 
     def test_shell_command_env_prepends_managed_node_on_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
