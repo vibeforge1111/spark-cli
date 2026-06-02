@@ -10,8 +10,9 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
 from argparse import Namespace
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ from spark_cli.cli import (
     collect_telegram_fix_payload,
     collect_verify_payload,
     configure_telegram_profile,
+    cmd_config_get,
     cmd_list,
     cmd_providers,
     cmd_recommend,
@@ -73,6 +75,7 @@ from spark_cli.cli import (
     ensure_bundle_modules_available,
     delete_secret,
     execute_security_revoke_all,
+    pause_revoke_all_missions,
     fetch_secret,
     infer_module_name_from_url,
     initial_follow_log_lines,
@@ -159,6 +162,8 @@ from spark_cli.cli import (
     parse_secret_pairs,
     parse_version_constraint,
     parse_version_tuple,
+    openai_compatible_chat_completion,
+    OPENAI_COMPAT_HTTP_USER_AGENT,
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
@@ -245,6 +250,7 @@ from spark_cli.cli import (
     wait_for_telegram_first_message,
     wait_for_ready_check,
     write_boundary_env,
+    write_browser_use_screenshot,
     write_denied_paths,
     write_denied_prefixes,
     windows_service_creationflags,
@@ -589,6 +595,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(modal_args.sandbox_backend, "modal")
         self.assertEqual(modal_args.modal_command, "smoke")
         self.assertIs(modal_args.func, cmd_sandbox)
+
+    def test_subcommand_groups_show_friendly_missing_subcommand_error(self) -> None:
+        cases = {
+            "os": "compile, capabilities, authority, trace, memory",
+            "recommend": "llms, providers",
+            "access": "status, guide, setup, disable-level5",
+            "sandbox": "docker, ssh, modal",
+            "approval": "classify",
+            "telegram": "connect",
+            "autostart": "status, install, on, uninstall, off, profile",
+            "config": "get, set, unset, list",
+            "secrets": "list, set, get, delete",
+        }
+        for command, subcommands in cases.items():
+            with self.subTest(command=command):
+                stderr = StringIO()
+                with redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                    build_parser().parse_args([command])
+
+                self.assertEqual(error.exception.code, 2)
+                message = stderr.getvalue()
+                self.assertIn(
+                    f"spark {command} needs a subcommand. Try one of: {subcommands}.",
+                    message,
+                )
+                self.assertNotIn("arguments are required", message)
+                self.assertNotIn("_command", message)
 
     def test_modal_doctor_cli_json_runs_payload(self) -> None:
         args = build_parser().parse_args(["sandbox", "modal", "doctor", "--json"])
@@ -1611,10 +1644,18 @@ class SparkCliTests(unittest.TestCase):
         config: dict = {}
         dotted_set(config, "dashboard.port", 8765)
         dotted_set(config, "model", "sonnet")
+        dotted_set(config, "disabled", None)
         self.assertEqual(dotted_get(config, "dashboard.port"), 8765)
         self.assertEqual(dotted_get(config, "model"), "sonnet")
+        self.assertIsNone(dotted_get(config, "disabled", default="fallback"))
         self.assertIsNone(dotted_get(config, "missing.key"))
         self.assertEqual(dotted_get(config, "missing.key", default="fallback"), "fallback")
+
+    def test_config_get_prints_stored_null_value(self) -> None:
+        with patch("spark_cli.cli.load_user_config", return_value={"feature": {"flag": None}}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_config_get(Namespace(key="feature.flag")), 0)
+        self.assertEqual(stdout.getvalue(), "null\n")
 
     def test_dotted_unset_removes_nested_key_and_reports_hit(self) -> None:
         config = {"dashboard": {"port": 8765, "theme": "dark"}}
@@ -2070,6 +2111,22 @@ class SparkCliTests(unittest.TestCase):
             self.assertTrue((spawner_state_dir / "security-revoke-all.json").exists())
             self.assertTrue(Path(payload["support_bundle_path"]).exists())
 
+    def test_security_revoke_all_reports_active_mission_pause_os_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state_dir = Path(tmp_dir) / "spawner-ui"
+            state_dir.mkdir()
+            active_path = state_dir / "active-mission.json"
+            active_path.write_text('{"missionId": "mission-os-error", "status": "running"}', encoding="utf-8")
+
+            with patch("spark_cli.cli.spawner_state_dir_for_revoke_all", return_value=state_dir), \
+                 patch("spark_cli.cli.save_json", side_effect=PermissionError("write denied")):
+                payload = pause_revoke_all_missions(timestamp="2026-06-01T00:00:00Z")
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("mission-os-error", payload["paused_mission_ids"])
+        self.assertTrue(any(item["path"] == str(active_path) for item in payload["failures"]))
+        self.assertTrue(all("PermissionError" in item["error"] for item in payload["failures"]))
+
     def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \
              patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No LLM provider is configured."}), \
@@ -2367,6 +2424,90 @@ class SparkCliTests(unittest.TestCase):
         start.assert_not_called()
         self.assertIn("runtime hygiene blocked", stdout.getvalue())
         self.assertIn("--allow-dirty-runtime", stdout.getvalue())
+
+    def test_start_stop_restart_accept_json_flag(self) -> None:
+        self.assertTrue(build_parser().parse_args(["start", "spawner-ui", "--json"]).json)
+        self.assertTrue(build_parser().parse_args(["stop", "--json"]).json)
+        self.assertTrue(build_parser().parse_args(["restart", "spawner-ui", "--json"]).json)
+
+    def test_cmd_start_json_reports_missing_modules_as_json(self) -> None:
+        args = build_parser().parse_args(["start", "--json"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["command"], "start")
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertIn("No installed Spark modules recorded", payload["messages"][0])
+
+    def test_cmd_stop_json_reports_no_tracked_processes_as_json(self) -> None:
+        @contextmanager
+        def fake_lock():
+            yield
+
+        args = build_parser().parse_args(["stop", "--json"])
+
+        with patch("spark_cli.cli.pid_file_lock", fake_lock), \
+             patch("spark_cli.cli.load_pids", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "stop")
+        self.assertEqual(payload["target"], "all")
+        self.assertIn("No tracked Spark processes.", payload["messages"])
+
+    def test_cmd_start_json_captures_human_output_inside_messages(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "run": {"default": {"command": "npm run dev"}},
+            },
+        )
+        args = build_parser().parse_args(["start", "spawner-ui", "--json"])
+
+        def fake_start(*_args: object, **_kwargs: object) -> bool:
+            print("Started spawner-ui (pid 123)")
+            return True
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spawner-ui": module}), \
+             patch("spark_cli.cli.resolve_start_modules", return_value=[module]), \
+             patch("spark_cli.cli.expand_targets", return_value=["spawner-ui"]), \
+             patch("spark_cli.cli.ensure_runtime_telegram_relay_secret"), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=True), \
+             patch("spark_cli.cli.start_module", side_effect=fake_start), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        output = stdout.getvalue()
+        payload = json.loads(output)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "start")
+        self.assertEqual(payload["target"], "spawner-ui")
+        self.assertIn("Started spawner-ui (pid 123)", payload["messages"])
+        self.assertNotIn("Started spawner-ui", output.splitlines()[0])
+
+    def test_cmd_restart_json_reports_missing_modules_as_json(self) -> None:
+        args = build_parser().parse_args(["restart", "--json"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["command"], "restart")
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertIn("No installed Spark modules recorded", payload["messages"][0])
 
     def test_dependency_lockfile_errors_flag_unlocked_node_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -7586,6 +7727,20 @@ class SparkCliTests(unittest.TestCase):
             ["spawner-ui", "spark-telegram-bot:spark-agi"],
         )
 
+    def test_expected_runtime_process_names_keeps_autostart_profile_for_external_ingress(self) -> None:
+        setup_state = {
+            "telegram_ingress_mode": "external",
+            "telegram_profiles": {
+                "primary": {"relay_port": 8789},
+                "tester": {"relay_port": 8790, "autostart": False},
+            },
+        }
+
+        self.assertEqual(
+            expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+            ["spawner-ui", "spark-telegram-bot:primary"],
+        )
+
     def test_expected_runtime_process_names_uses_default_bot_without_profiles(self) -> None:
         self.assertEqual(
             expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, {}),
@@ -7625,6 +7780,15 @@ class SparkCliTests(unittest.TestCase):
         with patch("spark_cli.cli.os.name", "nt"), \
              patch("spark_cli.cli.subprocess.run", return_value=completed):
             self.assertEqual(listening_pid_for_tcp_port(8788), 222)
+
+    def test_listening_pid_for_tcp_port_returns_none_when_port_tool_missing(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("lsof")):
+            self.assertIsNone(listening_pid_for_tcp_port(8788))
+
+        with patch("spark_cli.cli.os.name", "nt"), \
+             patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("netstat")):
+            self.assertIsNone(listening_pid_for_tcp_port(8788))
 
     def test_discover_runtime_pid_uses_listener_when_windows_launcher_exits(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])
@@ -7669,6 +7833,7 @@ class SparkCliTests(unittest.TestCase):
                  patch("sys.stdout", new_callable=StringIO):
                 self.assertTrue(start_module(module, allow_boot_warnings=True))
             self.assertTrue(popen.call_args.kwargs["start_new_session"])
+            self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
 
     def test_shell_command_env_prepends_managed_node_on_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -10428,6 +10593,33 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(payload["roles"][role]["auth_mode"], "api_key")
             self.assertEqual(payload["roles"][role]["model"], "glm-5.1")
 
+    def test_openai_compatible_chat_completion_sends_user_agent(self) -> None:
+        captured: dict[str, str] = {}
+
+        class FakeResponse:
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "PING_OK"}}]}).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured["User-Agent"] = request.headers.get("User-agent") or request.headers.get("User-Agent", "")
+            return FakeResponse()
+
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = openai_compatible_chat_completion(target, "ping")
+        self.assertEqual(result, "PING_OK")
+        self.assertEqual(captured["User-Agent"], OPENAI_COMPAT_HTTP_USER_AGENT)
+
     def test_collect_verify_payload_reports_launch_ready_stack(self) -> None:
         expected = [
             "spark-researcher",
@@ -10688,6 +10880,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(committed["ok"])
         self.assertFalse(check["ok"])
         self.assertIn("fresh install may fail", check["detail"])
+
+    def test_verify_installers_reports_missing_local_scripts_without_traceback(self) -> None:
+        args = build_parser().parse_args(["verify", "--installers", "--json"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            installer_paths = {
+                "install.sh": root / "missing-install.sh",
+                "install.ps1": root / "missing-install.ps1",
+            }
+            with patch("spark_cli.cli.INSTALLER_SCRIPT_PATHS", installer_paths), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["local_release_metadata"]["ok"])
+        self.assertFalse(checks["local_install.sh"]["ok"])
+        self.assertFalse(checks["local_install.ps1"]["ok"])
 
     def test_hosted_installer_checks_use_hosted_checksum_metadata(self) -> None:
         class FakeResponse:
@@ -12282,6 +12493,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark-telegram-bot", checks["runtime_processes"]["detail"])
         self.assertIn("spawner-ui", checks["runtime_processes"]["detail"])
 
+    def test_collect_verify_payload_does_not_pass_empty_runtime_process_expectation(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [],
+            "tracked_pids": {},
+            "repair_hints": [],
+        }
+        provider_payload = {"ok": False, "roles": {}}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+            patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+            patch("spark_cli.cli.load_json", return_value={}), \
+            patch("spark_cli.cli.read_generated_env", return_value={}), \
+            patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+            patch("spark_cli.cli.resolve_bundle_names", return_value=[]):
+            payload = collect_verify_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["runtime_processes"]["ok"])
+        self.assertIn("No Spark-supervised runtime processes are expected", checks["runtime_processes"]["detail"])
+        self.assertNotIn("Runtime processes are running", checks["runtime_processes"]["detail"])
+
     def test_collect_verify_payload_accepts_legacy_spawner_bot_default_provider(self) -> None:
         expected = ["spark-researcher", "spark-character", "spark-intelligence-builder", "domain-chip-memory", "spawner-ui", "spark-telegram-bot"]
         status_payload = {
@@ -12399,6 +12632,21 @@ class SparkCliTests(unittest.TestCase):
         message = str(error.exception)
         self.assertIn("browser-use setup failed", message)
         self.assertIn("timed out", message)
+
+    def test_browser_use_screenshot_error_includes_backend_reason(self) -> None:
+        result = subprocess.CompletedProcess(
+            ["browser-use", "screenshot"],
+            0,
+            stdout=json.dumps({"success": False, "data": None, "error": "page not loaded yet"}),
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(RuntimeError) as error:
+                write_browser_use_screenshot(result, Path(tmpdir) / "screenshot.png")
+
+        message = str(error.exception)
+        self.assertIn("missing screenshot data", message)
+        self.assertIn("page not loaded yet", message)
 
     def test_install_script_bootstraps_local_prefix_contract(self) -> None:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
@@ -12630,6 +12878,11 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Installing Spark CLI package", script)
         self.assertIn("pip install -e", script)
         self.assertIn("Ensure-UvxForBrowserUse", script)
+        self.assertIn("Managed uv at $Script:UvExe did not provide a paired uvx.exe", script)
+        self.assertIn("Found uv at $Script:UvExe but no paired uvx.exe", script)
+        self.assertIn("uvx is not on PATH", script)
+        self.assertIn("remove the existing uv so install.ps1 can fetch the bundled copy", script)
+        self.assertNotIn("Pinned uv install did not provide uvx.exe", script)
         self.assertIn("Installing browser-use Chromium dependency", script)
         self.assertIn('$env:PATH = "$(Join-Path $venvDir "Scripts");$uvDir;$env:PATH"', script)
         self.assertIn('Remove-Item -LiteralPath $legacyExe -Force', script)

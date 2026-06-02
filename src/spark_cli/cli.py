@@ -202,6 +202,7 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
@@ -1302,8 +1303,14 @@ def assert_no_linked_write_path(path: Path) -> None:
 
 
 def installer_release_pins() -> dict[str, Any]:
-    shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    try:
+        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        shell = ""
+    try:
+        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        powershell = ""
     return installer_release_pins_from_text(shell, powershell)
 
 
@@ -5739,6 +5746,7 @@ def browser_use_status_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     package_available = browser_use_package_available()
     status_doc = browser_use_status_file_payload()
+    latest_action = browser_use_latest_action_receipt()
     raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
     proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
     proof_set = set(proofs)
@@ -5778,6 +5786,7 @@ def browser_use_status_payload() -> dict[str, Any]:
         "proof_fresh": proof_fresh,
         "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
         "proven_scope": browser_use_proven_scope(proofs),
+        "latest_action": latest_action,
         "unproven_scope": [
             "logged-in pages",
             "cookies/profile reuse",
@@ -5787,6 +5796,42 @@ def browser_use_status_payload() -> dict[str, Any]:
         ],
         "next_action": browser_use_next_action(status),
     }
+
+
+def browser_use_latest_action_receipt() -> dict[str, Any]:
+    action_dir = BROWSER_USE_STATUS_DIR / "actions"
+    if not action_dir.exists():
+        return {}
+    try:
+        candidates = sorted(
+            [path for path in action_dir.glob("*.json") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "action": str(payload.get("action") or ""),
+            "url": str(payload.get("url") or ""),
+            "status": str(payload.get("status") or ""),
+            "ok": bool(payload.get("ok")),
+            "checked_at": str(payload.get("checked_at") or ""),
+            "last_success_at": str(payload.get("last_success_at") or ""),
+            "last_failure_at": str(payload.get("last_failure_at") or ""),
+            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+            "final_url": str(payload.get("final_url") or ""),
+            "title": str(payload.get("title") or ""),
+            "receipt_path": public_local_path_ref(path),
+            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+        }
+    return {}
 
 
 def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
@@ -5882,7 +5927,11 @@ def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], scree
         data = parsed.get("data") if isinstance(parsed, dict) else {}
         encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
         if not encoded:
-            raise ValueError("missing screenshot data")
+            backend_error = ""
+            if isinstance(parsed, dict):
+                backend_error = str(parsed.get("error") or "").strip()
+            detail = f": {backend_error}" if backend_error else ""
+            raise ValueError(f"missing screenshot data{detail}")
         screenshot_path.parent.mkdir(parents=True, exist_ok=True)
         screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
     except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
@@ -6363,7 +6412,10 @@ def browser_use_normalize_structured_agent_json(raw: str) -> str:
         if start >= 0 and end > start:
             text = text[start:end + 1]
 
-    payload = json.loads(text)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
     if not isinstance(payload, dict):
         return text
 
@@ -6471,6 +6523,13 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Proven scope: " + ", ".join(payload["proven_scope"]))
         if payload["last_failure_reason"]:
             print(f"Last failure: {payload['last_failure_reason']}")
+        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+        if latest_action:
+            action_label = str(latest_action.get("action") or "action")
+            action_status = str(latest_action.get("status") or "unknown")
+            print(f"Latest action: {action_label} -> {action_status}")
+            if latest_action.get("last_failure_reason"):
+                print(f"Latest action failure: {latest_action['last_failure_reason']}")
         print(f"Next: {payload['next_action']}")
         return 0 if payload["status"] != "failed" else 1
 
@@ -8402,7 +8461,7 @@ def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = 
                     active["note"] = "Paused by spark security revoke-all"
                     active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
                     save_json(active_path, active)
-                except Exception as error:
+                except OSError as error:
                     failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
 
     provider_results = load_json_best_effort(provider_results_path, {})
@@ -10508,6 +10567,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
         },
         method="POST",
     )
@@ -13748,12 +13808,15 @@ def windows_service_creationflags() -> int:
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
     if os.name != "nt":
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return None
         if result.returncode != 0:
             return None
         for line in result.stdout.splitlines():
@@ -13765,12 +13828,15 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             except ValueError:
                 continue
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
     suffix = f":{port}"
@@ -13834,6 +13900,12 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
 
 
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not module_names:
+        return (
+            False,
+            "No Spark-supervised runtime processes are expected from the current install state. "
+            "Install or repair the starter bundle first.",
+        )
     missing: list[str] = []
     running_names: list[str] = []
     for name in module_names:
@@ -13929,7 +14001,7 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
+    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
@@ -14031,6 +14103,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     popen_kwargs: dict[str, Any] = {
         "cwd": str(module.path),
         "shell": False,
+        "stdin": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
         "env": subprocess_env,
     }
@@ -14095,7 +14168,39 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     return ready
 
 
+def command_json_messages(output: str) -> list[str]:
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
+    payload: dict[str, Any] = {
+        "ok": exit_code == 0,
+        "command": command,
+        "target": getattr(args, "target", None) or "all",
+        "profile": normalize_telegram_profile(getattr(args, "profile", None)),
+        "exit_code": exit_code,
+        "messages": command_json_messages(output),
+    }
+    if hasattr(args, "cascade"):
+        payload["cascade"] = bool(getattr(args, "cascade", False))
+    print(json.dumps(payload, indent=2))
+    return exit_code
+
+
+def run_process_command_json(command: str, args: argparse.Namespace, handler: Callable[[argparse.Namespace], int]) -> int:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = handler(args)
+    return emit_process_command_json(command, args, exit_code, output.getvalue())
+
+
 def cmd_start(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("start", args, cmd_start_plain)
+    return cmd_start_plain(args)
+
+
+def cmd_start_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = resolve_installed_modules()
     if not modules:
@@ -14168,6 +14273,12 @@ def stop_tracked_process_key(process_key: str) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("stop", args, cmd_stop_plain)
+    return cmd_stop_plain(args)
+
+
+def cmd_stop_plain(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
@@ -14194,6 +14305,12 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("restart", args, cmd_restart_plain)
+    return cmd_restart_plain(args)
+
+
+def cmd_restart_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     installed_modules = resolve_installed_modules()
     if not installed_modules:
@@ -14205,7 +14322,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         if "spark-telegram-bot" not in requested_names:
             print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
-            stop_code = cmd_stop(args)
+            stop_code = cmd_stop_plain(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
                 return 1
@@ -14224,7 +14341,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
         return 1
-    stop_code = cmd_stop(args)
+    stop_code = cmd_stop_plain(args)
     start_code = 0
     for module in restart_modules:
         if not module.run_command:
@@ -15056,6 +15173,9 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+CONFIG_MISSING = object()
+
+
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     parts = key.split(".")
     current: Any = config
@@ -15107,12 +15227,14 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key)
-    if value is None:
+    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    if value is CONFIG_MISSING:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
+    elif value is None:
+        print("null")
     else:
         print(value)
     return 0
@@ -15894,6 +16016,22 @@ def positive_int_arg(value: str) -> int:
     return parsed
 
 
+def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
+    original_error = group_parser.error
+
+    def friendly_error(message: str) -> None:
+        if message and "arguments are required" in message:
+            group_parser.print_usage(sys.stderr)
+            sys.stderr.write(
+                f"\n{group_parser.prog} needs a subcommand. Try one of: "
+                f"{', '.join(subcommands)}.\n"
+            )
+            sys.exit(2)
+        original_error(message)
+
+    group_parser.error = friendly_error  # type: ignore[method-assign]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -16110,6 +16248,7 @@ def build_parser() -> argparse.ArgumentParser:
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
     os_memory_parser.set_defaults(func=cmd_os_memory)
+    _wrap_subgroup_help(os_parser, ["compile", "capabilities", "authority", "trace", "memory"])
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")
@@ -16223,7 +16362,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
-    browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
+    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
     browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
     browser_use_task_parser.add_argument("--json", action="store_true")
@@ -16238,6 +16377,7 @@ def build_parser() -> argparse.ArgumentParser:
     recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
     recommend_providers_parser.add_argument("--json", action="store_true")
     recommend_providers_parser.set_defaults(func=cmd_recommend)
+    _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
 
     security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
     security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
@@ -16284,6 +16424,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     access_disable_parser.add_argument("--json", action="store_true")
     access_disable_parser.set_defaults(func=cmd_access)
+    _wrap_subgroup_help(access_parser, ["status", "guide", "setup", "disable-level5"])
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
@@ -16340,6 +16481,7 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
     sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
     sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
+    _wrap_subgroup_help(sandbox_parser, ["docker", "ssh", "modal"])
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
     approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
@@ -16350,6 +16492,7 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
+    _wrap_subgroup_help(approval_parser, ["classify"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
@@ -16374,6 +16517,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
     telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
+    _wrap_subgroup_help(telegram_parser, ["connect"])
 
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
     update_parser.add_argument("target", nargs="?")
@@ -16398,12 +16542,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+    start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
     start_parser.add_argument("target", nargs="?")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+    stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
     stop_parser.add_argument("target", nargs="?")
     stop_parser.set_defaults(func=cmd_stop)
 
@@ -16411,6 +16557,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+    restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
     restart_parser.add_argument("target", nargs="?")
     restart_parser.set_defaults(func=cmd_restart)
 
@@ -16470,6 +16617,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
+    _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
@@ -16506,6 +16654,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
     config_list_parser.set_defaults(func=cmd_config_list)
+    _wrap_subgroup_help(config_parser, ["get", "set", "unset", "list"])
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
@@ -16527,6 +16676,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
     secrets_delete_parser.add_argument("secret_id")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
+    _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
     logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
     logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
