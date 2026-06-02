@@ -10881,6 +10881,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertIn("fresh install may fail", check["detail"])
 
+    def test_verify_installers_reports_missing_local_scripts_without_traceback(self) -> None:
+        args = build_parser().parse_args(["verify", "--installers", "--json"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            installer_paths = {
+                "install.sh": root / "missing-install.sh",
+                "install.ps1": root / "missing-install.ps1",
+            }
+            with patch("spark_cli.cli.INSTALLER_SCRIPT_PATHS", installer_paths), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["local_release_metadata"]["ok"])
+        self.assertFalse(checks["local_install.sh"]["ok"])
+        self.assertFalse(checks["local_install.ps1"]["ok"])
+
     def test_hosted_installer_checks_use_hosted_checksum_metadata(self) -> None:
         class FakeResponse:
             def __init__(self, payload: bytes) -> None:
