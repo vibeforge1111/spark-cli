@@ -266,6 +266,7 @@ from spark_cli.cli import (
     windows_service_creationflags,
     resolve_bundle_names,
     resolve_setup_bundle_plan,
+    resolve_installed_modules_best_effort,
     resolve_install_target,
     resolve_restart_modules,
     resolve_start_modules,
@@ -2197,6 +2198,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(any(item["path"] == str(active_path) for item in payload["failures"]))
         self.assertTrue(all("PermissionError" in item["error"] for item in payload["failures"]))
 
+    def test_resolve_installed_modules_best_effort_survives_broken_manifest(self) -> None:
+        with patch("spark_cli.cli.resolve_installed_modules", side_effect=SystemExit("broken manifest")):
+            self.assertEqual(resolve_installed_modules_best_effort(), {})
+
     def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \
              patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No LLM provider is configured."}), \
@@ -2881,6 +2886,29 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(command[:5], ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         self.assertIn(r"C:\nvm\nodejs\claude.ps1", command)
         self.assertIn("--model", command)
+
+    def test_call_llm_doctor_unsupported_provider_names_supported_set(self) -> None:
+        target = {"provider": "experimental-xyz", "auth_mode": "api"}
+
+        with self.assertRaises(SystemExit) as captured:
+            call_llm_doctor(target, "Spark is not working correctly.")
+
+        message = str(captured.exception)
+        self.assertIn("`experimental-xyz`", message)
+        for provider in [
+            "anthropic",
+            "codex",
+            "huggingface",
+            "kimi",
+            "minimax",
+            "ollama",
+            "openai",
+            "openrouter",
+            "zai",
+        ]:
+            self.assertIn(provider, message)
+        self.assertIn("spark providers list", message)
+        self.assertIn("spark setup", message)
 
     def test_provider_test_explicit_codex_uses_codex_oauth_defaults(self) -> None:
         setup_state = {
@@ -4098,6 +4126,40 @@ class SparkCliTests(unittest.TestCase):
             resolved = resolve_install_target(str(repo_path), {})
             self.assertEqual(resolved.name, "test-module")
 
+    def test_resolve_install_target_unknown_message_lists_installed_and_registry(self) -> None:
+        installed = {
+            "spark-cli": make_module("spark-cli", ["spark.cli"]),
+            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
+        }
+        registry = {
+            "modules": {
+                "spark-cli": {},
+                "spark-character": {},
+                "spark-researcher": {},
+            }
+        }
+
+        with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+            with self.assertRaises(SystemExit) as captured:
+                resolve_install_target("typo", installed)
+
+        message = str(captured.exception)
+        self.assertIn("Unknown module target: typo.", message)
+        self.assertIn("Installed modules: spark-cli, spark-telegram-bot.", message)
+        self.assertIn("Registry-known modules: spark-character, spark-researcher.", message)
+        self.assertIn("git URL", message)
+        self.assertIn("spark.toml", message)
+
+    def test_resolve_install_target_unknown_message_handles_empty_registry(self) -> None:
+        with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}):
+            with self.assertRaises(SystemExit) as captured:
+                resolve_install_target("typo", {})
+
+        message = str(captured.exception)
+        self.assertIn("Unknown module target: typo.", message)
+        self.assertIn("No modules are installed yet.", message)
+        self.assertNotIn("Registry-known modules:", message)
+
     def test_resolve_bundle_names_reads_registry_bundle(self) -> None:
         self.assertEqual(
             resolve_bundle_names("telegram-starter"),
@@ -4311,6 +4373,7 @@ class SparkCliTests(unittest.TestCase):
         run.assert_called_once_with(
             [sys.executable, "-m", "pip", "install", "-e", f"{memory_root}[graphiti-kuzu]"],
             check=True,
+            timeout=300,
         )
 
     def test_install_memory_sidecar_dependencies_honors_skip_install_commands(self) -> None:
@@ -4346,6 +4409,22 @@ class SparkCliTests(unittest.TestCase):
 
         message = str(error.exception)
         self.assertIn("Optional Graphiti/Kuzu memory sidecar install failed", message)
+        self.assertIn("--skip-install-commands", message)
+
+    def test_install_memory_sidecar_dependencies_reports_pip_timeout_without_traceback(self) -> None:
+        memory = make_module("domain-chip-memory", ["spark.memory.substrate"])
+        args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+        setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired([sys.executable, "-m", "pip"], 300),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        message = str(error.exception)
+        self.assertIn("Optional Graphiti/Kuzu memory sidecar install timed out after 300s", message)
         self.assertIn("--skip-install-commands", message)
 
     def test_install_memory_sidecar_dependencies_reports_start_failure_without_traceback(self) -> None:
@@ -13057,6 +13136,20 @@ class SparkCliTests(unittest.TestCase):
         message = str(error.exception)
         self.assertIn("browser-use package install failed", message)
         self.assertIn("exit code 2", message)
+
+    def test_browser_use_install_reports_package_install_timeout_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired([sys.executable, "-m", "pip"], 300),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use package install timed out after 300s", message)
+        self.assertIn("network unreachable", message)
 
     def test_browser_use_install_reports_browser_setup_failure_without_traceback(self) -> None:
         args = build_parser().parse_args(["browser-use", "install"])

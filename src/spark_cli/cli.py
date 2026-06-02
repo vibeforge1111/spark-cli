@@ -110,6 +110,7 @@ POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*
 POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
+PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS = 300
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
@@ -3272,6 +3273,17 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
 }
 
 LLM_PROVIDER_CHOICES = sorted(provider for provider in LLM_PROVIDER_ENV if provider != "not_configured")
+LLM_DOCTOR_DIRECT_PROVIDER_CHOICES = (
+    "anthropic",
+    "codex",
+    "huggingface",
+    "kimi",
+    "minimax",
+    "ollama",
+    "openai",
+    "openrouter",
+    "zai",
+)
 LLM_ROLES = ("chat", "builder", "memory", "mission")
 LLM_PROVIDER_WIZARD_ORDER = ("codex", "anthropic", "zai", "kimi", "openrouter", "huggingface", "minimax", "lmstudio", "ollama", "openai")
 LLM_ROLE_LABELS = {
@@ -4620,7 +4632,25 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
         if not manifest_path.exists():
             raise SystemExit(f"{candidate} does not contain spark.toml")
         return load_module(candidate)
-    raise SystemExit(f"Unknown module target: {target}")
+    raise SystemExit(unknown_install_target_message(target, modules, registry))
+
+
+def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
+    installed_names = sorted(modules)
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    registry_names = sorted(name for name in registry_modules if name not in modules)
+    parts = [f"Unknown module target: {target}."]
+    if installed_names:
+        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+    else:
+        parts.append("No modules are installed yet.")
+    if registry_names:
+        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+    parts.append(
+        "Pass an installed module name, a registry-known module name, a git URL, "
+        "or a local directory containing spark.toml."
+    )
+    return " ".join(parts)
 
 
 def install_module_record(
@@ -5744,10 +5774,20 @@ def install_memory_sidecar_dependencies(
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
     try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", install_target],
+            check=True,
+            timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+        )
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
             f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+            "The package download may be slow or the network unreachable. "
             "Re-run setup with --skip-install-commands or install the sidecar manually."
         ) from None
     except OSError as exc:
@@ -6628,11 +6668,20 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Then run: spark browser-use probe")
             return 0
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
+                check=True,
+                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+            )
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
                 f"browser-use package install failed with exit code {exc.returncode}. "
                 "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"browser-use package install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable."
             ) from None
         except OSError as exc:
             raise SystemExit(
@@ -8274,7 +8323,7 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except (Exception, SystemExit):
         return {}
 
 
@@ -10839,7 +10888,11 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
         return claude_cli_completion(target, prompt)
     if provider == "ollama":
         return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    raise SystemExit(
+        f"Spark Doctor cannot directly call provider `{provider}` yet. "
+        f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
+        "Run `spark providers list` to see configured paths, or `spark setup` to switch."
+    )
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
