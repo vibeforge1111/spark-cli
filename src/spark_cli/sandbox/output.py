@@ -80,6 +80,16 @@ def redact_sandbox_text(text: str) -> str:
     return redacted
 
 
+def _decode_utf8_prefix(data: bytes) -> str:
+    prefix = data
+    while prefix:
+        try:
+            return prefix.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            prefix = prefix[: exc.start]
+    return ""
+
+
 def bound_sandbox_output(
     text: str,
     *,
@@ -93,7 +103,7 @@ def bound_sandbox_output(
     next_text = "\n".join(lines[:max_lines])
     next_bytes = next_text.encode("utf-8", errors="replace")
     if len(next_bytes) > max_bytes:
-        next_text = next_bytes[:max_bytes].decode("utf-8", errors="ignore")
+        next_text = _decode_utf8_prefix(next_bytes[:max_bytes])
     if truncated:
         next_text = f"{next_text}\n[output truncated]"
     return BoundedOutput(
