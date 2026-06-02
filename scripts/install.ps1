@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "spark-cli-public-installer-2026-05-30-r22",
+    [string]$Ref = "spark-cli-public-installer-2026-06-02-r23",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-05-30-r22"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-06-02-r23"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -221,7 +221,11 @@ function Ensure-UvxForBrowserUse {
     if ($uvxOnPath) {
         return (Split-Path -Parent $uvxOnPath.Source)
     }
-    throw "Pinned uv install did not provide uvx.exe, which browser-use needs to install Chromium."
+    $managedRoot = Join-Path $Script:SparkPrefix "tools"
+    if ($Script:UvExe -and $Script:UvExe.StartsWith($managedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Managed uv at $Script:UvExe did not provide a paired uvx.exe, which browser-use needs to install Chromium. Remove $uvDir and re-run install.ps1 to refresh the bundled uv."
+    }
+    throw "Found uv at $Script:UvExe but no paired uvx.exe, and uvx is not on PATH. browser-use needs uvx to install Chromium. Install uv with its bundled uvx, or remove the existing uv so install.ps1 can fetch the bundled copy."
 }
 
 function Ensure-PythonRuntime {
