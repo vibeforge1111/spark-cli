@@ -8860,7 +8860,7 @@ def pid_registry_errors() -> list[str]:
             errors.append(f"Process registry entry `{key}` is malformed.")
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             errors.append(f"Process registry entry `{key}` has an invalid pid.")
             continue
@@ -12191,7 +12191,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
         if not isinstance(record, dict):
             return False
         try:
-            return pid_is_running(int(record.get("pid", 0)))
+            return pid_is_running(int(record.get("pid") or 0))
         except (TypeError, ValueError):
             return False
 
@@ -12548,7 +12548,7 @@ def tracked_runtime_uids() -> list[int]:
         if not isinstance(record, dict):
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             continue
         if not pid or not pid_is_running(pid):
@@ -13893,7 +13893,7 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
-        if isinstance(record, dict) and int(record.get("pid", 0)) == int(launched_pid):
+        if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
             record["pid"] = int(runtime_pid)
             record["launcher_pid"] = int(launched_pid)
             save_pids(pids)
@@ -13910,7 +13910,7 @@ def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tup
     running_names: list[str] = []
     for name in module_names:
         record = pids.get(name) if isinstance(pids, dict) else None
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             running_names.append(f"{name} (pid {pid})")
         else:
@@ -13961,7 +13961,7 @@ def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
     pids = load_pids()
     for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
         record = pids.get(process_key)
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             return True
     return False
@@ -14025,7 +14025,7 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         pid = 0
         if isinstance(record, dict):
             try:
-                pid = int(record.get("pid", 0))
+                pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
         statuses.append(
@@ -14264,7 +14264,7 @@ def stop_tracked_process_key(process_key: str) -> bool:
         record = pids.get(process_key)
         if not isinstance(record, dict):
             return False
-        pid = int(record.get("pid", 0))
+        pid = int(record.get("pid") or 0)
         if pid and pid_is_running(pid):
             stop_module(process_key, pid)
         pids.pop(process_key, None)
@@ -15601,7 +15601,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         for process_key in process_keys:
             with pid_file_lock():
                 record = load_pids().get(process_key, {})
-            pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
             if pid and pid_is_running(pid):
                 print(f"Stopping {process_key} before update so install commands can replace locked files.")
                 stopped_processes.append(process_key)
