@@ -97,6 +97,8 @@ from spark_cli.cli import (
     remove_windows_path_entry,
     runtime_supply_chain_warnings,
     purge_spark_home,
+    print_redacted_console,
+    print_redacted_json_payload,
     resolve_install_executable,
     resolve_remote_git_ref,
     install_module_record,
@@ -1930,6 +1932,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("<spark-home>", redacted)
         self.assertIn("[TELEGRAM_ID_REDACTED]", redacted)
         self.assertIn("[PRIVATE_IP_REDACTED]", redacted)
+
+    def test_redacted_stdout_sinks_remove_tokens_ids_and_paths(self) -> None:
+        payload = {
+            "path": "C:/Users/Alice/.spark/modules/spark-telegram-bot",
+            "token": "1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890",
+            "admin": "Admin ID: 8319079055",
+            "nested": ["Authorization: Bearer sk-proj-secretvalue1234567890"],
+        }
+        with patch("spark_cli.cli.Path.home", return_value=Path("C:/Users/Alice")), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            print_redacted_json_payload(payload)
+            print_redacted_console("192.168.1.50 bot_token=1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890")
+        output = stdout.getvalue()
+        self.assertNotIn("Alice", output)
+        self.assertNotIn("1234567890:AA", output)
+        self.assertNotIn("8319079055", output)
+        self.assertNotIn("192.168.1.50", output)
+        self.assertNotIn("sk-proj-secretvalue", output)
+        self.assertIn("<spark-home>", output)
+        self.assertIn("[TELEGRAM_ID_REDACTED]", output)
+        self.assertIn("[PRIVATE_IP_REDACTED]", output)
 
     def test_secret_surface_payload_flags_generated_plaintext_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

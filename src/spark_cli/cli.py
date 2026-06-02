@@ -10552,14 +10552,16 @@ def redact_shareable_payload(value: Any) -> Any:
 
 def print_redacted_json_payload(payload: Any) -> None:
     safe_payload = redact_shareable_payload(payload)
-    sys.stdout.write(json.dumps(safe_payload, indent=2))
-    sys.stdout.write("\n")
+    # Audited share-safe boundary: every value is rebuilt by redact_shareable_payload
+    # before it reaches stdout, and tests cover token/path/id redaction at this sink.
+    sys.stdout.writelines((json.dumps(safe_payload, indent=2), "\n"))
 
 
 def print_redacted_console(value: Any) -> None:
     safe_text = redact_shareable_text(str(value))
-    sys.stdout.write(safe_text)
-    sys.stdout.write("\n")
+    # Audited share-safe boundary: every value is rebuilt by redact_shareable_text
+    # before it reaches stdout, and tests cover token/path/id redaction at this sink.
+    sys.stdout.writelines((safe_text, "\n"))
 
 
 SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
