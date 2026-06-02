@@ -863,7 +863,7 @@ def print_update_live_status_summary() -> int:
     if not ok and payload.get("repair_hints"):
         print("  Repair:")
         for hint in payload.get("repair_hints", [])[:2]:
-            print(f"    - {hint}")
+            print_redacted_console(f"    - {hint}")
     return 0 if ok else 1
 
 
@@ -8033,32 +8033,33 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
 
     if not payload.get("modules"):
-        print(payload["summary"])
-        print(payload["repair"])
+        print_redacted_console(payload["summary"])
+        print_redacted_console(payload["repair"])
         return 1
 
-    print(payload["summary"])
+    print_redacted_console(payload["summary"])
     ingress_owner = payload.get("telegram_ingress_owner")
     if ingress_owner:
-        print(f"Telegram ingress owner: {ingress_owner}")
+        print_redacted_console(f"Telegram ingress owner: {ingress_owner}")
     llm_state = payload.get("llm")
     if isinstance(llm_state, dict) and llm_state.get("provider"):
         if llm_state["provider"] == "not_configured":
             print("LLM provider: not configured")
         else:
-            model = llm_state.get("model") or "default"
-            print(f"LLM provider: {llm_state['provider']} ({model})")
+            provider = redact_shareable_text(str(llm_state["provider"]))
+            model = redact_shareable_text(str(llm_state.get("model") or "default"))
+            print_redacted_console(f"LLM provider: {provider} ({model})")
         roles = llm_state.get("roles")
         if isinstance(roles, dict):
             role_summary = ", ".join(
-                f"{role}={roles.get(role, {}).get('provider', llm_state['provider'])}"
+                f"{role}={redact_shareable_text(str(roles.get(role, {}).get('provider', llm_state['provider'])))}"
                 for role in LLM_ROLES
             )
-            print(f"LLM roles: {role_summary}")
+            print_redacted_console(f"LLM roles: {role_summary}")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         profile_parts = []
@@ -8073,14 +8074,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             if item.get("autostart") is False:
                 details.append("manual")
             suffix = f"({', '.join(details)})" if details else ""
-            profile_parts.append(f"{item.get('profile')}={'running' if item.get('running') else 'stopped'}{suffix}")
+            profile = redact_shareable_text(str(item.get("profile") or "unknown"))
+            profile_parts.append(f"{profile}={'running' if item.get('running') else 'stopped'}{suffix}")
         profile_summary = ", ".join(profile_parts)
         if profile_summary:
-            print(f"Telegram profiles: {profile_summary}")
+            print_redacted_console(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
+        print_redacted_console(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     for warning in payload.get("telegram_profile_warnings", []):
-        print(f"Warning: {warning}")
+        print_redacted_console(f"Warning: {warning}")
     print("")
 
     exit_code = 0
@@ -8092,11 +8094,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = expand_spark_home_placeholder(str(module["detail"]))
+        detail = redact_shareable_text(expand_spark_home_placeholder(str(module["detail"])))
         if module.get("repair_hints"):
-            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            expanded_hints = [
+                redact_shareable_text(expand_spark_home_placeholder(str(hint)))
+                for hint in module["repair_hints"]
+            ]
             detail = f"{detail} -- {' '.join(expanded_hints)}"
-        print(f"{marker} {module['name']:<26} {detail}")
+        module_name = redact_shareable_text(str(module["name"]))
+        print_redacted_console(f"{marker} {module_name:<26} {detail}")
         if healthy is False:
             exit_code = 1
     if payload.get("repair_hints"):
@@ -8218,7 +8224,7 @@ def initial_follow_log_lines(path: Path, line_count: int) -> list[str]:
 def cmd_live_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
     print("Spark Live")
     print("One surface for Telegram, Mission Control, memory, and provider routing.")
@@ -8235,14 +8241,14 @@ def cmd_live_status(args: argparse.Namespace) -> int:
                 f"{role}={roles.get(role, {}).get('provider', llm_state.get('provider', 'not_configured'))}"
                 for role in LLM_ROLES
             )
-            print(f"LLM roles: {role_summary}")
+            print_redacted_console(f"LLM roles: {role_summary}")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
         stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
         print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
     for warning in payload.get("telegram_profile_warnings", []):
-        print(f"Warning: {warning}")
+        print_redacted_console(f"Warning: {warning}")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
         module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
@@ -8250,12 +8256,12 @@ def cmd_live_status(args: argparse.Namespace) -> int:
             continue
         healthy = module.get("healthy")
         marker = "[OK]" if healthy else "[SKIP]" if healthy is None else "[FIX]"
-        print(f"{marker} {name}: {module.get('detail')}")
+        print_redacted_console(f"{marker} {name}: {module.get('detail') or ''}")
     if payload.get("repair_hints"):
         print("")
         print("Fix next:")
         for hint in payload.get("repair_hints", []):
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
         print("  - For deeper help: spark doctor llm \"Spark Live is not ready\" --save-report")
     print("")
     print("Useful:")
@@ -8271,13 +8277,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "doctor_command", None) == "specialization-loop":
         payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
         if args.json:
-            print(json.dumps(payload, indent=2))
+            print_redacted_json_payload(payload)
         else:
             print_plain_specialization_loop_doctor(payload)
         return 0 if payload.get("ok") else 1
     payload = collect_status_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
     else:
         print_plain_doctor(payload)
     return 0 if payload.get("ok") else 1
@@ -8291,7 +8297,7 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
     state = "ready" if healthy else "not checked" if healthy is None else "needs attention"
     detail = str(module.get("detail") or "").strip()
     if detail:
-        return f"- {label}: {state} - {detail}"
+        return f"- {label}: {state} - {redact_shareable_text(detail)}"
     return f"- {label}: {state}"
 
 
@@ -8305,28 +8311,28 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
-    provider = llm_state.get("provider") or "not configured"
+    provider = redact_shareable_text(str(llm_state.get("provider") or "not configured"))
     if provider == "not_configured":
         provider = "not configured"
-    model = llm_state.get("model") or "default"
+    model = redact_shareable_text(str(llm_state.get("model") or "default"))
     print("Core")
-    print(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
-    print(f"- LLM: {provider} ({model})")
-    print(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
-    print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
-    print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
+    print_redacted_console(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
+    print_redacted_console(f"- LLM: {provider} ({model})")
+    print_redacted_console(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
+    print_redacted_console(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
+    print_redacted_console(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
     print("")
     if setup_refresh:
         print("Setup refresh")
-        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+        print_redacted_console(f"- Status: {setup_refresh.get('status') or 'pending'}")
         summary = str(setup_refresh.get("summary") or "").strip()
         if summary:
-            print(f"- Note: {summary}")
+            print_redacted_console(f"- Note: {summary}")
         if setup_refresh.get("safe_to_continue"):
             print("- Existing runtime: safe to keep using")
         next_step = str(setup_refresh.get("next") or "").strip()
         if next_step:
-            print(f"- Resume: {next_step}")
+            print_redacted_console(f"- Resume: {next_step}")
         print("")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
@@ -8339,7 +8345,7 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     if hints:
         print("Fix next")
         for hint in hints[:5]:
-            print(f"- {hint}")
+            print_redacted_console(f"- {hint}")
         if len(hints) > 5:
             print(f"- {len(hints) - 5} more repair hint(s); run `spark status --json` for details.")
         print("")
@@ -8458,7 +8464,7 @@ def cmd_support(args: argparse.Namespace) -> int:
         raise SystemExit(f"Unknown support command: {args.support_command}")
     payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0
     path = write_support_bundle(payload)
     print("Spark support bundle")
@@ -10544,6 +10550,18 @@ def redact_shareable_payload(value: Any) -> Any:
     return value
 
 
+def print_redacted_json_payload(payload: Any) -> None:
+    safe_payload = redact_shareable_payload(payload)
+    # codeql[py/clear-text-logging-sensitive-data] safe_payload is recursively redacted before printing.
+    print(json.dumps(safe_payload, indent=2))
+
+
+def print_redacted_console(value: Any) -> None:
+    safe_text = redact_shareable_text(str(value))
+    # codeql[py/clear-text-logging-sensitive-data] safe_text is redacted before printing.
+    print(safe_text)
+
+
 SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("token_like_value", re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b")),
     ("api_key_like_value", re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b")),
@@ -11680,15 +11698,18 @@ def cmd_fix(args: argparse.Namespace) -> int:
     if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
         payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
         if args.json:
-            print(json.dumps(payload, indent=2))
+            print_redacted_json_payload(payload)
             return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
-        print(payload["summary"])
+        print_redacted_console(payload["summary"])
         print("")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
+            print_redacted_console(
+                f"{marker} {redact_shareable_text(str(check['name']))}: "
+                f"{redact_shareable_text(str(check['detail']))}"
+            )
             if not check["ok"] and check.get("repair"):
-                print(f"      {check['repair']}")
+                print_redacted_console(f"      {check['repair']}")
         if args.target == "autostart" and payload.get("hooks"):
             print("")
             print("Hooks:")
