@@ -105,6 +105,52 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["status"], "ready")
 
+    def test_status_surfaces_latest_browser_action_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            screenshot = status_path.parent / "probe-screenshot.png"
+            action_dir = status_path.parent / "actions"
+            action_receipt = action_dir / "spark-browser-timeout.json"
+            status_path.parent.mkdir(parents=True)
+            action_dir.mkdir(parents=True)
+            screenshot.write_bytes(b"png")
+            status_path.write_text(
+                cli.json.dumps(
+                    {
+                        "status": "ready",
+                        "last_success_at": datetime.now(timezone.utc).isoformat(),
+                        "proofs": ["doctor", "public_page_open", "screenshot_capture", "state_read"],
+                        "screenshot_path": str(screenshot),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            action_receipt.write_text(
+                cli.json.dumps(
+                    {
+                        "action": "open",
+                        "url": "https://compete.sparkswarm.ai/#agent-playbook",
+                        "status": "failed",
+                        "ok": False,
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                        "last_failure_at": datetime.now(timezone.utc).isoformat(),
+                        "last_failure_reason": "Page.navigate() timed out after 20.0s",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True):
+                payload = cli.browser_use_status_payload()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["latest_action"]["action"], "open")
+        self.assertEqual(payload["latest_action"]["status"], "failed")
+        self.assertIn("Page.navigate", payload["latest_action"]["last_failure_reason"])
+
     def test_probe_writes_ready_receipt_for_public_page_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
@@ -313,6 +359,44 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "blocked")
         self.assertIn("task is required", payload["last_failure_reason"])
+
+    def test_task_parser_accepts_options_after_goal_text(self) -> None:
+        args = cli.build_parser().parse_args([
+            "browser-use",
+            "task",
+            "review",
+            "the",
+            "page",
+            "--url",
+            "https://example.com",
+            "--max-steps",
+            "3",
+            "--json",
+        ])
+
+        self.assertEqual(args.browser_use_command, "task")
+        self.assertEqual(args.goal, ["review", "the", "page"])
+        self.assertEqual(args.url, "https://example.com")
+        self.assertEqual(args.max_steps, 3)
+        self.assertTrue(args.json)
+
+    def test_task_parser_keeps_option_like_goal_text_after_separator(self) -> None:
+        args = cli.build_parser().parse_args([
+            "browser-use",
+            "task",
+            "explain",
+            "--",
+            "--json",
+        ])
+
+        self.assertEqual(args.goal, ["explain", "--json"])
+        self.assertFalse(args.json)
+
+    def test_task_parser_keeps_json_missing_goal_on_command_path(self) -> None:
+        args = cli.build_parser().parse_args(["browser-use", "task", "--json"])
+
+        self.assertEqual(args.goal, [])
+        self.assertTrue(args.json)
 
     def test_task_receipt_fails_when_agent_does_not_finish(self) -> None:
         async def fake_agent(

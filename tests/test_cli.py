@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
 from argparse import Namespace
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -48,6 +49,7 @@ from spark_cli.cli import (
     collect_telegram_fix_payload,
     collect_verify_payload,
     configure_telegram_profile,
+    cmd_config_get,
     cmd_list,
     cmd_providers,
     cmd_recommend,
@@ -160,6 +162,8 @@ from spark_cli.cli import (
     parse_secret_pairs,
     parse_version_constraint,
     parse_version_tuple,
+    openai_compatible_chat_completion,
+    OPENAI_COMPAT_HTTP_USER_AGENT,
     provider_status_payload,
     provider_recommendations_payload,
     provider_test_payload,
@@ -1640,10 +1644,18 @@ class SparkCliTests(unittest.TestCase):
         config: dict = {}
         dotted_set(config, "dashboard.port", 8765)
         dotted_set(config, "model", "sonnet")
+        dotted_set(config, "disabled", None)
         self.assertEqual(dotted_get(config, "dashboard.port"), 8765)
         self.assertEqual(dotted_get(config, "model"), "sonnet")
+        self.assertIsNone(dotted_get(config, "disabled", default="fallback"))
         self.assertIsNone(dotted_get(config, "missing.key"))
         self.assertEqual(dotted_get(config, "missing.key", default="fallback"), "fallback")
+
+    def test_config_get_prints_stored_null_value(self) -> None:
+        with patch("spark_cli.cli.load_user_config", return_value={"feature": {"flag": None}}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_config_get(Namespace(key="feature.flag")), 0)
+        self.assertEqual(stdout.getvalue(), "null\n")
 
     def test_dotted_unset_removes_nested_key_and_reports_hit(self) -> None:
         config = {"dashboard": {"port": 8765, "theme": "dark"}}
@@ -7631,6 +7643,20 @@ class SparkCliTests(unittest.TestCase):
             ["spawner-ui", "spark-telegram-bot:spark-agi"],
         )
 
+    def test_expected_runtime_process_names_keeps_autostart_profile_for_external_ingress(self) -> None:
+        setup_state = {
+            "telegram_ingress_mode": "external",
+            "telegram_profiles": {
+                "primary": {"relay_port": 8789},
+                "tester": {"relay_port": 8790, "autostart": False},
+            },
+        }
+
+        self.assertEqual(
+            expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+            ["spawner-ui", "spark-telegram-bot:primary"],
+        )
+
     def test_expected_runtime_process_names_uses_default_bot_without_profiles(self) -> None:
         self.assertEqual(
             expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, {}),
@@ -10482,6 +10508,33 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(payload["roles"][role]["auth_mode"], "api_key")
             self.assertEqual(payload["roles"][role]["model"], "glm-5.1")
 
+    def test_openai_compatible_chat_completion_sends_user_agent(self) -> None:
+        captured: dict[str, str] = {}
+
+        class FakeResponse:
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "PING_OK"}}]}).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured["User-Agent"] = request.headers.get("User-agent") or request.headers.get("User-Agent", "")
+            return FakeResponse()
+
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = openai_compatible_chat_completion(target, "ping")
+        self.assertEqual(result, "PING_OK")
+        self.assertEqual(captured["User-Agent"], OPENAI_COMPAT_HTTP_USER_AGENT)
+
     def test_collect_verify_payload_reports_launch_ready_stack(self) -> None:
         expected = [
             "spark-researcher",
@@ -12335,6 +12388,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["runtime_processes"]["ok"])
         self.assertIn("spark-telegram-bot", checks["runtime_processes"]["detail"])
         self.assertIn("spawner-ui", checks["runtime_processes"]["detail"])
+
+    def test_collect_verify_payload_does_not_pass_empty_runtime_process_expectation(self) -> None:
+        status_payload = {
+            "ok": False,
+            "modules": [],
+            "tracked_pids": {},
+            "repair_hints": [],
+        }
+        provider_payload = {"ok": False, "roles": {}}
+
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+            patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+            patch("spark_cli.cli.load_json", return_value={}), \
+            patch("spark_cli.cli.read_generated_env", return_value={}), \
+            patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
+            patch("spark_cli.cli.resolve_bundle_names", return_value=[]):
+            payload = collect_verify_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["runtime_processes"]["ok"])
+        self.assertIn("No Spark-supervised runtime processes are expected", checks["runtime_processes"]["detail"])
+        self.assertNotIn("Runtime processes are running", checks["runtime_processes"]["detail"])
 
     def test_collect_verify_payload_accepts_legacy_spawner_bot_default_provider(self) -> None:
         expected = ["spark-researcher", "spark-character", "spark-intelligence-builder", "domain-chip-memory", "spawner-ui", "spark-telegram-bot"]

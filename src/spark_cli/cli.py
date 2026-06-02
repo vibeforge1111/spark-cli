@@ -202,6 +202,7 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
@@ -5739,6 +5740,7 @@ def browser_use_status_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     package_available = browser_use_package_available()
     status_doc = browser_use_status_file_payload()
+    latest_action = browser_use_latest_action_receipt()
     raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
     proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
     proof_set = set(proofs)
@@ -5778,6 +5780,7 @@ def browser_use_status_payload() -> dict[str, Any]:
         "proof_fresh": proof_fresh,
         "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
         "proven_scope": browser_use_proven_scope(proofs),
+        "latest_action": latest_action,
         "unproven_scope": [
             "logged-in pages",
             "cookies/profile reuse",
@@ -5787,6 +5790,42 @@ def browser_use_status_payload() -> dict[str, Any]:
         ],
         "next_action": browser_use_next_action(status),
     }
+
+
+def browser_use_latest_action_receipt() -> dict[str, Any]:
+    action_dir = BROWSER_USE_STATUS_DIR / "actions"
+    if not action_dir.exists():
+        return {}
+    try:
+        candidates = sorted(
+            [path for path in action_dir.glob("*.json") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "action": str(payload.get("action") or ""),
+            "url": str(payload.get("url") or ""),
+            "status": str(payload.get("status") or ""),
+            "ok": bool(payload.get("ok")),
+            "checked_at": str(payload.get("checked_at") or ""),
+            "last_success_at": str(payload.get("last_success_at") or ""),
+            "last_failure_at": str(payload.get("last_failure_at") or ""),
+            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+            "final_url": str(payload.get("final_url") or ""),
+            "title": str(payload.get("title") or ""),
+            "receipt_path": public_local_path_ref(path),
+            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+        }
+    return {}
 
 
 def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
@@ -6478,6 +6517,13 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Proven scope: " + ", ".join(payload["proven_scope"]))
         if payload["last_failure_reason"]:
             print(f"Last failure: {payload['last_failure_reason']}")
+        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+        if latest_action:
+            action_label = str(latest_action.get("action") or "action")
+            action_status = str(latest_action.get("status") or "unknown")
+            print(f"Latest action: {action_label} -> {action_status}")
+            if latest_action.get("last_failure_reason"):
+                print(f"Latest action failure: {latest_action['last_failure_reason']}")
         print(f"Next: {payload['next_action']}")
         return 0 if payload["status"] != "failed" else 1
 
@@ -10515,6 +10561,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
         },
         method="POST",
     )
@@ -13847,6 +13894,12 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
 
 
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not module_names:
+        return (
+            False,
+            "No Spark-supervised runtime processes are expected from the current install state. "
+            "Install or repair the starter bundle first.",
+        )
     missing: list[str] = []
     running_names: list[str] = []
     for name in module_names:
@@ -13942,7 +13995,7 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
+    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
@@ -15069,6 +15122,9 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+CONFIG_MISSING = object()
+
+
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     parts = key.split(".")
     current: Any = config
@@ -15120,12 +15176,14 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key)
-    if value is None:
+    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    if value is CONFIG_MISSING:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
+    elif value is None:
+        print("null")
     else:
         print(value)
     return 0
@@ -16253,7 +16311,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_screenshot_parser.add_argument("--json", action="store_true")
     browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
     browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
-    browser_use_task_parser.add_argument("goal", nargs=argparse.REMAINDER, help="Task goal for the Browser Use Agent")
+    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
     browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
     browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
     browser_use_task_parser.add_argument("--json", action="store_true")
