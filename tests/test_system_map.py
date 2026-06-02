@@ -2088,9 +2088,38 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertGreaterEqual(coverage["summary"]["legacy_plane_classification_counts"].get("blocked", 0), 1)
         cleanup_queue = coverage["legacy_plane_cleanup_queue"]
         cleanup_by_edge = {item["edge_id"]: item for item in cleanup_queue}
+        legacy_inventory = coverage["legacy_authority_inventory"]
+        inventory_planes_by_edge = {
+            str(item["plane_id"]).replace("legacy-plane:", "", 1): item
+            for item in legacy_inventory["planes"]
+        }
         self.assertEqual(
             coverage["summary"]["legacy_plane_cleanup_queue_count"],
             len(cleanup_queue),
+        )
+        self.assertEqual(legacy_inventory["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(legacy_inventory["summary"]["plane_count"], coverage["summary"]["edge_count"])
+        self.assertEqual(
+            legacy_inventory["summary"]["release_blocker_count"],
+            coverage["summary"]["release_blocker_count"],
+        )
+        self.assertFalse(legacy_inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertFalse(legacy_inventory["release_gate"]["ready_for_readiness_promotion"])
+        self.assertEqual(
+            inventory_planes_by_edge["telegram.mission_launch"]["disposition"],
+            "release_blocker",
+        )
+        self.assertEqual(inventory_planes_by_edge["telegram.mission_launch"]["surface"], "telegram")
+        self.assertEqual(
+            inventory_planes_by_edge["spawner.spark_run"]["disposition"],
+            "converted_to_harness_consumer",
+        )
+        self.assertTrue(
+            inventory_planes_by_edge["spawner.spark_run"]["harness_binding"]["governor_required"]
+        )
+        self.assertEqual(
+            inventory_planes_by_edge["harness_core.authority_kernel"]["disposition"],
+            "removed",
         )
         self.assertEqual(coverage["summary"]["uncovered_authority_source_count"], 0)
         self.assertEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 0)
@@ -2146,6 +2175,15 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(uncovered[0]["reason_code"], "high_agency_source_not_declared_in_contract_coverage")
         self.assertGreaterEqual(coverage["summary"]["uncovered_authority_source_count"], 1)
         self.assertGreaterEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 1)
+        inventory = coverage["legacy_authority_inventory"]
+        uncovered_planes = [
+            item
+            for item in inventory["planes"]
+            if item.get("plane_id") == f"legacy-plane:{uncovered[0]['id']}"
+        ]
+        self.assertEqual(len(uncovered_planes), 1)
+        self.assertEqual(uncovered_planes[0]["disposition"], "release_blocker")
+        self.assertFalse(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
 
     def test_compile_system_map_discovers_local_harness_core_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

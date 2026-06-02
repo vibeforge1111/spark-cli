@@ -29,6 +29,8 @@ VOICE_SURFACE_SCHEMA = "spark.voice_surface_view.compiled.v0"
 OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
 CONTRACT_COVERAGE_SCHEMA = "spark.contract_coverage.compiled.v0"
+LEGACY_AUTHORITY_INVENTORY_SCHEMA = "legacy-authority-inventory-v1"
+LEGACY_AUTHORITY_PLANE_SCHEMA = "legacy-authority-plane-v1"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
@@ -4885,6 +4887,289 @@ def build_legacy_plane_cleanup_queue(edges: list[dict[str, Any]]) -> list[dict[s
     )
 
 
+def legacy_authority_plane_type(edge: dict[str, Any]) -> str:
+    mutation = str(edge.get("mutation_class") or "").lower()
+    status = str(edge.get("status") or "").lower()
+    if "memory" in mutation:
+        return "memory_override"
+    if "schedule" in mutation:
+        return "schedule_trigger"
+    if any(word in mutation for word in ("publish", "deploy", "pr")):
+        return "publish_hook"
+    if any(word in mutation for word in ("mission", "loop", "run", "provider", "tool", "browser", "computer")):
+        return "tool_launcher"
+    if status == "legacy_local_gate":
+        return "regex_router"
+    return "local_dispatcher"
+
+
+def harness_core_surface_name(surface_or_repo: Any) -> str:
+    value = str(surface_or_repo or "")
+    mapping = {
+        "spark-telegram-bot": "telegram",
+        "spark-cli": "cli",
+        "spark-intelligence-builder": "builder",
+        "spawner-ui": "spawner",
+        "domain-chip-memory": "memory",
+        "spark-voice-comms": "voice",
+        "spark-skill-graphs": "domain_chip",
+        "spark-harness-core": "test_harness",
+        "spark-researcher": "future_surface",
+        "spark-character": "future_surface",
+    }
+    if value in {
+        "telegram",
+        "cli",
+        "builder",
+        "spawner",
+        "memory",
+        "startup_operator",
+        "recursive_swarm",
+        "voice",
+        "domain_chip",
+        "browser",
+        "computer_use",
+        "api",
+        "test_harness",
+        "future_surface",
+    }:
+        return value
+    return mapping.get(value, "future_surface")
+
+
+def legacy_authority_disposition_for_edge(edge: dict[str, Any]) -> str:
+    classification = str(edge.get("legacy_plane_classification") or "")
+    risk = str(edge.get("risk") or "")
+    if classification == "blocked":
+        return "release_blocker"
+    if classification == "evidence_only":
+        return "rebound_to_harness_evidence"
+    if classification == "compat_no_authority":
+        if risk in {"high_agency", "network"}:
+            return "converted_to_harness_consumer"
+        return "compat_no_authority"
+    if classification == "retired":
+        return "removed"
+    return "release_blocker"
+
+
+def legacy_authority_risk_for_edge(edge: dict[str, Any], disposition: str) -> dict[str, bool]:
+    mutation = str(edge.get("mutation_class") or "").lower()
+    risk = str(edge.get("risk") or "")
+    high_agency = risk in {"high_agency", "network"}
+    active = disposition in {"converted_to_harness_consumer", "release_blocker"}
+    surface = harness_core_surface_name(edge.get("surface"))
+    return {
+        "can_execute": bool(active and high_agency),
+        "can_mutate_state": bool(active and high_agency and risk != "network"),
+        "can_route_turns": bool(active and surface == "telegram"),
+        "can_write_memory": bool(active and "memory" in mutation),
+        "can_launch_mission": bool(active and any(word in mutation for word in ("mission", "loop", "run", "provider"))),
+        "can_call_network": bool(active and (risk == "network" or "network" in mutation or "browser" in mutation)),
+        "can_publish": bool(active and any(word in mutation for word in ("publish", "deploy", "pr"))),
+        "can_schedule": bool(active and "schedule" in mutation),
+    }
+
+
+def legacy_authority_harness_binding(disposition: str, edge: dict[str, Any]) -> dict[str, Any]:
+    if disposition == "converted_to_harness_consumer":
+        return {
+            "governor_required": True,
+            "evidence_only": False,
+            "consumer_of_governor": True,
+            "ledger_required": str(edge.get("risk") or "") in {"high_agency", "network"},
+            "notes": "Contract edge consumes Harness Core/Governor authority before high-agency execution.",
+        }
+    if disposition == "rebound_to_harness_evidence":
+        return {
+            "governor_required": False,
+            "evidence_only": True,
+            "consumer_of_governor": False,
+            "ledger_required": False,
+            "notes": "Legacy detector is retained only as evidence or proposal support.",
+        }
+    if disposition == "compat_no_authority":
+        return {
+            "governor_required": False,
+            "evidence_only": True,
+            "consumer_of_governor": False,
+            "ledger_required": False,
+            "notes": "Compatibility helper has no high-agency authority.",
+        }
+    if disposition in {"removed", "disabled"}:
+        return {
+            "governor_required": False,
+            "evidence_only": False,
+            "consumer_of_governor": False,
+            "ledger_required": False,
+            "notes": "No live legacy authority plane remains on this contract edge.",
+        }
+    return {
+        "governor_required": False,
+        "evidence_only": False,
+        "consumer_of_governor": False,
+        "ledger_required": False,
+        "notes": "Legacy plane remains unresolved and blocks release readiness.",
+    }
+
+
+def legacy_authority_source_ref(source_id: str, path_or_uri: str, summary: str) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{source_id}:{path_or_uri}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"artifact:legacy-authority-source:{digest}",
+        "kind": "legacy_authority_source",
+        "path_or_uri": path_or_uri,
+        "redaction_class": "metadata_only",
+        "summary": summary,
+    }
+
+
+def legacy_authority_evidence_ref(kind: str, source: str, summary: str, *, confidence: float = 1.0) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{kind}:{source}:{summary}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"evidence:{kind}:{digest}",
+        "kind": kind,
+        "source": source,
+        "summary": summary,
+        "confidence": confidence,
+        "trace_refs": [],
+    }
+
+
+def legacy_authority_trace_ref(kind: str, summary: str) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{kind}:{summary}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"trace:{kind}:{digest}",
+        "redaction_class": "metadata_only",
+        "summary": summary,
+    }
+
+
+def legacy_authority_plane_from_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    disposition = legacy_authority_disposition_for_edge(edge)
+    source_files = as_list(edge.get("source_files"))
+    source_paths = [
+        str(item.get("rel_path") or item.get("path") or "")
+        for item in source_files
+        if item.get("exists") and (item.get("rel_path") or item.get("path"))
+    ]
+    source_path = ",".join(source_paths[:5]) or str(edge.get("source_root") or edge.get("id") or "unknown")
+    blockers = []
+    if disposition == "release_blocker":
+        blockers.append(str(edge.get("legacy_plane_reason_code") or edge.get("reason_code") or "legacy authority blocks release"))
+    summary = (
+        f"{edge.get('id')} legacy authority disposition is {disposition}; "
+        f"classification={edge.get('legacy_plane_classification')}, status={edge.get('status')}."
+    )
+    return {
+        "schema_version": LEGACY_AUTHORITY_PLANE_SCHEMA,
+        "plane_id": f"legacy-plane:{edge.get('id')}",
+        "created_at": utc_now(),
+        "owner_repo": edge.get("owner_repo"),
+        "surface": harness_core_surface_name(edge.get("surface")),
+        "plane_type": legacy_authority_plane_type(edge),
+        "source_ref": legacy_authority_source_ref(str(edge.get("id") or ""), source_path, summary),
+        "authority_risk": legacy_authority_risk_for_edge(edge, disposition),
+        "disposition": disposition,
+        "harness_binding": legacy_authority_harness_binding(disposition, edge),
+        "evidence": [
+            legacy_authority_evidence_ref(
+                "policy",
+                "spark-cli.contract_coverage",
+                str(edge.get("legacy_plane_reason_code") or edge.get("reason_code") or summary),
+                confidence=0.95,
+            )
+        ],
+        "blockers": blockers,
+        "trace": legacy_authority_trace_ref("legacy_authority_plane", summary),
+    }
+
+
+def legacy_authority_plane_from_uncovered_source(item: dict[str, Any]) -> dict[str, Any]:
+    release_blocker = bool(item.get("release_blocker"))
+    markers = as_dict(item.get("authority_markers"))
+    if release_blocker:
+        disposition = "release_blocker"
+    elif markers.get("evidence_or_proposal_only"):
+        disposition = "rebound_to_harness_evidence"
+    else:
+        disposition = "converted_to_harness_consumer"
+    edge_like = {
+        "mutation_class": "uncovered_authority_source",
+        "risk": "high_agency",
+        "surface": harness_core_surface_name(item.get("owner_repo")),
+    }
+    summary = (
+        f"{item.get('id')} uncovered authority source disposition is {disposition}; "
+        f"reason={item.get('reason_code')}."
+    )
+    blockers = [str(item.get("reason_code") or "uncovered authority source blocks release")] if release_blocker else []
+    return {
+        "schema_version": LEGACY_AUTHORITY_PLANE_SCHEMA,
+        "plane_id": f"legacy-plane:{item.get('id')}",
+        "created_at": utc_now(),
+        "owner_repo": item.get("owner_repo"),
+        "surface": harness_core_surface_name(item.get("owner_repo")),
+        "plane_type": "local_dispatcher",
+        "source_ref": legacy_authority_source_ref(str(item.get("id") or ""), str(item.get("rel_path") or ""), summary),
+        "authority_risk": legacy_authority_risk_for_edge(edge_like, disposition),
+        "disposition": disposition,
+        "harness_binding": legacy_authority_harness_binding(disposition, edge_like),
+        "evidence": [
+            legacy_authority_evidence_ref(
+                "policy",
+                "spark-cli.uncovered_authority_source_scan",
+                str(item.get("reason_code") or summary),
+                confidence=0.88,
+            )
+        ],
+        "blockers": blockers,
+        "trace": legacy_authority_trace_ref("legacy_authority_plane", summary),
+    }
+
+
+def build_legacy_authority_inventory(edges: list[dict[str, Any]], uncovered_sources: list[dict[str, Any]]) -> dict[str, Any]:
+    planes = [legacy_authority_plane_from_edge(edge) for edge in edges]
+    planes.extend(legacy_authority_plane_from_uncovered_source(item) for item in uncovered_sources)
+    dispositions = Counter(str(plane.get("disposition") or "unknown") for plane in planes)
+    high_agency_risk_count = sum(
+        1 for plane in planes if any(bool(value) for value in as_dict(plane.get("authority_risk")).values())
+    )
+    blockers: list[str] = []
+    for plane in planes:
+        blockers.extend(str(item) for item in as_list(plane.get("blockers")))
+        if plane.get("disposition") == "release_blocker":
+            blockers.append(f"{plane.get('plane_id')} is a release blocker")
+    release_blocker_count = int(dispositions.get("release_blocker") or 0)
+    ready = release_blocker_count == 0 and not blockers
+    surfaces = sorted({harness_core_surface_name(plane.get("surface")) for plane in planes}) or ["future_surface"]
+    return {
+        "schema_version": LEGACY_AUTHORITY_INVENTORY_SCHEMA,
+        "inventory_id": "legacy-authority-inventory:spark-cli-contract-coverage",
+        "created_at": utc_now(),
+        "scope": {
+            "owner_repo": "spark-wide",
+            "surfaces": surfaces,
+        },
+        "planes": planes,
+        "summary": {
+            "plane_count": len(planes),
+            "removed_count": int(dispositions.get("removed") or 0),
+            "disabled_count": int(dispositions.get("disabled") or 0),
+            "compat_no_authority_count": int(dispositions.get("compat_no_authority") or 0),
+            "rebound_to_harness_evidence_count": int(dispositions.get("rebound_to_harness_evidence") or 0),
+            "converted_to_harness_consumer_count": int(dispositions.get("converted_to_harness_consumer") or 0),
+            "release_blocker_count": release_blocker_count,
+            "high_agency_risk_count": high_agency_risk_count,
+        },
+        "release_gate": {
+            "zero_high_agency_legacy_local_gates": ready,
+            "ready_for_readiness_promotion": ready,
+            "blockers": blockers,
+        },
+    }
+
+
 def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
     edges = []
     for edge in CONTRACT_COVERAGE_ACTION_EDGES:
@@ -4899,6 +5184,9 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
     uncovered_source_scan = build_uncovered_authority_source_scan(desktop, spark_home)
     uncovered_source_items = as_list(uncovered_source_scan.get("items"))
     uncovered_source_blockers = [item for item in uncovered_source_items if item.get("release_blocker")]
+    legacy_authority_inventory = build_legacy_authority_inventory(edges, uncovered_source_items)
+    legacy_authority_inventory_summary = as_dict(legacy_authority_inventory.get("summary"))
+    legacy_authority_release_gate = as_dict(legacy_authority_inventory.get("release_gate"))
     optional_surfaces = {
         "spark-skill-graphs": {
             "root": str(resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home)),
@@ -4933,6 +5221,15 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
             "uncovered_authority_scanned_file_count": int(
                 as_dict(uncovered_source_scan.get("summary")).get("scanned_file_count") or 0
             ),
+            "legacy_authority_inventory_plane_count": int(
+                legacy_authority_inventory_summary.get("plane_count") or 0
+            ),
+            "legacy_authority_inventory_release_blocker_count": int(
+                legacy_authority_inventory_summary.get("release_blocker_count") or 0
+            ),
+            "legacy_authority_inventory_ready_for_readiness_promotion": bool(
+                legacy_authority_release_gate.get("ready_for_readiness_promotion")
+            ),
         },
         "release_blockers": [
             {
@@ -4957,6 +5254,7 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
             for item in uncovered_source_blockers
         ],
         "legacy_plane_cleanup_queue": legacy_plane_cleanup_queue,
+        "legacy_authority_inventory": legacy_authority_inventory,
         "uncovered_authority_source_scan": uncovered_source_scan,
         "uncovered_authority_sources": uncovered_source_items,
         "optional_surfaces": optional_surfaces,
