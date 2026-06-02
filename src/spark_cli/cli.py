@@ -15216,6 +15216,41 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+SENSITIVE_KEY_PATTERNS = re.compile(
+    r"(?:token|api_key|secret|password|credential|private_key)",
+    re.IGNORECASE,
+)
+
+
+def mask_secret_value(value: Any) -> str:
+    """Return a masked version of a secret string value.
+
+    Shows the first 4 and last 4 characters with asterisks in the middle.
+    Short values are fully masked.
+    """
+    s = str(value)
+    if len(s) <= 8:
+        return "*" * len(s)
+    return s[:4] + "*" * (len(s) - 8) + s[-4:]
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Return True if the config key matches a sensitive pattern."""
+    last_segment = key.rsplit(".", 1)[-1]
+    return bool(SENSITIVE_KEY_PATTERNS.search(last_segment))
+
+
+def redact_config_value(value: Any, key: str = "") -> Any:
+    """Recursively redact sensitive values in a config dict."""
+    if isinstance(value, dict):
+        return {k: redact_config_value(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_config_value(item, key) for item in value]
+    if isinstance(value, str) and is_sensitive_key(key):
+        return mask_secret_value(value)
+    return value
+
+
 CONFIG_MISSING = object()
 
 
@@ -15274,7 +15309,12 @@ def cmd_config_get(args: argparse.Namespace) -> int:
     if value is CONFIG_MISSING:
         print(f"{args.key} is not set")
         return 1
-    if isinstance(value, (dict, list)):
+    if is_sensitive_key(args.key):
+        if isinstance(value, (dict, list)):
+            print(json.dumps(redact_config_value(value, args.key), indent=2))
+        else:
+            print(mask_secret_value(value))
+    elif isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
     elif value is None:
         print("null")
@@ -15292,7 +15332,8 @@ def cmd_config_set(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     save_user_config(config)
-    print(f"Set {args.key} = {json.dumps(value)}")
+    display_value = mask_secret_value(value) if is_sensitive_key(args.key) else json.dumps(value)
+    print(f"Set {args.key} = {display_value}")
     return 0
 
 
@@ -15316,7 +15357,8 @@ def cmd_config_list(_: argparse.Namespace) -> int:
     if not config:
         print("No user config set.")
         return 0
-    print(json.dumps(config, indent=2))
+    redacted = redact_config_value(config)
+    print(json.dumps(redacted, indent=2))
     return 0
 
 
