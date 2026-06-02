@@ -5533,6 +5533,7 @@ class SparkCliTests(unittest.TestCase):
         with patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
         self.assertEqual(payload["title"], "Spark starter guide")
         self.assertIn("starter_bundle", payload)
         self.assertIn("quick_start", payload)
@@ -8720,6 +8721,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_provider_recommendations_cover_paid_api_and_local_paths(self) -> None:
         payload = provider_recommendations_payload()
+        self.assertTrue(payload["ok"])
         self.assertIn("Choose one default provider for Agent and Mission", payload["default_rule"])
         self.assertIn("codex", payload["paths"]["already_have_subscription"])
         self.assertIn("kimi", payload["paths"]["already_have_api_key"])
@@ -8885,6 +8887,7 @@ class SparkCliTests(unittest.TestCase):
         with patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
         self.assertIn("want_local_private", payload["paths"])
         self.assertIn("lmstudio", payload["paths"]["want_local_private"])
 
