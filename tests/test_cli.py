@@ -7671,6 +7671,28 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.subprocess.run", return_value=completed):
             self.assertEqual(listening_pid_for_tcp_port(8788), 222)
 
+    def test_listening_pid_for_tcp_port_falls_back_to_ss_when_lsof_missing(self) -> None:
+        ss_output = (
+            'LISTEN 0 4096 127.0.0.1:8788 0.0.0.0:* '
+            'users:(("python",pid=222,fd=7))\n'
+        )
+        ss_completed = subprocess.CompletedProcess(["ss"], 0, stdout=ss_output, stderr="")
+
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch(
+                 "spark_cli.cli.subprocess.run",
+                 side_effect=[FileNotFoundError(2, "No such file or directory", "lsof"), ss_completed],
+             ):
+            self.assertEqual(listening_pid_for_tcp_port(8788), 222)
+
+    def test_listening_pid_for_tcp_port_returns_none_when_lsof_and_ss_missing(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch(
+                 "spark_cli.cli.subprocess.run",
+                 side_effect=FileNotFoundError(2, "No such file or directory", "lsof"),
+             ):
+            self.assertIsNone(listening_pid_for_tcp_port(8788))
+
     def test_discover_runtime_pid_uses_listener_when_windows_launcher_exits(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])
         process = subprocess.Popen.__new__(subprocess.Popen)

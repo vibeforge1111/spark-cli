@@ -13750,14 +13750,39 @@ def windows_service_creationflags() -> int:
     )
 
 
-def listening_pid_for_tcp_port(port: int) -> int | None:
-    if os.name != "nt":
+def _listening_pid_via_ss(port: int) -> int | None:
+    """Fallback PID lookup using `ss` when `lsof` is unavailable."""
+    try:
         result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            ["ss", "-ltnpH", f"sport = :{port}"],
             capture_output=True,
             text=True,
             check=False,
         )
+    except (FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    match = re.search(r"pid=(\d+)", result.stdout)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def listening_pid_for_tcp_port(port: int) -> int | None:
+    if os.name != "nt":
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            # `lsof` is absent on many minimal Linux images (Google Cloud Shell,
+            # Docker containers, CI runners). Fall back to `ss` instead of
+            # crashing `spark start` with an unhandled FileNotFoundError.
+            return _listening_pid_via_ss(port)
         if result.returncode != 0:
             return None
         for line in result.stdout.splitlines():
