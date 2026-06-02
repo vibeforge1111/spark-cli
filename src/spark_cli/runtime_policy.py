@@ -87,10 +87,10 @@ def run_runtime_command(
         stdout = error.stdout if isinstance(error.stdout, str) else ""
         stderr = error.stderr if isinstance(error.stderr, str) else ""
         stderr = (stderr + "\n" if stderr else "") + f"command timed out after {timeout}s"
-        return subprocess.CompletedProcess(command, 124, stdout=stdout, stderr=stderr)
+        return subprocess.CompletedProcess(argv, 124, stdout=stdout, stderr=stderr)
     except OSError as error:
         return subprocess.CompletedProcess(
-            command,
+            argv,
             127,
             stdout="",
             stderr=f"Could not start runtime command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
