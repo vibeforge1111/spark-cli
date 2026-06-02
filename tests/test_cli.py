@@ -9408,6 +9408,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Telegram rejected the bot token", str(error.exception))
         self.assertNotIn("123456:bad-token", str(error.exception))
 
+    def test_validate_telegram_bot_token_redacts_token_from_transport_error_detail(self) -> None:
+        with patch(
+            "spark_cli.cli.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("https://api.telegram.org/bot123456:secret-token/getMe connection failed"),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                validate_telegram_bot_token("123456:secret-token", secret_id="telegram.bot_token")
+        message = str(error.exception)
+        self.assertIn("URLError", message)
+        self.assertNotIn("123456:secret-token", message)
+        self.assertIn("[REDACTED]", message)
+
     def test_validate_new_telegram_bot_tokens_skips_unchanged_tokens_and_supports_offline_bypass(self) -> None:
         class Args:
             skip_telegram_token_check = False
