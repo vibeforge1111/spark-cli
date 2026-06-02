@@ -463,6 +463,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("[output truncated]", bounded.text)
         self.assertTrue(bounded.truncated)
 
+    def test_sandbox_output_truncates_on_utf8_boundary(self) -> None:
+        bounded = bound_sandbox_output("ok \U0001f4a5 done", max_bytes=5, max_lines=10)
+        prefix = bounded.text.splitlines()[0]
+
+        self.assertEqual(prefix, "ok ")
+        self.assertNotIn("\ufffd", bounded.text)
+        self.assertNotIn("\U0001f4a5", prefix)
+        self.assertLessEqual(len(prefix.encode("utf-8")), 5)
+        self.assertIn("[output truncated]", bounded.text)
+        self.assertTrue(bounded.truncated)
+
+    def test_sandbox_output_keeps_complete_multibyte_character(self) -> None:
+        bounded = bound_sandbox_output("ok \u00e9 done", max_bytes=5, max_lines=10)
+        prefix = bounded.text.splitlines()[0]
+
+        self.assertEqual(prefix, "ok \u00e9")
+        self.assertNotIn("\ufffd", bounded.text)
+        self.assertLessEqual(len(prefix.encode("utf-8")), 5)
+        self.assertIn("[output truncated]", bounded.text)
+        self.assertTrue(bounded.truncated)
+
     def test_sandbox_redaction_catches_telegram_and_bearer_tokens(self) -> None:
         text = redact_sandbox_text("Authorization: Bearer abcdefghijklmnopqrstuvwxyz and bot123456:abcdefghijklmnopqrstuvwxyz")
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz", text)
