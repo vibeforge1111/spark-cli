@@ -15566,6 +15566,18 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     value = resolve_secret_input(value)
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
+    if "\n" in value or "\r" in value:
+        newline_count = value.count("\n") + value.count("\r")
+        print(
+            f"WARNING: Value for {args.secret_id} contains {newline_count} newline(s). "
+            "Multi-line secrets may cause unexpected behavior in environment files "
+            "and shell expansions. Press Enter to continue or Ctrl+C to abort."
+        )
+        if stdin_is_tty():
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                raise SystemExit("Aborted.")
     backend = store_secret(args.secret_id, value, preferred=args.backend)
     # This prints the secret label and backend, never the stored value.
     # codeql[py/clear-text-logging-sensitive-data]
