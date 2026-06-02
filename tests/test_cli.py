@@ -249,6 +249,7 @@ from spark_cli.cli import (
     write_browser_use_screenshot,
     write_denied_paths,
     write_denied_prefixes,
+    windows_claude_exe_from_npm_shim,
     windows_service_creationflags,
     resolve_bundle_names,
     resolve_setup_bundle_plan,
@@ -7226,6 +7227,53 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "bridge-key")
         self.assertEqual(spawner_env["SPARK_ALLOWED_HOSTS"], "spark-live-production.up.railway.app")
         self.assertNotIn("OPENAI_API_KEY", spawner_env)
+
+    def test_build_module_envs_forwards_claude_path_to_spawner(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+            llm_provider = "anthropic"
+            chat_llm_provider = None
+            builder_llm_provider = None
+            memory_llm_provider = None
+            mission_llm_provider = None
+            anthropic_model = "sonnet"
+            anthropic_base_url = "https://api.anthropic.com"
+
+        claude_path = r"C:\Users\USER\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
+        with patch("spark_cli.cli.detect_claude_code", return_value={"present": True, "path": claude_path}):
+            envs = build_module_envs(
+                Args(),
+                {
+                    gateway.name: gateway,
+                    builder.name: builder,
+                    spawner.name: spawner,
+                },
+                {
+                    "telegram.bot_token": "abc",
+                    "telegram.admin_ids": "123",
+                },
+            )
+
+        self.assertEqual(envs["spark-telegram-bot"]["CLAUDE_PATH"], claude_path)
+        self.assertEqual(envs["spawner-ui"]["CLAUDE_PATH"], claude_path)
+        self.assertEqual(envs["spawner-ui"]["DEFAULT_MISSION_PROVIDER"], "claude")
+
+    def test_windows_claude_exe_from_npm_shim_prefers_real_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            npm_dir = Path(tmp_dir) / "npm"
+            exe = npm_dir / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+            exe.parent.mkdir(parents=True)
+            exe.write_text("", encoding="utf-8")
+            cmd = npm_dir / "claude.cmd"
+            cmd.write_text("", encoding="utf-8")
+
+            with patch("spark_cli.cli.os.name", "nt"):
+                self.assertEqual(windows_claude_exe_from_npm_shim(str(cmd)), str(exe))
 
     def test_pid_is_running_detects_current_process(self) -> None:
         self.assertTrue(pid_is_running(os.getpid()))
