@@ -2354,6 +2354,27 @@ class SparkCliTests(unittest.TestCase):
                 errors = module_supply_chain_errors()
         self.assertTrue(any("no recorded registry commit provenance" in error for error in errors))
 
+    def test_module_supply_chain_flags_empty_installed_module_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            installed = {"spawner-ui": {"path": ""}}
+            registry = {
+                "modules": {
+                    "spawner-ui": {
+                        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+                        "commit": "a" * 40,
+                        "blessed": True,
+                    }
+                }
+            }
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                 patch("spark_cli.cli.load_json", return_value=installed), \
+                 patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                errors = module_supply_chain_errors()
+
+        self.assertTrue(any("registry record has an empty path field" in error for error in errors))
+        self.assertFalse(any("lives outside Spark's managed module directory" in error for error in errors))
+
     def test_telegram_polling_conflict_errors_ignore_stale_logs_for_external_ingress(self) -> None:
         setup_state = {"telegram_ingress_mode": "external"}
         with patch("spark_cli.cli.load_json", return_value=setup_state), \

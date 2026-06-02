@@ -5883,6 +5883,8 @@ def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
         parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     except ValueError:
         return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
 
 
@@ -9013,7 +9015,11 @@ def module_supply_chain_errors() -> list[str]:
         if not isinstance(record, dict):
             errors.append(f"Installed module `{name}` has a malformed registry record.")
             continue
-        path = Path(str(record.get("path") or "")).expanduser()
+        raw_path = str(record.get("path") or "").strip()
+        if not raw_path:
+            errors.append(f"Installed module `{name}` registry record has an empty path field.")
+            continue
+        path = Path(raw_path).expanduser()
         if not path.exists():
             errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
             continue
@@ -9860,7 +9866,10 @@ def print_access_payload(payload: dict[str, Any]) -> None:
         elif level5.get("restart_required"):
             print("Level 5 guardrails: configured, restart Spark to activate")
         else:
-            print("Level 5 guardrails: blocked until explicitly enabled")
+            print(
+                "Level 5 guardrails: blocked until explicitly enabled "
+                "with `spark access setup --level 5 --enable-high-agency`"
+            )
     print("")
     print("Available lanes:")
     for lane in payload.get("lanes", []):
