@@ -28,6 +28,7 @@ from spark_cli.system_map import (
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
+    contract_marker_summary,
     count_safe_jsonl,
     dirty_family_for_path,
     inspect_builder_event_samples,
@@ -56,6 +57,22 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_contract_markers_ignore_safe_pending_and_mission_id_words(self) -> None:
+        safe_markers = contract_marker_summary(
+            "const missionId = result.missionId;\n"
+            "contextRefs: { pendingState: baseEnvelope.contextRefs.pendingState }\n"
+            "route: 'pending_task.recovery'\n"
+            "freshness: { pending_state_used_as_authority: false }\n"
+        )
+        self.assertFalse(safe_markers["auto_state_trigger"])
+
+        unsafe_markers = contract_marker_summary(
+            "const pendingMissionCancelConfirmations = new Map();\n"
+            "pendingMissionCancelConfirmations.set(key, value);\n"
+            "freshness: { pending_state_used_as_authority: true }\n"
+        )
+        self.assertTrue(unsafe_markers["auto_state_trigger"])
+
     def test_dirty_family_for_path_coarsens_private_artifact_names(self) -> None:
         self.assertEqual(dirty_family_for_path("src/spark_intelligence/memory/orchestrator.py"), "src/spark_intelligence")
         self.assertEqual(dirty_family_for_path("artifacts/telegram-updates/private-row.json"), "artifacts")

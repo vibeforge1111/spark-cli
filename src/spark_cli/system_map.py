@@ -4397,6 +4397,24 @@ def contract_edge_text(root: Path, rel_paths: tuple[str, ...], *, helpers: bool 
 
 
 def contract_marker_summary(text: str) -> dict[str, bool]:
+    auto_state_trigger = bool(
+        re.search(
+            r"\b(?:pending[A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\s*=\s*new\s+Map\b",
+            text,
+        )
+        or re.search(
+            r"\b(?:pending[A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\.(?:get|set|delete)\s*\(",
+            text,
+        )
+        or re.search(
+            r"\b(?:pending_action|pending_route|pending_task)\s*[:=]",
+            text,
+        )
+        or re.search(
+            r"\bpending_state_used_as_authority\s*[:=]\s*true\b",
+            text,
+        )
+    )
     return {
         "turn_intent_schema": (
             "spark.turn_intent.v1" in text
@@ -4441,12 +4459,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
         ),
         "deterministic_local_route": "deterministicRouteAllowed" in text
         or "evaluateExecutionIntentBoundary" in text,
-        "auto_state_trigger": bool(
-            re.search(
-                r"\b(autoRun|missionId|pendingMission|pendingTask|pendingState|pending_action|pending_route|pending_task)\b",
-                text,
-            )
-        ),
+        "auto_state_trigger": auto_state_trigger,
         "evidence_or_proposal_only": (
             "evidence-only" in text
             or "proposal-only" in text
