@@ -1602,6 +1602,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             builder_researcher_bridge = builder_src / "researcher_bridge"
             voice_src = desktop / "spark-voice-comms" / "src" / "voice_comms_chip"
             memory_tests = desktop / "domain-chip-memory" / "tests"
+            researcher_src = desktop / "spark-researcher" / "src" / "spark_researcher"
             harness_core = spark_home / "modules" / "spark-harness-core" / "source"
             harness_core_src = harness_core / "src" / "spark_harness_core"
             harness_core_schemas = harness_core / "schemas"
@@ -1618,6 +1619,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 builder_researcher_bridge,
                 voice_src,
                 memory_tests,
+                researcher_src,
                 harness_core_src,
                 harness_core_schemas,
             ):
@@ -1763,6 +1765,15 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "# promotion gate keeps protected prompt changes evidence-only\n",
                 encoding="utf-8",
             )
+            (researcher_src / "self_edit.py").write_text(
+                "schema = 'governor-decision-v1'\n"
+                "auth = 'authorization-decision-v1'\n"
+                "ledger = 'tool-call-ledger-v1'\n"
+                "SELF_EDIT_APPLY_TOOL_NAME = 'spark-researcher.self_edit.apply'\n"
+                "def _validate_self_edit_apply_governor(payload): pass\n"
+                "def apply_proposal(governor_decision_path): pass\n",
+                encoding="utf-8",
+            )
             (harness_core_src / "kernel.py").write_text(
                 "class HarnessKernel:\n"
                 "    def create_envelope(self): pass\n"
@@ -1812,6 +1823,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.voice_delivery_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["voice.install_transcribe_speak"]["status"], "envelope_verified")
+        self.assertEqual(by_id["researcher.self_edit"]["status"], "envelope_verified")
         self.assertEqual(by_id["telegram.route_probe_commands"]["status"], "envelope_verified")
         self.assertEqual(by_id["spark_cli.browser_use_actions"]["status"], "envelope_verified")
         self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
@@ -1835,6 +1847,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.voice_delivery_actions"]["release_blocker"])
         self.assertFalse(by_id["voice.install_transcribe_speak"]["release_blocker"])
+        self.assertFalse(by_id["researcher.self_edit"]["release_blocker"])
         self.assertFalse(by_id["telegram.route_probe_commands"]["release_blocker"])
         self.assertFalse(by_id["spark_cli.browser_use_actions"]["release_blocker"])
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
