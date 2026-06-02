@@ -29,6 +29,7 @@ from spark_cli.system_map import (
     count_safe_jsonl,
     count_schema_files,
     dirty_family_for_path,
+    discover_repo_paths,
     inspect_builder_event_trace,
     inspect_builder_event_samples,
     inspect_builder_memory_tables,
@@ -112,6 +113,23 @@ class SparkSystemMapTests(unittest.TestCase):
 
         self.assertFalse(summary["available"])
         self.assertIsNone(summary["head_short"])
+
+    def test_discover_repo_paths_tolerates_unreadable_desktop(self) -> None:
+        class _UnreadableDesktop:
+            def exists(self) -> bool:
+                return True
+
+            def iterdir(self):
+                raise PermissionError("[Errno 1] Operation not permitted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            installed_repo = Path(tmp) / "spark-cli"
+            installed_repo.mkdir()
+            installed = {"spark-cli": {"path": str(installed_repo)}}
+
+            paths = discover_repo_paths(_UnreadableDesktop(), installed)
+
+        self.assertEqual([p.resolve() for p in paths], [installed_repo.resolve()])
 
     def test_dirty_family_for_path_coarsens_private_artifact_names(self) -> None:
         self.assertEqual(dirty_family_for_path("src/spark_intelligence/memory/orchestrator.py"), "src/spark_intelligence")
