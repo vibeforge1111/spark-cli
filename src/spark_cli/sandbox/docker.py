@@ -21,9 +21,9 @@ def docker_capabilities() -> CapabilityManifest:
         network="off",
         secrets="none",
         persistence="ephemeral",
-        privilege="container",
+        privilege="rootless-container",
         inbound="none",
-        cost="local",
+        cost="free-local",
     )
 
 
