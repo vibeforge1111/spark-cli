@@ -39,14 +39,14 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "f6a036beb0a5be042b779b377794b1eb1ea377d2",
+      "commit": "483ae9712b050e41f5b65fb681357a7d924d15f2",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "f6a036beb0a5be042b779b377794b1eb1ea377d2"
+        "commit": "483ae9712b050e41f5b65fb681357a7d924d15f2"
       }
     },
     "domain-chip-memory": {
