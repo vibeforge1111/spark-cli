@@ -3089,6 +3089,10 @@ def write_generated_env(path: Path, values: dict[str, str]) -> None:
     lines = [f"{key}={value}" for key, value in values.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
@@ -4489,6 +4493,10 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
         lines.append(f"{key}={value}")
     lines.append(end)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
 
 
 def remove_managed_env_block(path: Path) -> None:
