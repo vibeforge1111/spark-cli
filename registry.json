@@ -2,31 +2,31 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "c2a500d7c383a2b688b8c5a6ade5aa5cc1ff01b9",
+      "commit": "9d54eaf1b88e4254e0fa0ff8ccea1b67246da5c4",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "c2a500d7c383a2b688b8c5a6ade5aa5cc1ff01b9"
+        "commit": "9d54eaf1b88e4254e0fa0ff8ccea1b67246da5c4"
       }
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "907940709476e6b186b302787d13cf076bfecb50",
+      "commit": "3a306a2887f913787126deec506351d6badf3be7",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "907940709476e6b186b302787d13cf076bfecb50"
+        "commit": "3a306a2887f913787126deec506351d6badf3be7"
       }
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "7fff810b28d5b2df21830338b8a1cce90870b7b5",
+      "commit": "efdd36cd3d5cc578ff3c2788d15cc5bca5816bf5",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,7 +34,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "7fff810b28d5b2df21830338b8a1cce90870b7b5"
+        "commit": "efdd36cd3d5cc578ff3c2788d15cc5bca5816bf5"
       }
     },
     "spark-intelligence-builder": {
@@ -102,19 +102,19 @@
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "4e0f4fad369b679717c8163763356ea0dd5c2325",
+      "commit": "eaa00b06820c938653ca5ca164ee588662cfc9b3",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "4e0f4fad369b679717c8163763356ea0dd5c2325"
+        "commit": "eaa00b06820c938653ca5ca164ee588662cfc9b3"
       }
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "43af3ad2e83d644caaab0bb178af9a1fb5663d2d",
+      "commit": "cfbdf2f894b7d95a130ac925ea99c72cc2587e7f",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -122,7 +122,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "43af3ad2e83d644caaab0bb178af9a1fb5663d2d"
+        "commit": "cfbdf2f894b7d95a130ac925ea99c72cc2587e7f"
       }
     }
   },

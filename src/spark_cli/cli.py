@@ -1991,7 +1991,14 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+    except PermissionError as exc:
+        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -8473,6 +8480,10 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -11002,8 +11013,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "LLM provider")
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -11031,13 +11041,34 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "Ollama")
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
         raise SystemExit("Ollama returned an empty doctor response.")
     return str(content)
+
+
+def read_llm_provider_json(request: urllib.request.Request, provider_label: str) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
+        suffix = f": {body[:300]}" if body else ""
+        raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
+    except urllib.error.URLError as exc:
+        reason = redact_sensitive_text(str(exc.reason))
+        raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
+    except TimeoutError as exc:
+        raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
+    return payload
 
 
 def llm_cli_creationflags() -> int:
@@ -11151,6 +11182,10 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
     path.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -11772,6 +11807,7 @@ def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
@@ -11989,14 +12025,14 @@ def cmd_providers(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
         for provider in payload["providers"]:
             auth = ", ".join(provider["auth"])
@@ -12109,7 +12145,7 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
@@ -15824,11 +15860,11 @@ def cmd_config_list(_: argparse.Namespace) -> int:
 
 
 INIT_SPARK_TOML_TEMPLATE = """[module]
-name = "{name}"
+name = {name}
 version = "0.1.0"
 kind = "service"
 plane = "execution"
-description = "{description}"
+description = {description}
 license = "UNLICENSED"
 
 [runtime]
@@ -15854,13 +15890,13 @@ routes = []
 [healthcheck]
 command = "{healthcheck_command}"
 timeout_seconds = 10
-success_hint = "{name} is healthy."
+success_hint = {success_hint}
 failure_hint = "Run the healthcheck command from the module home for detail."
 
 [paths]
-home = "~/.spark/modules/{name}"
-state = "~/.spark/state/{name}"
-logs = "~/.spark/logs/{name}"
+home = {home}
+state = {state}
+logs = {logs}
 """
 
 
@@ -15928,11 +15964,15 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     else:
         raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
     return INIT_SPARK_TOML_TEMPLATE.format(
-        name=name,
-        description=description,
+        name=json.dumps(name),
+        description=json.dumps(description),
         runtime_kind=runtime_kind,
         runtime_version=runtime_version,
         healthcheck_command=healthcheck,
+        success_hint=json.dumps(f"{name} is healthy."),
+        home=json.dumps(f"~/.spark/modules/{name}"),
+        state=json.dumps(f"~/.spark/state/{name}"),
+        logs=json.dumps(f"~/.spark/logs/{name}"),
     )
 
 
