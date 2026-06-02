@@ -18,7 +18,15 @@ WINDOWS_UNSAFE_NAME_PATTERN = re.compile(r'[<>:"\\|?*]')
 
 
 def spark_home() -> Path:
-    return Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+    # Honor missing-vs-explicit-empty: only fall back to the default when
+    # SPARK_HOME is unset, not when the operator set it to an empty string.
+    # os.environ.get("SPARK_HOME", default) returns "" (not the default)
+    # when SPARK_HOME == '', and Path("").expanduser() resolves to the
+    # current working directory, which is surprising and unsafe.
+    configured = os.environ.get("SPARK_HOME")
+    if not configured:
+        return (Path.home() / ".spark").expanduser()
+    return Path(configured).expanduser()
 
 
 def sandbox_config_dir(home: Path | None = None) -> Path:
