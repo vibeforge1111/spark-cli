@@ -4399,11 +4399,11 @@ def contract_edge_text(root: Path, rel_paths: tuple[str, ...], *, helpers: bool 
 def contract_marker_summary(text: str) -> dict[str, bool]:
     auto_state_trigger = bool(
         re.search(
-            r"\b(?:pending[A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\s*=\s*new\s+Map\b",
+            r"\b(?:pending[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\s*=\s*new\s+Map\b",
             text,
         )
         or re.search(
-            r"\b(?:pending[A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\.(?:get|set|delete)\s*\(",
+            r"\b(?:pending[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\.(?:get|set|delete)\s*\(",
             text,
         )
         or re.search(

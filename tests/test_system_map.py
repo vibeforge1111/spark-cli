@@ -63,6 +63,8 @@ class SparkSystemMapTests(unittest.TestCase):
             "contextRefs: { pendingState: baseEnvelope.contextRefs.pendingState }\n"
             "route: 'pending_task.recovery'\n"
             "freshness: { pending_state_used_as_authority: false }\n"
+            "pending = {'stage': 'setup'}\n"
+            "pending.get('bundle')\n"
         )
         self.assertFalse(safe_markers["auto_state_trigger"])
 
