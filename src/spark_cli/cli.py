@@ -11664,8 +11664,12 @@ def provider_status_payload() -> dict[str, Any]:
             role_state["codex_auth"] = codex_auth
             if not codex_auth.get("ok"):
                 role_state["ready"] = False
-        if provider == "codex" and auth_mode == "codex_oauth":
-            role_state["codex_client"] = codex_client_config_payload()
+            codex_client = codex_client_config_payload()
+            role_state["codex_client"] = codex_client
+            values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+            client_model = _safe_codex_client_value(values.get("model"))
+            if client_model:
+                role_state["model"] = client_model
         role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
     return {
