@@ -1034,7 +1034,14 @@ def dpapi_protect(value: str) -> str:
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptProtectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptProtectData failed (Windows error code {err}). "
+            "Verify a user profile is loaded — DPAPI commonly fails under SSH, "
+            "scheduled tasks, or service accounts where the interactive profile "
+            "is unavailable. Re-run from an interactive desktop session, or set "
+            f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out of DPAPI (insecure)."
+        )
     try:
         protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1053,7 +1060,14 @@ def dpapi_unprotect(value: str) -> str:
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptUnprotectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptUnprotectData failed (Windows error code {err}). "
+            "The stored value may have been encrypted under a different user "
+            "profile, or the DPAPI master key is unreachable. Re-run from the "
+            "same user account that wrote the value, or delete the stored "
+            "entry and re-enter it with `spark setup`."
+        )
     try:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
