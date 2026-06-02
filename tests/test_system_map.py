@@ -29,6 +29,7 @@ from spark_cli.system_map import (
     count_safe_jsonl,
     count_schema_files,
     dirty_family_for_path,
+    discover_repo_paths,
     inspect_builder_event_trace,
     inspect_builder_event_samples,
     inspect_builder_memory_tables,
@@ -43,6 +44,9 @@ from spark_cli.system_map import (
     inspect_telegram_final_answer_gate,
     git_summary,
     parse_branch_status,
+    read_json,
+    read_toml,
+    run_git,
     safe_builder_event_value,
     summarize_memory_run_artifacts,
     summarize_pids,
@@ -62,6 +66,26 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_json_toml_and_git_helpers_report_expected_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bad_json = root / "bad.json"
+            bad_toml = root / "bad.toml"
+            bad_json.write_text("{", encoding="utf-8")
+            bad_toml.write_text("name = [", encoding="utf-8")
+
+            json_data, json_error = read_json(bad_json)
+            toml_data, toml_error = read_toml(bad_toml)
+
+            with unittest.mock.patch("spark_cli.system_map.subprocess.run", side_effect=subprocess.TimeoutExpired("git", 1)):
+                git_code, git_output = run_git(root, ["status"])
+
+        self.assertIsNone(json_data)
+        self.assertIn("JSONDecodeError", json_error or "")
+        self.assertIsNone(toml_data)
+        self.assertIn("TOMLDecodeError", toml_error or "")
+        self.assertEqual((git_code, git_output), (1, ""))
+
     def test_filesystem_readers_report_os_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -112,6 +136,23 @@ class SparkSystemMapTests(unittest.TestCase):
 
         self.assertFalse(summary["available"])
         self.assertIsNone(summary["head_short"])
+
+    def test_discover_repo_paths_tolerates_unreadable_desktop(self) -> None:
+        class _UnreadableDesktop:
+            def exists(self) -> bool:
+                return True
+
+            def iterdir(self):
+                raise PermissionError("[Errno 1] Operation not permitted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            installed_repo = Path(tmp) / "spark-cli"
+            installed_repo.mkdir()
+            installed = {"spark-cli": {"path": str(installed_repo)}}
+
+            paths = discover_repo_paths(_UnreadableDesktop(), installed)
+
+        self.assertEqual([p.resolve() for p in paths], [installed_repo.resolve()])
 
     def test_dirty_family_for_path_coarsens_private_artifact_names(self) -> None:
         self.assertEqual(dirty_family_for_path("src/spark_intelligence/memory/orchestrator.py"), "src/spark_intelligence")
@@ -941,6 +982,16 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("C:/private/path", encoded)
         self.assertNotIn("private project", encoded)
         self.assertNotIn("private prompt should stay out", encoded)
+
+    def test_spawner_prd_trace_reports_os_join_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trace.jsonl"
+            path.write_text("{}", encoding="utf-8")
+
+            with unittest.mock.patch.object(Path, "open", side_effect=PermissionError("trace denied")):
+                summary = inspect_spawner_prd_auto_trace(path, builder_home=Path(tmp) / "builder")
+
+        self.assertIn("PermissionError", summary["join_error"])
 
     def test_spark_os_review_candidates_project_labs_and_swarm_without_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

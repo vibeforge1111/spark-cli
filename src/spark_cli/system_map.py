@@ -303,7 +303,7 @@ def read_json(path: Path) -> tuple[Any | None, str | None]:
         return None, "missing"
     try:
         return json.loads(path.read_text(encoding="utf-8-sig")), None
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError) as exc:
         return None, f"read_json_failed: {type(exc).__name__}: {exc}"
 
 
@@ -312,7 +312,7 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, "missing"
     try:
         return tomllib.loads(path.read_text(encoding="utf-8")), None
-    except Exception as exc:
+    except (tomllib.TOMLDecodeError, OSError) as exc:
         return None, f"read_toml_failed: {type(exc).__name__}: {exc}"
 
 
@@ -396,7 +396,11 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
-        for child in desktop.iterdir():
+        try:
+            children = list(desktop.iterdir())
+        except OSError:
+            children = []
+        for child in children:
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
 
@@ -419,7 +423,7 @@ def git_summary(path: Path) -> dict[str, Any]:
             timeout=2,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return {"available": False, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
@@ -433,7 +437,7 @@ def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
             timeout=timeout,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return 1, ""
     return result.returncode, result.stdout.strip()
 
@@ -869,7 +873,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         continue
                     try:
                         payload = json.loads(line)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     if not isinstance(payload, dict):
                         continue
@@ -884,7 +888,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
                     if isinstance(trace_ref, str) and trace_ref.strip():
                         trace_refs.add(trace_ref.strip())
-        except Exception as exc:
+        except OSError as exc:
             out["join_error"] = f"{type(exc).__name__}: {exc}"
     effective_trace_refs = set(trace_refs)
     effective_trace_refs.update(derived_trace_refs)
