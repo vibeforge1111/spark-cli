@@ -14412,11 +14412,9 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
     return names
 
 
-def telegram_profile_token_fingerprint(profile: str) -> str:
+def telegram_profile_bot_token(profile: str) -> str:
     token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
-    if not token:
-        return ""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return str(token or "")
 
 
 def shared_token_autostart_profile_groups(setup_state: dict[str, Any]) -> list[list[str]]:
@@ -14430,12 +14428,26 @@ def shared_token_autostart_profile_groups(setup_state: dict[str, Any]) -> list[l
     ]
     if len(autostart_profiles) < 2:
         return []
-    groups_by_fingerprint: dict[str, list[str]] = {}
-    for profile in autostart_profiles:
-        fingerprint = telegram_profile_token_fingerprint(profile)
-        if fingerprint:
-            groups_by_fingerprint.setdefault(fingerprint, []).append(profile)
-    return [sorted(set(group)) for group in groups_by_fingerprint.values() if len(set(group)) > 1]
+    profile_tokens = [
+        (profile, token)
+        for profile in autostart_profiles
+        if (token := telegram_profile_bot_token(profile))
+    ]
+    groups: list[list[str]] = []
+    seen: set[str] = set()
+    for profile, token in profile_tokens:
+        if profile in seen:
+            continue
+        group = [profile]
+        for other_profile, other_token in profile_tokens:
+            if other_profile == profile or other_profile in seen:
+                continue
+            if py_secrets.compare_digest(token, other_token):
+                group.append(other_profile)
+        if len(group) > 1:
+            seen.update(group)
+            groups.append(sorted(set(group)))
+    return groups
 
 
 def shared_token_excluded_autostart_profiles(setup_state: dict[str, Any]) -> dict[str, str]:
