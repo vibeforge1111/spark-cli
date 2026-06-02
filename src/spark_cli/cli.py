@@ -1303,8 +1303,14 @@ def assert_no_linked_write_path(path: Path) -> None:
 
 
 def installer_release_pins() -> dict[str, Any]:
-    shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    try:
+        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        shell = ""
+    try:
+        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        powershell = ""
     return installer_release_pins_from_text(shell, powershell)
 
 
