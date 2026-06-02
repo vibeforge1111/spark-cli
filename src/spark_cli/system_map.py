@@ -4462,6 +4462,44 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
     }
 
 
+def legacy_plane_retirement_classification(
+    *,
+    status: str,
+    risk: str,
+    action_markers: dict[str, bool],
+    helper_markers: dict[str, bool],
+) -> tuple[str, str]:
+    if status == "legacy_local_gate" and risk in {"high_agency", "network"}:
+        return (
+            "blocked",
+            "high_agency_or_network_edge_still_depends_on_local_legacy_authority",
+        )
+    if status == "legacy_local_gate":
+        return (
+            "compat_no_authority",
+            "legacy_gate_present_but_edge_is_not_high_agency_or_network",
+        )
+    if status == "evidence_only":
+        return (
+            "evidence_only",
+            "legacy_or_local_detector_is_limited_to_evidence_or_proposal_behavior",
+        )
+    if (
+        action_markers.get("deterministic_local_route")
+        or action_markers.get("auto_state_trigger")
+        or helper_markers.get("deterministic_local_route")
+        or helper_markers.get("auto_state_trigger")
+    ):
+        return (
+            "compat_no_authority",
+            "local_detector_or_pending_state_marker_exists_but_contract_authority_owns_execution",
+        )
+    return (
+        "retired",
+        "no_local_legacy_authority_marker_observed_on_this_action_edge",
+    )
+
+
 def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     rel_paths = tuple(str(path) for path in edge.get("files", ()))
     files = contract_edge_file_records(root, rel_paths)
@@ -4503,7 +4541,13 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
         status = "legacy_local_gate"
         reason = "no_contract_authority_marker_found"
 
-    release_blocker = risk in {"high_agency", "network"} and status == "legacy_local_gate"
+    legacy_plane_classification, legacy_plane_reason = legacy_plane_retirement_classification(
+        status=status,
+        risk=risk,
+        action_markers=action_markers,
+        helper_markers=all_markers,
+    )
+    release_blocker = legacy_plane_classification == "blocked"
     return {
         "id": edge.get("id"),
         "surface": edge.get("surface"),
@@ -4511,6 +4555,8 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
         "mutation_class": edge.get("mutation_class"),
         "risk": risk,
         "status": status,
+        "legacy_plane_classification": legacy_plane_classification,
+        "legacy_plane_reason_code": legacy_plane_reason,
         "release_blocker": release_blocker,
         "reason_code": reason,
         "source_root": str(root),
@@ -4529,6 +4575,7 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
         edges.append(classify_contract_edge(edge, root))
 
     status_counts = Counter(str(edge.get("status") or "unknown") for edge in edges)
+    legacy_plane_counts = Counter(str(edge.get("legacy_plane_classification") or "unknown") for edge in edges)
     surface_counts = Counter(str(edge.get("surface") or "unknown") for edge in edges)
     blocker_edges = [edge for edge in edges if edge.get("release_blocker")]
     optional_surfaces = {
@@ -4549,11 +4596,16 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
         "authority": "observability_non_authoritative",
         "redaction": "metadata-only contract coverage; no source text, raw prompts, logs, secrets, chat ids, memory bodies, transcripts, or provider output",
         "status_values": ["envelope_verified", "machine_origin_policy", "evidence_only", "legacy_local_gate"],
+        "legacy_plane_classification_values": ["retired", "evidence_only", "compat_no_authority", "blocked"],
         "summary": {
             "edge_count": len(edges),
             "status_counts": dict(sorted(status_counts.items())),
+            "legacy_plane_classification_counts": dict(sorted(legacy_plane_counts.items())),
             "surface_counts": dict(sorted(surface_counts.items())),
             "release_blocker_count": len(blocker_edges),
+            "legacy_plane_release_blocker_count": sum(
+                1 for edge in edges if edge.get("legacy_plane_classification") == "blocked"
+            ),
         },
         "release_blockers": [
             {
@@ -4561,6 +4613,8 @@ def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
                 "surface": edge.get("surface"),
                 "mutation_class": edge.get("mutation_class"),
                 "reason_code": edge.get("reason_code"),
+                "legacy_plane_classification": edge.get("legacy_plane_classification"),
+                "legacy_plane_reason_code": edge.get("legacy_plane_reason_code"),
             }
             for edge in blocker_edges
         ],

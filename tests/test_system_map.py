@@ -1875,9 +1875,28 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
+        self.assertEqual(by_id["telegram.mission_launch"]["legacy_plane_classification"], "blocked")
+        self.assertEqual(
+            by_id["telegram.mission_launch"]["legacy_plane_reason_code"],
+            "high_agency_or_network_edge_still_depends_on_local_legacy_authority",
+        )
         self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
+        self.assertEqual(by_id["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
+        self.assertEqual(
+            by_id["spawner.spark_run"]["legacy_plane_reason_code"],
+            "local_detector_or_pending_state_marker_exists_but_contract_authority_owns_execution",
+        )
+        self.assertFalse(by_id["spawner.spark_run"]["release_blocker"])
+        self.assertEqual(by_id["harness_core.authority_kernel"]["legacy_plane_classification"], "retired")
         self.assertEqual(by_id["memory.promotion"]["status"], "envelope_verified")
         self.assertFalse(by_id["memory.promotion"]["release_blocker"])
+        self.assertIn("legacy_plane_classification_values", coverage)
+        self.assertIn("legacy_plane_classification_counts", coverage["summary"])
+        self.assertEqual(
+            coverage["summary"]["legacy_plane_release_blocker_count"],
+            coverage["summary"]["release_blocker_count"],
+        )
+        self.assertGreaterEqual(coverage["summary"]["legacy_plane_classification_counts"].get("blocked", 0), 1)
         self.assertEqual(
             coverage["optional_surfaces"]["spark-skill-graphs"]["status"],
             "not_installed_optional_surface",
