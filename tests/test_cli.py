@@ -12,7 +12,7 @@ import unittest
 import urllib.error
 import urllib.request
 from argparse import Namespace
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -2424,6 +2424,90 @@ class SparkCliTests(unittest.TestCase):
         start.assert_not_called()
         self.assertIn("runtime hygiene blocked", stdout.getvalue())
         self.assertIn("--allow-dirty-runtime", stdout.getvalue())
+
+    def test_start_stop_restart_accept_json_flag(self) -> None:
+        self.assertTrue(build_parser().parse_args(["start", "spawner-ui", "--json"]).json)
+        self.assertTrue(build_parser().parse_args(["stop", "--json"]).json)
+        self.assertTrue(build_parser().parse_args(["restart", "spawner-ui", "--json"]).json)
+
+    def test_cmd_start_json_reports_missing_modules_as_json(self) -> None:
+        args = build_parser().parse_args(["start", "--json"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["command"], "start")
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertIn("No installed Spark modules recorded", payload["messages"][0])
+
+    def test_cmd_stop_json_reports_no_tracked_processes_as_json(self) -> None:
+        @contextmanager
+        def fake_lock():
+            yield
+
+        args = build_parser().parse_args(["stop", "--json"])
+
+        with patch("spark_cli.cli.pid_file_lock", fake_lock), \
+             patch("spark_cli.cli.load_pids", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "stop")
+        self.assertEqual(payload["target"], "all")
+        self.assertIn("No tracked Spark processes.", payload["messages"])
+
+    def test_cmd_start_json_captures_human_output_inside_messages(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "run": {"default": {"command": "npm run dev"}},
+            },
+        )
+        args = build_parser().parse_args(["start", "spawner-ui", "--json"])
+
+        def fake_start(*_args: object, **_kwargs: object) -> bool:
+            print("Started spawner-ui (pid 123)")
+            return True
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spawner-ui": module}), \
+             patch("spark_cli.cli.resolve_start_modules", return_value=[module]), \
+             patch("spark_cli.cli.expand_targets", return_value=["spawner-ui"]), \
+             patch("spark_cli.cli.ensure_runtime_telegram_relay_secret"), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=True), \
+             patch("spark_cli.cli.start_module", side_effect=fake_start), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        output = stdout.getvalue()
+        payload = json.loads(output)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "start")
+        self.assertEqual(payload["target"], "spawner-ui")
+        self.assertIn("Started spawner-ui (pid 123)", payload["messages"])
+        self.assertNotIn("Started spawner-ui", output.splitlines()[0])
+
+    def test_cmd_restart_json_reports_missing_modules_as_json(self) -> None:
+        args = build_parser().parse_args(["restart", "--json"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["command"], "restart")
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertIn("No installed Spark modules recorded", payload["messages"][0])
 
     def test_dependency_lockfile_errors_flag_unlocked_node_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

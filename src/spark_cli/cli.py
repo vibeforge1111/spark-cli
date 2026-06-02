@@ -14162,7 +14162,39 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     return ready
 
 
+def command_json_messages(output: str) -> list[str]:
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
+    payload: dict[str, Any] = {
+        "ok": exit_code == 0,
+        "command": command,
+        "target": getattr(args, "target", None) or "all",
+        "profile": normalize_telegram_profile(getattr(args, "profile", None)),
+        "exit_code": exit_code,
+        "messages": command_json_messages(output),
+    }
+    if hasattr(args, "cascade"):
+        payload["cascade"] = bool(getattr(args, "cascade", False))
+    print(json.dumps(payload, indent=2))
+    return exit_code
+
+
+def run_process_command_json(command: str, args: argparse.Namespace, handler: Callable[[argparse.Namespace], int]) -> int:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = handler(args)
+    return emit_process_command_json(command, args, exit_code, output.getvalue())
+
+
 def cmd_start(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("start", args, cmd_start_plain)
+    return cmd_start_plain(args)
+
+
+def cmd_start_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = resolve_installed_modules()
     if not modules:
@@ -14235,6 +14267,12 @@ def stop_tracked_process_key(process_key: str) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("stop", args, cmd_stop_plain)
+    return cmd_stop_plain(args)
+
+
+def cmd_stop_plain(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
@@ -14261,6 +14299,12 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("restart", args, cmd_restart_plain)
+    return cmd_restart_plain(args)
+
+
+def cmd_restart_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     installed_modules = resolve_installed_modules()
     if not installed_modules:
@@ -14272,7 +14316,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         if "spark-telegram-bot" not in requested_names:
             print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
-            stop_code = cmd_stop(args)
+            stop_code = cmd_stop_plain(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
                 return 1
@@ -14291,7 +14335,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
         return 1
-    stop_code = cmd_stop(args)
+    stop_code = cmd_stop_plain(args)
     start_code = 0
     for module in restart_modules:
         if not module.run_command:
@@ -16492,12 +16536,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+    start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
     start_parser.add_argument("target", nargs="?")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+    stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
     stop_parser.add_argument("target", nargs="?")
     stop_parser.set_defaults(func=cmd_stop)
 
@@ -16505,6 +16551,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+    restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
     restart_parser.add_argument("target", nargs="?")
     restart_parser.set_defaults(func=cmd_restart)
 
