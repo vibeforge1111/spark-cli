@@ -93,7 +93,7 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
+        values[key.strip().lstrip("\ufeff")] = _unescape_control_chars(normalize_env_file_value(value))
     return values
 
 
@@ -106,6 +106,37 @@ def _escape_control_chars(value: str) -> str:
     inject a new key=value record on the next line.
     """
     return value.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _unescape_control_chars(value: str) -> str:
+    """Inverse of _escape_control_chars; processed left-to-right so a doubled
+    backslash sequence cannot be mistaken for an escaped CR/LF on the next pass.
+
+    Round-trip guarantee: _unescape_control_chars(_escape_control_chars(v)) == v
+    for any v containing backslashes, CR, or LF.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        ch = value[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = value[i + 1]
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "r":
+                out.append("\r")
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
