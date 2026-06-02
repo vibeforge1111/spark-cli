@@ -733,10 +733,12 @@ function Run-Setup {
         Copy-Item -LiteralPath $LocalRegistry -Destination (Join-Path $CliDir "registry.json") -Force
     }
     $sparkCmd = Join-Path $Script:SparkPrefix "bin\spark.cmd"
+    $secretDir = Join-Path $Script:SparkPrefix "state\setup-secrets"
     $secretFiles = [System.Collections.Generic.List[string]]::new()
     function New-SetupSecretRef {
         param([string]$Value)
-        $secretFile = [System.IO.Path]::GetTempFileName()
+        New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+        $secretFile = Join-Path $secretDir ("spark-secret-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
         [System.IO.File]::WriteAllText($secretFile, $Value, [System.Text.UTF8Encoding]::new($false))
         [void]$secretFiles.Add($secretFile)
         return "@file:$secretFile"

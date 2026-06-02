@@ -1027,7 +1027,10 @@ run_setup() {
   spark_secret_ref() {
     local value="$1"
     local secret_file
-    secret_file="$(mktemp "${TMPDIR:-/tmp}/spark-secret.XXXXXX")"
+    local secret_dir="$SPARK_PREFIX/state/setup-secrets"
+    mkdir -p "$secret_dir"
+    chmod 700 "$secret_dir"
+    secret_file="$(mktemp "$secret_dir/spark-secret.XXXXXX")"
     chmod 600 "$secret_file"
     printf '%s' "$value" > "$secret_file"
     SPARK_SECRET_FILES+=("$secret_file")
