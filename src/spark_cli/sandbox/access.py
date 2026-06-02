@@ -97,9 +97,23 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def _escape_control_chars(value: str) -> str:
+    """Escape control characters for line-oriented configuration storage.
+
+    Backslashes are escaped first (so we do not double-translate a literal
+    \\n the operator wrote intentionally), then CR and LF are turned into
+    their two-character escapes. A bare newline in a value would otherwise
+    inject a new key=value record on the next line.
+    """
+    return value.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
 def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+    path.write_text(
+        "\n".join(f"{key}={_escape_control_chars(value)}" for key, value in values.items()) + "\n",
+        encoding="utf-8",
+    )
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
