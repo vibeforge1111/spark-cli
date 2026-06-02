@@ -257,6 +257,60 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("state", called_commands[1])
         self.assertIn("eval", called_commands[2])
 
+    def test_page_summary_marks_truncated_text(self) -> None:
+        long_text = "x" * 2001
+        calls: list[list[str]] = []
+
+        def fake_run(*argv: str, **_: object) -> subprocess.CompletedProcess[str]:
+            command = list(argv)
+            calls.append(command)
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="result: "
+                + cli.json.dumps(
+                    {
+                        "title": "Long",
+                        "url": "https://example.com/",
+                        "text": long_text,
+                        "textLength": 2500,
+                    }
+                ),
+                stderr="",
+            )
+
+        with patch("spark_cli.cli.run_browser_use_command", side_effect=fake_run):
+            payload = cli.browser_use_page_summary("browser-use", "spark-browser-long")
+
+        self.assertEqual(payload["title"], "Long")
+        self.assertEqual(payload["text"], ("x" * 2000) + "\n[truncated]")
+        self.assertIn("slice(0,2001)", calls[0][-1])
+
+    def test_page_summary_leaves_exact_limit_unmarked(self) -> None:
+        exact_text = "x" * 2000
+
+        with patch(
+            "spark_cli.cli.run_browser_use_command",
+            return_value=subprocess.CompletedProcess(
+                ["browser-use"],
+                0,
+                stdout="result: "
+                + cli.json.dumps(
+                    {
+                        "title": "Exact",
+                        "url": "https://example.com/",
+                        "text": exact_text,
+                        "textLength": len(exact_text),
+                    }
+                ),
+                stderr="",
+            ),
+        ):
+            payload = cli.browser_use_page_summary("browser-use", "spark-browser-exact")
+
+        self.assertEqual(payload["text"], exact_text)
+        self.assertNotIn("[truncated]", payload["text"])
+
     def test_screenshot_writes_screenshot_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
