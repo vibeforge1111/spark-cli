@@ -10704,6 +10704,7 @@ class SparkCliTests(unittest.TestCase):
         route_context = payload["route_context"]
         self.assertEqual(route_context["schema_version"], "spark.repair_route_context.v1")
         self.assertEqual(route_context["candidate_route"], "spark.repair")
+        self.assertEqual(route_context["route_fit"], "blocked")
         self.assertEqual(route_context["authority_verdict"]["source_owner"], "spark-cli")
         self.assertEqual(route_context["repair_target"], "telegram_runtime")
         self.assertEqual(route_context["health_evidence"], "fresh_degraded")
@@ -10772,11 +10773,30 @@ class SparkCliTests(unittest.TestCase):
         route_context = payload["route_context"]
         self.assertEqual(route_context["schema_version"], "spark.repair_route_context.v1")
         self.assertEqual(route_context["candidate_route"], "spark.repair")
+        self.assertEqual(route_context["route_fit"], "blocked")
         self.assertEqual(route_context["repair_target"], "spawner_ui")
         self.assertEqual(route_context["repair_scope"], "local_spawner_repair_guidance")
         self.assertEqual(route_context["health_evidence"], "fresh_degraded")
         self.assertEqual(route_context["authority_verdict"]["decision"], "not_required")
         self.assertEqual(route_context["data_boundary"]["exports_raw_prompt"], False)
+
+    def test_collect_simple_fix_payload_marks_healthy_route_fit_exact(self) -> None:
+        status_payload = {
+            "ok": True,
+            "modules": [
+                {"name": "spawner-ui", "healthy": True, "detail": "running"},
+            ],
+        }
+        provider_payload = {"ok": True, "summary": "provider roles ready"}
+        with patch("spark_cli.cli.collect_status_payload", return_value=status_payload), \
+             patch("spark_cli.cli.provider_status_payload", return_value=provider_payload):
+            payload = collect_simple_fix_payload("spawner")
+
+        self.assertTrue(payload["ok"])
+        route_context = payload["route_context"]
+        self.assertEqual(route_context["route_fit"], "exact")
+        self.assertEqual(route_context["health_evidence"], "fresh_healthy")
+        self.assertEqual(route_context["failed_checks"], [])
 
     def test_collect_simple_fix_payload_update_requires_installed_modules(self) -> None:
         status_payload = {"ok": False, "summary": "No installed Spark modules recorded.", "modules": []}
