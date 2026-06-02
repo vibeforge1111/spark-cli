@@ -4420,6 +4420,8 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "assert_authorized_tool_call" in text
             or "authorize_builder_bridge_action" in text
             or "authorize_vnext_tool_call" in text
+            or "_voice_governor_allows_tool_call" in text
+            or "_require_voice_governor_authority" in text
             or "parse_turn_intent_envelope" in text
             or "browser_use_harness_authorize" in text
             or "kernel.authorize" in text
@@ -4429,6 +4431,7 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
             or "assertNativeGovernorOrVNextHarnessAuthority" in text
             or "buildServerGovernorDecisionAuthority" in text
             or "governorDecisionVerdict" in text
+            or ("governor-decision-v1" in text and "authorization-decision-v1" in text and "tool-call-ledger-v1" in text)
             or ("HarnessKernel" in text and "def authorize(" in text)
         ),
         "machine_origin_policy": (
