@@ -6,12 +6,14 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from spark_cli.cli import build_parser, cmd_access
+from spark_cli.cli import build_parser, cmd_access, print_access_payload
 from spark_cli.cli import cmd_sandbox
+from spark_cli.sandbox.access import _parse_utc_timestamp, read_env_file
 from spark_cli.sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
 
 
@@ -38,6 +40,26 @@ DOCKER_READY = {
 
 
 class AccessSetupTests(unittest.TestCase):
+    def test_read_env_file_trims_values_and_matching_outer_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "module.env"
+            env_path.write_text(
+                "\ufeffSPARK_CODEX_SANDBOX = \"danger-full-access\" \n"
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS='1'\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS= 1 \n"
+                "MISMATCHED=\"leave-alone'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_env_file(env_path),
+                {
+                    "SPARK_CODEX_SANDBOX": "danger-full-access",
+                    "SPARK_ALLOW_HIGH_AGENCY_WORKERS": "1",
+                    "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS": "1",
+                    "MISMATCHED": "\"leave-alone'",
+                },
+            )
+
     def run_access(
         self,
         *argv: str,
@@ -140,6 +162,35 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["recommended"]["id"], "spark_workspace")
         self.assertEqual(payload["lanes"][0]["id"], "level5_operator")
         self.assertEqual(payload["lanes"][0]["setup_mode"], "blocked")
+
+    def test_print_access_payload_names_level5_setup_command_when_blocked(self) -> None:
+        stdout = StringIO()
+        payload = {
+            "access_level": 5,
+            "os_family": "linux",
+            "workspace_path": "/tmp/spark",
+            "recommended": {"id": "spark_workspace", "label": "Spark Workspace Sandbox"},
+            "workspace_preflight": {"writable": True},
+            "level5": {"enabled": False, "restart_required": False},
+            "lanes": [],
+            "next": "spark access setup --level 5 --enable-high-agency",
+            "guide": {},
+        }
+
+        with redirect_stdout(stdout):
+            print_access_payload(payload)
+
+        self.assertIn(
+            "Level 5 guardrails: blocked until explicitly enabled with "
+            "`spark access setup --level 5 --enable-high-agency`",
+            stdout.getvalue(),
+        )
+
+    def test_parse_utc_timestamp_treats_naive_timestamp_as_utc(self) -> None:
+        expected = datetime(2026, 6, 1, 12, 0, tzinfo=UTC).timestamp()
+
+        self.assertEqual(_parse_utc_timestamp("2026-06-01T12:00:00"), expected)
+        self.assertEqual(_parse_utc_timestamp("2026-06-01T12:00:00Z"), expected)
 
     def test_access_setup_level5_requires_explicit_high_agency_enablement(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

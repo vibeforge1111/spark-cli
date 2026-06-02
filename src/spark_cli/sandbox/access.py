@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..env_files import normalize_env_file_value
 from .audit import sandbox_audit_ref, write_audit_event
 from .docker import collect_docker_doctor_payload
 from .modal import modal_auth_markers, modal_sdk_available
@@ -92,7 +93,7 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = value
+        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
     return values
 
 
@@ -186,9 +187,12 @@ def _parse_utc_timestamp(value: object) -> float | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
 
 
 def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | None:
