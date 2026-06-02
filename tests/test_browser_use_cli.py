@@ -810,6 +810,10 @@ class BrowserUseCliTests(unittest.TestCase):
                  patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
                  patch("spark_cli.cli.browser_use_cli_path", return_value=str(browser_use_path)), \
                  patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch(
+                     "spark_cli.cli.browser_use_harness_authorize",
+                     return_value=self.browser_use_authority(risk_tier="high", requires_confirmation=True),
+                 ), \
                  patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent), \
                  redirect_stdout(buffer):
                 exit_code = cli.cmd_browser_use(
