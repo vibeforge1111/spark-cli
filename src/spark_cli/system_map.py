@@ -396,7 +396,11 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
-        for child in desktop.iterdir():
+        try:
+            children = list(desktop.iterdir())
+        except OSError:
+            children = []
+        for child in children:
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
 
