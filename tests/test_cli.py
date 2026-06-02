@@ -7980,16 +7980,43 @@ class SparkCliTests(unittest.TestCase):
             def poll(self) -> int:
                 return 1
 
-        warning = format_start_warning(
-            module,
-            "TELEGRAM_RELAY_SECRET is required for /spawner-events",
-            ExitedProcess(),  # type: ignore[arg-type]
-        )
+        with patch("spark_cli.cli.load_json", return_value={}):
+            warning = format_start_warning(
+                module,
+                "TELEGRAM_RELAY_SECRET is required for /spawner-events",
+                ExitedProcess(),  # type: ignore[arg-type]
+            )
 
         self.assertNotIn("TELEGRAM_RELAY_SECRET", warning)
         self.assertNotIn("telegram.relay_secret", warning)
         self.assertIn("Spark could not finish connecting Telegram", warning)
         self.assertIn("spark setup telegram-starter --resume", warning)
+
+    def test_format_start_warning_uses_configured_bundle_for_relay_secret_guidance(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={"module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}},
+        )
+
+        class ExitedProcess:
+            def poll(self) -> int:
+                return 1
+
+        with patch("spark_cli.cli.load_json", return_value={"bundle": "telegram-voice-starter"}):
+            warning = format_start_warning(
+                module,
+                "telegram.relay_secret is required for /spawner-events",
+                ExitedProcess(),  # type: ignore[arg-type]
+            )
+
+        self.assertNotIn("TELEGRAM_RELAY_SECRET", warning)
+        self.assertNotIn("telegram.relay_secret", warning)
+        self.assertIn("Spark could not finish connecting Telegram", warning)
+        self.assertIn("spark setup telegram-voice-starter --resume", warning)
+        self.assertIn("spark start telegram-voice-starter", warning)
+        self.assertNotIn("spark setup telegram-starter --resume", warning)
+        self.assertNotIn("spark start telegram-starter", warning)
 
     def test_process_runtime_detail_names_missing_and_running_modules(self) -> None:
         pids = {
