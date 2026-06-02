@@ -167,6 +167,20 @@ class SparkSystemMapTests(unittest.TestCase):
                     ],
                 }
             )
+            board_with_agents = build_repo_board(
+                {
+                    "registry": {"modules": {"spark-cli": {}}},
+                    "installed_modules": {},
+                    "discovered_repos": [
+                        {
+                            "name": "spark-cli",
+                            "path": str(repo),
+                            "spark_toml": {"module_name": "spark-cli"},
+                            "contract_files": ["spark.toml", "AGENTS.md"],
+                        }
+                    ],
+                }
+            )
             view = build_voice_surface_view(
                 {
                     "installed_modules": {},
@@ -195,6 +209,13 @@ class SparkSystemMapTests(unittest.TestCase):
 
         self.assertEqual(board["schema_version"], "spark.repo_board.compiled.v0")
         self.assertEqual(board["repos"][0]["risk_class"], "critical")
+        self.assertFalse(board["repos"][0]["agents_ruleset_present"])
+        self.assertTrue(board["repos"][0]["agents_ruleset_release_blocker"])
+        self.assertEqual(board["summary"]["agents_ruleset_release_blocker_count"], 1)
+        self.assertEqual(board["summary"]["release_readiness"], "blocked")
+        self.assertTrue(board_with_agents["repos"][0]["agents_ruleset_present"])
+        self.assertFalse(board_with_agents["repos"][0]["agents_ruleset_release_blocker"])
+        self.assertEqual(board_with_agents["summary"]["agents_ruleset_release_blocker_count"], 0)
         self.assertEqual(board["duplicate_truths"]["schema_version"], "spark.duplicate_truths.compiled.v0")
         self.assertEqual(view["schema_version"], "spark.voice_surface_view.compiled.v0")
         self.assertEqual(view["mode"], "disabled")
@@ -294,11 +315,13 @@ class SparkSystemMapTests(unittest.TestCase):
             standalone = root / "spark-example"
             source.mkdir(parents=True)
             standalone.mkdir()
+            (source / "AGENTS.md").write_text("Spark Telegram Bot rules\n", encoding="utf-8")
 
             installed_metadata = collect_repo_metadata(source)
             standalone_metadata = collect_repo_metadata(standalone)
 
         self.assertEqual(installed_metadata["name"], "spark-telegram-bot")
+        self.assertIn("AGENTS.md", installed_metadata["contract_files"])
         self.assertEqual(standalone_metadata["name"], "spark-example")
 
     def test_private_office_repo_missing_runtime_manifest_is_not_blocked(self) -> None:
@@ -463,7 +486,8 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(
             repo_board["summary"]["blocked_release_count"],
             repo_board["summary"]["repo_blocked_release_count"]
-            + repo_board["summary"]["duplicate_truth_release_blocker_count"],
+            + repo_board["summary"]["duplicate_truth_release_blocker_count"]
+            + repo_board["summary"]["agents_ruleset_release_blocker_count"],
         )
         self.assertEqual(repo_board["summary"]["release_readiness"], "blocked")
         self.assertFalse(compiled["operating_cockpit"]["action_boundary"].startswith("Write"))

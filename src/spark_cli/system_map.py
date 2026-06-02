@@ -33,6 +33,7 @@ CONTRACT_COVERAGE_SCHEMA = "spark.contract_coverage.compiled.v0"
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
 CONTRACT_FILE_HINTS = (
+    "AGENTS.md",
     "docs/AGENT_OPERATING_CONTEXT_AND_DRIFT_CONTROL.md",
     "docs/SPARK_UPGRADE_LEDGER.yaml",
     "docs/SPARK_INTEGRATION_CONTRACT.md",
@@ -6309,6 +6310,14 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         git = git_board_status(Path(str(repo.get("path") or "")))
         manifest = repo_manifest_presence(repo)
         release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
+        risk_class = repo_risk_class(name, release_eligibility)
+        agents_ruleset_present = bool(manifest.get("agents_md"))
+        agents_ruleset_required = (
+            bool(git.get("available"))
+            and release_eligibility != "not_release_candidate"
+            and risk_class in {"critical", "high"}
+        )
+        agents_ruleset_release_blocker = agents_ruleset_required and not agents_ruleset_present
         rows.append(
             {
                 "repo": name,
@@ -6327,7 +6336,10 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
                 "module_ids": sorted(ids),
                 "owner_surface": repo_owner_surface(name),
                 "release_eligibility": release_eligibility,
-                "risk_class": repo_risk_class(name, release_eligibility),
+                "risk_class": risk_class,
+                "agents_ruleset_present": agents_ruleset_present,
+                "agents_ruleset_required": agents_ruleset_required,
+                "agents_ruleset_release_blocker": agents_ruleset_release_blocker,
                 "next_safe_action": next_safe_action,
                 "do_not_merge_reason": do_not_merge_reason,
             }
@@ -6339,6 +6351,10 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
         "repo_blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
         "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
+        "agents_ruleset_present_count": sum(1 for row in rows if row["agents_ruleset_present"]),
+        "agents_ruleset_missing_count": sum(1 for row in rows if not row["agents_ruleset_present"]),
+        "agents_ruleset_required_count": sum(1 for row in rows if row["agents_ruleset_required"]),
+        "agents_ruleset_release_blocker_count": sum(1 for row in rows if row["agents_ruleset_release_blocker"]),
     }
     duplicate_truths = build_duplicate_truths(system_map)
     summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
@@ -6349,6 +6365,7 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     summary["blocked_release_count"] = (
         int(summary["repo_blocked_release_count"] or 0)
         + int(summary["duplicate_truth_release_blocker_count"] or 0)
+        + int(summary["agents_ruleset_release_blocker_count"] or 0)
     )
     summary["release_readiness"] = "blocked" if summary["blocked_release_count"] else "eligible"
     ranked = sorted(
