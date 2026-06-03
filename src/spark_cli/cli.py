@@ -8620,6 +8620,8 @@ def load_json_best_effort(path: Any, default: Any) -> Any:
     path = Path(path)
     try:
         if not path.exists():
+            return default
+    except OSError:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -14697,13 +14699,16 @@ def spark_invocation_args() -> list[str]:
     spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
     if spark_home_wrapper.exists():
         return [str(spark_home_wrapper.resolve())]
-    argv0 = Path(str(sys.argv[0])).expanduser()
-    if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
-        return [str(argv0.resolve())]
+    argv0_str = sys.argv[0] if (sys.argv and len(sys.argv) > 0) else ""
+    if argv0_str:
+        argv0 = Path(str(argv0_str)).expanduser()
+        if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
+            return [str(argv0.resolve())]
     found = shutil.which("spark")
     if found:
         return [found]
     return [sys.executable, "-m", "spark_cli.cli"]
+
 
 
 def shell_join(args: list[str]) -> str:
@@ -14919,7 +14924,7 @@ def wsl_distro_name() -> str | None:
 
 
 def windows_path_to_wsl_path(path_text: str) -> Path:
-    value = path_text.strip().strip('"')
+    value = str(path_text or "").strip().strip('"')
     match = re.match(r"^([A-Za-z]):\\(.*)$", value)
     if match:
         drive = match.group(1).lower()
@@ -14949,7 +14954,7 @@ def wsl_windows_startup_script_path() -> Path | None:
 
 
 def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
-    resolved_distro = distro_name or wsl_distro_name()
+    resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
     if not resolved_distro:
         raise ValueError("Could not determine the WSL distro name for Windows-login autostart.")
     command = subprocess.list2cmdline(
@@ -14962,7 +14967,7 @@ def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | 
             "--exec",
             "sh",
             "-lc",
-            start_command,
+            str(start_command or ""),
         ]
     )
     return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
@@ -14989,12 +14994,14 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    val_str = str(value or "")
+    return '"' + val_str.replace('"', '""') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    hidden_command = f"%ComSpec% /d /s /c {start_command}"
+    hidden_command = f"%ComSpec% /d /s /c {str(start_command or '')}"
     path.write_text(
         "Set shell = CreateObject(\"WScript.Shell\")\r\n"
         f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
@@ -15005,11 +15012,14 @@ def write_windows_startup_script(path: Path, start_command: str) -> None:
 
 
 def windows_cmd_c(command: str) -> str:
-    return "cmd.exe /c " + subprocess.list2cmdline([command])
+    return "cmd.exe /c " + subprocess.list2cmdline([str(command or "")])
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except Exception as e:
+        return subprocess.CompletedProcess(command, -1, stdout="", stderr=str(e))
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
@@ -15062,6 +15072,7 @@ def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, b
 
 
 def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Path | None = None) -> dict[str, Any]:
+    path = Path(path)
     audit: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -15079,9 +15090,10 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
         audit["warnings"].append(f"could not read autostart file: {exc}")
         return audit
     audit["readable"] = True
-    audit["current_command"] = expected_command in content
+    exp_cmd = str(expected_command or "")
+    audit["current_command"] = exp_cmd in content
     home = expected_home or SPARK_HOME
-    audit["current_home"] = str(home) in content or expected_command in content
+    audit["current_home"] = str(home) in content or exp_cmd in content
     try:
         parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
     except OSError as exc:
@@ -15100,6 +15112,8 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
 
 
 def print_autostart_file_audit(label: str, path: Path, *, expected_command: str) -> list[str]:
+    label = str(label or "")
+    path = Path(path)
     audit = autostart_file_audit(path, expected_command=expected_command)
     if not audit["exists"]:
         return []
@@ -15118,9 +15132,10 @@ def print_autostart_file_audit(label: str, path: Path, *, expected_command: str)
     return warnings
 
 
+
 def cmd_autostart_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    target = validate_autostart_target(args.target or "telegram-starter")
+    target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
     start_command = autostart_shell_command("start", target)
     stop_command = autostart_shell_command("stop", target)
     failures = 0
@@ -15136,7 +15151,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             else:
                 print("Could not install WSL Windows-login fallback because the WSL distro name could not be determined.")
                 print("Run from inside the target WSL distro, or set WSL_DISTRO_NAME and try again.")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["sh", "-lc", start_command]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15176,7 +15191,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             if result.returncode != 0:
                 failures += 1
                 print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = systemctl_command(scope, "restart", service_path.name)
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15212,7 +15227,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         if result.returncode != 0:
             failures += 1
             print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = ["launchctl", "kickstart", "-k", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15243,7 +15258,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Installed Windows Run-key fallback: " + ("yes" if run_key_installed else "no"))
             if not run_key_installed:
                 failures += 1
-            if args.now:
+            if getattr(args, "now", False):
                 now_command = ["cmd", "/c", start_command]
                 result = run_autostart_helper(now_command)
                 if result.returncode != 0:
@@ -15253,7 +15268,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Spark will start at login with: " + start_command)
             return 0
         print(f"Installed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["schtasks", "/Run", "/TN", AUTOSTART_WINDOWS_TASK_NAME]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15264,6 +15279,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         return 0
 
     raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+
 
 
 def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
@@ -15341,6 +15357,8 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     enabled = getattr(args, "state", "") == "on"
     setup_state = load_json(CONFIG_PATH, {})
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
