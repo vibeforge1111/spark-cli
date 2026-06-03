@@ -9940,11 +9940,11 @@ def atomic_write_text(path: Path, content: str) -> None:
         except OSError:
             pass
     finally:
-        try:
-            if temp_path.exists():
+        if temp_path.exists():
+            try:
                 temp_path.unlink()
-        except OSError:
-            pass
+            except OSError:
+                pass
 
 
 def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
@@ -10068,6 +10068,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key:
+                env_key = spec.get("api_key_env")
+                api_key = os.environ.get(str(env_key)) if env_key else None
             if api_key:
                 return {
                     "provider": provider,
