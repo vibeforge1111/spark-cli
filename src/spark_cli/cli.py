@@ -971,6 +971,28 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     root = Path(resolved.anchor).resolve()
     if resolved == root or resolved == home or resolved == repo_root:
         raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+    _PROTECTED_PURGE_PREFIXES: tuple[Path, ...] = (
+        Path("/var"),
+        Path("/etc"),
+        Path("/opt"),
+        Path("/srv"),
+        Path("/usr"),
+        Path("/bin"),
+        Path("/sbin"),
+        Path("/lib"),
+        Path("/boot"),
+        Path("/sys"),
+        Path("/proc"),
+        Path("/dev"),
+        Path("/run"),
+        Path("/snap"),
+    )
+    for prefix in _PROTECTED_PURGE_PREFIXES:
+        try:
+            resolved.relative_to(prefix)
+            raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved} (under {prefix})")
+        except ValueError:
+            pass
     return resolved
 
 
