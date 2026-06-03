@@ -162,6 +162,20 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "legacy_markers": ("HarnessKernel", "authorize", "ToolCallLedgerV1"),
     },
     {
+        "id": "harness_core.self_evolution_runner",
+        "surface": "spark-harness-core",
+        "owner_repo": "spark-harness-core",
+        "mutation_class": "self_evolution_promotion",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_harness_core/kernel.py",
+            "src/spark_harness_core/cli.py",
+            "schemas/change-manifest-v1.schema.json",
+            "schemas/self-evolution-run-v1.schema.json",
+        ),
+        "legacy_markers": ("change_manifest_runner", "self_evolution_run", "change-manifest-runner"),
+    },
+    {
         "id": "telegram.mission_launch",
         "surface": "spark-telegram-bot",
         "owner_repo": "spark-telegram-bot",
@@ -4524,6 +4538,12 @@ def contract_marker_summary(text: str) -> dict[str, bool]:
         "network_policy": "networkPolicy" in text or "network_policy" in text,
         "telegram_action_authority": "telegramActionAuthorityAllowed" in text
         or "authorizeTelegramActionFromEnvelope" in text,
+        "self_evolution_runner": (
+            "change_manifest_runner" in text
+            or "createHarnessCoreChangeManifestRunner" in text
+            or "change-manifest-runner" in text
+        )
+        and "self-evolution-run-v1" in text,
     }
 
 
@@ -4761,6 +4781,9 @@ def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
     elif action_markers["telegram_action_authority"] and all_markers["turn_intent_authorizer"]:
         status = "envelope_verified"
         reason = "action_edge_uses_shared_telegram_turn_intent_authority"
+    elif action_markers["self_evolution_runner"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_change_manifest_runner"
     elif risk == "network" and action_markers["network_policy"]:
         status = "envelope_verified"
         reason = "action_edge_checks_explicit_network_policy"

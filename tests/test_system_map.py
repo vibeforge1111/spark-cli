@@ -1986,7 +1986,15 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "class HarnessKernel:\n"
                 "    def create_envelope(self): pass\n"
                 "    def authorize(self): pass\n"
-                "    def record_tool_call(self): pass\n",
+                "    def record_tool_call(self): pass\n"
+                "    def self_evolution_run(self): pass\n"
+                "    def change_manifest_runner(self): pass\n",
+                encoding="utf-8",
+            )
+            (harness_core_src / "cli.py").write_text(
+                "subcommands.add_parser('change-manifest-runner')\n"
+                "schema = 'self-evolution-run-v1'\n"
+                "kernel.change_manifest_runner(mode='promote')\n",
                 encoding="utf-8",
             )
             (harness_core_schemas / "turn-intent-envelope-vnext.schema.json").write_text(
@@ -2001,6 +2009,14 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 '{"$id":"https://spark.local/schemas/tool-call-ledger-v1.schema.json"}\n',
                 encoding="utf-8",
             )
+            (harness_core_schemas / "change-manifest-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/change-manifest-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "self-evolution-run-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/self-evolution-run-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
 
             coverage = build_contract_coverage(desktop, spark_home)
             by_id = {item["id"]: item for item in coverage["edges"]}
@@ -2008,6 +2024,12 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
         self.assertEqual(by_id["harness_core.authority_kernel"]["status"], "envelope_verified")
         self.assertFalse(by_id["harness_core.authority_kernel"]["markers"]["auto_state_trigger"])
+        self.assertEqual(by_id["harness_core.self_evolution_runner"]["status"], "envelope_verified")
+        self.assertEqual(
+            by_id["harness_core.self_evolution_runner"]["reason_code"],
+            "action_edge_checks_change_manifest_runner",
+        )
+        self.assertTrue(by_id["harness_core.self_evolution_runner"]["markers"]["self_evolution_runner"])
         self.assertEqual(by_id["spawner.spark_run"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.dispatch"]["status"], "envelope_verified")
         self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "envelope_verified")
@@ -2063,6 +2085,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
+        self.assertFalse(by_id["harness_core.self_evolution_runner"]["release_blocker"])
         self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
         self.assertEqual(by_id["telegram.mission_launch"]["legacy_plane_classification"], "blocked")
         self.assertEqual(
@@ -2119,6 +2142,10 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         )
         self.assertEqual(
             inventory_planes_by_edge["harness_core.authority_kernel"]["disposition"],
+            "removed",
+        )
+        self.assertEqual(
+            inventory_planes_by_edge["harness_core.self_evolution_runner"]["disposition"],
             "removed",
         )
         self.assertEqual(coverage["summary"]["uncovered_authority_source_count"], 0)
