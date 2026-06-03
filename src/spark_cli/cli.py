@@ -4358,7 +4358,14 @@ def initialize_builder_runtime_home(
 def discover_modules() -> dict[str, Module]:
     modules: dict[str, Module] = {}
     registry = load_registry_definition()
-    for name, metadata in registry.get("modules", {}).items():
+    if not isinstance(registry, dict):
+        return modules
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return modules
+    for name, metadata in modules_dict.items():
+        if not isinstance(metadata, dict):
+            continue
         source = str(metadata.get("source", ""))
         clone_path = clone_target_for_module(name)
         if (clone_path / "spark.toml").exists():
@@ -4376,7 +4383,14 @@ def discover_modules() -> dict[str, Module]:
 
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    if not isinstance(registry, dict):
+        raise SystemExit(f"Registry is invalid; cannot resolve bundle: {bundle_name}")
+    bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        raise SystemExit(f"Bundles definition is missing; cannot resolve: {bundle_name}")
+    bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        raise SystemExit(f"Unknown bundle: {bundle_name}")
     names = bundle.get("modules")
     if not names:
         raise SystemExit(f"Unknown bundle: {bundle_name}")
@@ -4393,7 +4407,11 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
     this triggers `resolve_install_target`, which clones the source into
     `~/.spark/modules/<name>/source/` and loads the manifest from there.
     """
+    if not isinstance(modules, dict):
+        modules = {}
     augmented = dict(modules)
+    if not isinstance(names, (list, tuple, set)):
+        return augmented
     for name in names:
         if name in augmented:
             continue
@@ -4588,7 +4606,7 @@ def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
-    if not modules:
+    if not isinstance(modules, dict) or not modules:
         print("No installed Spark modules recorded.")
         print("Run `spark setup telegram-starter` to install the starter bundle.")
         return 0
@@ -5113,9 +5131,14 @@ def sync_generated_env_to_module(module: Module) -> None:
 
 def update_setup_state_after_uninstall(module_names: list[str]) -> None:
     setup_state = load_json(CONFIG_PATH, {})
-    if not setup_state:
+    if not setup_state or not isinstance(setup_state, dict):
         return
-    remaining = [name for name in setup_state.get("modules", []) if name not in module_names]
+    if not isinstance(module_names, (list, tuple, set)):
+        module_names = [module_names]
+    modules_list = setup_state.get("modules", [])
+    if not isinstance(modules_list, (list, tuple, set)):
+        modules_list = []
+    remaining = [name for name in modules_list if name not in module_names]
     if not remaining:
         if CONFIG_PATH.exists():
             CONFIG_PATH.unlink()
@@ -15625,8 +15648,9 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 INIT_MAX_NAME_LENGTH = 64
 
 
-def validate_init_module_name(name: str) -> None:
-    if len(name) > INIT_MAX_NAME_LENGTH:
+def validate_init_module_name(name: Any) -> None:
+    name_str = str(name or "")
+    if len(name_str) > INIT_MAX_NAME_LENGTH:
         raise SystemExit(
             "Module name is too long "
             f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
@@ -15637,8 +15661,9 @@ def validate_init_module_name(name: str) -> None:
         )
 
 
-def render_init_spark_toml(name: str, kind: str, description: str) -> str:
-    if kind == "python":
+def render_init_spark_toml(name: Any, kind: Any, description: Any) -> str:
+    kind_str = str(kind or "").lower()
+    if kind_str == "python":
         runtime_kind = "python"
         runtime_version = ">=3.11"
         healthcheck = "python -c \\\"print('ok')\\\""
@@ -15661,7 +15686,8 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     )
 
 
-def scaffold_module_files(target_dir: Path, name: str, kind: str, description: str) -> list[Path]:
+def scaffold_module_files(target_dir: Any, name: Any, kind: Any, description: Any) -> list[Path]:
+    target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
@@ -15686,7 +15712,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    name = args.name.strip()
+    name = str(getattr(args, "name", "") or "").strip()
     validate_init_module_name(name)
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
     if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
@@ -15706,8 +15732,12 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     entries = registry.get("modules", {}) or {}
+    if not isinstance(entries, dict):
+        entries = {}
     installed = load_json(REGISTRY_PATH, {})
-    query = (args.query or "").strip().lower()
+    if not isinstance(installed, dict):
+        installed = {}
+    query = str(getattr(args, "query", "") or "").strip().lower()
 
     hits: list[tuple[str, str, bool, bool]] = []
     for name, metadata in entries.items():
@@ -15743,7 +15773,13 @@ def cmd_secrets_list(_: argparse.Namespace) -> int:
 
 
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    if args.value is not None:
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    val_arg = getattr(args, "value", None)
+    if val_arg is not None:
+        value = val_arg
         value = args.value
     elif stdin_is_tty():
         value = read_secret_interactive(
@@ -15762,7 +15798,11 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_get(args: argparse.Namespace) -> int:
-    value = fetch_secret(args.secret_id)
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    value = fetch_secret(secret_id)
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
@@ -15778,7 +15818,11 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
-    if delete_secret(args.secret_id):
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    if delete_secret(secret_id):
         # This prints only the secret label after deletion.
         # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
@@ -15790,9 +15834,13 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
+    target = getattr(args, "target", None)
+    if not target:
+        print("Error: target module is required", file=sys.stderr)
+        return 1
     installed = resolve_installed_modules()
-    if args.target not in installed:
-        raise SystemExit(unknown_installed_module_message(args.target, installed))
+    if target not in installed:
+        raise SystemExit(unknown_installed_module_message(target, installed))
     requested_profile = getattr(args, "profile", None)
     if args.target == "spark-telegram-bot" and requested_profile is None:
         profile = primary_telegram_profile()
@@ -15815,7 +15863,8 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    modules = resolve_installed_target_modules(args.target)
+    target = getattr(args, "target", None)
+    modules = resolve_installed_target_modules(target)
     if not modules:
         print("No installed Spark modules recorded.")
         return 0
@@ -15919,9 +15968,11 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    if getattr(args, "all", False) and args.target:
+    all_flag = getattr(args, "all", False)
+    target = getattr(args, "target", None)
+    if all_flag and target:
         raise SystemExit("Use either a target or --all, not both.")
-    if not getattr(args, "all", False) and not args.target:
+    if not all_flag and not target:
         raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
@@ -16205,6 +16256,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
 
 def cmd_guide(args: argparse.Namespace) -> int:
     payload = onboarding_guide_payload()
+    if not isinstance(args, argparse.Namespace):
+        args = argparse.Namespace()
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
         return 0
@@ -16274,9 +16327,9 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
-def positive_int_arg(value: str) -> int:
+def positive_int_arg(value: Any) -> int:
     try:
-        parsed = int(value)
+        parsed = int(str(value or ""))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
             f"expected a positive integer, got {value!r}"
@@ -16291,8 +16344,9 @@ def positive_int_arg(value: str) -> int:
 def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
     original_error = group_parser.error
 
-    def friendly_error(message: str) -> None:
-        if message and "arguments are required" in message:
+    def friendly_error(message: Any) -> None:
+        message_str = str(message or "")
+        if message_str and "arguments are required" in message_str:
             group_parser.print_usage(sys.stderr)
             sys.stderr.write(
                 f"\n{group_parser.prog} needs a subcommand. Try one of: "
