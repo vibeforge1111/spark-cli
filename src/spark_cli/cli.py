@@ -14867,7 +14867,12 @@ def windows_cmd_c(command: str) -> str:
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return subprocess.CompletedProcess(command, 124, stdout=stdout, stderr=stderr or "Autostart helper timed out after 30s")
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
