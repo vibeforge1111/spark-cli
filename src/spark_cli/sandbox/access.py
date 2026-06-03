@@ -101,7 +101,15 @@ def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Strip newlines from values to prevent env var injection
     sanitized = {k: v.replace("\n", "").replace("\r", "") for k, v in values.items()}
-    path.write_text("\n".join(f"{key}={value}" for key, value in sanitized.items()) + "\n", encoding="utf-8")
+    content = "\n".join(f"{key}={value}" for key, value in sanitized.items()) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
