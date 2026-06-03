@@ -16550,6 +16550,7 @@ def build_parser() -> argparse.ArgumentParser:
     browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
     browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
     browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
     browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
     browser_use_probe_parser.add_argument("--json", action="store_true")
