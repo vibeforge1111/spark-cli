@@ -202,10 +202,12 @@ def modal_smoke_script() -> str:
                 try:
                     sandbox.terminate()
                 except Exception:
+                    logging.warning("Silent error caught: %s", exc)
                     pass
                 try:
                     sandbox.detach()
                 except Exception:
+                    logging.warning("Silent error caught: %s", exc)
                     pass
         """
     ).strip()

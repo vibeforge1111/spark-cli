@@ -59,5 +59,6 @@ def write_audit_event(
     try:
         path.chmod(0o600)
     except OSError:
+        logging.warning("Silent error caught: %s", exc)
         pass
     return path

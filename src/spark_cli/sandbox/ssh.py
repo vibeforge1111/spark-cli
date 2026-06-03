@@ -304,6 +304,7 @@ def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None)
         try:
             path.chmod(0o600)
         except OSError:
+            logging.warning("Silent error caught: %s", exc)
             pass
     finally:
         if os.path.exists(tmp_name):
@@ -480,6 +481,7 @@ def trust_ssh_target_host_key(
     try:
         known_hosts.chmod(0o600)
     except OSError:
+        logging.warning("Silent error caught: %s", exc)
         pass
     trusted = SshTarget(
         **{
