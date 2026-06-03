@@ -13028,13 +13028,20 @@ def linux_root_filesystem_read_only(mountinfo_path: Path = Path("/proc/self/moun
 
 
 def hosted_spawner_base_url() -> str:
-    port = (
+    port_raw = (
         os.environ.get("SPARK_SPAWNER_PORT")
         or os.environ.get("PORT")
         or os.environ.get("SPARK_PORT")
         or "3333"
     )
-    return f"http://127.0.0.1:{str(port).strip()}"
+    port_str = str(port_raw).strip()
+    try:
+        port_int = int(port_str)
+        if not (1 <= port_int <= 65535):
+            port_int = 3333
+    except ValueError:
+        port_int = 3333
+    return f"http://127.0.0.1:{port_int}"
 
 
 def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
