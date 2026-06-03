@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
+import secrets
 import re
 import sqlite3
 import subprocess
@@ -5423,8 +5425,25 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
 
 def write_json(path: Path, payload: Any) -> None:
+    """Write JSON to *path* atomically.
+
+    Writes to a temporary file first, then performs ``os.replace`` so that a
+    crash mid-write never leaves a truncated or empty file on disk.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
