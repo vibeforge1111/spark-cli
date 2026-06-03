@@ -4512,13 +4512,16 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     lines: list[str] = []
     if path.exists():
         existing = path.read_text(encoding="utf-8").splitlines()
+        ends_remaining = sum(1 for line in existing if line.strip() == end)
         inside = False
         for line in existing:
-            if line.strip() == start:
+            s_line = line.strip()
+            if s_line == start and ends_remaining > 0:
                 inside = True
                 continue
-            if line.strip() == end:
+            if s_line == end and inside:
                 inside = False
+                ends_remaining -= 1
                 continue
             if not inside:
                 lines.append(line)
@@ -4530,15 +4533,7 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    # Atomic write: write to a unique temp path, chmod to private mode, then
-    # os.replace into place so a concurrent reader never observes a half-written
-    # configuration file (the old direct write_text could be interrupted between
-    # the open() and the final flush, leaving zero-byte or truncated state).
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(tmp, PRIVATE_FILE_MODE)
-    os.replace(tmp, path)
-    os.chmod(path, PRIVATE_FILE_MODE)
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def remove_managed_env_block(path: Path) -> None:
@@ -4549,13 +4544,17 @@ def remove_managed_env_block(path: Path) -> None:
     if not path.exists():
         return
     lines: list[str] = []
+    existing = path.read_text(encoding="utf-8").splitlines()
+    ends_remaining = sum(1 for line in existing if line.strip() == end)
     inside = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip() == start:
+    for line in existing:
+        s_line = line.strip()
+        if s_line == start and ends_remaining > 0:
             inside = True
             continue
-        if line.strip() == end:
+        if s_line == end and inside:
             inside = False
+            ends_remaining -= 1
             continue
         if not inside:
             lines.append(line)
