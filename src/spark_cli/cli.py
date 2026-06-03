@@ -489,8 +489,8 @@ def validate_registry_definition(registry: dict[str, Any]) -> None:
             raise SystemExit(f"Blessed git registry entry `{name}` must include a full commit pin.")
 
 
-def is_git_source(source: str) -> bool:
-    value = (source or "").strip()
+def is_git_source(source: Any) -> bool:
+    value = str(source or "").strip()
     if not value:
         return False
     if value.startswith(("http://", "https://", "git://", "ssh://", "git@")):
@@ -502,7 +502,7 @@ def is_git_source(source: str) -> bool:
     return False
 
 
-def is_hosted_git_shorthand(value: str) -> bool:
+def is_hosted_git_shorthand(value: Any) -> bool:
     parts = value.strip().split("/")
     return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
 
@@ -5206,7 +5206,16 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    if not isinstance(installed, dict):
+        return {}
+    resolved: dict[str, Module] = {}
+    for name, data in installed.items():
+        if isinstance(data, dict) and data.get("path"):
+            try:
+                resolved[name] = load_module(Path(data["path"]))
+            except Exception:
+                pass
+    return resolved
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
