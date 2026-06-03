@@ -540,6 +540,7 @@ def validate_commit_pin(commit: str | None) -> str | None:
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(
+            timeout=120,
             git_command(*args),
             cwd=str(cwd) if cwd else None,
             capture_output=True,
@@ -557,6 +558,7 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
+        timeout=120,
     verify_result = subprocess.run(
         git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
@@ -669,6 +671,7 @@ def clone_module_source(
     target = clone_target_for_module(name)
     if (target / "spark.toml").exists() and (target / ".git").exists():
         pinned_commit = validate_commit_pin(commit)
+                timeout=120,
         if pinned_commit:
             resolved = subprocess.run(
                 git_command("-C", str(target), "rev-parse", "HEAD"),
