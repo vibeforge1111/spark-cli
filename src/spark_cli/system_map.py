@@ -305,7 +305,7 @@ def read_json(path: Path) -> tuple[Any | None, str | None]:
         return None, "missing"
     try:
         return json.loads(path.read_text(encoding="utf-8-sig")), None
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError) as exc:
         return None, f"read_json_failed: {type(exc).__name__}: {exc}"
 
 
@@ -314,7 +314,7 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, "missing"
     try:
         return tomllib.loads(path.read_text(encoding="utf-8")), None
-    except Exception as exc:
+    except (tomllib.TOMLDecodeError, OSError) as exc:
         return None, f"read_toml_failed: {type(exc).__name__}: {exc}"
 
 
@@ -398,7 +398,11 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
-        for child in desktop.iterdir():
+        try:
+            children = list(desktop.iterdir())
+        except OSError:
+            children = []
+        for child in children:
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
 
@@ -421,8 +425,8 @@ def git_summary(path: Path) -> dict[str, Any]:
             timeout=2,
             check=False,
         )
-    except Exception:
-        return {"available": True, "head_short": None}
+    except (subprocess.SubprocessError, OSError):
+        return {"available": False, "head_short": None}
     return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
 
@@ -435,7 +439,7 @@ def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
             timeout=timeout,
             check=False,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return 1, ""
     return result.returncode, result.stdout.strip()
 
@@ -650,7 +654,7 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
                 out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -871,7 +875,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         continue
                     try:
                         payload = json.loads(line)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     if not isinstance(payload, dict):
                         continue
@@ -886,7 +890,7 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
                         derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
                     if isinstance(trace_ref, str) and trace_ref.strip():
                         trace_refs.add(trace_ref.strip())
-        except Exception as exc:
+        except OSError as exc:
             out["join_error"] = f"{type(exc).__name__}: {exc}"
     effective_trace_refs = set(trace_refs)
     effective_trace_refs.update(derived_trace_refs)
@@ -943,7 +947,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             out["matched_builder_request_id_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -985,7 +989,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             out["matched_builder_trace_ref_count"] = int(matched or 0)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -1386,7 +1390,7 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
         return out
     try:
         stat = path.stat()
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
     out["size_bytes"] = int(stat.st_size)
@@ -1512,7 +1516,7 @@ def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
             if file_count >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -1542,7 +1546,7 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
             if len(names) >= max_files:
                 out["max_files_reached"] = True
                 break
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -2228,7 +2232,7 @@ def summarize_memory_run_artifacts(builder_home: Path) -> dict[str, Any]:
                     else None
                 ),
             }
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2578,7 +2582,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
                 out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2686,7 +2690,7 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
                 out[f"missing_{column}_count"] = int(missing)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2744,7 +2748,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -2847,7 +2851,7 @@ def inspect_builder_trace_groups(
             out["group_count"] = len(groups)
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -3110,7 +3114,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             out["health_flags"] = flags
         finally:
             conn.close()
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -5502,6 +5506,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
     return {
+        "ok": True,
         "schema_version": "spark.os_compile.summary.v0",
         "generated_at": system_map.get("generated_at"),
         "modules": len(as_list(system_map.get("modules"))),
