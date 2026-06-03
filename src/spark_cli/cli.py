@@ -16732,6 +16732,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove installed modules from Spark state and generated config")
     uninstall_parser.add_argument("target", nargs="?")
+    uninstall_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     uninstall_parser.add_argument("--all", action="store_true", help="Uninstall all installed Spark modules")
     uninstall_parser.add_argument("--force", action="store_true")
     uninstall_parser.add_argument("--remove-autostart", action="store_true", help="Remove OS login autostart hooks")
