@@ -15408,6 +15408,8 @@ def load_user_config() -> dict[str, Any]:
 
 
 def save_user_config(config: dict[str, Any]) -> None:
+    if not isinstance(config, dict):
+        config = {}
     save_json(USER_CONFIG_PATH, config)
 
 
@@ -15415,7 +15417,12 @@ CONFIG_MISSING = object()
 
 
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
-    parts = key.split(".")
+    if not isinstance(config, dict):
+        return default
+    key_str = str(key or "")
+    if not key_str:
+        return default
+    parts = key_str.split(".")
     current: Any = config
     for part in parts:
         if not isinstance(current, dict) or part not in current:
@@ -15424,14 +15431,18 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
-def validate_config_key(key: str) -> None:
-    if not key or any(not part for part in key.split(".")):
+def validate_config_key(key: Any) -> None:
+    key_str = str(key or "")
+    if not key_str or any(not part for part in key_str.split(".")):
         raise ValueError("config key must contain non-empty dot-separated segments")
 
 
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("config must be a dictionary")
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current = config
     for part in parts[:-1]:
         existing = current.get(part)
@@ -15443,8 +15454,11 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    if not isinstance(config, dict):
+        return False
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current: Any = config
     for part in parts[:-1]:
         if not isinstance(current, dict) or part not in current:
@@ -15456,8 +15470,10 @@ def dotted_unset(config: dict[str, Any], key: str) -> bool:
     return False
 
 
-def coerce_config_value(raw: str) -> Any:
+def coerce_config_value(raw: Any) -> Any:
     """Parse a CLI-supplied value into JSON-native types where possible."""
+    if not isinstance(raw, str):
+        return raw
     try:
         return json.loads(raw)
     except (TypeError, ValueError):
@@ -15465,9 +15481,13 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
+    value = dotted_get(load_user_config(), key, default=CONFIG_MISSING)
     if value is CONFIG_MISSING:
-        print(f"{args.key} is not set")
+        print(f"{key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
@@ -15479,30 +15499,39 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    val_raw = getattr(args, "value", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
-    value = coerce_config_value(args.value)
+    value = coerce_config_value(val_raw)
     try:
-        dotted_set(config, args.key, value)
+        dotted_set(config, key, value)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     save_user_config(config)
-    print(f"Set {args.key} = {json.dumps(value)}")
+    print(f"Set {key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
     try:
-        removed = dotted_unset(config, args.key)
+        removed = dotted_unset(config, key)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if not removed:
-        print(f"{args.key} was not set")
+        print(f"{key} was not set")
         return 1
     save_user_config(config)
-    print(f"Unset {args.key}")
+    print(f"Unset {key}")
     return 0
 
 
