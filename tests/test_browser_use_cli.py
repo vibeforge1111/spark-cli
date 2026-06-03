@@ -36,13 +36,33 @@ class _FakeBrowserUseKernel:
         return {
             "schema_version": "tool-call-ledger-v1",
             "ledger_id": "tool-ledger-test",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
             "tool_name": tool_name,
+            "authorization": authorization,
             "result": {
                 "status": status,
                 "output_path": output_path,
                 "summary": summary,
             },
         }
+
+    def finalize_tool_call_ledger(
+        self,
+        ledger: dict[str, object],
+        *,
+        status: str,
+        output_path: str,
+        summary: str,
+    ) -> dict[str, object]:
+        updated = dict(ledger)
+        updated["result"] = {
+            "status": status,
+            "output_path": output_path,
+            "summary": summary,
+        }
+        return updated
 
     def governor_decision(
         self,
@@ -54,12 +74,76 @@ class _FakeBrowserUseKernel:
         return {
             "schema_version": "governor-decision-v1",
             "decision_id": "governor-test",
+            "turn_id": envelope["turn_id"],
             "outcome": self.outcome,
+            "envelope": envelope,
+            "authorizations": authorizations,
             "execution_boundary": {
                 "action_authorized": self.outcome == "execute",
                 "authorized_action_count": 1 if self.outcome == "execute" else 0,
             },
             "tool_ledgers": tool_ledgers or [],
+        }
+
+    def verify_governor_execution_authority(
+        self,
+        governor_decision: dict[str, object] | None,
+        *,
+        expected_capability_id: str,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+        action_id: str | None = None,
+        require_pre_execution_ledger: bool = True,
+        **_: object,
+    ) -> dict[str, object]:
+        if not isinstance(governor_decision, dict):
+            return {"allowed": False, "reason_codes": ["missing_governor_decision"]}
+        reason_codes: list[str] = []
+        if governor_decision.get("outcome") != "execute":
+            reason_codes.append(f"governor_outcome_{governor_decision.get('outcome') or 'missing'}")
+        authorizations = governor_decision.get("authorizations")
+        matching_authorization = None
+        if isinstance(authorizations, list):
+            for authorization in authorizations:
+                if not isinstance(authorization, dict):
+                    continue
+                if authorization.get("verdict") != "allow":
+                    continue
+                if authorization.get("capability_id") != expected_capability_id:
+                    continue
+                if action_id is not None and authorization.get("action_id") != action_id:
+                    continue
+                matching_authorization = authorization
+                break
+        if matching_authorization is None:
+            reason_codes.append("governor_missing_matching_authorization")
+        ledgers = governor_decision.get("tool_ledgers")
+        matching_ledger = None
+        if isinstance(ledgers, list) and matching_authorization is not None:
+            for ledger in ledgers:
+                if not isinstance(ledger, dict):
+                    continue
+                result = ledger.get("result") if isinstance(ledger.get("result"), dict) else {}
+                ledger_authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+                if ledger.get("action_id") != matching_authorization.get("action_id"):
+                    continue
+                if ledger.get("capability_id") != expected_capability_id:
+                    continue
+                if tool_name is not None and ledger.get("tool_name") != tool_name:
+                    continue
+                if require_pre_execution_ledger and result.get("status") != "not_started":
+                    continue
+                if ledger_authorization.get("decision_id") != matching_authorization.get("decision_id"):
+                    continue
+                matching_ledger = ledger
+                break
+        if governor_decision.get("outcome") == "execute" and matching_ledger is None:
+            reason_codes.append("governor_missing_matching_tool_ledger")
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": not reason_codes,
+            "reason_codes": reason_codes,
+            "ledger_id": matching_ledger.get("ledger_id") if isinstance(matching_ledger, dict) else None,
         }
 
 
@@ -70,12 +154,25 @@ class BrowserUseCliTests(unittest.TestCase):
         risk_tier: str = "read",
         requires_confirmation: bool = False,
         outcome: str = "execute",
+        tool_name: str | None = None,
     ) -> dict[str, object]:
         kernel = _FakeBrowserUseKernel(outcome=outcome)
-        envelope = {"turn_id": "turn-browser-use-test"}
-        action = {"action_id": "action-browser-use-test"}
+        envelope = {
+            "turn_id": "turn-browser-use-test",
+            "proposed_actions": [
+                {
+                    "action_id": "action-browser-use-test",
+                    "capability_id": "capability:browser-use",
+                    "action_type": "browser_action",
+                }
+            ],
+        }
+        action = envelope["proposed_actions"][0]
         authorization = {
             "decision_id": "auth-browser-use-test",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
             "verdict": "allow",
             "risk_tier": risk_tier,
             "approval": {
@@ -87,12 +184,23 @@ class BrowserUseCliTests(unittest.TestCase):
                 "write_allowed": risk_tier == "high",
             },
         }
+        effective_tool_name = tool_name or ("browser-use agent task" if risk_tier == "high" else "browser-use open/screenshot")
+        ledger = kernel.record_tool_call(
+            envelope=envelope,
+            action=action,
+            authorization=authorization,
+            tool_name=effective_tool_name,
+            status="not_started",
+            output_path="/tmp/browser-use-receipt.json",
+            summary="not started",
+        )
         return {
             "kernel": kernel,
             "envelope": envelope,
             "action": action,
             "authorization": authorization,
-            "governor_decision": kernel.governor_decision(envelope, authorizations=[authorization]),
+            "tool_ledger": ledger,
+            "governor_decision": kernel.governor_decision(envelope, authorizations=[authorization], tool_ledgers=[ledger]),
         }
 
     def test_cli_path_discovers_installed_spark_venv_entrypoint(self) -> None:
@@ -371,6 +479,27 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["harness_authority"]["verdict"], "allow")
         self.assertEqual(payload["harness_authority"]["governor_outcome"], "deny")
         self.assertFalse(payload["harness_authority"]["governor_action_authorized"])
+        run.assert_not_called()
+
+    def test_action_blocks_copied_governor_ledger_before_browser_use_runs(self) -> None:
+        authority = self.browser_use_authority()
+        authority["governor_decision"]["tool_ledgers"][0]["action_id"] = "action:copied-stale-ledger"
+        authority["governor_decision"]["tool_ledgers"][0]["authorization"]["action_id"] = "action:copied-stale-ledger"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value="browser-use"), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.browser_use_harness_authorize", return_value=authority), \
+                 patch("spark_cli.cli.subprocess.run") as run:
+                payload = cli.browser_use_action_payload("https://example.com")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["harness_authority"]["governor_outcome"], "execute")
+        self.assertFalse(payload["harness_authority"]["governor_verifier_allowed"])
+        self.assertIn("governor_missing_matching_tool_ledger", payload["harness_authority"]["governor_verifier_reason_codes"])
         run.assert_not_called()
 
     def test_page_summary_marks_truncated_text(self) -> None:

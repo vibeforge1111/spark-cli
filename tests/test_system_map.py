@@ -2135,7 +2135,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(inventory_planes_by_edge["telegram.mission_launch"]["surface"], "telegram")
         self.assertEqual(
             inventory_planes_by_edge["spawner.spark_run"]["disposition"],
-            "converted_to_harness_consumer",
+            "canonical_consumer",
         )
         self.assertTrue(
             inventory_planes_by_edge["spawner.spark_run"]["harness_binding"]["governor_required"]

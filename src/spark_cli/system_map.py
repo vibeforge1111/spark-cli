@@ -4966,11 +4966,11 @@ def legacy_authority_disposition_for_edge(edge: dict[str, Any]) -> str:
     if classification == "blocked":
         return "release_blocker"
     if classification == "evidence_only":
-        return "rebound_to_harness_evidence"
+        return "evidence_adapter"
     if classification == "compat_no_authority":
         if risk in {"high_agency", "network"}:
-            return "converted_to_harness_consumer"
-        return "compat_no_authority"
+            return "canonical_consumer"
+        return "evidence_adapter"
     if classification == "retired":
         return "removed"
     return "release_blocker"
@@ -4980,7 +4980,7 @@ def legacy_authority_risk_for_edge(edge: dict[str, Any], disposition: str) -> di
     mutation = str(edge.get("mutation_class") or "").lower()
     risk = str(edge.get("risk") or "")
     high_agency = risk in {"high_agency", "network"}
-    active = disposition in {"converted_to_harness_consumer", "release_blocker"}
+    active = disposition in {"canonical_consumer", "release_blocker"}
     surface = harness_core_surface_name(edge.get("surface"))
     return {
         "can_execute": bool(active and high_agency),
@@ -4995,7 +4995,7 @@ def legacy_authority_risk_for_edge(edge: dict[str, Any], disposition: str) -> di
 
 
 def legacy_authority_harness_binding(disposition: str, edge: dict[str, Any]) -> dict[str, Any]:
-    if disposition == "converted_to_harness_consumer":
+    if disposition == "canonical_consumer":
         return {
             "governor_required": True,
             "evidence_only": False,
@@ -5003,7 +5003,7 @@ def legacy_authority_harness_binding(disposition: str, edge: dict[str, Any]) -> 
             "ledger_required": str(edge.get("risk") or "") in {"high_agency", "network"},
             "notes": "Contract edge consumes Harness Core/Governor authority before high-agency execution.",
         }
-    if disposition == "rebound_to_harness_evidence":
+    if disposition == "evidence_adapter":
         return {
             "governor_required": False,
             "evidence_only": True,
@@ -5011,15 +5011,7 @@ def legacy_authority_harness_binding(disposition: str, edge: dict[str, Any]) -> 
             "ledger_required": False,
             "notes": "Legacy detector is retained only as evidence or proposal support.",
         }
-    if disposition == "compat_no_authority":
-        return {
-            "governor_required": False,
-            "evidence_only": True,
-            "consumer_of_governor": False,
-            "ledger_required": False,
-            "notes": "Compatibility helper has no high-agency authority.",
-        }
-    if disposition in {"removed", "disabled"}:
+    if disposition in {"removed", "quarantined"}:
         return {
             "governor_required": False,
             "evidence_only": False,
@@ -5114,9 +5106,9 @@ def legacy_authority_plane_from_uncovered_source(item: dict[str, Any]) -> dict[s
     if release_blocker:
         disposition = "release_blocker"
     elif markers.get("evidence_or_proposal_only"):
-        disposition = "rebound_to_harness_evidence"
+        disposition = "evidence_adapter"
     else:
-        disposition = "converted_to_harness_consumer"
+        disposition = "canonical_consumer"
     edge_like = {
         "mutation_class": "uncovered_authority_source",
         "risk": "high_agency",
@@ -5178,10 +5170,9 @@ def build_legacy_authority_inventory(edges: list[dict[str, Any]], uncovered_sour
         "summary": {
             "plane_count": len(planes),
             "removed_count": int(dispositions.get("removed") or 0),
-            "disabled_count": int(dispositions.get("disabled") or 0),
-            "compat_no_authority_count": int(dispositions.get("compat_no_authority") or 0),
-            "rebound_to_harness_evidence_count": int(dispositions.get("rebound_to_harness_evidence") or 0),
-            "converted_to_harness_consumer_count": int(dispositions.get("converted_to_harness_consumer") or 0),
+            "quarantined_count": int(dispositions.get("quarantined") or 0),
+            "evidence_adapter_count": int(dispositions.get("evidence_adapter") or 0),
+            "canonical_consumer_count": int(dispositions.get("canonical_consumer") or 0),
             "release_blocker_count": release_blocker_count,
             "high_agency_risk_count": high_agency_risk_count,
         },

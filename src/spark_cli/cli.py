@@ -6051,6 +6051,8 @@ def browser_use_harness_authorize(
     summary: str,
     raw_turn_summary: str,
     args_path: Path,
+    tool_name: str,
+    output_path: Path,
     requires_confirmation: bool,
 ) -> dict[str, Any]:
     HarnessKernel, evidence_ref = load_harness_core_symbols()
@@ -6093,12 +6095,26 @@ def browser_use_harness_authorize(
         else None
     )
     authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
-    governor_decision = kernel.governor_decision(envelope, authorizations=[authorization])
+    pre_execution_ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=str(output_path),
+        summary="browser-use tool execution has not started yet.",
+    )
+    governor_decision = kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[pre_execution_ledger],
+    )
     return {
         "kernel": kernel,
         "envelope": envelope,
         "action": action,
         "authorization": authorization,
+        "tool_ledger": pre_execution_ledger,
         "governor_decision": governor_decision,
     }
 
@@ -6110,6 +6126,7 @@ def browser_use_harness_summary(authority: dict[str, Any], *, ledger_path: Path 
     governor_decision = authority.get("governor_decision") if isinstance(authority.get("governor_decision"), dict) else {}
     execution_boundary = governor_decision.get("execution_boundary") if isinstance(governor_decision.get("execution_boundary"), dict) else {}
     tool_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else {}
+    verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
     return {
         "schema_version": "spark.browser_use.harness_authority.v1",
         "turn_id": envelope.get("turn_id"),
@@ -6124,7 +6141,46 @@ def browser_use_harness_summary(authority: dict[str, Any], *, ledger_path: Path 
         "restrictions": authorization.get("restrictions"),
         "tool_ledger_id": tool_ledger.get("ledger_id"),
         "ledger_path": str(ledger_path) if ledger_path is not None else "",
+        "governor_verifier_allowed": verification.get("allowed") if isinstance(verification, dict) else None,
+        "governor_verifier_reason_codes": verification.get("reason_codes", []) if isinstance(verification, dict) else [],
     }
+
+
+def browser_use_verify_harness_authority(authority: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+    kernel = authority.get("kernel")
+    action = authority.get("action") if isinstance(authority.get("action"), dict) else {}
+    governor_decision = authority.get("governor_decision") if isinstance(authority.get("governor_decision"), dict) else None
+    verifier = getattr(kernel, "verify_governor_execution_authority", None)
+    if not callable(verifier):
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": False,
+            "reason_codes": ["harness_core_verifier_unavailable"],
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+        }
+    expected_capability_id = str(action.get("capability_id") or "")
+    expected_action_type = str(action.get("action_type") or "")
+    action_id = str(action.get("action_id") or "")
+    if not expected_capability_id or not expected_action_type or not action_id:
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": False,
+            "reason_codes": ["browser_use_missing_action_binding"],
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+        }
+    return verifier(
+        governor_decision,
+        expected_capability_id=expected_capability_id,
+        expected_action_type=expected_action_type,
+        tool_name=tool_name,
+        action_id=action_id,
+    )
+
+
+def browser_use_harness_authority_allows(authority: dict[str, Any], *, tool_name: str) -> bool:
+    verification = browser_use_verify_harness_authority(authority, tool_name=tool_name)
+    authority["governor_verification"] = verification
+    return bool(verification.get("allowed"))
 
 
 def browser_use_write_harness_ledger(
@@ -6137,11 +6193,12 @@ def browser_use_write_harness_ledger(
     ledger_path: Path,
 ) -> dict[str, Any]:
     kernel = authority["kernel"]
-    ledger = kernel.record_tool_call(
-        envelope=authority["envelope"],
-        action=authority["action"],
-        authorization=authority["authorization"],
-        tool_name=tool_name,
+    pre_execution_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else None
+    finalizer = getattr(kernel, "finalize_tool_call_ledger", None)
+    if pre_execution_ledger is None or not callable(finalizer):
+        raise RuntimeError("Harness Core pre-execution ledger is required before browser-use execution can be finalized.")
+    ledger = finalizer(
+        pre_execution_ledger,
         status=status,
         output_path=str(output_path),
         summary=summary,
@@ -6321,12 +6378,15 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         },
     )
     try:
+        browser_use_tool_name = "browser-use open/screenshot"
         authority = browser_use_harness_authorize(
             action_type="browser_action",
             risk_tier="read",
             summary=f"Use browser-use to {'capture a screenshot of' if screenshot else 'open and read'} a URL.",
             raw_turn_summary=f"spark browser-use {'screenshot' if screenshot else 'open'} {url}",
             args_path=args_path,
+            tool_name=browser_use_tool_name,
+            output_path=receipt_path,
             requires_confirmation=False,
         )
     except RuntimeError as exc:
@@ -6335,11 +6395,11 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
             receipt_path=receipt_path,
             reason=str(exc),
         )
-    if authority["authorization"]["verdict"] != "allow" or authority["governor_decision"]["outcome"] != "execute":
+    if not browser_use_harness_authority_allows(authority, tool_name=browser_use_tool_name):
         return browser_use_authority_block_payload(
             base_payload=base_payload,
             receipt_path=receipt_path,
-            reason="Harness Core did not authorize the browser-use action.",
+            reason="Harness Core verifier did not authorize the browser-use action.",
             authority=authority,
         )
     proofs: list[str] = []
@@ -6375,7 +6435,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         }
         browser_use_write_harness_ledger(
             authority=authority,
-            tool_name="browser-use open/screenshot",
+            tool_name=browser_use_tool_name,
             status="success",
             output_path=receipt_path,
             summary="browser-use read action completed.",
@@ -6398,7 +6458,7 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         }
         browser_use_write_harness_ledger(
             authority=authority,
-            tool_name="browser-use open/screenshot",
+            tool_name=browser_use_tool_name,
             status="failure",
             output_path=receipt_path,
             summary="browser-use read action failed.",
@@ -6544,12 +6604,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         },
     )
     try:
+        browser_use_tool_name = "browser-use agent task"
         authority = browser_use_harness_authorize(
             action_type="browser_action",
             risk_tier="high",
             summary="Run a browser-use agent task through Spark CLI.",
             raw_turn_summary=f"spark browser-use task {browser_use_bounded_text(cleaned_goal, 500)}",
             args_path=args_path,
+            tool_name=browser_use_tool_name,
+            output_path=receipt_path,
             requires_confirmation=True,
         )
     except RuntimeError as exc:
@@ -6558,11 +6621,11 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             receipt_path=receipt_path,
             reason=str(exc),
         )
-    if authority["authorization"]["verdict"] != "allow" or authority["governor_decision"]["outcome"] != "execute":
+    if not browser_use_harness_authority_allows(authority, tool_name=browser_use_tool_name):
         return browser_use_authority_block_payload(
             base_payload=base_payload,
             receipt_path=receipt_path,
-            reason="Harness Core did not authorize the browser-use task.",
+            reason="Harness Core verifier did not authorize the browser-use task.",
             authority=authority,
         )
 
@@ -6580,7 +6643,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             }
             browser_use_write_harness_ledger(
                 authority=authority,
-                tool_name="browser-use agent task",
+                tool_name=browser_use_tool_name,
                 status="failure",
                 output_path=receipt_path,
                 summary="browser-use task failed before agent execution because the starting page could not be read.",
@@ -6614,7 +6677,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             payload["last_failure_reason"] = browser_use_task_failure_reason(result)
         browser_use_write_harness_ledger(
             authority=authority,
-            tool_name="browser-use agent task",
+            tool_name=browser_use_tool_name,
             status="success" if completed else "failure",
             output_path=receipt_path,
             summary="browser-use task completed." if completed else "browser-use task failed.",
@@ -6633,7 +6696,7 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         }
         browser_use_write_harness_ledger(
             authority=authority,
-            tool_name="browser-use agent task",
+            tool_name=browser_use_tool_name,
             status="failure",
             output_path=receipt_path,
             summary="browser-use task raised an exception.",
