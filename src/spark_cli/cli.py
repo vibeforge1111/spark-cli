@@ -1029,6 +1029,21 @@ def dpapi_protect(value: str) -> str:
                 "Install/configure a keyring backend, or set "
                 f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
             )
+        import warnings as _warnings
+        _warnings.warn(
+            f"SECURITY WARNING: {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 is active. "
+            "Secrets are base64-encoded (NOT encrypted) in secrets.local.json. "
+            "Any user or process that can read the file can trivially decode them. "
+            "Use this mode ONLY for disposable local development — never in production or shared environments.",
+            stacklevel=2,
+        )
+        print(
+            f"\n⚠️  SECURITY WARNING: {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 is active.\n"
+            "   Secrets are being stored with base64 encoding only — this is NOT encryption.\n"
+            "   Anyone who can read secrets.local.json can decode secrets instantly.\n"
+            "   Use a proper keyring backend for anything beyond disposable local testing.\n",
+            file=sys.stderr,
+        )
         return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
