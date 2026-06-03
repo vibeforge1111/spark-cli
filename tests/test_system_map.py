@@ -211,6 +211,44 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("private text", encoded)
         self.assertNotIn("secret", encoded)
 
+    def test_jsonl_scanners_let_attribute_errors_propagate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            path.write_text(
+                json.dumps({"event_type": "route_selected"}) + "\n",
+                encoding="utf-8",
+            )
+
+            from unittest.mock import patch
+
+            real_counter_cls = type(count_safe_jsonl.__globals__["Counter"]())
+
+            class _Boom(real_counter_cls):
+                def __setitem__(self, key, value):  # type: ignore[override]
+                    raise AttributeError(
+                        "typo in scanner -- should propagate not be swallowed"
+                    )
+
+            # Patch key_counts via the module's Counter factory in the scanner.
+            # Easier: monkeypatch the Counter symbol used inside count_safe_jsonl.
+            with patch("spark_cli.system_map.Counter", _Boom):
+                with self.assertRaises(AttributeError):
+                    count_safe_jsonl(path)
+
+    def test_jsonl_scanner_reports_oserror_via_error_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            unreadable = Path(tmp) / "missing.jsonl"
+            # Path exists check uses .exists(), so simulate an unreadable file by
+            # creating then immediately stat-erroring via permission removal is
+            # platform-dependent. Use a directory at the path instead -- open()
+            # on a directory raises OSError on the line-iteration path.
+            unreadable.mkdir()
+            summary = count_safe_jsonl(unreadable)
+            self.assertIn("error", summary)
+            # IsADirectoryError is a subclass of OSError, so the narrowed
+            # `except OSError` clause still catches it.
+            self.assertIn("Error", summary["error"])
+
     def test_repo_board_and_voice_surface_are_metadata_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

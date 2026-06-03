@@ -715,7 +715,7 @@ def count_safe_jsonl(path: Path) -> dict[str, Any]:
                 line_count += 1
                 try:
                     payload = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     parse_errors += 1
                     continue
                 parsed_count += 1
@@ -729,7 +729,7 @@ def count_safe_jsonl(path: Path) -> dict[str, Any]:
                     key_counts[key_name] += 1
                     if key in value_counts and isinstance(value, (str, int, float, bool)) and value is not None:
                         value_counts[key][str(value)[:80]] += 1
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -772,7 +772,7 @@ def inspect_safe_jsonl_samples(
                 line_count += 1
                 try:
                     payload = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     parse_errors += 1
                     continue
                 parsed_count += 1
@@ -794,7 +794,7 @@ def inspect_safe_jsonl_samples(
                         )
                 if sample:
                     samples.append(sample)
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -1020,7 +1020,7 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
                     continue
                 try:
                     payload = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     parse_errors += 1
                     continue
                 if not isinstance(payload, dict):
@@ -1052,7 +1052,7 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
                         "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
                     }
                 )
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
@@ -1096,7 +1096,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                     continue
                 try:
                     payload = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     parse_errors += 1
                     continue
                 if not isinstance(payload, dict):
@@ -1154,7 +1154,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                         "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
                         "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
                     }
-    except Exception as exc:
+    except OSError as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
