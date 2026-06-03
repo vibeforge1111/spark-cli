@@ -2141,8 +2141,12 @@ def wait_for_telegram_first_message(
     path: Path | None = None,
     *,
     poll_seconds: float = 1.0,
+    progress_callback: Callable[[], None] | None = None,
+    progress_interval_seconds: float = 5.0,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + max(0, int(timeout_seconds))
+    start = time.monotonic()
+    deadline = start + max(0, int(timeout_seconds))
+    last_progress_tick = start
     while True:
         result = telegram_first_message_seen(session, path)
         if result.get("received"):
@@ -2151,6 +2155,16 @@ def wait_for_telegram_first_message(
         if time.monotonic() >= deadline:
             result["timed_out"] = True
             return result
+        if progress_callback is not None:
+            now = time.monotonic()
+            if (now - last_progress_tick) >= max(0.1, float(progress_interval_seconds)):
+                last_progress_tick = now
+                try:
+                    progress_callback()
+                except OSError:
+                    # Operator-side stdout pipe closed mid-wait; absorb so the
+                    # poll itself stays alive until the deadline or the event.
+                    pass
         time.sleep(max(0.1, poll_seconds))
 
 
@@ -7164,7 +7178,12 @@ def cmd_setup(args: argparse.Namespace) -> int:
         if start_now and start_ok and wait_seconds:
             print("")
             print("Waiting for Spark to hear you in Telegram...")
-            result = wait_for_telegram_first_message(str(setup_state.get("onboarding_session") or ""), wait_seconds)
+            result = wait_for_telegram_first_message(
+                str(setup_state.get("onboarding_session") or ""),
+                wait_seconds,
+                progress_callback=lambda: print(".", end="", flush=True),
+            )
+            print("")
             print_first_message_wait_result(result)
             maybe_offer_first_message_repair(result, interactive)
             first_message_ok = bool(result.get("received") and result.get("replied"))
@@ -7232,7 +7251,12 @@ def cmd_onboard(args: argparse.Namespace) -> int:
     if start_ok and wait_seconds:
         print("")
         print("Waiting for Spark to hear you in Telegram...")
-        result = wait_for_telegram_first_message(session, wait_seconds)
+        result = wait_for_telegram_first_message(
+            session,
+            wait_seconds,
+            progress_callback=lambda: print(".", end="", flush=True),
+        )
+        print("")
         print_first_message_wait_result(result)
         maybe_offer_first_message_repair(result, setup_is_interactive(args))
         first_message_ok = bool(result.get("received") and result.get("replied"))
