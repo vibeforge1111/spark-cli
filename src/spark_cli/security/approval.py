@@ -180,7 +180,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
-    if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"]):
+    if first == "spark" and lowered[1:3] in (["access", "status"], ["access", "guide"], ["access", "help"]):
         return _decision(parts, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
