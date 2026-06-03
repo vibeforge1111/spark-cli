@@ -413,6 +413,14 @@ install_uv() {
   need_cmd tar
   if ! has_checksum_tool; then
     echo "Missing required checksum command: sha256sum or shasum" >&2
+    case "$(uname -s 2>/dev/null)" in
+      Linux)
+        echo "  Install on Linux: sudo apt install coreutils   (Debian/Ubuntu — provides sha256sum) or sudo dnf install coreutils   (Fedora/RHEL)" >&2 ;;
+      Darwin)
+        echo "  Install on macOS: brew install coreutils   (provides gsha256sum) or use the built-in shasum (preinstalled on modern macOS)" >&2 ;;
+      *)
+        echo "  Install coreutils (sha256sum) or perl/openssl (shasum) using your system package manager, then re-run this script." >&2 ;;
+    esac
     exit 1
   fi
   local uv_platform asset expected actual tools_dir uv_dir archive extract_dir uv_bin
@@ -607,6 +615,14 @@ preflight() {
   need_cmd tar
   if ! has_checksum_tool; then
     echo "Missing required checksum command: sha256sum or shasum" >&2
+    case "$(uname -s 2>/dev/null)" in
+      Linux)
+        echo "  Install on Linux: sudo apt install coreutils   (Debian/Ubuntu — provides sha256sum) or sudo dnf install coreutils   (Fedora/RHEL)" >&2 ;;
+      Darwin)
+        echo "  Install on macOS: brew install coreutils   (provides gsha256sum) or use the built-in shasum (preinstalled on modern macOS)" >&2 ;;
+      *)
+        echo "  Install coreutils (sha256sum) or perl/openssl (shasum) using your system package manager, then re-run this script." >&2 ;;
+    esac
     exit 1
   fi
   log "OS/platform: $(uname -s) $(uname -m) -> $SPARK_NODE_PLATFORM"
