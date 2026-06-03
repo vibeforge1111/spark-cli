@@ -14316,7 +14316,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                 print(stale_listener_note)
                 append_process_log(module.name, stale_listener_note, profile=profile)
 
-        log_handle = log_path.open("a", encoding="utf-8")
+        try:
+            log_handle = log_path.open("a", encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(
+                f"Failed to open log file {log_path}: {exc}"
+            ) from exc
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
