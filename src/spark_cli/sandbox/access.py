@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import sys
 import time
@@ -98,8 +99,27 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
+    """Write *values* to *path* using an atomic temp-then-rename pattern."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+    content = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        temp_path.write_text(content, encoding="utf-8")
+        try:
+            os.chmod(temp_path, 0o600)
+        except OSError:
+            pass
+        os.replace(temp_path, path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
