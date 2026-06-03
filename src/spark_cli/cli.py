@@ -4422,8 +4422,14 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return []
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return []
     bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        return []
     names = bundle.get("modules")
     if not names:
         known = sorted(name for name, item in bundles.items() if item.get("modules"))
@@ -4434,17 +4440,27 @@ def resolve_bundle_names(bundle_name: str) -> list[str]:
 
 
 def expand_targets(target: str | None, modules: dict[str, Module], include_all: bool = False) -> list[str]:
+    if not isinstance(modules, dict):
+        modules = {}
     if target is None:
         return list(modules.keys()) if include_all else []
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return [target]
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return [target]
     if target in bundles:
-        return list(bundles[target].get("modules", []))
+        target_bundle = bundles[target]
+        if isinstance(target_bundle, dict):
+            return list(target_bundle.get("modules", []))
     return [target]
 
 
 def detect_ingress_owner(bundle: list[Module]) -> Module:
-    owners = [module for module in bundle if "telegram.ingress" in module.capabilities]
+    if not isinstance(bundle, (list, tuple, set)):
+        raise SystemExit("Bundle is empty or invalid structure.")
+    owners = [module for module in bundle if module and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if len(owners) != 1:
         raise SystemExit(
             "Expected exactly one telegram ingress owner in bundle, found "
@@ -4794,20 +4810,33 @@ def public_diagnostic_payload(value: Any) -> Any:
 
 def remove_module_record(module_name: str) -> None:
     installed = load_json(REGISTRY_PATH, {})
+    if not isinstance(installed, dict):
+        installed = {}
     installed.pop(module_name, None)
     save_json(REGISTRY_PATH, installed)
 
 
 def is_blessed_registry_entry(target: str) -> bool:
-    metadata = load_registry_definition().get("modules", {}).get(target)
+    target_str = str(target or "")
+    registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return False
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return False
+    metadata = modules_dict.get(target_str)
     if not metadata:
         return False
     return bool(metadata.get("blessed"))
 
 
 def module_trust_tier(module: Module, target: str | None = None) -> str:
-    registry_modules = load_registry_definition().get("modules", {})
-    metadata = registry_modules.get(module.name) or (registry_modules.get(target) if target else {}) or {}
+    registry = load_registry_definition()
+    registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
+    if not isinstance(registry_modules, dict):
+        registry_modules = {}
+    module_name = getattr(module, "name", None)
+    metadata = (registry_modules.get(module_name) if module_name else None) or (registry_modules.get(target) if target else {}) or {}
     configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
     if metadata.get("blessed") and not configured:
         return "trusted"
@@ -5026,26 +5055,35 @@ def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: s
 
 
 def load_install_progress(target: str) -> dict[str, Any]:
+    target_str = str(target or "")
+    if not target_str:
+        return {}
     data = load_json(INSTALL_PROGRESS_PATH, {})
-    entry = data.get(target) if isinstance(data, dict) else None
+    entry = data.get(target_str) if isinstance(data, dict) else None
     return dict(entry) if isinstance(entry, dict) else {}
 
 
 def save_install_progress(target: str, progress: dict[str, Any]) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         data = {}
-    data[target] = progress
+    data[target_str] = progress
     save_json(INSTALL_PROGRESS_PATH, data)
 
 
 def clear_install_progress(target: str) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         return
-    if target not in data:
+    if target_str not in data:
         return
-    data.pop(target)
+    data.pop(target_str)
     if data:
         save_json(INSTALL_PROGRESS_PATH, data)
     elif INSTALL_PROGRESS_PATH.exists():
@@ -5053,8 +5091,15 @@ def clear_install_progress(target: str) -> None:
 
 
 def record_install_step(target: str, step: str) -> None:
-    progress = load_install_progress(target)
+    target_str = str(target or "")
+    step_str = str(step or "")
+    if not target_str or not step_str:
+        return
+    progress = load_install_progress(target_str)
     completed = progress.setdefault("steps_completed", [])
+    if not isinstance(completed, list):
+        completed = []
+        progress["steps_completed"] = completed
     if step not in completed:
         completed.append(step)
     progress["last_step"] = step
@@ -5078,22 +5123,32 @@ def step_previously_completed(target: str, step: str, resume: bool) -> bool:
 
 def print_install_summary(modules: list[Module]) -> None:
     print("Install plan:")
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
-        print(f"- {module.name} ({module.kind}, {module.plane})")
-    ingress_owners = [module.name for module in modules if "telegram.ingress" in module.capabilities]
+        if not module or not hasattr(module, "name"):
+            continue
+        print(f"- {module.name} ({getattr(module, 'kind', 'unknown')}, {getattr(module, 'plane', 'unknown')})")
+    ingress_owners = [module.name for module in modules if module and hasattr(module, "name") and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if ingress_owners:
         print(f"Telegram ingress owner: {', '.join(ingress_owners)}")
 
 
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
+        if not module or not hasattr(module, "name") or not hasattr(module, "path"):
+            continue
         print(f"Installed {module.name} from {module.path}")
-        if "telegram.ingress" in module.capabilities:
+        if hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
 
 def execute_install_commands(module: Module) -> None:
+    if not module or not hasattr(module, "install_commands") or not isinstance(module.install_commands, (list, tuple, set)):
+        return
     for command in module.install_commands:
         print(f"Running install command for {module.name}: {command}")
         result = run_install_command(command, module.path)
@@ -5155,19 +5210,24 @@ def resolve_installed_modules() -> dict[str, Module]:
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
-    removing_names = {module.name for module in removing_modules}
     blockers: list[str] = []
+    if not isinstance(removing_modules, (list, tuple, set)) or not isinstance(installed_modules, dict):
+        return blockers
+    removing_names = {module.name for module in removing_modules if module and hasattr(module, "name")}
     for module in installed_modules.values():
-        if module.name in removing_names:
+        if not module or not hasattr(module, "name") or module.name in removing_names:
             continue
-        for dependency in module.needs_modules:
+        needs = getattr(module, "needs_modules", None)
+        if not isinstance(needs, (list, tuple, set)):
+            continue
+        for dependency in needs:
             if dependency in removing_names:
                 blockers.append(f"{module.name} depends on {dependency}")
     return blockers
 
 
 def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
-    if module.name != "spark-telegram-bot":
+    if not module or getattr(module, "name", None) != "spark-telegram-bot":
         return None
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if isinstance(profiles, dict) and profiles:
@@ -13645,6 +13705,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def resolve_installed_target_modules(target: str | None) -> list[Module]:
+    target_str = str(target or "") if target is not None else None
     modules = resolve_installed_modules()
     if not modules:
         return []
