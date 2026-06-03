@@ -544,7 +544,12 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
+            timeout=120,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: git command timed out after {exc.timeout}s"
+        ) from exc
     except OSError as exc:
         raise SystemExit(
             f"git operation failed for {name}: could not start git. "
@@ -561,6 +566,7 @@ def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed
         git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
+        timeout=120,
     )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
@@ -699,6 +705,7 @@ def clone_module_source(
         git_command("clone", "--depth=1", url, str(target)),
         capture_output=True,
         text=True,
+        timeout=300,
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
@@ -711,6 +718,7 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
         git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
+        timeout=120,
     )
     return result.returncode == 0, summarize_command_output(result)
 
@@ -726,6 +734,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if status.returncode != 0:
         return False, summarize_command_output(status)
@@ -736,6 +745,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if current.returncode != 0:
         return False, summarize_command_output(current)
@@ -747,6 +757,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
         text=True,
+        timeout=120,
     )
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
@@ -756,6 +767,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
             git_command("-C", str(module.path), "verify-commit", pinned_commit),
             capture_output=True,
             text=True,
+            timeout=120,
         )
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
@@ -764,6 +776,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
@@ -772,6 +785,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if resolved.returncode != 0:
         return False, summarize_command_output(resolved)
