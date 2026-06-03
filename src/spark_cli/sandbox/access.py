@@ -98,6 +98,12 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
+    for key, value in values.items():
+        if "\n" in value or "\r" in value:
+            raise ValueError(
+                f"Env value for {key!r} contains newline characters "
+                f"which would corrupt the .env file format"
+            )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
 
