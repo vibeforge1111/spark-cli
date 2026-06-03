@@ -199,7 +199,10 @@ def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | N
     disabled_at: float | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
-            event = json.loads(line)
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
         except json.JSONDecodeError:
             continue
         timestamp = _parse_utc_timestamp(event.get("timestamp"))
