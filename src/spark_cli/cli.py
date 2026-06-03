@@ -7373,6 +7373,7 @@ def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=300,
             env=write_boundary_env(shell_command_env(filtered=True)),
         )
     except subprocess.TimeoutExpired as error:
