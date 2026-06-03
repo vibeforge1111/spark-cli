@@ -2,17 +2,17 @@
   "schema": 1,
   "source": {
     "repository": "https://github.com/vibeforge1111/spark-cli",
-    "releaseName": "spark-cli-public-installer-2026-06-03-r25",
-    "ref": "spark-cli-public-installer-2026-06-03-r25"
+    "releaseName": "spark-cli-public-installer-2026-06-03-r24-v2",
+    "ref": "spark-cli-public-installer-2026-06-03-r24-v2"
   },
   "installers": {
     "install.sh": {
       "path": "scripts/install.sh",
-      "sha256": "4e6372d7a100cf3275c6bc29923a9cae2f23fed53dbcc1d22ce1bab66676ddef"
+      "sha256": "6f550c552e7d4666a60e1a0124c3354935a3dd78759be959aa49ae6f05fd3192"
     },
     "install.ps1": {
       "path": "scripts/install.ps1",
-      "sha256": "32676b2d6b51c350b090566f4eabf90d471ec302a0e282a702bdc5641a27577f"
+      "sha256": "d8a9a0635f6a7bddb83717165d994ad5ff142bb85f509b36f463962de31557b7"
     }
   }
 }
