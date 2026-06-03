@@ -15709,6 +15709,8 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
     if getattr(args, "dry_run", False):
+        # This prints only the secret label (the secret_id), not its value.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"Would delete: {args.secret_id}")
         return 0
     if delete_secret(args.secret_id):
