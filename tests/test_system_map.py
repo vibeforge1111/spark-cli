@@ -2733,6 +2733,7 @@ routes = []
             output_text = "\n".join(path.read_text(encoding="utf-8") for path in out.glob("*") if path.is_file())
 
             self.assertEqual(exit_code, 0)
+            self.assertTrue(summary["ok"])
             self.assertEqual(summary["modules"], 1)
             self.assertIn("contract_coverage", summary)
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
