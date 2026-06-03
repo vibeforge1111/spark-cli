@@ -4723,7 +4723,10 @@ def chip_scan_package_json(path_label: str, text: str) -> list[ChipScanFinding]:
     if Path(path_label).name != "package.json":
         return []
     try:
+        try:
         payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = {}
     except json.JSONDecodeError:
         return []
     scripts = payload.get("scripts")
