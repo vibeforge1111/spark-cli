@@ -15639,6 +15639,14 @@ def cmd_search(args: argparse.Namespace) -> int:
             continue
         hits.append((name, summary, blessed, name in installed))
 
+    if getattr(args, "json", False):
+        results = [
+            {"name": name, "summary": summary, "blessed": blessed, "installed": installed_flag}
+            for name, summary, blessed, installed_flag in sorted(hits)
+        ]
+        print(json.dumps({"ok": True, "query": query or None, "count": len(results), "results": results}, indent=2))
+        return 0
+
     if not hits:
         print("No matching modules." if query else "Registry has no modules.")
         return 1 if query else 0
@@ -16828,6 +16836,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
     search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+    search_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
