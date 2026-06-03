@@ -302,7 +302,10 @@ def read_json(path: Path) -> tuple[Any | None, str | None]:
     if not path.exists():
         return None, "missing"
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig")), None
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig")), None
+        except json.JSONDecodeError:
+            return {}, f"corrupted file: {path}"
     except Exception as exc:
         return None, f"read_json_failed: {type(exc).__name__}: {exc}"
 
