@@ -14145,6 +14145,8 @@ def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tup
 
 
 def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
+    if not isinstance(argv, (list, tuple)):
+        argv = []
     updated = list(argv)
     try:
         index = updated.index(flag)
@@ -14160,7 +14162,9 @@ def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
 
 def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: dict[str, str]) -> list[str]:
     argv = direct_node_package_script_argv(command, cwd) or runtime_command_argv(command)
-    if module.name != "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module or getattr(module, "name", None) != "spawner-ui":
         return argv
     bind_host = (env.get("SPARK_SPAWNER_HOST") or "").strip()
     bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
@@ -14171,13 +14175,15 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
     return argv
 
 
-def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
+def spawner_should_use_liveness_endpoint(env: Any) -> bool:
     # Spawner liveness is separate from provider readiness; provider details
     # stay visible through `spark providers status`.
     return True
 
 
 def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if not isinstance(env, dict):
+        env = {}
     if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return True
     pids = load_pids()
@@ -14190,6 +14196,8 @@ def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
+    if not isinstance(env, dict):
+        env = {}
     bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
     if bind_port:
         return bind_port
@@ -14201,21 +14209,27 @@ def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
     return "3333"
 
 
-def spawner_runtime_health_url(module: Module, env: dict[str, str]) -> str:
+def spawner_runtime_health_url(module: Module, env: Any) -> str:
     path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
     return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
 
 
 def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
-    if module.name == "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module:
+        return ""
+    if getattr(module, "name", None) == "spawner-ui":
         bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
         if bind_port:
             return spawner_runtime_health_url(module, env)
     return module.ready_check
 
 
-def expected_runtime_process_names(installed_names: set[str], setup_state: dict[str, Any]) -> list[str]:
+def expected_runtime_process_names(installed_names: Any, setup_state: dict[str, Any]) -> list[str]:
     names: list[str] = []
+    if not isinstance(installed_names, (set, list, tuple)):
+        return names
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
     external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
@@ -14233,6 +14247,8 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
 
 
 def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles")
     if not isinstance(profiles, dict):
         return []
