@@ -6667,6 +6667,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("  browser-use doctor")
             print("Then run: spark browser-use probe")
             return 0
+        print("Step 1/3: pip install browser-use package...")
         try:
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
@@ -6691,8 +6692,10 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         cli_path = browser_use_cli_path()
         if not cli_path:
             raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
+        print("Step 2/3: browser-use install (up to 180s)...")
         try:
             run_browser_use_command(cli_path, "install", timeout=180)
+            print("Step 3/3: browser-use doctor (up to 60s)...")
             run_browser_use_command(cli_path, "doctor", timeout=60)
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
