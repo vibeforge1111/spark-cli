@@ -103,7 +103,7 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
@@ -15644,6 +15644,14 @@ def cmd_search(args: argparse.Namespace) -> int:
             continue
         hits.append((name, summary, blessed, name in installed))
 
+    if getattr(args, "json", False):
+        results = [
+            {"name": name, "summary": summary, "blessed": blessed, "installed": installed_flag}
+            for name, summary, blessed, installed_flag in sorted(hits)
+        ]
+        print(json.dumps({"ok": True, "query": query or None, "count": len(results), "results": results}, indent=2))
+        return 0
+
     if not hits:
         print("No matching modules." if query else "Registry has no modules.")
         return 1 if query else 0
@@ -16833,6 +16841,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
     search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+    search_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
