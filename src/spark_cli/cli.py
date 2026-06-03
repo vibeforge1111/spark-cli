@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import ctypes
 import getpass
 import hashlib
+import importlib.util
 import io
 import ipaddress
 import json
@@ -33,6 +35,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
 
+from .env_files import normalize_env_file_value
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
@@ -41,7 +44,11 @@ from .system_map import compile_summary, compile_system_map, write_compiled_outp
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
+INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
+ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
+SETUP_OPTIONAL_ON_UPGRADE_ENV = "SPARK_SETUP_OPTIONAL_ON_UPGRADE"
 PRIVATE_FILE_MODE = 0o600
+GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
 
 SPARK_HOME = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
@@ -63,7 +70,20 @@ KEYCHAIN_SERVICE = "spark-cli"
 AUTOSTART_SERVICE_NAME = "spark-telegram-agent"
 AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
 AUTOSTART_WINDOWS_TASK_NAME = "Spark Telegram Agent"
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def discover_repo_root() -> Path:
+    env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
+    candidates = []
+    if env_root:
+        candidates.append(Path(env_root).expanduser())
+    cwd = Path.cwd().resolve()
+    candidates.extend([cwd, *cwd.parents, Path(__file__).resolve().parents[2]])
+    for candidate in candidates:
+        if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
+            return candidate
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = discover_repo_root()
 LOCAL_REGISTRY_PATH = REPO_ROOT / "registry.json"
 INSTALLER_MANIFEST_PATH = REPO_ROOT / "scripts" / "installer-manifest.json"
 INSTALLER_SCRIPT_PATHS = {
@@ -83,18 +103,35 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+$")
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
-SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([0-9a-fA-F]{40})"')
+SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
-POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([0-9a-fA-F]{40})"')
+POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
+PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS = 300
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
 DEFAULT_GRAPHITI_GROUP_ID = "spark-memory"
 VOICE_MODULE_NAME = "spark-voice-comms"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
+BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
+BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
+BROWSER_USE_PROBE_SESSION = "spark-probe"
+BROWSER_USE_PROBE_URL = "https://example.com"
+BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
+BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
+BROWSER_USE_ACTION_TEXT_LIMIT = 1800
+BROWSER_USE_TASK_TEXT_LIMIT = 2600
+BROWSER_USE_AGENT_SYSTEM_NUDGE = (
+    "Spark wrapper instruction: every assistant response in the browser-use loop must use the "
+    "available action schema only. Do not answer with plain prose during intermediate steps. "
+    "When the requested browser work is complete, call the done action with a concise answer "
+    "grounded only in observed browser state."
+)
+BROWSER_USE_AGENT_LLM_SCREENSHOT_SIZE = (1400, 850)
 SAFE_PARENT_ENV_KEYS = {
     "APPDATA",
     "COMSPEC",
@@ -166,6 +203,7 @@ WRITE_DENIED_POSIX_PREFIXES = (
     "/root",
     "/var/run/docker.sock",
 )
+OPENAI_COMPAT_HTTP_USER_AGENT = "Spark-CLI/1.0 (+https://github.com/vibeforge1111/spark-cli)"
 TRUST_TIERS = ("builtin", "trusted", "community", "untrusted")
 TRUST_BLOCK_THRESHOLD = {
     "builtin": "critical",
@@ -242,7 +280,7 @@ CHIP_SCAN_PATTERNS = (
     (
         "embedded-private-key",
         "critical",
-        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----"),
+        re.compile(r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
         "private key material is embedded in the module",
     ),
     (
@@ -459,14 +497,19 @@ def is_git_source(source: str) -> bool:
         return True
     if value.endswith(".git"):
         return True
-    if value.startswith("github.com/") or value.startswith("gitlab.com/"):
+    if is_hosted_git_shorthand(value):
         return True
     return False
 
 
+def is_hosted_git_shorthand(value: str) -> bool:
+    parts = value.strip().split("/")
+    return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
+
+
 def normalize_git_url(source: str) -> str:
     value = source.strip()
-    if value.startswith(("github.com/", "gitlab.com/")):
+    if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
 
@@ -495,12 +538,18 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
-        cwd=str(cwd) if cwd else None,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command(*args),
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: could not start git. "
+            "Install Git and make sure it is on PATH."
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git operation failed for {name}: {detail}")
@@ -974,13 +1023,26 @@ def _kernel32() -> Any:
 
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
-        return value
+        if not allow_insecure_file_secrets():
+            raise RuntimeError(
+                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                "Install/configure a keyring backend, or set "
+                f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+            )
+        return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptProtectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptProtectData failed (Windows error code {err}). "
+            "Verify a user profile is loaded -- this call commonly fails under "
+            "SSH, scheduled tasks, or service accounts where the interactive "
+            "profile is unavailable. Re-run from an interactive desktop session, "
+            f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
+        )
     try:
         protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -989,6 +1051,9 @@ def dpapi_protect(value: str) -> str:
 
 
 def dpapi_unprotect(value: str) -> str:
+    if value.startswith(INSECURE_FILE_SECRET_PREFIX):
+        encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
+        return base64.b64decode(encoded).decode("utf-8")
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
@@ -996,12 +1061,24 @@ def dpapi_unprotect(value: str) -> str:
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptUnprotectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptUnprotectData failed (Windows error code {err}). "
+            "The stored value may have been written under a different user "
+            "profile, or the master key is unreachable. Re-run from the same "
+            "user account that wrote the value, or delete the stored entry "
+            "and re-enter it with `spark setup`."
+        )
     try:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
         _kernel32().LocalFree(out_blob.pbData)
     return raw.decode("utf-8")
+
+
+def allow_insecure_file_secrets() -> bool:
+    value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
+    return value in {"1", "true", "yes"}
 
 
 def harden_secret_file(path: Path) -> None:
@@ -1032,10 +1109,22 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as _store_exc:
+            # Surface the fall-back so the operator notices that the value
+            # landed on disk instead of in the system store. Log only the
+            # exception class name -- the message can echo the value, which
+            # we never want in a log line. The file path it falls back to is
+            # already chmod 0o600 by harden_secret_file below.
+            sys.stderr.write(
+                f"spark-cli: system store write failed "
+                f"(error type: {type(_store_exc).__name__}); "
+                f"falling back to file storage.\n"
+            )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
-    file_secrets[secret_id] = dpapi_protect(value)
+    try:
+        file_secrets[secret_id] = dpapi_protect(value)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
     save_json(SECRETS_FILE_PATH, file_secrets)
     harden_secret_file(SECRETS_FILE_PATH)
     index[secret_id] = "file"
@@ -1068,6 +1157,11 @@ def is_telegram_bot_token_secret(secret_id: str) -> bool:
     )
 
 
+def telegram_token_validation_error_detail(error: BaseException) -> str:
+    detail = redact_sensitive_text(str(error))
+    return re.sub(r"/bot[^/\s]+/", "/bot[REDACTED]/", detail, flags=re.IGNORECASE)
+
+
 def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_token") -> dict[str, Any]:
     """Validate a Telegram bot token with getMe before persisting it."""
     token = extract_telegram_bot_token(token)
@@ -1088,10 +1182,12 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
             f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
             "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
         )
-    except (OSError, TimeoutError, json.JSONDecodeError) as error:
+    except (OSError, TimeoutError, json.JSONDecodeError, urllib.error.URLError) as error:
+        safe_detail = telegram_token_validation_error_detail(error)
         raise SystemExit(
-            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}. "
-            "Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
+            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}"
+            + (f" ({safe_detail})" if safe_detail else "")
+            + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
         )
     if not payload.get("ok"):
         description = str(payload.get("description") or "token rejected")
@@ -1198,7 +1294,13 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Configuration error: '{path}' contains invalid JSON at "
+            f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
+        ) from None
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -1232,8 +1334,14 @@ def assert_no_linked_write_path(path: Path) -> None:
 
 
 def installer_release_pins() -> dict[str, Any]:
-    shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    try:
+        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        shell = ""
+    try:
+        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+    except FileNotFoundError:
+        powershell = ""
     return installer_release_pins_from_text(shell, powershell)
 
 
@@ -1288,6 +1396,8 @@ def current_git_commit() -> str:
 
 def local_git_commit_exists(ref: str) -> bool:
     normalized = (ref or "").strip().lower()
+    if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
+        return True
     if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
         return False
     try:
@@ -1367,7 +1477,9 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
     parsed = json.loads(payload)
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
+    return parsed
 
 
 def installer_ssl_context() -> ssl.SSLContext | None:
@@ -1423,6 +1535,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
     hosted_metadata_error = ""
     hosted_release_name = ""
     hosted_release_ref = ""
+    hosted_release_commit = ""
     hosted_release_manifest: dict[str, Any] = {}
     hosted_release_manifest_error = ""
     committed_expected: dict[str, str] = {}
@@ -1439,7 +1552,8 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 else {}
             )
             hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("commit", "")).lower()
+            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
             hosted_release_manifest_error = str(exc)
         current_ref = current_git_commit()
@@ -1449,6 +1563,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
             hosted_source_basis = "installed_checkout"
     local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
     local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
     checks.append(
         {
             "name": "local_release_ref_reachable",
@@ -1458,9 +1573,13 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
                 if local_ref_skipped
                 else (
-                    "Installer source commit exists in the local Spark CLI checkout."
+                    (
+                        "Installer source release tag has a valid Spark public release-tag shape."
+                        if local_ref_is_release_tag
+                        else "Installer source commit exists in the local Spark CLI checkout."
+                    )
                     if local_ref_ok
-                    else "Installer source commit is not reachable in the local Spark CLI checkout; a fresh install may fail."
+                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
                 )
             ),
         }
@@ -1499,19 +1618,40 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     hosted_hash = sha256_bytes(hosted_payload).lower()
                     hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
                     hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_checksum_ok = (
-                        bool(expected_hosted)
-                        and hosted_hash == expected_hosted
-                        and (expected_hosted == expected or hosted_source_basis == "installed_checkout")
+                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
                     )
                     hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
                     hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
                     hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    detail = (
-                        f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                        if hosted_ok
-                        else f"{url} does not match hosted checksum metadata or expected Spark CLI source pins."
+                    hosted_matches_hosted_release = (
+                        hosted_pins["releaseName"] == hosted_release_name
+                        and hosted_pins["ref"] == hosted_release_ref
                     )
+                    hosted_is_different_release_than_local = (
+                        hosted_source_basis == "committed_manifest"
+                        and bool(hosted_release_name)
+                        and hosted_release_name != expected_hosted_release
+                    )
+                    if hosted_ok:
+                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                    elif (
+                        hosted_metadata_checksum_ok
+                        and not hosted_checksum_ok
+                        and hosted_matches_hosted_release
+                        and hosted_is_different_release_than_local
+                    ):
+                        detail = (
+                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                            "committed installer manifest/source pins. The hosted site may be newer than the local "
+                            "verifier; update Spark CLI or validate from the release commit before calling the "
+                            "hosted copy stale."
+                        )
+                    elif not hosted_metadata_checksum_ok:
+                        detail = f"{url} does not match hosted checksum metadata."
+                    else:
+                        detail = f"{url} does not install the expected Spark CLI source pins."
                 except (OSError, urllib.error.URLError, TimeoutError) as exc:
                     hosted_hash = "<fetch failed>"
                     hosted_ok = False
@@ -1561,22 +1701,30 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 if isinstance(hosted_release_manifest.get("sparkCli"), dict)
                 else {}
             )
-            release_ok = spark_cli.get("releaseName") == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            actual_release = str(spark_cli.get("releaseName", ""))
+            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+            if release_ok:
+                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
+            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                release_detail = (
+                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                    "before treating the hosted copy as outdated."
+                )
+            else:
+                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
             checks.append(
                 {
                     "name": "hosted_release_manifest",
                     "ok": release_ok,
                     "expected_release": expected_hosted_release,
-                    "actual_release": str(spark_cli.get("releaseName", "")),
+                    "actual_release": actual_release,
                     "expected_ref": expected_hosted_ref,
                     "actual_ref": hosted_release_ref,
+                    "actual_commit": hosted_release_commit,
                     "expected_source_basis": hosted_source_basis,
                     "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": (
-                        "Hosted release manifest has the current release name and expected Spark CLI commit."
-                        if release_ok
-                        else "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-                    ),
+                    "detail": release_detail,
                 }
             )
         try:
@@ -1591,10 +1739,18 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                 and command_hashes == hosted_expected
                 and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
             )
+            command_hashes_match_hosted = command_hashes == hosted_expected
             commands_detail = "Hosted command metadata matches installer hashes and release pins."
             if not commands_ok:
-                commands_detail = (
-                    "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                    commands_detail = (
+                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                        "checkout's expected release pins. The hosted site may be newer or older than the local "
+                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                    )
+                else:
+                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                commands_detail += (
                     f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
                     f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
                     f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
@@ -1622,16 +1778,37 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
                     "detail": f"Could not fetch hosted command metadata: {exc}",
                 }
             )
+    hosted_release: dict[str, Any] | None = None
+    if hosted:
+        hosted_release = {
+            "release": hosted_release_name,
+            "ref": hosted_release_ref,
+            "commit": hosted_release_commit or hosted_release_ref,
+            "expected_release": expected_hosted_release,
+            "expected_ref": expected_hosted_ref,
+            "expected_commit": expected_hosted_ref,
+            "source_basis": hosted_source_basis,
+            "verified_at": timestamp_now(),
+            "fresh": bool(
+                hosted_release_name
+                and hosted_release_ref
+                and hosted_release_name == expected_hosted_release
+                and hosted_release_ref == expected_hosted_ref
+            ),
+        }
     try:
         manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
     except ValueError:
         manifest_label = str(INSTALLER_MANIFEST_PATH)
-    return {
+    payload: dict[str, Any] = {
         "ok": all(check["ok"] for check in checks),
         "summary": "Spark installer integrity verification",
         "manifest": manifest_label,
         "checks": checks,
     }
+    if hosted_release is not None:
+        payload["hosted_release"] = hosted_release
+    return payload
 
 
 def collect_module_provenance_payload(
@@ -1661,14 +1838,33 @@ def collect_module_provenance_payload(
     }
 
 
+REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
+REMOTE_GIT_REF_ATTEMPTS = 2
+
+
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    result = subprocess.run(
-        git_command("ls-remote", normalize_git_url(source), remote_ref),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+            break
+        except subprocess.TimeoutExpired as error:
+            last_timeout = error
+        except OSError as error:
+            raise RuntimeError(
+                f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
+            ) from error
+    else:
+        raise RuntimeError(
+            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+        ) from last_timeout
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
@@ -1709,7 +1905,7 @@ def collect_registry_pin_drift_payload(
                     raise
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
-        except (RuntimeError, SystemExit) as error:
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
             checks.append(
                 {
                     "name": str(name),
@@ -1771,7 +1967,14 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+    except PermissionError as exc:
+        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -1807,6 +2010,33 @@ def save_pending_setup_state(stage: str, detail: str, setup_state: dict[str, Any
     save_json(SETUP_PENDING_PATH, pending)
 
 
+def save_paused_setup_refresh_state(stage: str, detail: str, setup_state: dict[str, Any] | None = None) -> None:
+    bundle = "telegram-starter"
+    if isinstance(setup_state, dict):
+        bundle = str(setup_state.get("bundle") or bundle)
+    pending: dict[str, Any] = {
+        "event": "setup_refresh_paused",
+        "updated_at": timestamp_now(),
+        "stage": stage,
+        "detail": detail,
+        "ready": [
+            "CLI upgrade complete",
+            "Existing runtime can keep running with the current setup",
+        ],
+        "still_needed": [
+            "Secure secret backend before Spark rewrites stored secrets",
+        ],
+        "next": f"spark setup {bundle} --resume",
+        "safe_to_continue": True,
+    }
+    if isinstance(setup_state, dict):
+        pending["bundle"] = setup_state.get("bundle")
+        pending["modules"] = setup_state.get("modules")
+        pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
+        pending["onboarding_session"] = setup_state.get("onboarding_session")
+    save_json(SETUP_PENDING_PATH, pending)
+
+
 def clear_pending_setup_state() -> None:
     try:
         SETUP_PENDING_PATH.unlink(missing_ok=True)
@@ -1819,6 +2049,29 @@ def load_pending_setup_state() -> dict[str, Any]:
         return {}
     pending = load_json(SETUP_PENDING_PATH, {})
     return pending if isinstance(pending, dict) else {}
+
+
+def pending_setup_refresh_status(pending: dict[str, Any]) -> dict[str, Any] | None:
+    if not pending:
+        return None
+    bundle = str(pending.get("bundle") or "telegram-starter")
+    detail = str(pending.get("detail") or "").strip()
+    secure_secret_gate = "File secret backend is disabled" in detail
+    if secure_secret_gate:
+        summary = "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets."
+        safe_to_continue = True
+    else:
+        summary = "Setup is pending and needs attention before Spark is fully configured."
+        safe_to_continue = False
+    return {
+        "status": "paused" if secure_secret_gate else "pending",
+        "safe_to_continue": safe_to_continue,
+        "summary": summary,
+        "detail": redact_shareable_text(detail),
+        "next": str(pending.get("next") or f"spark setup {bundle} --resume"),
+        "bundle": bundle,
+        "updated_at": pending.get("updated_at"),
+    }
 
 
 def print_setup_failure_truth_screen(detail: str) -> None:
@@ -1991,6 +2244,17 @@ def telegram_token_repair_command(secret_id: str) -> str:
     return "spark telegram connect"
 
 
+def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> bool:
+    try:
+        candidate = secret_path.expanduser().resolve(strict=False)
+        root = spark_home.expanduser().resolve(strict=False)
+        candidate_text = os.path.normcase(str(candidate))
+        root_text = os.path.normcase(str(root))
+        return os.path.commonpath([candidate_text, root_text]) == root_text
+    except (OSError, ValueError):
+        return False
+
+
 def resolve_secret_input(value: str) -> str:
     stripped = value.strip()
     if stripped.lower() == "@clipboard":
@@ -2007,8 +2271,11 @@ def resolve_secret_input(value: str) -> str:
         secret_path = stripped[6:].strip()
         if not secret_path:
             raise SystemExit("Invalid secret reference: @file: requires a path.")
+        path = Path(secret_path)
+        if not secret_file_path_inside_spark_home(path, SPARK_HOME):
+            raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
         try:
-            return Path(secret_path).expanduser().read_text(encoding="utf-8").strip()
+            return path.expanduser().read_text(encoding="utf-8").strip()
         except OSError as exc:
             raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
     return value
@@ -2789,7 +3056,7 @@ def telegram_profile_relay_port(
                 relay_port = int(profile_state.get("relay_port", 0))
             except (TypeError, ValueError):
                 relay_port = 0
-            if relay_port > 0:
+            if 0 < relay_port <= 65535:
                 return relay_port
     return default
 
@@ -2880,7 +3147,7 @@ def read_generated_env(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = value
+        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
     return values
 
 
@@ -3006,6 +3273,17 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
 }
 
 LLM_PROVIDER_CHOICES = sorted(provider for provider in LLM_PROVIDER_ENV if provider != "not_configured")
+LLM_DOCTOR_DIRECT_PROVIDER_CHOICES = (
+    "anthropic",
+    "codex",
+    "huggingface",
+    "kimi",
+    "minimax",
+    "ollama",
+    "openai",
+    "openrouter",
+    "zai",
+)
 LLM_ROLES = ("chat", "builder", "memory", "mission")
 LLM_PROVIDER_WIZARD_ORDER = ("codex", "anthropic", "zai", "kimi", "openrouter", "huggingface", "minimax", "lmstudio", "ollama", "openai")
 LLM_ROLE_LABELS = {
@@ -3038,6 +3316,8 @@ LLM_PROVIDER_AUTH_HINTS = {
     "minimax": "MINIMAX_API_KEY",
     "ollama": "local Ollama server",
 }
+CODEX_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+CODEX_CLIENT_CONFIG_KEYS = ("model", "model_reasoning_effort", "service_tier")
 LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
     "codex": {
         "lane": "paid/subscription",
@@ -3147,6 +3427,7 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "summary": "Spark LLM recommendations",
         "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
         "paths": {
@@ -3255,7 +3536,7 @@ def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in LLM_PROVIDER_CHOICES:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Known providers: {', '.join(LLM_PROVIDER_CHOICES)}.")
         return None
     return provider
 
@@ -3273,7 +3554,7 @@ def prompt_for_provider_choice_from(prompt: str, default: str, options: Iterable
         return "not_configured"
     provider = provider_by_number.get(answer, answer)
     if provider not in ordered:
-        print(f"  Unknown provider `{answer}`.")
+        print(f"  Unknown provider `{answer}`. Pick one of: {', '.join(ordered)}.")
         return None
     return provider
 
@@ -3300,7 +3581,11 @@ def prompt_for_provider_role_mode(default_provider: str) -> str:
         return "mission"
     if answer in {"3", "both", "custom", "agent"}:
         return "custom"
-    print(f"  Unknown layout `{answer}`. Using the same provider for Agent and Mission.")
+    print(
+        f"  Unknown layout `{answer}`. "
+        "Pick one of: 1/same, 2/mission, 3/custom. "
+        "Using the same provider for Agent and Mission."
+    )
     return "same"
 
 
@@ -3380,7 +3665,11 @@ def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
         return provider
     if answer in LLM_PROVIDER_CHOICES:
         return answer
-    print(f"  Unknown provider path `{answer}`.")
+    print(
+        f"  Unknown provider path `{answer}`. "
+        "Pick one of: 1/codex, 2/claude, 3/api, 4/local, 5/skip; "
+        f"or type a provider name directly: {', '.join(LLM_PROVIDER_CHOICES)}."
+    )
     return None
 
 
@@ -3490,17 +3779,23 @@ def openai_base_url_kind(base_url: str | None) -> str:
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
+    chat_provider = getattr(args, "chat_llm_provider", None)
+    effective_default = (
+        str(chat_provider)
+        if chat_provider and not agent_provider and default_provider == "not_configured"
+        else default_provider
+    )
     roles: dict[str, str] = {}
     for role in LLM_ROLES:
         explicit = getattr(args, f"{role}_llm_provider", None)
         if explicit:
             roles[role] = str(explicit)
         elif role == "mission":
-            roles[role] = default_mission_llm_provider(default_provider)
+            roles[role] = default_mission_llm_provider(effective_default)
         elif agent_provider:
             roles[role] = str(agent_provider)
         else:
-            roles[role] = default_provider
+            roles[role] = effective_default
     return roles
 
 
@@ -3813,6 +4108,30 @@ def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
         update_env_file(env_path, generated_env)
 
 
+def normalize_telegram_admin_ids(*values: str | None) -> str:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for raw in re.split(r"[\s,;]+", str(value)):
+            item = raw.strip()
+            if not item or item in seen:
+                continue
+            ids.append(item)
+            seen.add(item)
+    return ",".join(ids)
+
+
+def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
+    values = [base_env.get("ADMIN_TELEGRAM_IDS")]
+    for path in telegram_generated_env_paths(setup_state):
+        if not path.exists():
+            continue
+        values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
+    return normalize_telegram_admin_ids(*values)
+
+
 def configure_telegram_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     installed = resolve_installed_modules()
@@ -3846,7 +4165,10 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
         raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
 
     profile_env = dict(base_env)
-    profile_env["ADMIN_TELEGRAM_IDS"] = getattr(args, "admin_telegram_ids", None) or base_env.get("ADMIN_TELEGRAM_IDS", "")
+    profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
+        existing_telegram_admin_ids(base_env, setup_state),
+        getattr(args, "admin_telegram_ids", None),
+    )
     profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
     profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
     profile_env["SPARK_TELEGRAM_PROFILE"] = profile
@@ -4020,8 +4342,10 @@ def initialize_builder_runtime_home(
                 status="enabled",
             )
             notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except Exception as exc:  # pragma: no cover - defensive fallback for partial installs
+    except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
         notes.append(f"Builder runtime bootstrap skipped: {exc}")
+    except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
+        notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
     finally:
         if inserted:
             try:
@@ -4080,10 +4404,14 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    bundles = registry.get("bundles", {})
+    bundle = bundles.get(bundle_name, {})
     names = bundle.get("modules")
     if not names:
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
+        known = sorted(name for name, item in bundles.items() if item.get("modules"))
+        if known:
+            raise SystemExit(f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}.")
+        raise SystemExit(f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry.")
     return [str(name) for name in names]
 
 
@@ -4221,7 +4549,15 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to a unique temp path, chmod to private mode, then
+    # os.replace into place so a concurrent reader never observes a half-written
+    # configuration file (the old direct write_text could be interrupted between
+    # the open() and the final flush, leaving zero-byte or truncated state).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def remove_managed_env_block(path: Path) -> None:
@@ -4245,13 +4581,17 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    atomic_write_text(path, (output + "\n") if output else "")
 
 
 def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
+    if not modules:
+        print("No installed Spark modules recorded.")
+        print("Run `spark setup telegram-starter` to install the starter bundle.")
+        return 0
     for module in modules.values():
         metadata = registry.get("modules", {}).get(module.name, {})
         blessed = "yes" if metadata.get("blessed") else "no"
@@ -4292,7 +4632,25 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
         if not manifest_path.exists():
             raise SystemExit(f"{candidate} does not contain spark.toml")
         return load_module(candidate)
-    raise SystemExit(f"Unknown module target: {target}")
+    raise SystemExit(unknown_install_target_message(target, modules, registry))
+
+
+def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
+    installed_names = sorted(modules)
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    registry_names = sorted(name for name in registry_modules if name not in modules)
+    parts = [f"Unknown module target: {target}."]
+    if installed_names:
+        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+    else:
+        parts.append("No modules are installed yet.")
+    if registry_names:
+        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+    parts.append(
+        "Pass an installed module name, a registry-known module name, a git URL, "
+        "or a local directory containing spark.toml."
+    )
+    return " ".join(parts)
 
 
 def install_module_record(
@@ -4393,6 +4751,10 @@ def public_local_path_ref(path: str | Path) -> str:
         relative_text = relative.as_posix()
         return label if relative_text == "." else f"{label}/{relative_text}"
     return f"<local-path>/{candidate.name}"
+
+
+def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
+    return text.replace("<spark-home>", str(spark_home))
 
 
 def public_diagnostic_payload(value: Any) -> Any:
@@ -4620,7 +4982,7 @@ def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str
         answer = input("Type 'yes' to proceed: ").strip().lower()
     except EOFError:
         return False
-    return answer in ("yes", "y")
+    return answer == "yes"
 
 
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
@@ -4781,9 +5143,31 @@ def detect_uninstall_blockers(removing_modules: list[Module], installed_modules:
     return blockers
 
 
+def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
+    if module.name != "spark-telegram-bot":
+        return None
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if isinstance(profiles, dict) and profiles:
+        return primary_telegram_profile(setup_state)
+    return None
+
+
 def evaluate_module_health(module: Module) -> dict[str, Any]:
-    runtime_env = module_runtime_env(module)
+    setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
+    runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
     if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
+        if not spawner_liveness_can_trust_local_port(runtime_env):
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": False,
+                "detail": "Spawner UI live health is not trusted because no Spark-supervised spawner-ui process is running.",
+                "healthcheck_command": None,
+                "failure_hint": "Run `spark start spawner-ui`, then rerun `spark status`.",
+                "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+            }
         health_url = spawner_runtime_health_url(module, runtime_env)
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
@@ -4792,7 +5176,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except Exception as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             healthy = False
             detail = f"Spawner UI live health failed: {exc}"
         return {
@@ -4806,7 +5190,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
             "failure_hint": failure_hint,
             "success_hint": success_hint,
         }
-    if module.name == "spark-telegram-bot" and telegram_ingress_is_external():
+    if module.name == "spark-telegram-bot" and telegram_ingress_is_external(setup_state):
         return {
             "name": module.name,
             "version": module.version,
@@ -5032,6 +5416,12 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
             hints.append(
                 f"{role_label} uses OpenAI Codex but the OpenAI Codex CLI is not signed in or not on PATH. Run `codex login` first, then rerun `spark setup {role_flag} codex`."
             )
+        elif auth_mode == "codex_oauth":
+            codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
+            if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                hints.append(
+                    f"{role_label} uses OpenAI Codex sign-in but Codex CLI auth is not ready. Run `codex login`, then rerun `spark providers status`."
+                )
     return hints
 
 
@@ -5383,7 +5773,996 @@ def install_memory_sidecar_dependencies(
         return
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", install_target],
+            check=True,
+            timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+            "The package download may be slow or the network unreachable. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except OSError as exc:
+        raise SystemExit(
+            "Optional Graphiti/Kuzu memory sidecar install could not start. "
+            "Check Python/pip availability, or re-run setup with --skip-install-commands."
+        ) from exc
+
+
+def browser_use_cli_path() -> str | None:
+    discovered = shutil.which("browser-use") or shutil.which("browser_use")
+    if discovered:
+        return discovered
+    executable_dir = Path(sys.executable).resolve().parent
+    candidate_dirs = [executable_dir]
+    spark_home = os.environ.get("SPARK_HOME")
+    if spark_home:
+        venv_root = Path(spark_home).expanduser() / "tools" / "spark-cli-venv"
+        candidate_dirs.extend([venv_root / "bin", venv_root / "Scripts"])
+    for name in ("browser-use.exe", "browser_use.exe", "browser-use", "browser_use"):
+        for directory in candidate_dirs:
+            candidate = directory / name
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+def browser_use_package_available() -> bool:
+    return importlib.util.find_spec("browser_use") is not None
+
+
+def browser_use_status_file_payload() -> dict[str, Any]:
+    if not BROWSER_USE_STATUS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "error",
+            "last_failure_reason": f"could not read browser-use status file: {exc}",
+        }
+    return data if isinstance(data, dict) else {"status": "error", "last_failure_reason": "browser-use status file is not a JSON object"}
+
+
+def browser_use_status_payload() -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    package_available = browser_use_package_available()
+    status_doc = browser_use_status_file_payload()
+    latest_action = browser_use_latest_action_receipt()
+    raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
+    proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
+    proof_set = set(proofs)
+    proof_fresh = browser_use_proof_is_fresh(status_doc)
+    proof_complete = BROWSER_USE_REQUIRED_PROOFS.issubset(proof_set)
+    screenshot_ok = browser_use_screenshot_ok(status_doc)
+    ready_signal = raw_status in {"ready", "running", "healthy", "available", "ok", "success", "completed"} or status_doc.get("ready") is True
+    ready = ready_signal and proof_complete and proof_fresh and screenshot_ok
+    failed = raw_status in {"failed", "failure", "error", "unavailable", "degraded"} or status_doc.get("ready") is False
+    if ready:
+        status = "ready"
+    elif failed:
+        status = "failed"
+    elif package_available or cli_path:
+        status = "installed_unproven"
+    else:
+        status = "missing"
+    stale_or_incomplete_reason = browser_use_status_receipt_problem(
+        ready_signal=ready_signal,
+        proof_complete=proof_complete,
+        proof_fresh=proof_fresh,
+        screenshot_ok=screenshot_ok,
+        proofs=proofs,
+    )
+    return {
+        "ok": status == "ready",
+        "status": status,
+        "package_available": package_available,
+        "cli_available": bool(cli_path),
+        "cli_path": public_local_path_ref(cli_path) if cli_path else "",
+        "status_path": public_local_path_ref(BROWSER_USE_STATUS_PATH),
+        "status_exists": BROWSER_USE_STATUS_PATH.exists(),
+        "last_success_at": str(status_doc.get("last_success_at") or ""),
+        "last_failure_at": str(status_doc.get("last_failure_at") or ""),
+        "last_failure_reason": str(status_doc.get("last_failure_reason") or status_doc.get("error_message") or stale_or_incomplete_reason),
+        "proofs": proofs,
+        "proof_fresh": proof_fresh,
+        "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
+        "proven_scope": browser_use_proven_scope(proofs),
+        "latest_action": latest_action,
+        "unproven_scope": [
+            "logged-in pages",
+            "cookies/profile reuse",
+            "sensitive click workflows",
+            "arbitrary site workflows",
+            "Spawner browser automation",
+        ],
+        "next_action": browser_use_next_action(status),
+    }
+
+
+def browser_use_latest_action_receipt() -> dict[str, Any]:
+    action_dir = BROWSER_USE_STATUS_DIR / "actions"
+    if not action_dir.exists():
+        return {}
+    try:
+        candidates = sorted(
+            [path for path in action_dir.glob("*.json") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "action": str(payload.get("action") or ""),
+            "url": str(payload.get("url") or ""),
+            "status": str(payload.get("status") or ""),
+            "ok": bool(payload.get("ok")),
+            "checked_at": str(payload.get("checked_at") or ""),
+            "last_success_at": str(payload.get("last_success_at") or ""),
+            "last_failure_at": str(payload.get("last_failure_at") or ""),
+            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+            "final_url": str(payload.get("final_url") or ""),
+            "title": str(payload.get("title") or ""),
+            "receipt_path": public_local_path_ref(path),
+            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+        }
+    return {}
+
+
+def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
+    timestamp = str(status_doc.get("last_success_at") or status_doc.get("recorded_at") or status_doc.get("checked_at") or "").strip()
+    if not timestamp:
+        return False
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
+
+
+def browser_use_screenshot_ok(status_doc: dict[str, Any]) -> bool:
+    screenshot = str(status_doc.get("screenshot_path") or status_doc.get("screenshot") or "").strip()
+    proofs = status_doc.get("proofs") if isinstance(status_doc.get("proofs"), dict) else {}
+    screenshot_proof = proofs.get("screenshot_capture") if isinstance(proofs, dict) else {}
+    if not screenshot and isinstance(screenshot_proof, dict):
+        screenshot = str(screenshot_proof.get("path") or screenshot_proof.get("screenshot_path") or "").strip()
+    if not screenshot:
+        return "screenshot_capture" not in {str(item) for item in (status_doc.get("proofs") or [])}
+    return Path(screenshot).expanduser().exists()
+
+
+def browser_use_status_receipt_problem(
+    *,
+    ready_signal: bool,
+    proof_complete: bool,
+    proof_fresh: bool,
+    screenshot_ok: bool,
+    proofs: list[str],
+) -> str:
+    if not ready_signal:
+        return ""
+    if not proof_complete:
+        missing = sorted(BROWSER_USE_REQUIRED_PROOFS.difference(set(proofs)))
+        return "browser-use status is ready, but proof receipt is incomplete: missing " + ", ".join(missing)
+    if not proof_fresh:
+        return "browser-use proof receipt is stale; rerun `spark browser-use probe`."
+    if not screenshot_ok:
+        return "browser-use screenshot proof artifact is missing."
+    return ""
+
+
+def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
+    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+    scope: list[str] = []
+    if "doctor" in proof_set:
+        scope.append("browser-use doctor")
+    if "public_page_open" in proof_set:
+        scope.append("public page open")
+    if "state_read" in proof_set:
+        scope.append("page state read")
+    if "screenshot_capture" in proof_set:
+        scope.append("screenshot capture")
+    return scope
+
+
+def browser_use_next_action(status: str) -> str:
+    if status == "ready":
+        return "Run /probe browser in Telegram before claiming a specific browser task worked this turn."
+    if status == "installed_unproven":
+        return "Run `spark browser-use probe` to create a fresh proof receipt."
+    if status == "failed":
+        return "Run `spark browser-use probe --json` and inspect last_failure_reason."
+    return "Run `spark browser-use install`, then `spark browser-use probe`."
+
+
+def write_browser_use_status(payload: dict[str, Any]) -> None:
+    BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
+
+
+def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    return subprocess.run(
+        [cli_path, *parts],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=True,
+        env=env,
+    )
+
+
+def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
+    try:
+        parsed = json.loads(result.stdout.strip())
+        data = parsed.get("data") if isinstance(parsed, dict) else {}
+        encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
+        if not encoded:
+            backend_error = ""
+            if isinstance(parsed, dict):
+                backend_error = str(parsed.get("error") or "").strip()
+            detail = f": {backend_error}" if backend_error else ""
+            raise ValueError(f"missing screenshot data{detail}")
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
+    except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
+
+
+def browser_use_probe_payload() -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "status_path": str(BROWSER_USE_STATUS_PATH),
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+        "checked_at": now,
+        "proofs": [],
+    }
+    if not cli_path:
+        failure = "browser-use CLI is not on PATH."
+        payload = {
+            **base_payload,
+            "status": "failed",
+            "ready": False,
+            "last_failure_at": now,
+            "last_failure_reason": failure,
+        }
+        write_browser_use_status(payload)
+        return payload
+
+    screenshot_path = BROWSER_USE_STATUS_DIR / "probe-screenshot.png"
+    proofs: list[str] = []
+    try:
+        run_browser_use_command(cli_path, "doctor", timeout=60)
+        proofs.append("doctor")
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90)
+        proofs.append("public_page_open")
+        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
+        proofs.append("state_read")
+        screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
+        write_browser_use_screenshot(screenshot, screenshot_path)
+        proofs.append("screenshot_capture")
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        failure = browser_use_command_failure_message(exc)
+        payload = {
+            **base_payload,
+            "status": "failed",
+            "ready": False,
+            "proofs": proofs,
+            "last_failure_at": now,
+            "last_failure_reason": failure,
+        }
+        write_browser_use_status(payload)
+        return payload
+    finally:
+        if cli_path:
+            env = dict(os.environ)
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+            env.setdefault("PYTHONUTF8", "1")
+            subprocess.run(
+                [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+            )
+
+    payload = {
+        **base_payload,
+        "status": "ready",
+        "ready": True,
+        "last_success_at": now,
+        "proofs": proofs,
+        "probe_url": BROWSER_USE_PROBE_URL,
+        "screenshot_path": str(screenshot_path),
+    }
+    write_browser_use_status(payload)
+    return payload
+
+
+def browser_use_public_url(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value:
+        raise ValueError("Browser URL is required.")
+    if "://" not in value:
+        value = f"https://{value}"
+    errors = validate_url_safety(
+        value,
+        label="Browser URL",
+        policy=UrlPolicy(allow_local=True, allow_private_networks=True, require_https_for_remote=False),
+    )
+    if errors:
+        raise ValueError(" ".join(errors))
+    parsed = urllib.parse.urlparse(value)
+    return urllib.parse.urlunparse(parsed)
+
+
+def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
+    cli_path = browser_use_cli_path()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        url = browser_use_public_url(raw_url)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "screenshot" if screenshot else "open",
+            "url": str(raw_url or "").strip(),
+            "checked_at": now,
+            "last_failure_reason": str(exc),
+        }
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_adapter",
+        "action": "screenshot" if screenshot else "open",
+        "url": url,
+        "checked_at": now,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+    }
+    if not cli_path:
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use CLI is not on PATH.",
+        }
+
+    session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
+    screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    proofs: list[str] = []
+    try:
+        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
+        proofs.append("public_url_open")
+        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
+        proofs.append("state_read")
+        page = browser_use_page_summary(cli_path, session)
+        if screenshot:
+            result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
+            write_browser_use_screenshot(result, screenshot_path)
+            proofs.append("screenshot_capture")
+        payload = {
+            **base_payload,
+            "ok": True,
+            "status": "ready",
+            "session": session,
+            "last_success_at": now,
+            "proofs": proofs,
+            "final_url": str(page.get("url") or url),
+            "title": str(page.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+            "state_excerpt": browser_use_bounded_text(state.stdout),
+            "screenshot_path": str(screenshot_path) if screenshot else "",
+            "receipt_path": str(receipt_path),
+            "proven_scope": browser_use_action_scope(proofs),
+            "unproven_scope": [
+                "logged-in pages",
+                "cookies/profile reuse",
+                "sensitive click workflows",
+            ],
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "session": session,
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+            "proofs": proofs,
+            "receipt_path": str(receipt_path),
+        }
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    finally:
+        env = dict(os.environ)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+        subprocess.run(
+            [cli_path, "--session", session, "close"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=env,
+        )
+
+
+_PAGE_SUMMARY_TEXT_LIMIT = 2000
+
+
+def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
+    summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
+    script = (
+        "(()=>{const text=document.body.innerText||'';"
+        f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
+        "textLength:text.length});"
+        "})()"
+    )
+    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
+    raw = result.stdout.strip()
+    if raw.lower().startswith("result:"):
+        raw = raw.split(":", 1)[1].strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"title": "", "url": "", "text": ""}
+    if not isinstance(parsed, dict):
+        return {"title": "", "url": "", "text": ""}
+    text = str(parsed.get("text") or "")
+    try:
+        text_length = int(parsed.get("textLength") or len(text))
+    except (TypeError, ValueError):
+        text_length = len(text)
+    if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
+        text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
+    return {
+        "title": str(parsed.get("title") or ""),
+        "url": str(parsed.get("url") or ""),
+        "text": text,
+    }
+
+
+def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:
+    compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 20)].rstrip() + "\n[truncated]"
+
+
+def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
+    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+    scope: list[str] = []
+    if "public_url_open" in proof_set:
+        scope.append("public URL open")
+    if "state_read" in proof_set:
+        scope.append("page state read")
+    if "screenshot_capture" in proof_set:
+        scope.append("screenshot capture")
+    return scope
+
+
+def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int = 25) -> dict[str, Any]:
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    cleaned_goal = str(goal or "").strip()
+    if not cleaned_goal:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "task",
+            "checked_at": now,
+            "last_failure_reason": "Browser-use task is required.",
+        }
+    try:
+        url = browser_use_public_url(start_url) if str(start_url or "").strip() else ""
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "action": "task",
+            "checked_at": now,
+            "url": str(start_url or "").strip(),
+            "task": cleaned_goal,
+            "last_failure_reason": str(exc),
+        }
+    try:
+        steps = max(1, min(int(max_steps), 100))
+    except (TypeError, ValueError):
+        steps = 25
+
+    session = "spark-browser-task-" + hashlib.sha256(f"{cleaned_goal}:{url}:{now}".encode("utf-8")).hexdigest()[:12]
+    task_dir = BROWSER_USE_STATUS_DIR / "tasks"
+    receipt_path = task_dir / f"{session}.json"
+    history_path = task_dir / f"{session}-history.json"
+    base_payload: dict[str, Any] = {
+        "backend_kind": "browser_use_agent",
+        "action": "task",
+        "checked_at": now,
+        "session": session,
+        "task": cleaned_goal,
+        "url": url,
+        "max_steps": steps,
+        "package_available": browser_use_package_available(),
+        "cli_available": bool(browser_use_cli_path()),
+        "cli_path": browser_use_cli_path() or "",
+        "receipt_path": str(receipt_path),
+        "history_path": str(history_path),
+    }
+    if not browser_use_package_available():
+        return {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_reason": "browser-use Python package is not installed. Run `spark browser-use install`.",
+        }
+
+    task_dir.mkdir(parents=True, exist_ok=True)
+    start_page: dict[str, Any] = {}
+    if url:
+        start_page = browser_use_task_start_page(url)
+        base_payload["start_page"] = browser_use_task_start_page_summary(start_page)
+        if not start_page.get("ok"):
+            payload = {
+                **base_payload,
+                "ok": False,
+                "status": "failed",
+                "last_failure_at": now,
+                "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
+            }
+            atomic_write_json(receipt_path, payload)
+            return payload
+    try:
+        result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
+        completed = browser_use_task_completed(result)
+        payload = {
+            **base_payload,
+            **result,
+            "ok": completed,
+            "status": "ready" if completed else "failed",
+            "unproven_scope": [
+                "site-specific login state unless the task used an authenticated browser profile",
+                "changes outside the browser unless another Spark route performed them",
+            ],
+        }
+        if completed:
+            payload["last_success_at"] = now
+            payload["proven_scope"] = [
+                "multi-step browser task",
+                "agent planning loop",
+                "browser actions selected by browser-use",
+            ]
+        else:
+            payload["last_failure_at"] = now
+            payload["last_failure_reason"] = browser_use_task_failure_reason(result)
+        atomic_write_json(receipt_path, payload)
+        return payload
+    except Exception as exc:
+        payload = {
+            **base_payload,
+            "ok": False,
+            "status": "failed",
+            "last_failure_at": now,
+            "last_failure_reason": browser_use_command_failure_message(exc),
+        }
+        atomic_write_json(receipt_path, payload)
+        return payload
+
+
+def browser_use_task_start_page(url: str) -> dict[str, Any]:
+    return browser_use_action_payload(url, screenshot=True)
+
+
+def browser_use_task_start_page_summary(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "url": str(payload.get("final_url") or payload.get("url") or ""),
+        "title": str(payload.get("title") or ""),
+        "text_excerpt": browser_use_bounded_text(str(payload.get("text_excerpt") or ""), 1200),
+        "screenshot_path": str(payload.get("screenshot_path") or ""),
+        "receipt_path": str(payload.get("receipt_path") or ""),
+    }
+
+
+async def run_browser_use_agent_task(
+    goal: str,
+    *,
+    start_url: str = "",
+    max_steps: int = 25,
+    history_path: Path | None = None,
+    start_page: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from browser_use import Agent, Browser
+
+    task = goal if not start_url else f"Start at {start_url}. {goal}"
+    task = f"{task}\nUse only the live browser state and page content observed during this run. Do not fill gaps from memory."
+    if start_page and start_page.get("ok"):
+        page = browser_use_task_start_page_summary(start_page)
+        task = (
+            f"{task}\n\nFresh browser-use starting-page evidence captured just before this task:\n"
+            f"URL: {page['url']}\n"
+            f"Title: {page['title']}\n"
+            f"Visible text excerpt:\n{page['text_excerpt']}\n"
+            "Treat this evidence as authoritative for the starting page unless later browser state contradicts it."
+        )
+    browser = Browser(headless=True)
+    try:
+        llm, llm_label = browser_use_agent_llm()
+        agent = Agent(
+            task=task,
+            llm=llm,
+            browser=browser,
+            max_actions_per_step=5,
+            extend_system_message=BROWSER_USE_AGENT_SYSTEM_NUDGE,
+            flash_mode=True,
+            include_tool_call_examples=False,
+            use_thinking=False,
+            use_judge=False,
+            llm_screenshot_size=BROWSER_USE_AGENT_LLM_SCREENSHOT_SIZE,
+            enable_planning=False,
+        )
+        history = await agent.run(max_steps=max_steps)
+        if history_path is not None:
+            history.save_to_file(history_path)
+        return browser_use_agent_history_payload(history) | {"llm": llm_label}
+    finally:
+        await browser.close()
+
+
+def browser_use_agent_llm() -> tuple[Any, str]:
+    browser_use_key = os.environ.get("BROWSER_USE_API_KEY") or fetch_secret("browser_use.api_key") or fetch_secret("llm.browser_use.api_key")
+    if browser_use_key:
+        from browser_use import ChatBrowserUse
+
+        return ChatBrowserUse(api_key=browser_use_key), "browser-use"
+
+    from browser_use.llm.litellm.chat import ChatLiteLLM
+
+    for provider in ("openai", "openrouter", "minimax", "kimi", "zai", "huggingface", "anthropic"):
+        spec = LLM_PROVIDER_ENV.get(provider, {})
+        api_key_env = spec.get("api_key_env", "")
+        api_key_secret = spec.get("api_key_secret", "")
+        api_key = (os.environ.get(api_key_env) if api_key_env else "") or (fetch_secret(api_key_secret) if api_key_secret else "")
+        if not api_key:
+            continue
+        model = os.environ.get(spec.get("model_env", "")) or spec.get("model_default", "")
+        api_base = os.environ.get(spec.get("base_url_env", "")) or spec.get("base_url_default", "")
+        if provider == "anthropic":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"anthropic/{model}", api_key=api_key)), provider
+        if provider == "openrouter":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openrouter/{model}", api_key=api_key, api_base=api_base)), provider
+        if provider == "openai":
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=model, api_key=api_key, api_base=api_base)), provider
+        return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openai/{model}", api_key=api_key, api_base=api_base)), provider
+
+    raise RuntimeError(
+        "No browser-use Agent LLM key is configured. Set BROWSER_USE_API_KEY, or configure an OpenAI-compatible Spark provider key."
+    )
+
+
+class SparkBrowserUseStructuredLLM:
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    @property
+    def provider(self) -> str:
+        return str(getattr(self.inner, "provider", "spark-browser-use"))
+
+    @property
+    def name(self) -> str:
+        return str(getattr(self.inner, "name", getattr(self.inner, "model", "spark-browser-use")))
+
+    @property
+    def model(self) -> str:
+        return str(getattr(self.inner, "model", self.name))
+
+    @property
+    def model_name(self) -> str:
+        return str(getattr(self.inner, "model_name", self.model))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    async def ainvoke(self, messages: list[Any], output_format: type[Any] | None = None, **kwargs: Any) -> Any:
+        if output_format is None:
+            return await self.inner.ainvoke(messages, output_format=None, **kwargs)
+
+        from browser_use.llm.views import ChatInvokeCompletion
+
+        completion = await self.inner.ainvoke(messages, output_format=None, **kwargs)
+        parsed = output_format.model_validate_json(
+            browser_use_normalize_structured_agent_json(str(getattr(completion, "completion", "") or ""))
+        )
+        return ChatInvokeCompletion(
+            completion=parsed,
+            thinking=getattr(completion, "thinking", None),
+            usage=getattr(completion, "usage", None),
+            stop_reason=getattr(completion, "stop_reason", None),
+        )
+
+
+def browser_use_normalize_structured_agent_json(raw: str) -> str:
+    text = raw.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    elif not text.startswith("{"):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(payload, dict):
+        return text
+
+    if "done" in payload and "action" not in payload:
+        payload = {"memory": str(payload.get("memory") or "Task result ready."), "action": [{"done": payload["done"]}]}
+    actions = payload.get("action")
+    if isinstance(actions, dict):
+        payload["action"] = [actions]
+        actions = payload["action"]
+    if isinstance(actions, list):
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            done = action.get("done")
+            if isinstance(done, dict) and "text" not in done and "answer" in done:
+                done["text"] = done.pop("answer")
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def browser_use_agent_history_payload(history: Any) -> dict[str, Any]:
+    def read(name: str, default: Any = None) -> Any:
+        value = getattr(history, name, default)
+        if callable(value):
+            try:
+                return value()
+            except TypeError:
+                return default
+        return value
+
+    final_result = read("final_result", "") or ""
+    extracted = read("extracted_content", []) or []
+    errors = read("errors", []) or []
+    urls = read("urls", []) or []
+    screenshots = read("screenshot_paths", []) or []
+    action_names = read("action_names", []) or []
+    return {
+        "final_result": browser_use_bounded_text(str(final_result), BROWSER_USE_TASK_TEXT_LIMIT),
+        "extracted_content": browser_use_bounded_list(extracted, limit=6),
+        "errors": browser_use_bounded_list(errors, limit=5),
+        "urls": browser_use_bounded_list(urls, limit=8),
+        "screenshot_paths": browser_use_bounded_list(screenshots, limit=8),
+        "action_names": browser_use_bounded_list(action_names, limit=20),
+        "number_of_steps": read("number_of_steps", 0) or 0,
+        "total_duration_seconds": read("total_duration_seconds", 0) or 0,
+        "is_done": bool(read("is_done", False)),
+        "is_successful": bool(read("is_successful", False)),
+        "is_judged": bool(read("is_judged", False)),
+        "is_validated": bool(read("is_validated", False)),
+        "judgement": browser_use_bounded_text(str(read("judgement", "") or ""), 1200),
+    }
+
+
+def browser_use_task_completed(result: dict[str, Any]) -> bool:
+    if result.get("is_successful") is False:
+        return False
+    if bool(result.get("is_judged")) and not bool(result.get("is_validated")):
+        return False
+    if bool(result.get("is_done")):
+        return True
+    if str(result.get("final_result") or "").strip():
+        return True
+    return False
+
+
+def browser_use_task_failure_reason(result: dict[str, Any]) -> str:
+    judgement = str(result.get("judgement") or "").strip()
+    if judgement:
+        return judgement[:500]
+    errors = result.get("errors")
+    if isinstance(errors, list):
+        cleaned = [str(item).strip() for item in errors if str(item).strip() and str(item).strip().lower() != "none"]
+        if cleaned:
+            return cleaned[-1][:500]
+    return "Browser-use Agent stopped before completing the task."
+
+
+def browser_use_bounded_list(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    return [browser_use_bounded_text(str(item), 500) for item in value[:limit] if str(item).strip()]
+
+
+def browser_use_command_failure_message(exc: BaseException) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        return detail[:500] or f"browser-use command exited {exc.returncode}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"browser-use command timed out after {exc.timeout}s"
+    return str(exc)[:500] or type(exc).__name__
+
+
+def browser_use_public_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        public: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_text = str(key)
+            if key_text == "cli_path" or key_text.endswith("_path"):
+                public[key_text] = public_local_path_ref(value)
+            elif key_text.endswith("_paths") and isinstance(value, list):
+                public[key_text] = [public_local_path_ref(item) for item in value]
+            else:
+                public[key_text] = browser_use_public_payload(value)
+        return public
+    if isinstance(payload, list):
+        return [browser_use_public_payload(item) for item in payload]
+    return payload
+
+
+def cmd_browser_use(args: argparse.Namespace) -> int:
+    action = getattr(args, "browser_use_command", "status")
+    if action == "status":
+        payload = browser_use_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["status"] != "failed" else 1
+        print("Spark browser-use")
+        print(f"Status: {payload['status']}")
+        print(f"Package: {'available' if payload['package_available'] else 'missing'}")
+        print(f"CLI: {'available' if payload['cli_available'] else 'missing'}")
+        print(f"Status file: {payload['status_path']} ({'present' if payload['status_exists'] else 'missing'})")
+        if payload["proven_scope"]:
+            print("Proven scope: " + ", ".join(payload["proven_scope"]))
+        if payload["last_failure_reason"]:
+            print(f"Last failure: {payload['last_failure_reason']}")
+        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+        if latest_action:
+            action_label = str(latest_action.get("action") or "action")
+            action_status = str(latest_action.get("status") or "unknown")
+            print(f"Latest action: {action_label} -> {action_status}")
+            if latest_action.get("last_failure_reason"):
+                print(f"Latest action failure: {latest_action['last_failure_reason']}")
+        print(f"Next: {payload['next_action']}")
+        return 0 if payload["status"] != "failed" else 1
+
+    if action == "install":
+        if getattr(args, "dry_run", False):
+            print("Spark browser-use install preview")
+            print("Would run:")
+            print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
+            print("  browser-use install")
+            print("  browser-use doctor")
+            print("Then run: spark browser-use probe")
+            return 0
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
+                check=True,
+                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(
+                f"browser-use package install failed with exit code {exc.returncode}. "
+                "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"browser-use package install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable."
+            ) from None
+        except OSError as exc:
+            raise SystemExit(
+                "browser-use package install could not start. "
+                "Check Python/pip availability, then rerun `spark browser-use install`."
+            ) from exc
+        cli_path = browser_use_cli_path()
+        if not cli_path:
+            raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
+        try:
+            run_browser_use_command(cli_path, "install", timeout=180)
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
+        print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
+        return 0
+
+    if action == "probe":
+        payload = browser_use_probe_payload()
+        status_payload = browser_use_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
+            return 0 if status_payload["ok"] else 1
+        if status_payload["ok"]:
+            print("Browser-use is ready for the probed scope.")
+            print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
+            print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
+            print(f"Status file: {status_payload['status_path']}")
+            return 0
+        print("Browser-use probe failed.")
+        print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
+        print(f"Status file: {status_payload['status_path']}")
+        return 1
+
+    if action in {"open", "screenshot"}:
+        payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print(f"Browser-use {payload['action']} succeeded.")
+            if payload.get("title"):
+                print(f"Title: {payload['title']}")
+            if payload.get("final_url"):
+                print(f"URL: {payload['final_url']}")
+            if payload.get("text_excerpt"):
+                print("")
+                print(str(payload["text_excerpt"]))
+            if payload.get("screenshot_path"):
+                print("")
+                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+            return 0
+        print(f"Browser-use {action} failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+        return 1
+
+    if action == "task":
+        payload = browser_use_task_payload(
+            " ".join(getattr(args, "goal", []) or []).strip(),
+            start_url=str(getattr(args, "url", "") or ""),
+            max_steps=int(getattr(args, "max_steps", 25) or 25),
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
+            return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print("Browser-use task completed.")
+            if payload.get("final_result"):
+                print("")
+                print(str(payload["final_result"]))
+            if payload.get("urls"):
+                print("")
+                print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
+            print("")
+            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
+            return 0
+        print("Browser-use task failed.")
+        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+        return 1
+
+    raise SystemExit(f"Unknown browser-use command: {action}")
 
 
 def write_setup_runtime_config(
@@ -5658,6 +7037,63 @@ def print_setup_summary(
     )
 
 
+def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
+    secret_arg_names = (
+        "secret",
+        "bot_token",
+        "admin_telegram_ids",
+        "telegram_relay_secret",
+        "zai_api_key",
+        "openai_api_key",
+        "anthropic_api_key",
+        "openrouter_api_key",
+        "huggingface_api_key",
+        "kimi_api_key",
+        "minimax_api_key",
+        "elevenlabs_api_key",
+    )
+    return any(bool(getattr(args, name, None)) for name in secret_arg_names)
+
+
+def setup_upgrade_refresh_can_pause(
+    args: argparse.Namespace,
+    detail: str,
+    *,
+    existing_config: bool,
+    existing_modules: bool,
+) -> bool:
+    if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
+        return False
+    if not getattr(args, "non_interactive", False):
+        return False
+    if getattr(args, "start_now", True) or getattr(args, "autostart", True):
+        return False
+    if setup_args_include_explicit_secrets(args):
+        return False
+    if "File secret backend is disabled" not in detail:
+        return False
+    return existing_config and existing_modules
+
+
+def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
+    bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
+    print("")
+    print("Spark upgrade status")
+    print("  [OK] CLI upgrade: complete")
+    print("  [PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them")
+    print("  [OK] Existing runtime: can keep running with the current setup")
+    print("")
+    print("Next when you are ready:")
+    print(f"  spark setup {bundle} --resume")
+    print("")
+    print("To review what needs attention:")
+    print("  spark doctor")
+    print("")
+    print("To keep working now:")
+    print(f"  spark start {bundle}")
+    print("  spark live status")
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     if not telegram_profile_is_default(getattr(args, "profile", None)):
@@ -5665,6 +7101,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     apply_setup_feature_aliases(args)
     setup_state: dict[str, Any] | None = None
     pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
+    existing_config_before_setup = CONFIG_PATH.exists()
+    existing_installed_before_setup = load_json(REGISTRY_PATH, {})
+    existing_modules_before_setup = isinstance(existing_installed_before_setup, dict) and bool(existing_installed_before_setup)
     if pending:
         pending_bundle = str(pending.get("bundle") or "").strip()
         if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
@@ -5732,6 +7171,15 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 0 if ((start_ok or not start_now) and first_message_ok) else 1
     except SystemExit as exc:
         detail = str(exc)
+        if setup_upgrade_refresh_can_pause(
+            args,
+            detail,
+            existing_config=existing_config_before_setup,
+            existing_modules=existing_modules_before_setup,
+        ):
+            save_paused_setup_refresh_state("setup", detail, setup_state)
+            print_setup_upgrade_refresh_paused(args)
+            return 0
         save_pending_setup_state("setup", detail, setup_state)
         print_setup_failure_truth_screen(detail)
         raise
@@ -5950,6 +7398,14 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
             continue
         if line.startswith("> "):
             continue
+        if line.startswith("(node:") and (
+            "DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line
+        ):
+            continue
+        if line.startswith("(Use `node ") and "to show where the warning was created" in line:
+            continue
+        if line.startswith("(Use `node --") and "..." in line:
+            continue
         lines.append(line)
     if not lines:
         return "no output"
@@ -5985,13 +7441,17 @@ def collect_status_payload() -> dict[str, Any]:
     ensure_state_dirs()
     installed = load_json(REGISTRY_PATH, {})
     setup_state = load_json(CONFIG_PATH, {})
+    setup_refresh = pending_setup_refresh_status(load_pending_setup_state())
     if not installed:
-        return {
+        payload = {
             "ok": False,
             "summary": "No installed Spark modules recorded.",
             "repair": "Run `spark setup telegram-starter` first.",
             "modules": [],
         }
+        if setup_refresh:
+            payload["setup_refresh"] = setup_refresh
+        return payload
 
     modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
     module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
@@ -6008,7 +7468,7 @@ def collect_status_payload() -> dict[str, Any]:
     public_tracked_pids = public_diagnostic_payload(tracked_pids)
     repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
-    return {
+    payload = {
         "ok": ok,
         "summary": "Spark CLI spike status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
@@ -6019,6 +7479,9 @@ def collect_status_payload() -> dict[str, Any]:
         "config_dir": public_local_path_ref(CONFIG_DIR),
         "repair_hints": repair_hints,
     }
+    if setup_refresh:
+        payload["setup_refresh"] = setup_refresh
+    return payload
 
 
 def cmd_os_compile(args: argparse.Namespace) -> int:
@@ -6378,7 +7841,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if profile_summary:
             print(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {hint}")
+        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
     print("")
 
     exit_code = 0
@@ -6390,9 +7853,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = str(module["detail"])
+        detail = expand_spark_home_placeholder(str(module["detail"]))
         if module.get("repair_hints"):
-            detail = f"{detail} -- {' '.join(module['repair_hints'])}"
+            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            detail = f"{detail} -- {' '.join(expanded_hints)}"
         print(f"{marker} {module['name']:<26} {detail}")
         if healthy is False:
             exit_code = 1
@@ -6592,7 +8056,11 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
 
 def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("Spark doctor")
-    print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
+    setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
+    if payload.get("ok") and setup_refresh.get("status") == "paused":
+        print("Spark is ready with a paused setup refresh.")
+    else:
+        print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
     print("")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
@@ -6607,6 +8075,18 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
     print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
     print("")
+    if setup_refresh:
+        print("Setup refresh")
+        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+        summary = str(setup_refresh.get("summary") or "").strip()
+        if summary:
+            print(f"- Note: {summary}")
+        if setup_refresh.get("safe_to_continue"):
+            print("- Existing runtime: safe to keep using")
+        next_step = str(setup_refresh.get("next") or "").strip()
+        if next_step:
+            print(f"- Resume: {next_step}")
+        print("")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
@@ -6729,6 +8209,10 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -6839,7 +8323,7 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except (Exception, SystemExit):
         return {}
 
 
@@ -7033,8 +8517,10 @@ def spawner_state_dir_for_revoke_all() -> Path:
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
     try:
-        return load_json(path, default)
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return default
 
@@ -7121,7 +8607,7 @@ def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = 
                     active["note"] = "Paused by spark security revoke-all"
                     active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
                     save_json(active_path, active)
-                except Exception as error:
+                except OSError as error:
                     failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
 
     provider_results = load_json_best_effort(provider_results_path, {})
@@ -7520,7 +9006,7 @@ def pid_registry_errors() -> list[str]:
             errors.append(f"Process registry entry `{key}` is malformed.")
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             errors.append(f"Process registry entry `{key}` has an invalid pid.")
             continue
@@ -7608,7 +9094,11 @@ def module_supply_chain_errors() -> list[str]:
         if not isinstance(record, dict):
             errors.append(f"Installed module `{name}` has a malformed registry record.")
             continue
-        path = Path(str(record.get("path") or "")).expanduser()
+        raw_path = str(record.get("path") or "").strip()
+        if not raw_path:
+            errors.append(f"Installed module `{name}` registry record has an empty path field.")
+            continue
+        path = Path(raw_path).expanduser()
         if not path.exists():
             errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
             continue
@@ -7919,6 +9409,56 @@ def dependency_hash_mode_errors() -> list[str]:
     return errors
 
 
+def _has_endpoint_space_or_control(value: str) -> bool:
+    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
+    raw_value = str(raw_url or "")
+    value = raw_value.strip()
+    if not value or value.startswith("${"):
+        return []
+
+    errors: list[str] = []
+    if _has_endpoint_space_or_control(raw_value):
+        errors.append(f"{label} contains whitespace or control characters.")
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = (parsed.hostname or "").strip().lower()
+    if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
+        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
+    return errors
+
+
+def _endpoint_url_for_policy(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value or value.startswith("${"):
+        return value
+
+    parse_value = value if "://" in value else f"http://{value}"
+    parsed = urllib.parse.urlparse(parse_value)
+    host = parsed.hostname or ""
+    if not host.endswith("."):
+        return value
+
+    normalized_host = host.rstrip(".")
+    if not normalized_host or parsed.username or parsed.password:
+        return value
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return value
+
+    host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
+    netloc = f"{host_part}:{port}" if port is not None else host_part
+    normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    if "://" not in value and normalized.startswith("http://"):
+        return normalized[len("http://"):]
+    return normalized
+
+
 def endpoint_security_errors() -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
@@ -7934,12 +9474,13 @@ def endpoint_security_errors() -> list[str]:
         for key, value in env_values.items():
             if ("URL" in key or key.endswith("_HOST")) and value:
                 for raw_url in str(value).split(","):
-                    urls.append((f"{env_name}:{key}", raw_url.strip()))
+                    urls.append((f"{env_name}:{key}", raw_url))
 
     for label, raw_url in urls:
+        errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
         errors.extend(
             validate_url_safety(
-                raw_url,
+                _endpoint_url_for_policy(raw_url),
                 label=label,
                 policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
             )
@@ -8404,7 +9945,10 @@ def print_access_payload(payload: dict[str, Any]) -> None:
         elif level5.get("restart_required"):
             print("Level 5 guardrails: configured, restart Spark to activate")
         else:
-            print("Level 5 guardrails: blocked until explicitly enabled")
+            print(
+                "Level 5 guardrails: blocked until explicitly enabled "
+                "with `spark access setup --level 5 --enable-high-agency`"
+            )
     print("")
     print("Available lanes:")
     for lane in payload.get("lanes", []):
@@ -8705,6 +10249,10 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     response = input("Approval phrase: ").strip().lower()
     if response != decision.confirmation_phrase:
         print("Approval not granted. Nothing changed.")
+        print(
+            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+            "at the prompt to proceed."
+        )
         return 2
     return None
 
@@ -8822,6 +10370,181 @@ def redact_for_llm(value: Any) -> Any:
     if isinstance(value, str):
         return redact_sensitive_text(value)
     return value
+
+
+def codex_config_path(env: dict[str, str] | None = None) -> Path:
+    source = env if env is not None else os.environ
+    codex_home = str(source.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "config.toml"
+    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+    root = Path(home).expanduser() if home else Path.home()
+    return root / ".codex" / "config.toml"
+
+
+def codex_auth_path(env: dict[str, str] | None = None) -> Path:
+    source = env if env is not None else os.environ
+    codex_home = str(source.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+    root = Path(home).expanduser() if home else Path.home()
+    return root / ".codex" / "auth.json"
+
+
+def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    path = codex_auth_path(env)
+    payload: dict[str, Any] = {
+        "provider": "codex",
+        "path": public_local_path_ref(path),
+        "exists": path.exists(),
+        "source": "codex_cli_auth",
+        "notes": [],
+    }
+    if not path.exists():
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json was not found. Run `codex login` first.")
+        return payload
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        payload["ok"] = False
+        payload["notes"].append(redact_sensitive_text(str(exc)))
+        return payload
+    if not isinstance(parsed, dict) or not parsed:
+        payload["ok"] = False
+        payload["notes"].append("Codex auth.json is empty or invalid. Run `codex login` again.")
+        return payload
+    payload["ok"] = True
+    return payload
+
+
+def _safe_codex_client_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value).strip()
+    return ""
+
+
+def codex_active_roles() -> list[str]:
+    payload = provider_status_payload()
+    roles = payload.get("roles") if isinstance(payload, dict) else {}
+    if not isinstance(roles, dict):
+        return []
+    active: list[str] = []
+    for role, state in roles.items():
+        if isinstance(state, dict) and state.get("provider") == "codex":
+            active.append(str(role))
+    return active
+
+
+def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    path = codex_config_path(env)
+    payload: dict[str, Any] = {
+        "provider": "codex",
+        "path": public_local_path_ref(path),
+        "exists": path.exists(),
+        "source": "codex_cli_config",
+        "editable": True,
+        "active_roles": [],
+        "values": {},
+        "notes": [],
+    }
+    if not path.exists():
+        payload["ok"] = False
+        payload["notes"].append("Codex config.toml was not found.")
+        return payload
+    try:
+        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        payload["ok"] = False
+        payload["notes"].append(redact_sensitive_text(str(exc)))
+        return payload
+    values = {
+        key: _safe_codex_client_value(parsed.get(key))
+        for key in CODEX_CLIENT_CONFIG_KEYS
+        if _safe_codex_client_value(parsed.get(key))
+    }
+    payload["ok"] = True
+    payload["values"] = values
+    return payload
+
+
+def validate_codex_config_value(key: str, value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise SystemExit(f"{key} cannot be empty.")
+    if key == "model_reasoning_effort" and normalized not in CODEX_REASONING_EFFORTS:
+        raise SystemExit(f"model_reasoning_effort must be one of: {', '.join(CODEX_REASONING_EFFORTS)}")
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$", normalized):
+        raise SystemExit(f"{key} contains unsupported characters.")
+    return normalized
+
+
+def toml_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
+    lines = content.splitlines()
+    seen: set[str] = set()
+    first_section_index = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            first_section_index = index
+            break
+        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+        if not match:
+            continue
+        key = match.group(2)
+        if key in updates:
+            lines[index] = f"{match.group(1)}{key} = {toml_string(updates[key])}"
+            seen.add(key)
+    missing = [key for key in CODEX_CLIENT_CONFIG_KEYS if key in updates and key not in seen]
+    if missing:
+        inserted = [f"{key} = {toml_string(updates[key])}" for key in missing]
+        if first_section_index < len(lines):
+            inserted.append("")
+        lines[first_section_index:first_section_index] = inserted
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    assert_no_linked_write_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    try:
+        temp_path.write_text(content, encoding="utf-8")
+        try:
+            os.chmod(temp_path, PRIVATE_FILE_MODE)
+        except OSError:
+            pass
+        os.replace(temp_path, path)
+        try:
+            os.chmod(path, PRIVATE_FILE_MODE)
+        except OSError:
+            pass
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
+
+
+def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
+    normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
+    path = codex_config_path(env)
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    after = update_toml_top_level_scalars(before, normalized)
+    if after != before:
+        atomic_write_text(path, after)
+    payload = codex_client_config_payload(env)
+    payload["changed"] = after != before
+    payload["updated"] = sorted(normalized)
+    return payload
 
 
 def collect_llm_doctor_context(problem: str, *, include_logs: bool = False, log_lines: int = 80) -> dict[str, Any]:
@@ -9001,11 +10724,11 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         headers={
             "Authorization": f"Bearer {target['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "LLM provider")
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -9033,13 +10756,34 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "Ollama")
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
         raise SystemExit("Ollama returned an empty doctor response.")
     return str(content)
+
+
+def read_llm_provider_json(request: urllib.request.Request, provider_label: str) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
+        suffix = f": {body[:300]}" if body else ""
+        raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
+    except urllib.error.URLError as exc:
+        reason = redact_sensitive_text(str(exc.reason))
+        raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
+    except TimeoutError as exc:
+        raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
+    return payload
 
 
 def llm_cli_creationflags() -> int:
@@ -9144,7 +10888,11 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
         return claude_cli_completion(target, prompt)
     if provider == "ollama":
         return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    raise SystemExit(
+        f"Spark Doctor cannot directly call provider `{provider}` yet. "
+        f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
+        "Run `spark providers list` to see configured paths, or `spark setup` to switch."
+    )
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
@@ -9153,6 +10901,10 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
     path.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -9245,6 +10997,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
 def collect_telegram_fix_payload() -> dict[str, Any]:
     status_payload = collect_status_payload()
     setup_state = load_json(CONFIG_PATH, {})
+    bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     modules_by_name = {
         item.get("name"): item for item in status_payload.get("modules", []) if isinstance(item, dict)
@@ -9271,7 +11024,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "starter_installed",
             "ok": bool(status_payload.get("modules")),
             "detail": "Spark starter modules are installed." if status_payload.get("modules") else "No installed Spark modules recorded.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
@@ -9313,7 +11066,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_bridge",
             "ok": bridge_mode == "required" and bool(env_values.get("SPARK_BUILDER_HOME")),
             "detail": "Telegram is configured to require the Builder bridge." if bridge_mode == "required" else "Telegram is not configured to require the Builder bridge.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     memory_roots_ok = bool(
@@ -9326,7 +11079,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "name": "builder_memory_roots",
             "ok": memory_roots_ok,
             "detail": "Builder has Spark home, domain-chip-memory, and Researcher roots." if memory_roots_ok else "Builder memory/Researcher roots are not fully wired.",
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     checks.append(
@@ -9353,10 +11106,10 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
         if process_running and isinstance(process_record, dict)
         else "spark-telegram-bot is not running under Spark supervision."
     )
-    process_repair = "spark restart telegram-starter"
+    process_repair = f"spark restart {bundle_name}"
     if not process_running and polling_conflict:
         process_detail += " Recent logs show Telegram 409 getUpdates conflict, which means another copy of this bot is already polling Telegram."
-        process_repair = "Stop the other bot process or use a fresh BotFather token, then run `spark restart telegram-starter`."
+        process_repair = f"Stop the other bot process or use a fresh BotFather token, then run `spark restart {bundle_name}`."
     checks.append(
         {
             "name": "telegram_process",
@@ -9376,9 +11129,9 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "spark status",
             "spark verify --onboarding",
             "spark verify --deep",
-            "spark restart telegram-starter",
+            f"spark restart {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
-            "spark setup telegram-starter",
+            f"spark setup {bundle_name}",
         ],
     }
     payload["route_context"] = build_fix_route_context("telegram", payload)
@@ -9458,6 +11211,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     status_payload = collect_status_payload()
     provider_payload = provider_status_payload()
     status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    modules_installed = bool(status_modules)
     spawner_module = next(
         (module for module in status_modules if isinstance(module, dict) and module.get("name") == "spawner-ui"),
         None,
@@ -9525,13 +11279,27 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
             "summary": "Spark update repair",
             "checks": [
                 {
+                    "name": "installed modules",
+                    "ok": modules_installed,
+                    "detail": (
+                        "Spark modules are installed; update can check them safely."
+                        if modules_installed
+                        else "No installed Spark modules are recorded, so there is nothing for update to repair."
+                    ),
+                    "repair": "" if modules_installed else "spark setup telegram-starter",
+                },
+                {
                     "name": "dirty module safety",
-                    "ok": True,
+                    "ok": modules_installed,
                     "detail": "Use --skip-dirty when local module edits should not block clean modules from updating.",
-                    "repair": "",
+                    "repair": "" if modules_installed else "Install Spark modules before running update.",
                 }
             ],
-            "next_commands": ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"],
+            "next_commands": (
+                ["spark update --skip-dirty", "spark update --skip-dirty --skip-install-commands", "spark verify --onboarding"]
+                if modules_installed
+                else ["spark setup telegram-starter", "spark status", "spark verify --onboarding"]
+            ),
         },
         "autostart": {
             "summary": "Spark autostart repair",
@@ -9548,6 +11316,7 @@ def collect_simple_fix_payload(target: str) -> dict[str, Any]:
     }
     payload = recipes[target]
     payload["route_context"] = build_fix_route_context(target, payload)
+    payload["ok"] = all(bool(check.get("ok")) for check in payload.get("checks", []))
     return payload
 
 
@@ -9628,6 +11397,8 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
                 "Installed autostart hook(s) point at the current Spark command and home."
                 if installed and not stale_hooks
                 else "One or more installed autostart hook(s) look stale or writable by other local users."
+                if installed
+                else "No autostart hook is installed; run `spark autostart on --now` to add one."
             ),
             "repair": "spark autostart on --now",
         },
@@ -9643,6 +11414,7 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
         },
     ]
     return {
+        "ok": all(bool(check.get("ok")) for check in checks),
         "summary": "Spark autostart repair",
         "checks": checks,
         "hooks": hook_details,
@@ -9751,6 +11523,7 @@ def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
@@ -9878,7 +11651,7 @@ def provider_status_payload() -> dict[str, Any]:
                 auth_mode = "claude_oauth"
             elif provider == "ollama":
                 auth_mode = "local"
-        role_payload[role] = {
+        role_state = {
             "provider": provider,
             "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
             "model": state.get("model") or llm_state.get("model") or "",
@@ -9886,6 +11659,14 @@ def provider_status_payload() -> dict[str, Any]:
             "base_url": state.get("base_url") or llm_state.get("base_url") or "",
             "ready": provider != "not_configured" and auth_mode != "not_configured",
         }
+        if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
+            codex_auth = codex_cli_auth_payload()
+            role_state["codex_auth"] = codex_auth
+            if not codex_auth.get("ok"):
+                role_state["ready"] = False
+        if provider == "codex" and auth_mode == "codex_oauth":
+            role_state["codex_client"] = codex_client_config_payload()
+        role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
     return {
         "ok": not repair_hints,
@@ -9960,14 +11741,14 @@ def cmd_providers(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
         for provider in payload["providers"]:
             auth = ", ".join(provider["auth"])
@@ -9988,9 +11769,46 @@ def cmd_providers(args: argparse.Namespace) -> int:
                 f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
                 f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
             )
+            codex_client = state.get("codex_client") if isinstance(state, dict) else None
+            if isinstance(codex_client, dict) and codex_client.get("ok"):
+                values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+                tier = values.get("service_tier") or "default"
+                effort = values.get("model_reasoning_effort") or "default"
+                print(f"          codex_client service_tier={tier} reasoning={effort}")
         for hint in payload["repair_hints"]:
             print(f"Repair: {hint}")
         return 0 if payload["ok"] else 1
+    if args.providers_command == "codex":
+        updates = {
+            key: value
+            for key, value in {
+                "model": getattr(args, "model", None),
+                "model_reasoning_effort": getattr(args, "reasoning_effort", None),
+                "service_tier": getattr(args, "service_tier", None),
+            }.items()
+            if value is not None
+        }
+        payload = save_codex_client_config(updates) if updates else codex_client_config_payload()
+        payload["active_roles"] = codex_active_roles()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print("Spark Codex client config")
+        print("")
+        if payload.get("active_roles"):
+            print(f"Active Spark roles: {', '.join(payload['active_roles'])}")
+        else:
+            print("Active Spark roles: none currently using Codex")
+        values = payload.get("values") if isinstance(payload.get("values"), dict) else {}
+        print(f"model: {values.get('model') or 'default'}")
+        print(f"reasoning: {values.get('model_reasoning_effort') or 'default'}")
+        print(f"service_tier: {values.get('service_tier') or 'default'}")
+        if payload.get("updated"):
+            changed = "updated" if payload.get("changed") else "already set"
+            print(f"Change: {changed} ({', '.join(payload['updated'])})")
+        for note in payload.get("notes", []):
+            print(f"Note: {note}")
+        return 0 if payload.get("ok") else 1
     if args.providers_command == "test":
         payload = provider_test_payload(role=args.role, provider=args.provider)
         if args.json:
@@ -10006,7 +11824,8 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if not payload.get("ok") and payload.get("repair"):
             print(f"Repair: {payload['repair']}")
         return 0 if payload["ok"] else 1
-    raise SystemExit(f"Unknown providers command: {args.providers_command}")
+    known = "recommend, list, status, codex, test"
+    raise SystemExit(f"Unknown providers command: {args.providers_command}. Known commands: {known}.")
 
 
 def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
@@ -10042,10 +11861,10 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
-    raise SystemExit(f"Unknown recommend command: {args.recommend_command}")
+    raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
 
 
 def installed_record_path(installed: object, module_name: str) -> Path | None:
@@ -10558,7 +12377,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
         if not isinstance(record, dict):
             return False
         try:
-            return pid_is_running(int(record.get("pid", 0)))
+            return pid_is_running(int(record.get("pid") or 0))
         except (TypeError, ValueError):
             return False
 
@@ -10621,7 +12440,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if telegram_security_ok
                 else "Telegram token/admin setup, long-polling mode, or generated secret hygiene needs repair."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
 
@@ -10658,7 +12477,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 if builder_bridge_ok
                 else "Builder bridge, domain-chip-memory root, or spark-researcher root is not wired."
             ),
-            "repair": "spark setup telegram-starter",
+            "repair": f"spark setup {bundle_name}",
         }
     )
     builder_ref_errors = builder_runtime_ref_errors(installed, gateway_env)
@@ -10717,7 +12536,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
                 "ok": bool(smoke.get("ok")),
                 "required": True,
                 "detail": str(smoke.get("detail") or ""),
-                "repair": str(smoke.get("repair") or "spark setup telegram-starter"),
+                "repair": str(smoke.get("repair") or f"spark setup {bundle_name}"),
             }
         )
 
@@ -10757,7 +12576,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "ok": process_ok,
             "required": True,
             "detail": process_detail,
-            "repair": "spark start telegram-starter",
+            "repair": f"spark start {bundle_name}",
         }
     )
 
@@ -10775,7 +12594,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "spark verify --onboarding",
             "spark verify --deep",
             "spark fix telegram",
-            "spark start telegram-starter",
+            f"spark start {bundle_name}",
             "spark logs spark-telegram-bot --lines 80",
             "spark logs spawner-ui --lines 80",
         ],
@@ -10915,7 +12734,7 @@ def tracked_runtime_uids() -> list[int]:
         if not isinstance(record, dict):
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             continue
         if not pid or not pid_is_running(pid):
@@ -11062,7 +12881,10 @@ def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
         normalized = host.strip().lower()
         host_without_port = normalized
         if normalized.startswith("[") and "]" in normalized:
-            host_without_port = normalized[1 : normalized.index("]")]
+            bracket_end = normalized.index("]")
+            host_without_port = normalized[1:bracket_end]
+            if normalized[bracket_end + 1 :]:
+                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
         elif normalized.count(":") == 1:
             host_without_port = normalized.split(":", 1)[0]
         if normalized in blocked:
@@ -11656,6 +13478,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
         print(payload["summary"])
+        hosted_release = payload.get("hosted_release")
+        if isinstance(hosted_release, dict):
+            marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
+            release = hosted_release.get("release") or "<unknown release>"
+            source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
+            print("Hosted release freshness:")
+            print(f"{marker} published: {release} @ {source_ref}")
+            print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
+            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
@@ -11766,9 +13597,19 @@ def resolve_installed_target_modules(target: str | None) -> list[Module]:
     for name in names:
         module = modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(unknown_installed_module_message(name, modules))
         resolved.append(module)
     return resolved
+
+
+def unknown_installed_module_message(name: str, installed: dict[str, Module] | list[str]) -> str:
+    if isinstance(installed, dict):
+        names = sorted(installed)
+    else:
+        names = sorted(installed)
+    if not names:
+        return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
+    return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
 
 
 def reverse_dependency_map(modules: dict[str, Module]) -> dict[str, set[str]]:
@@ -11813,7 +13654,7 @@ def resolve_start_modules(target: str | None, installed_modules: dict[str, Modul
         name = stack.pop()
         module = installed_modules.get(name)
         if module is None:
-            raise SystemExit(f"Unknown installed module: {name}")
+            raise SystemExit(unknown_installed_module_message(name, installed_modules))
         if name in needed_names:
             continue
         needed_names.add(name)
@@ -12156,12 +13997,15 @@ def windows_service_creationflags() -> int:
 
 def listening_pid_for_tcp_port(port: int) -> int | None:
     if os.name != "nt":
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return None
         if result.returncode != 0:
             return None
         for line in result.stdout.splitlines():
@@ -12173,12 +14017,15 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             except ValueError:
                 continue
         return None
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode != 0:
         return None
     suffix = f":{port}"
@@ -12235,18 +14082,24 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
-        if isinstance(record, dict) and int(record.get("pid", 0)) == int(launched_pid):
+        if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
             record["pid"] = int(runtime_pid)
             record["launcher_pid"] = int(launched_pid)
             save_pids(pids)
 
 
 def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not module_names:
+        return (
+            False,
+            "No Spark-supervised runtime processes are expected from the current install state. "
+            "Install or repair the starter bundle first.",
+        )
     missing: list[str] = []
     running_names: list[str] = []
     for name in module_names:
         record = pids.get(name) if isinstance(pids, dict) else None
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             running_names.append(f"{name} (pid {pid})")
         else:
@@ -12286,13 +14139,21 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
 
 
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
-    return bool(
-        running_as_hosted_context()
-        or env.get("SPARK_LIVE_CONTAINER")
-        or env.get("RAILWAY_ENVIRONMENT")
-        or env.get("SPARK_ALLOWED_HOSTS")
-        or str(env.get("SPARK_HOSTED_PRIVATE_PREVIEW") or "").strip().lower() in {"1", "true", "yes", "on"}
-    )
+    # Spawner liveness is separate from provider readiness; provider details
+    # stay visible through `spark providers status`.
+    return True
+
+
+def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    pids = load_pids()
+    for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
+        record = pids.get(process_key)
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
+        if pid and pid_is_running(pid):
+            return True
+    return False
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
@@ -12329,7 +14190,7 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names and not external_telegram:
+    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
@@ -12353,7 +14214,7 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         pid = 0
         if isinstance(record, dict):
             try:
-                pid = int(record.get("pid", 0))
+                pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
         statuses.append(
@@ -12431,6 +14292,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     popen_kwargs: dict[str, Any] = {
         "cwd": str(module.path),
         "shell": False,
+        "stdin": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
         "env": subprocess_env,
     }
@@ -12495,7 +14357,39 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     return ready
 
 
+def command_json_messages(output: str) -> list[str]:
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
+    payload: dict[str, Any] = {
+        "ok": exit_code == 0,
+        "command": command,
+        "target": getattr(args, "target", None) or "all",
+        "profile": normalize_telegram_profile(getattr(args, "profile", None)),
+        "exit_code": exit_code,
+        "messages": command_json_messages(output),
+    }
+    if hasattr(args, "cascade"):
+        payload["cascade"] = bool(getattr(args, "cascade", False))
+    print(json.dumps(payload, indent=2))
+    return exit_code
+
+
+def run_process_command_json(command: str, args: argparse.Namespace, handler: Callable[[argparse.Namespace], int]) -> int:
+    output = io.StringIO()
+    with redirect_stdout(output):
+        exit_code = handler(args)
+    return emit_process_command_json(command, args, exit_code, output.getvalue())
+
+
 def cmd_start(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("start", args, cmd_start_plain)
+    return cmd_start_plain(args)
+
+
+def cmd_start_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     modules = resolve_installed_modules()
     if not modules:
@@ -12536,6 +14430,20 @@ def stop_module(name: str, pid: int) -> None:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not pid_is_running(pid):
+                break
+            time.sleep(0.1)
+        else:
+            sigkill = getattr(signal, "SIGKILL", None)
+            if sigkill is None:
+                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+            else:
+                try:
+                    os.killpg(pid, sigkill)
+                except OSError:
+                    subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
     print(f"Stopped {name} (pid {pid})")
 
 
@@ -12545,7 +14453,7 @@ def stop_tracked_process_key(process_key: str) -> bool:
         record = pids.get(process_key)
         if not isinstance(record, dict):
             return False
-        pid = int(record.get("pid", 0))
+        pid = int(record.get("pid") or 0)
         if pid and pid_is_running(pid):
             stop_module(process_key, pid)
         pids.pop(process_key, None)
@@ -12554,6 +14462,12 @@ def stop_tracked_process_key(process_key: str) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("stop", args, cmd_stop_plain)
+    return cmd_stop_plain(args)
+
+
+def cmd_stop_plain(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
@@ -12580,6 +14494,12 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        return run_process_command_json("restart", args, cmd_restart_plain)
+    return cmd_restart_plain(args)
+
+
+def cmd_restart_plain(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     installed_modules = resolve_installed_modules()
     if not installed_modules:
@@ -12591,7 +14511,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         if "spark-telegram-bot" not in requested_names:
             print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
-            stop_code = cmd_stop(args)
+            stop_code = cmd_stop_plain(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
                 return 1
@@ -12610,7 +14530,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
         return 1
-    stop_code = cmd_stop(args)
+    stop_code = cmd_stop_plain(args)
     start_code = 0
     for module in restart_modules:
         if not module.run_command:
@@ -12947,7 +14867,7 @@ def windows_cmd_c(command: str) -> str:
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    return subprocess.run(command, check=False, capture_output=True, text=True, timeout=10)
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
@@ -13442,6 +15362,9 @@ def save_user_config(config: dict[str, Any]) -> None:
     save_json(USER_CONFIG_PATH, config)
 
 
+CONFIG_MISSING = object()
+
+
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     parts = key.split(".")
     current: Any = config
@@ -13452,7 +15375,13 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
+def validate_config_key(key: str) -> None:
+    if not key or any(not part for part in key.split(".")):
+        raise ValueError("config key must contain non-empty dot-separated segments")
+
+
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    validate_config_key(key)
     parts = key.split(".")
     current = config
     for part in parts[:-1]:
@@ -13465,6 +15394,7 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    validate_config_key(key)
     parts = key.split(".")
     current: Any = config
     for part in parts[:-1]:
@@ -13486,12 +15416,14 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key)
-    if value is None:
+    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    if value is CONFIG_MISSING:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
+    elif value is None:
+        print("null")
     else:
         print(value)
     return 0
@@ -13500,7 +15432,11 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
     value = coerce_config_value(args.value)
-    dotted_set(config, args.key, value)
+    try:
+        dotted_set(config, args.key, value)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
@@ -13508,7 +15444,12 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
-    if not dotted_unset(config, args.key):
+    try:
+        removed = dotted_unset(config, args.key)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if not removed:
         print(f"{args.key} was not set")
         return 1
     save_user_config(config)
@@ -13526,11 +15467,11 @@ def cmd_config_list(_: argparse.Namespace) -> int:
 
 
 INIT_SPARK_TOML_TEMPLATE = """[module]
-name = "{name}"
+name = {name}
 version = "0.1.0"
 kind = "service"
 plane = "execution"
-description = "{description}"
+description = {description}
 license = "UNLICENSED"
 
 [runtime]
@@ -13556,13 +15497,13 @@ routes = []
 [healthcheck]
 command = "{healthcheck_command}"
 timeout_seconds = 10
-success_hint = "{name} is healthy."
+success_hint = {success_hint}
 failure_hint = "Run the healthcheck command from the module home for detail."
 
 [paths]
-home = "~/.spark/modules/{name}"
-state = "~/.spark/state/{name}"
-logs = "~/.spark/logs/{name}"
+home = {home}
+state = {state}
+logs = {logs}
 """
 
 
@@ -13603,9 +15544,15 @@ npm-debug.log*
 
 
 INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
+INIT_MAX_NAME_LENGTH = 64
 
 
 def validate_init_module_name(name: str) -> None:
+    if len(name) > INIT_MAX_NAME_LENGTH:
+        raise SystemExit(
+            "Module name is too long "
+            f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
+        )
     if not INIT_VALID_NAME.match(name):
         raise SystemExit(
             f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
@@ -13624,11 +15571,15 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     else:
         raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
     return INIT_SPARK_TOML_TEMPLATE.format(
-        name=name,
-        description=description,
+        name=json.dumps(name),
+        description=json.dumps(description),
         runtime_kind=runtime_kind,
         runtime_version=runtime_version,
         healthcheck_command=healthcheck,
+        success_hint=json.dumps(f"{name} is healthy."),
+        home=json.dumps(f"~/.spark/modules/{name}"),
+        state=json.dumps(f"~/.spark/state/{name}"),
+        logs=json.dumps(f"~/.spark/logs/{name}"),
     )
 
 
@@ -13726,6 +15677,8 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
     backend = store_secret(args.secret_id, value, preferred=args.backend)
+    # This prints the secret label and backend, never the stored value.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"Stored {args.secret_id} in {backend}.")
     return 0
 
@@ -13735,17 +15688,25 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
+        # `spark secrets get --reveal` is an explicit local operator command.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
         masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+        # The value is masked by default; the printed id is a label.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
     return 0
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
     if delete_secret(args.secret_id):
+        # This prints only the secret label after deletion.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
         return 0
+    # This prints only the secret label.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(f"No value stored for {args.secret_id}.")
     return 1
 
@@ -13753,8 +15714,12 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 def cmd_logs(args: argparse.Namespace) -> int:
     installed = resolve_installed_modules()
     if args.target not in installed:
-        raise SystemExit(f"Unknown installed module: {args.target}")
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
+        raise SystemExit(unknown_installed_module_message(args.target, installed))
+    requested_profile = getattr(args, "profile", None)
+    if args.target == "spark-telegram-bot" and requested_profile is None:
+        profile = primary_telegram_profile()
+    else:
+        profile = normalize_telegram_profile(requested_profile)
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
         raise SystemExit("--profile only applies to spark-telegram-bot logs.")
     path = module_log_path(args.target, profile)
@@ -13829,7 +15794,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         for process_key in process_keys:
             with pid_file_lock():
                 record = load_pids().get(process_key, {})
-            pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
             if pid and pid_is_running(pid):
                 print(f"Stopping {process_key} before update so install commands can replace locked files.")
                 stopped_processes.append(process_key)
@@ -13878,6 +15843,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_uninstall(args: argparse.Namespace) -> int:
     if getattr(args, "all", False) and args.target:
         raise SystemExit("Use either a target or --all, not both.")
+    if not getattr(args, "all", False) and not args.target:
+        raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
 
@@ -13933,6 +15900,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def onboarding_guide_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "title": "Spark starter guide",
         "goal": "Install Spark, choose how it thinks, connect Telegram, then start chatting and building with your agent.",
         "operating_systems": ["Windows PowerShell/CMD", "macOS Terminal", "Linux shell", "WSL Ubuntu shell"],
@@ -14076,6 +16044,11 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark fix autostart", "use": "Targeted login-startup repair checklist: installed hooks, stale paths, permissions, and Telegram profile selection." },
             { "command": "spark fix spawner", "use": "Targeted repair checklist when /run, Kanban, Canvas, preview links, or Mission Control is not reachable." },
             { "command": "spark providers test --role chat", "use": "Send a tiny PING_OK probe through the selected chat LLM." },
+            { "command": "spark browser-use status", "use": "Check browser-use package, CLI, and latest proof receipt without starting a browser." },
+            { "command": "spark browser-use probe", "use": "Prove browser-use can open a page, read state, and capture a screenshot." },
+            { "command": "spark browser-use open <url>", "use": "Open a URL with browser-use and return page evidence." },
+            { "command": "spark browser-use screenshot <url>", "use": "Open a URL and capture a screenshot." },
+            { "command": "spark browser-use task [--url <url>] <goal>", "use": "Run a multi-step Browser Use Agent task and save a receipt." },
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
@@ -14117,6 +16090,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark access status|guide|setup|disable-level5", "use": "Prepare, explain, and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
             { "command": "spark providers list|status|test|recommend", "use": "Inspect, test, and choose LLM provider wiring." },
+            { "command": "spark browser-use status|install|probe|open|screenshot|task", "use": "Inspect, prove, and use the browser-use adapter for browser evidence and task loops." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
             { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
@@ -14222,6 +16196,36 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def positive_int_arg(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {parsed}"
+        )
+    return parsed
+
+
+def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
+    original_error = group_parser.error
+
+    def friendly_error(message: str) -> None:
+        if message and "arguments are required" in message:
+            group_parser.print_usage(sys.stderr)
+            sys.stderr.write(
+                f"\n{group_parser.prog} needs a subcommand. Try one of: "
+                f"{', '.join(subcommands)}.\n"
+            )
+            sys.exit(2)
+        original_error(message)
+
+    group_parser.error = friendly_error  # type: ignore[method-assign]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -14231,7 +16235,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
     install_parser.add_argument("target")
-    install_parser.add_argument("--skip-install-commands", action="store_true")
+    install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
     install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
@@ -14245,7 +16249,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(load_registry_definition().get("bundles", {}).keys()),
         help="Bundle to configure (default: telegram-starter)",
     )
-    setup_parser.add_argument("--skip-install-commands", action="store_true")
+    setup_parser.add_argument("--skip-install-commands", action="store_true", help="Skip install commands (pip install, npm install) for all bundle modules")
     setup_parser.add_argument(
         "--run-install-commands",
         action="store_true",
@@ -14438,6 +16442,7 @@ def build_parser() -> argparse.ArgumentParser:
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
     os_memory_parser.set_defaults(func=cmd_os_memory)
+    _wrap_subgroup_help(os_parser, ["compile", "capabilities", "authority", "trace", "memory"])
 
     status_parser = subparsers.add_parser("status", help="Run module healthchecks")
     status_parser.add_argument("--json", action="store_true")
@@ -14518,11 +16523,45 @@ def build_parser() -> argparse.ArgumentParser:
     providers_status_parser = providers_sub.add_parser("status", help="Show chat/build/memory/mission provider readiness")
     providers_status_parser.add_argument("--json", action="store_true")
     providers_status_parser.set_defaults(func=cmd_providers)
+    providers_codex_parser = providers_sub.add_parser("codex", help="Inspect or update Codex CLI client config when Spark uses Codex")
+    providers_codex_parser.add_argument("--model", help="Set the top-level Codex CLI model")
+    providers_codex_parser.add_argument("--reasoning-effort", choices=CODEX_REASONING_EFFORTS, help="Set Codex CLI reasoning effort")
+    providers_codex_parser.add_argument("--service-tier", help="Set Codex CLI service tier, for example fast")
+    providers_codex_parser.add_argument("--json", action="store_true")
+    providers_codex_parser.set_defaults(func=cmd_providers)
     providers_test_parser = providers_sub.add_parser("test", help="Send a tiny PING_OK probe through one configured role")
     providers_test_parser.add_argument("--role", choices=LLM_ROLES, default="chat", help="LLM role to test")
     providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
     providers_test_parser.add_argument("--json", action="store_true")
     providers_test_parser.set_defaults(func=cmd_providers)
+
+    browser_use_parser = subparsers.add_parser("browser-use", help="Install, inspect, and probe the optional browser-use adapter")
+    browser_use_sub = browser_use_parser.add_subparsers(dest="browser_use_command")
+    browser_use_status_parser = browser_use_sub.add_parser("status", help="Show browser-use package, CLI, and proof receipt status")
+    browser_use_status_parser.add_argument("--json", action="store_true")
+    browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
+    browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
+    browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+    browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
+    browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
+    browser_use_probe_parser.add_argument("--json", action="store_true")
+    browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
+    browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
+    browser_use_open_parser.add_argument("url")
+    browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+    browser_use_open_parser.add_argument("--json", action="store_true")
+    browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
+    browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
+    browser_use_screenshot_parser.add_argument("url")
+    browser_use_screenshot_parser.add_argument("--json", action="store_true")
+    browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
+    browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
+    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
+    browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
+    browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
+    browser_use_task_parser.add_argument("--json", action="store_true")
+    browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
+    browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
 
     recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
     recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
@@ -14532,6 +16571,7 @@ def build_parser() -> argparse.ArgumentParser:
     recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
     recommend_providers_parser.add_argument("--json", action="store_true")
     recommend_providers_parser.set_defaults(func=cmd_recommend)
+    _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
 
     security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
     security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
@@ -14578,6 +16618,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     access_disable_parser.add_argument("--json", action="store_true")
     access_disable_parser.set_defaults(func=cmd_access)
+    _wrap_subgroup_help(access_parser, ["status", "guide", "setup", "disable-level5"])
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
@@ -14634,6 +16675,7 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
     sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
     sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
+    _wrap_subgroup_help(sandbox_parser, ["docker", "ssh", "modal"])
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
     approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
@@ -14644,6 +16686,7 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
+    _wrap_subgroup_help(approval_parser, ["classify"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
@@ -14668,10 +16711,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
     telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
+    _wrap_subgroup_help(telegram_parser, ["connect"])
 
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
     update_parser.add_argument("target", nargs="?")
-    update_parser.add_argument("--skip-install-commands", action="store_true")
+    update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
     update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
@@ -14692,12 +16736,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+    start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
     start_parser.add_argument("target", nargs="?")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+    stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
     stop_parser.add_argument("target", nargs="?")
     stop_parser.set_defaults(func=cmd_stop)
 
@@ -14705,6 +16751,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+    restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
     restart_parser.add_argument("target", nargs="?")
     restart_parser.set_defaults(func=cmd_restart)
 
@@ -14764,6 +16811,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
+    _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
@@ -14800,6 +16848,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
     config_list_parser.set_defaults(func=cmd_config_list)
+    _wrap_subgroup_help(config_parser, ["get", "set", "unset", "list"])
 
     secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
@@ -14821,9 +16870,10 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
     secrets_delete_parser.add_argument("secret_id")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
+    _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
     logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
-    logs_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile logs to read")
+    logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
     logs_parser.add_argument("target")
     logs_parser.add_argument("-n", "--lines", type=int, default=200, help="Lines of history to show before following (default: 200, 0 = all)")
     logs_parser.add_argument("-f", "--follow", action="store_true", help="Tail the log and stream new lines")
