@@ -9206,6 +9206,37 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertIn("providers", payload)
 
+    def test_cmd_search_json_is_agent_readable(self) -> None:
+        registry = {
+            "modules": {
+                "spark-telegram-bot": {"summary": "Telegram gateway", "blessed": True},
+                "spark-researcher": {"summary": "Research assistant", "blessed": False},
+            }
+        }
+        installed = {"spark-telegram-bot": {"path": "/spark/modules/spark-telegram-bot"}}
+        args = build_parser().parse_args(["search", "telegram", "--json"])
+
+        with patch("spark_cli.cli.load_registry_definition", return_value=registry), \
+             patch("spark_cli.cli.load_json", return_value=installed), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["query"], "telegram")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(
+            payload["results"],
+            [
+                {
+                    "name": "spark-telegram-bot",
+                    "summary": "Telegram gateway",
+                    "blessed": True,
+                    "installed": True,
+                }
+            ],
+        )
+
     def test_cmd_recommend_providers_is_alias_for_llms(self) -> None:
         args = build_parser().parse_args(["recommend", "providers"])
         with patch("sys.stdout", new_callable=StringIO) as stdout:
