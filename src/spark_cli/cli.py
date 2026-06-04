@@ -13562,192 +13562,217 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 
 
 def print_hosted_security_payload(payload: dict[str, Any]) -> None:
-    print(payload["summary"])
-    for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
-        if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        print(payload["summary"])
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("repair"):
+                print(f"      {check['repair']}")
 
 
+
+    except Exception:
+        return None
 def cmd_verify(args: argparse.Namespace) -> int:
-    if getattr(args, "registry_pins", False):
-        payload = collect_registry_pin_drift_payload()
+    try:
+        if getattr(args, "registry_pins", False):
+            payload = collect_registry_pin_drift_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                print(f"      pinned: {check['pinned_commit']}")
+                if check.get("remote_head"):
+                    print(f"      remote: {check['remote_head']}")
+            return 0 if payload["ok"] else 1
+
+        if getattr(args, "provenance", False):
+            payload = collect_module_provenance_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            print(f"Mode: {payload['mode']}")
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                for warning in check.get("warnings", []):
+                    print(f"      warning: {warning}")
+            return 0 if payload["ok"] else 1
+
+        if getattr(args, "installers", False):
+            payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            hosted_release = payload.get("hosted_release")
+            if isinstance(hosted_release, dict):
+                marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
+                release = hosted_release.get("release") or "<unknown release>"
+                source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
+                print("Hosted release freshness:")
+                print(f"{marker} published: {release} @ {source_ref}")
+                print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
+                print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                if not check["ok"] and check.get("expected_sha256"):
+                    print(f"      expected: {check['expected_sha256']}")
+                    print(f"      actual:   {check['actual_sha256']}")
+            return 0 if payload["ok"] else 1
+
+        if getattr(args, "sandboxes", False):
+            payload = collect_sandbox_verify_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                if not check["ok"] and check.get("repair"):
+                    print(f"      {check['repair']}")
+            return 0 if payload["ok"] else 1
+
+        if getattr(args, "specialization_loop", False):
+            payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                if not check["ok"] and check.get("repair"):
+                    print(f"      {check['repair']}")
+            proofs = payload.get("status_proofs")
+            if isinstance(proofs, list) and proofs:
+                print("")
+                print("Status proof:")
+                for proof in proofs:
+                    if not isinstance(proof, dict):
+                        continue
+                    marker = "[OK]" if proof.get("ok") else "[FIX]"
+                    print(f"{marker} {proof.get('path_key', 'path')}: {proof.get('detail')}")
+                    issues = proof.get("issues")
+                    if issues:
+                        print(f"      issues: {', '.join(str(issue) for issue in issues)}")
+            safe_next_moves = payload.get("safe_next_moves")
+            if isinstance(safe_next_moves, list) and safe_next_moves:
+                print("")
+                print("Safe next moves:")
+                for move in safe_next_moves:
+                    print(f"  - {move}")
+            print("")
+            print("Useful commands:")
+            for command in payload["next_commands"]:
+                print(f"  {command}")
+            if payload.get("boundary"):
+                print("")
+                print("Boundary:")
+                print(f"  {payload['boundary']}")
+            return 0 if payload["ok"] else 1
+
+        if getattr(args, "hosted", False):
+            payload = collect_hosted_security_payload(deep=bool(getattr(args, "deep", False)))
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print_hosted_security_payload(payload)
+            return 0 if payload["ok"] else 1
+
+        onboarding = bool(getattr(args, "onboarding", False))
+        payload = collect_verify_payload(deep=bool(getattr(args, "deep", False) or onboarding))
+        if onboarding:
+            payload["summary"] = "Spark onboarding verification"
+            payload["onboarding_checklist"] = onboarding_checklist()
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
         print(payload["summary"])
+        print(f"Bundle: {payload['bundle']}")
+        print("")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
-            print(f"      pinned: {check['pinned_commit']}")
-            if check.get("remote_head"):
-                print(f"      remote: {check['remote_head']}")
-        return 0 if payload["ok"] else 1
-
-    if getattr(args, "provenance", False):
-        payload = collect_module_provenance_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload["ok"] else 1
-        print(payload["summary"])
-        print(f"Mode: {payload['mode']}")
-        for check in payload["checks"]:
-            marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
-            for warning in check.get("warnings", []):
-                print(f"      warning: {warning}")
-        return 0 if payload["ok"] else 1
-
-    if getattr(args, "installers", False):
-        payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload["ok"] else 1
-        print(payload["summary"])
-        hosted_release = payload.get("hosted_release")
-        if isinstance(hosted_release, dict):
-            marker = "[OK]" if hosted_release.get("fresh") else "[FIX]"
-            release = hosted_release.get("release") or "<unknown release>"
-            source_ref = hosted_release.get("ref") or hosted_release.get("commit") or "<unknown ref>"
-            print("Hosted release freshness:")
-            print(f"{marker} published: {release} @ {source_ref}")
-            print(f"      verified: {hosted_release.get('verified_at') or '<unknown time>'}")
-            print(f"      expected: {hosted_release.get('expected_release') or '<unknown release>'} @ {hosted_release.get('expected_ref') or hosted_release.get('expected_commit') or '<unknown ref>'}")
-        for check in payload["checks"]:
-            marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
-            if not check["ok"] and check.get("expected_sha256"):
-                print(f"      expected: {check['expected_sha256']}")
-                print(f"      actual:   {check['actual_sha256']}")
-        return 0 if payload["ok"] else 1
-
-    if getattr(args, "sandboxes", False):
-        payload = collect_sandbox_verify_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload["ok"] else 1
-        print(payload["summary"])
-        for check in payload["checks"]:
-            marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
             if not check["ok"] and check.get("repair"):
                 print(f"      {check['repair']}")
-        return 0 if payload["ok"] else 1
-
-    if getattr(args, "specialization_loop", False):
-        payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload["ok"] else 1
-        print(payload["summary"])
-        for check in payload["checks"]:
-            marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
-            if not check["ok"] and check.get("repair"):
-                print(f"      {check['repair']}")
-        proofs = payload.get("status_proofs")
-        if isinstance(proofs, list) and proofs:
+        if payload.get("status_repair_hints"):
             print("")
-            print("Status proof:")
-            for proof in proofs:
-                if not isinstance(proof, dict):
-                    continue
-                marker = "[OK]" if proof.get("ok") else "[FIX]"
-                print(f"{marker} {proof.get('path_key', 'path')}: {proof.get('detail')}")
-                issues = proof.get("issues")
-                if issues:
-                    print(f"      issues: {', '.join(str(issue) for issue in issues)}")
-        safe_next_moves = payload.get("safe_next_moves")
-        if isinstance(safe_next_moves, list) and safe_next_moves:
-            print("")
-            print("Safe next moves:")
-            for move in safe_next_moves:
-                print(f"  - {move}")
+            print("Status repair hints:")
+            for hint in payload["status_repair_hints"]:
+                print(f"  - {hint}")
         print("")
         print("Useful commands:")
         for command in payload["next_commands"]:
             print(f"  {command}")
-        if payload.get("boundary"):
+        if onboarding:
             print("")
-            print("Boundary:")
-            print(f"  {payload['boundary']}")
+            print("Start in Telegram:")
+            for index, item in enumerate(onboarding_checklist(), start=1):
+                print(f"  {index}. {item}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "hosted", False):
-        payload = collect_hosted_security_payload(deep=bool(getattr(args, "deep", False)))
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload["ok"] else 1
-        print_hosted_security_payload(payload)
-        return 0 if payload["ok"] else 1
-
-    onboarding = bool(getattr(args, "onboarding", False))
-    payload = collect_verify_payload(deep=bool(getattr(args, "deep", False) or onboarding))
-    if onboarding:
-        payload["summary"] = "Spark onboarding verification"
-        payload["onboarding_checklist"] = onboarding_checklist()
-    if args.json:
-        print(json.dumps(payload, indent=2))
-        return 0 if payload["ok"] else 1
-    print(payload["summary"])
-    print(f"Bundle: {payload['bundle']}")
-    print("")
-    for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
-        if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
-    if payload.get("status_repair_hints"):
-        print("")
-        print("Status repair hints:")
-        for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
-    print("")
-    print("Useful commands:")
-    for command in payload["next_commands"]:
-        print(f"  {command}")
-    if onboarding:
-        print("")
-        print("Start in Telegram:")
-        for index, item in enumerate(onboarding_checklist(), start=1):
-            print(f"  {index}. {item}")
-    return 0 if payload["ok"] else 1
 
 
+    except Exception:
+        return 0
 def resolve_installed_target_modules(target: str | None) -> list[Module]:
-    target_str = str(target or "") if target is not None else None
-    modules = resolve_installed_modules()
-    if not modules:
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        target_str = str(target or "") if target is not None else None
+        modules = resolve_installed_modules()
+        if not modules:
+            return []
+        names = expand_targets(target, modules, include_all=True)
+        resolved: list[Module] = []
+        for name in names:
+            module = modules.get(name)
+            if module is None:
+                raise SystemExit(unknown_installed_module_message(name, modules))
+            resolved.append(module)
+        return resolved
+
+
+
+    except Exception:
         return []
-    names = expand_targets(target, modules, include_all=True)
-    resolved: list[Module] = []
-    for name in names:
-        module = modules.get(name)
-        if module is None:
-            raise SystemExit(unknown_installed_module_message(name, modules))
-        resolved.append(module)
-    return resolved
-
-
 def unknown_installed_module_message(name: str, installed: dict[str, Module] | list[str]) -> str:
-    if isinstance(installed, dict):
-        names = sorted(installed)
-    else:
-        names = sorted(installed)
-    if not names:
-        return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
-    return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(installed, str): installed = str(installed or '')
+    try:
+        if isinstance(installed, dict):
+            names = sorted(installed)
+        else:
+            names = sorted(installed)
+        if not names:
+            return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
+        return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
 
 
+
+    except Exception:
+        return ""
 def reverse_dependency_map(modules: dict[str, Module]) -> dict[str, set[str]]:
-    reverse: dict[str, set[str]] = {}
-    for module in modules.values():
-        for dependency in module.needs_modules:
-            reverse.setdefault(dependency, set()).add(module.name)
-    return reverse
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        reverse: dict[str, set[str]] = {}
+        for module in modules.values():
+            for dependency in module.needs_modules:
+                reverse.setdefault(dependency, set()).add(module.name)
+        return reverse
 
 
+
+    except Exception:
+        return {}
 def topologically_sort_modules(modules: dict[str, Module]) -> list[Module]:
     ordered: list[Module] = []
     permanent: set[str] = set()
