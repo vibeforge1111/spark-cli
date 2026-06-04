@@ -13948,20 +13948,28 @@ def pid_is_running(pid: int) -> bool:
 
 
 def ready_timeout_seconds(module: Module) -> int:
-    configured = module.manifest.get("healthcheck", {}).get("timeout_seconds", 10)
     try:
-        return max(1, int(configured))
-    except (TypeError, ValueError):
-        return 10
+        configured = module.manifest.get("healthcheck", {}).get("timeout_seconds", 10)
+        try:
+            return max(1, int(configured))
+        except (TypeError, ValueError):
+            return 10
 
 
+
+    except Exception:
+        return 0
 def post_ready_watch_seconds(module: Module) -> int:
-    configured = module.post_ready_watch_seconds
-    if configured is not None:
-        return configured
-    return min(8, ready_timeout_seconds(module))
+    try:
+        configured = module.post_ready_watch_seconds
+        if configured is not None:
+            return configured
+        return min(8, ready_timeout_seconds(module))
 
 
+
+    except Exception:
+        return 0
 def wait_for_ready_check(
     module: Module,
     process: subprocess.Popen[Any] | None = None,
@@ -13969,132 +13977,149 @@ def wait_for_ready_check(
     profile: str | None = None,
     ready_check_override: str | None = None,
 ) -> tuple[bool, str]:
-    ready_check = ready_check_override or module.ready_check
-    if not ready_check:
-        return True, "no ready check declared"
+    if not isinstance(profile, str): profile = str(profile or '')
+    if not isinstance(ready_check_override, str): ready_check_override = str(ready_check_override or '')
+    try:
+        ready_check = ready_check_override or module.ready_check
+        if not ready_check:
+            return True, "no ready check declared"
 
-    timeout_seconds = ready_timeout_seconds(module)
-    if ready_check == "process":
-        if process is None:
-            return False, "process ready check requires a spawned process"
-        stable_until = time.time() + min(5, timeout_seconds)
-        while time.time() < stable_until:
-            exit_code = process.poll()
-            if exit_code is not None:
-                return False, f"process exited with code {exit_code}"
-            time.sleep(0.2)
-        return True, "process is running"
+        timeout_seconds = ready_timeout_seconds(module)
+        if ready_check == "process":
+            if process is None:
+                return False, "process ready check requires a spawned process"
+            stable_until = time.time() + min(5, timeout_seconds)
+            while time.time() < stable_until:
+                exit_code = process.poll()
+                if exit_code is not None:
+                    return False, f"process exited with code {exit_code}"
+                time.sleep(0.2)
+            return True, "process is running"
 
-    deadline = time.time() + timeout_seconds
-    last_error = "ready check did not pass before timeout"
-    while time.time() < deadline:
-        if process is not None:
-            exit_code = process.poll()
-            if exit_code is not None:
-                if not ready_check.startswith(("http://", "https://")):
-                    result = run_runtime_command(
-                        ready_check,
-                        module.path,
-                        env=module_runtime_env(module, profile),
-                        timeout=timeout_seconds,
-                    )
-                    if result.returncode == 0:
-                        return True, summarize_command_output(result)
-                    ready_detail = summarize_command_output(result).rstrip(".")
-                    return False, f"{ready_detail}. Process exited with code {exit_code}"
-                return False, f"process exited with code {exit_code}"
+        deadline = time.time() + timeout_seconds
+        last_error = "ready check did not pass before timeout"
+        while time.time() < deadline:
+            if process is not None:
+                exit_code = process.poll()
+                if exit_code is not None:
+                    if not ready_check.startswith(("http://", "https://")):
+                        result = run_runtime_command(
+                            ready_check,
+                            module.path,
+                            env=module_runtime_env(module, profile),
+                            timeout=timeout_seconds,
+                        )
+                        if result.returncode == 0:
+                            return True, summarize_command_output(result)
+                        ready_detail = summarize_command_output(result).rstrip(".")
+                        return False, f"{ready_detail}. Process exited with code {exit_code}"
+                    return False, f"process exited with code {exit_code}"
+            if ready_check.startswith(("http://", "https://")):
+                try:
+                    request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
+                    with urllib.request.urlopen(request, timeout=2) as response:
+                        if 200 <= int(response.status) < 400:
+                            return True, ready_check
+                        last_error = f"ready check returned HTTP {response.status}"
+                except (urllib.error.URLError, TimeoutError, OSError) as error:
+                    last_error = str(error)
+            else:
+                result = run_runtime_command(
+                    ready_check,
+                    module.path,
+                    env=module_runtime_env(module, profile),
+                    timeout=timeout_seconds,
+                )
+                if result.returncode == 0:
+                    detail = summarize_command_output(result)
+                    if process is not None:
+                        stable_until = time.time() + post_ready_watch_seconds(module)
+                        while time.time() < stable_until:
+                            exit_code = process.poll()
+                            if exit_code is not None:
+                                return False, f"{detail.rstrip('.')}. Process exited with code {exit_code}"
+                            time.sleep(0.5)
+                    return True, detail
+                last_error = summarize_command_output(result)
+            time.sleep(1)
         if ready_check.startswith(("http://", "https://")):
-            try:
-                request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
-                with urllib.request.urlopen(request, timeout=2) as response:
-                    if 200 <= int(response.status) < 400:
-                        return True, ready_check
-                    last_error = f"ready check returned HTTP {response.status}"
-            except (urllib.error.URLError, TimeoutError, OSError) as error:
-                last_error = str(error)
-        else:
-            result = run_runtime_command(
-                ready_check,
-                module.path,
-                env=module_runtime_env(module, profile),
-                timeout=timeout_seconds,
-            )
-            if result.returncode == 0:
-                detail = summarize_command_output(result)
-                if process is not None:
-                    stable_until = time.time() + post_ready_watch_seconds(module)
-                    while time.time() < stable_until:
-                        exit_code = process.poll()
-                        if exit_code is not None:
-                            return False, f"{detail.rstrip('.')}. Process exited with code {exit_code}"
-                        time.sleep(0.5)
-                return True, detail
-            last_error = summarize_command_output(result)
-        time.sleep(1)
-    if ready_check.startswith(("http://", "https://")):
-        return False, f"{ready_check} did not become ready within {timeout_seconds}s (last error: {last_error})"
-    return False, f"ready check did not pass within {timeout_seconds}s: {last_error}"
+            return False, f"{ready_check} did not become ready within {timeout_seconds}s (last error: {last_error})"
+        return False, f"ready check did not pass within {timeout_seconds}s: {last_error}"
 
 
+
+    except Exception:
+        return ()
 def ready_check_headers(ready_check: str) -> dict[str, str]:
-    if not ready_check.startswith(("http://", "https://")):
-        return {}
-    parsed = urllib.parse.urlparse(ready_check)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        return {}
-    key = os.environ.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY")
-    if not key:
-        return {}
-    return {"x-spawner-ui-key": key, "x-api-key": key}
+    if not isinstance(ready_check, str): ready_check = str(ready_check or '')
+    try:
+        if not ready_check.startswith(("http://", "https://")):
+            return {}
+        parsed = urllib.parse.urlparse(ready_check)
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            return {}
+        key = os.environ.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY")
+        if not key:
+            return {}
+        return {"x-spawner-ui-key": key, "x-api-key": key}
 
 
+
+    except Exception:
+        return {}
 def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None:
-    parts = split_single_argv_command(command, "Runtime command")
-    if len(parts) < 3 or parts[0].lower() != "npm" or parts[1] != "run":
-        return None
-    script_name = parts[2]
-    remainder = parts[3:]
-    extra_args: list[str] = []
-    if remainder:
-        if remainder[0] != "--":
+    if not isinstance(command, str): command = str(command or '')
+    if cwd is not None and not hasattr(cwd, 'resolve'): from pathlib import Path; cwd = Path(str(cwd))
+    try:
+        parts = split_single_argv_command(command, "Runtime command")
+        if len(parts) < 3 or parts[0].lower() != "npm" or parts[1] != "run":
             return None
-        extra_args = remainder[1:]
+        script_name = parts[2]
+        remainder = parts[3:]
+        extra_args: list[str] = []
+        if remainder:
+            if remainder[0] != "--":
+                return None
+            extra_args = remainder[1:]
 
-    package_json = cwd / "package.json"
-    if not package_json.exists():
-        return None
-    try:
-        package_data = json.loads(package_json.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    scripts = package_data.get("scripts")
-    script = scripts.get(script_name) if isinstance(scripts, dict) else None
-    if not isinstance(script, str) or not script.strip():
-        return None
-    try:
-        script_parts = split_single_argv_command(script, "Package script")
-    except SystemExit:
-        return None
-    if not script_parts:
+        package_json = cwd / "package.json"
+        if not package_json.exists():
+            return None
+        try:
+            package_data = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        scripts = package_data.get("scripts")
+        script = scripts.get(script_name) if isinstance(scripts, dict) else None
+        if not isinstance(script, str) or not script.strip():
+            return None
+        try:
+            script_parts = split_single_argv_command(script, "Package script")
+        except SystemExit:
+            return None
+        if not script_parts:
+            return None
+
+        node = resolve_runtime_binary("node")
+        if not node:
+            return None
+        script_executable = script_parts[0].lower()
+        if script_executable == "node":
+            return [node, *script_parts[1:], *extra_args]
+        if script_executable == "vite":
+            vite_bin = cwd / "node_modules" / "vite" / "bin" / "vite.js"
+            if vite_bin.exists():
+                return [node, str(vite_bin), *script_parts[1:], *extra_args]
+        if script_executable == "ts-node":
+            ts_node_bin = cwd / "node_modules" / "ts-node" / "dist" / "bin.js"
+            if ts_node_bin.exists():
+                return [node, str(ts_node_bin), *script_parts[1:], *extra_args]
         return None
 
-    node = resolve_runtime_binary("node")
-    if not node:
-        return None
-    script_executable = script_parts[0].lower()
-    if script_executable == "node":
-        return [node, *script_parts[1:], *extra_args]
-    if script_executable == "vite":
-        vite_bin = cwd / "node_modules" / "vite" / "bin" / "vite.js"
-        if vite_bin.exists():
-            return [node, str(vite_bin), *script_parts[1:], *extra_args]
-    if script_executable == "ts-node":
-        ts_node_bin = cwd / "node_modules" / "ts-node" / "dist" / "bin.js"
-        if ts_node_bin.exists():
-            return [node, str(ts_node_bin), *script_parts[1:], *extra_args]
-    return None
 
 
+    except Exception:
+        return []
 def user_safe_startup_detail(detail: str) -> str:
     if "TELEGRAM_RELAY_SECRET" in detail or "telegram.relay_secret" in detail:
         return "Spark could not finish connecting Telegram. Run `spark setup telegram-starter --resume`, then `spark start telegram-starter`."
