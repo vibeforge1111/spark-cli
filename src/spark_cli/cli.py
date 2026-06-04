@@ -544,11 +544,17 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
+            timeout=30,
         )
     except OSError as exc:
         raise SystemExit(
             f"git operation failed for {name}: could not start git. "
             "Install Git and make sure it is on PATH."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: operation timed out after 30 seconds. "
+            "Check network connectivity and git remote availability."
         ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
@@ -561,6 +567,7 @@ def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed
         git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
