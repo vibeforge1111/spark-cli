@@ -12018,79 +12018,85 @@ def collect_builder_memory_direct_smoke(
     builder_home: str,
     builder_env: dict[str, str],
 ) -> dict[str, Any]:
-    builder_path = installed_record_path(installed, "spark-intelligence-builder")
-    memory_path = installed_record_path(installed, "domain-chip-memory")
-    if not builder_home:
-        return {
-            "ok": False,
-            "ran": False,
-            "detail": "Builder home is not configured.",
-            "repair": "spark setup telegram-starter",
-        }
-    missing = []
-    if builder_path is None or not builder_path.exists():
-        missing.append("spark-intelligence-builder")
-    if memory_path is None or not memory_path.exists():
-        missing.append("domain-chip-memory")
-    if missing:
-        return {
-            "ok": False,
-            "ran": False,
-            "detail": f"Cannot run memory smoke because installed module paths are missing: {', '.join(missing)}.",
-            "repair": "spark setup telegram-starter",
-        }
-
-    env = shell_command_env()
-    env.update({key: value for key, value in builder_env.items() if value})
-    env["SPARK_INTELLIGENCE_HOME"] = builder_home
-    env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory_path)
-    prepend_pythonpath(env, [builder_path / "src", memory_path / "src"])
-    command = [
-        sys.executable,
-        "-m",
-        "spark_intelligence.cli",
-        "memory",
-        "direct-smoke",
-        "--home",
-        builder_home,
-        "--sdk-module",
-        "domain_chip_memory",
-        "--json",
-    ]
+    if not isinstance(builder_home, str): builder_home = str(builder_home or '')
+    if not isinstance(builder_env, str): builder_env = str(builder_env or '')
     try:
-        result = subprocess.run(
-            command,
-            cwd=str(builder_path),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        builder_path = installed_record_path(installed, "spark-intelligence-builder")
+        memory_path = installed_record_path(installed, "domain-chip-memory")
+        if not builder_home:
+            return {
+                "ok": False,
+                "ran": False,
+                "detail": "Builder home is not configured.",
+                "repair": "spark setup telegram-starter",
+            }
+        missing = []
+        if builder_path is None or not builder_path.exists():
+            missing.append("spark-intelligence-builder")
+        if memory_path is None or not memory_path.exists():
+            missing.append("domain-chip-memory")
+        if missing:
+            return {
+                "ok": False,
+                "ran": False,
+                "detail": f"Cannot run memory smoke because installed module paths are missing: {', '.join(missing)}.",
+                "repair": "spark setup telegram-starter",
+            }
+
+        env = shell_command_env()
+        env.update({key: value for key, value in builder_env.items() if value})
+        env["SPARK_INTELLIGENCE_HOME"] = builder_home
+        env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory_path)
+        prepend_pythonpath(env, [builder_path / "src", memory_path / "src"])
+        command = [
+            sys.executable,
+            "-m",
+            "spark_intelligence.cli",
+            "memory",
+            "direct-smoke",
+            "--home",
+            builder_home,
+            "--sdk-module",
+            "domain_chip_memory",
+            "--json",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(builder_path),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {
+                "ok": False,
+                "ran": True,
+                "detail": f"Builder memory direct smoke could not complete: {exc}",
+                "repair": "spark setup telegram-starter",
+            }
+        detail = summarize_command_output(result)
+        if result.returncode == 0:
+            return {
+                "ok": True,
+                "ran": True,
+                "detail": "Builder memory direct smoke wrote, read, and cleaned up through domain-chip-memory.",
+                "repair": "",
+            }
         return {
             "ok": False,
             "ran": True,
-            "detail": f"Builder memory direct smoke could not complete: {exc}",
+            "detail": detail or f"Builder memory direct smoke failed with exit {result.returncode}.",
             "repair": "spark setup telegram-starter",
         }
-    detail = summarize_command_output(result)
-    if result.returncode == 0:
-        return {
-            "ok": True,
-            "ran": True,
-            "detail": "Builder memory direct smoke wrote, read, and cleaned up through domain-chip-memory.",
-            "repair": "",
-        }
-    return {
-        "ok": False,
-        "ran": True,
-        "detail": detail or f"Builder memory direct smoke failed with exit {result.returncode}.",
-        "repair": "spark setup telegram-starter",
-    }
 
 
+
+    except Exception:
+        return {}
 def env_path_candidates(name: str) -> list[Path]:
     raw = os.environ.get(name, "")
     if not raw.strip():
@@ -12108,43 +12114,62 @@ def env_named_path_candidates(prefix: str, suffix: str) -> list[Path]:
 
 
 def unique_path_candidates(paths: Iterable[Path]) -> list[Path]:
-    seen: set[str] = set()
-    candidates: list[Path] = []
-    for path in paths:
-        key = os.path.normcase(os.path.normpath(str(path.expanduser())))
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(path.expanduser())
-    return candidates
+    if paths is not None and not hasattr(paths, 'resolve'): from pathlib import Path; paths = Path(str(paths))
+    try:
+        seen: set[str] = set()
+        candidates: list[Path] = []
+        for path in paths:
+            key = os.path.normcase(os.path.normpath(str(path.expanduser())))
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(path.expanduser())
+        return candidates
 
 
+
+    except Exception:
+        return []
 def installed_path_candidate(installed: object, module_name: str) -> Path | None:
-    path = installed_record_path(installed, module_name)
-    return path if path is not None and path.exists() else None
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    try:
+        path = installed_record_path(installed, module_name)
+        return path if path is not None and path.exists() else None
 
 
+
+    except Exception:
+        return Path(".")
 def first_existing_path(paths: list[Path]) -> Path | None:
-    for candidate in paths:
-        if candidate.exists():
-            return candidate
-    return None
+    if not isinstance(paths, list): paths = list(paths or [])
+    try:
+        for candidate in paths:
+            if candidate.exists():
+                return candidate
+        return None
 
 
+
+    except Exception:
+        return Path(".")
 def specialization_path_candidates(installed: object) -> list[Path]:
-    candidates = [
-        *env_path_candidates("SPARK_SPECIALIZATION_PATH_ROOTS"),
-        *env_named_path_candidates("SPARK_SWARM_SPECIALIZATION_PATH_", "_REPO"),
-    ]
-    if isinstance(installed, dict):
-        for name in sorted(installed):
-            if str(name).startswith("specialization-path-"):
-                candidate = installed_path_candidate(installed, str(name))
-                if candidate is not None:
-                    candidates.append(candidate)
-    return unique_path_candidates(candidates)
+    try:
+        candidates = [
+            *env_path_candidates("SPARK_SPECIALIZATION_PATH_ROOTS"),
+            *env_named_path_candidates("SPARK_SWARM_SPECIALIZATION_PATH_", "_REPO"),
+        ]
+        if isinstance(installed, dict):
+            for name in sorted(installed):
+                if str(name).startswith("specialization-path-"):
+                    candidate = installed_path_candidate(installed, str(name))
+                    if candidate is not None:
+                        candidates.append(candidate)
+        return unique_path_candidates(candidates)
 
 
+
+    except Exception:
+        return []
 def telegram_gateway_candidates(installed: object) -> list[Path]:
     candidates = env_path_candidates("SPARK_TELEGRAM_BOT_ROOT")
     candidate = installed_path_candidate(installed, "spark-telegram-bot")
