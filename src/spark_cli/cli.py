@@ -15651,13 +15651,24 @@ def cmd_search(args: argparse.Namespace) -> int:
         print("No matching modules." if query else "Registry has no modules.")
         return 1 if query else 0
 
+    # Auto-fit each hit row to the operator's terminal width so a long
+    # registry summary does not wrap mid-word and collide with the next hit's
+    # name column. Same shape `git log --oneline`, `kubectl get`, `ls`, and
+    # `tabulate(maxcolwidths=...)` use. When stdout is not a tty (piped /
+    # redirected) get_terminal_size returns the (80, 20) fallback, which is
+    # identical-or-shorter than the previous unconstrained behavior.
+    cols = shutil.get_terminal_size((80, 20)).columns
     for name, summary, blessed, installed_flag in sorted(hits):
         badges: list[str] = []
         badges.append("blessed" if blessed else "community")
         if installed_flag:
             badges.append("installed")
         badge_text = ",".join(badges)
-        print(f"{name:<30} [{badge_text}] {summary}")
+        prefix = f"{name:<30} [{badge_text}] "
+        budget = cols - len(prefix)
+        if budget > 3 and len(summary) > budget:
+            summary = summary[: budget - 3] + "..."
+        print(f"{prefix}{summary}")
     return 0
 
 
