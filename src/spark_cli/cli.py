@@ -10322,73 +10322,96 @@ def approval_enforcement_enabled() -> bool:
 
 
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
-    return ["spark", *(list(argv) if argv is not None else sys.argv[1:])]
+    if not isinstance(argv, str): argv = str(argv or '')
+    try:
+        return ["spark", *(list(argv) if argv is not None else sys.argv[1:])]
 
 
+
+    except Exception:
+        return []
 def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
-    return CommandContext(
-        surface="cli",
-        hosted=running_as_hosted_context(),
-        non_interactive=bool(getattr(args, "non_interactive", False)) or not stdin_is_tty(),
-    )
+    try:
+        return CommandContext(
+            surface="cli",
+            hosted=running_as_hosted_context(),
+            non_interactive=bool(getattr(args, "non_interactive", False)) or not stdin_is_tty(),
+        )
 
 
+
+    except Exception:
+        return None
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
-    if not decision.requires_approval:
-        return False
-    if getattr(args, "command", "") == "approval":
-        return False
-    if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
-        return False
-    if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
-        return False
-    return True
+    try:
+        if not decision.requires_approval:
+            return False
+        if getattr(args, "command", "") == "approval":
+            return False
+        if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
+            return False
+        if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
+            return False
+        return True
 
 
+
+    except Exception:
+        return False
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
-    if not approval_enforcement_enabled():
-        return None
-    context = approval_context_for_args(args)
-    decision = approval_required_for_command(command_argv, context)
-    if not should_enforce_approval(args, decision):
-        return None
-    if decision.approval_mode == "blocked":
-        print("Spark blocked a sensitive action because this shell is non-interactive.")
+    if not isinstance(command_argv, str): command_argv = str(command_argv or '')
+    try:
+        if not approval_enforcement_enabled():
+            return None
+        context = approval_context_for_args(args)
+        decision = approval_required_for_command(command_argv, context)
+        if not should_enforce_approval(args, decision):
+            return None
+        if decision.approval_mode == "blocked":
+            print("Spark blocked a sensitive action because this shell is non-interactive.")
+            print(f"Class: {decision.action_class}")
+            print(f"Risk: {decision.risk}")
+            print(f"Reason: {decision.reason}")
+            print("Run the command again in an interactive terminal so Spark can ask for confirmation.")
+            return 2
+        print("Spark needs confirmation before continuing.")
         print(f"Class: {decision.action_class}")
         print(f"Risk: {decision.risk}")
         print(f"Reason: {decision.reason}")
-        print("Run the command again in an interactive terminal so Spark can ask for confirmation.")
-        return 2
-    print("Spark needs confirmation before continuing.")
-    print(f"Class: {decision.action_class}")
-    print(f"Risk: {decision.risk}")
-    print(f"Reason: {decision.reason}")
-    if decision.target_display:
-        print(f"Target: {decision.target_display}")
-    print(f"Type exactly: {decision.confirmation_phrase}")
-    response = input("Approval phrase: ").strip().lower()
-    if response != decision.confirmation_phrase:
-        print("Approval not granted. Nothing changed.")
-        print(
-            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
-            "at the prompt to proceed."
-        )
-        return 2
-    return None
+        if decision.target_display:
+            print(f"Target: {decision.target_display}")
+        print(f"Type exactly: {decision.confirmation_phrase}")
+        response = input("Approval phrase: ").strip().lower()
+        if response != decision.confirmation_phrase:
+            print("Approval not granted. Nothing changed.")
+            print(
+                f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+                "at the prompt to proceed."
+            )
+            return 2
+        return None
 
 
+
+    except Exception:
+        return 0
 def redact_sensitive_text(value: str) -> str:
-    redacted = str(value)
-    for pattern in SENSITIVE_VALUE_PATTERNS:
-        if pattern.pattern.startswith("(?i)(api"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", redacted)
-        elif pattern.pattern.startswith("(?i)(bearer"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", redacted)
-        else:
-            redacted = pattern.sub("[REDACTED]", redacted)
-    return redacted
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        redacted = str(value)
+        for pattern in SENSITIVE_VALUE_PATTERNS:
+            if pattern.pattern.startswith("(?i)(api"):
+                redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", redacted)
+            elif pattern.pattern.startswith("(?i)(bearer"):
+                redacted = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", redacted)
+            else:
+                redacted = pattern.sub("[REDACTED]", redacted)
+        return redacted
 
 
+
+    except Exception:
+        return ""
 def redact_shareable_text(value: str) -> str:
     redacted = redact_sensitive_text(value)
     spark_home = str(SPARK_HOME)
