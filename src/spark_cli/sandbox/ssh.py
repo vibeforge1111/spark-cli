@@ -305,8 +305,10 @@ def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None)
         except OSError:
             pass
     finally:
-        if os.path.exists(tmp_name):
+        try:
             os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
     return path
 
 
