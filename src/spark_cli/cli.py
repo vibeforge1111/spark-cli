@@ -14271,56 +14271,79 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
 
 
 def spawner_should_use_liveness_endpoint(env: Any) -> bool:
-    # Spawner liveness is separate from provider readiness; provider details
-    # stay visible through `spark providers status`.
-    return True
-
-
-def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
-    if not isinstance(env, dict):
-        env = {}
-    if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        # Spawner liveness is separate from provider readiness; provider details
+        # stay visible through `spark providers status`.
         return True
-    pids = load_pids()
-    for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
-        record = pids.get(process_key)
-        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
-        if pid and pid_is_running(pid):
+
+
+
+    except Exception:
+        return False
+def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if not isinstance(env, dict):
+            env = {}
+        if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
             return True
-    return False
+        pids = load_pids()
+        for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
+            record = pids.get(process_key)
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
+            if pid and pid_is_running(pid):
+                return True
+        return False
 
 
+
+    except Exception:
+        return False
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
-    if not isinstance(env, dict):
-        env = {}
-    bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
-    if bind_port:
-        return bind_port
-    ready_check = module.ready_check or ""
-    if ready_check.startswith(("http://", "https://")):
-        parsed = urllib.parse.urlparse(ready_check)
-        if parsed.port:
-            return str(parsed.port)
-    return "3333"
-
-
-def spawner_runtime_health_url(module: Module, env: Any) -> str:
-    path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
-    return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
-
-
-def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
-    if not isinstance(env, dict):
-        env = {}
-    if not module:
-        return ""
-    if getattr(module, "name", None) == "spawner-ui":
-        bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if not isinstance(env, dict):
+            env = {}
+        bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
         if bind_port:
-            return spawner_runtime_health_url(module, env)
-    return module.ready_check
+            return bind_port
+        ready_check = module.ready_check or ""
+        if ready_check.startswith(("http://", "https://")):
+            parsed = urllib.parse.urlparse(ready_check)
+            if parsed.port:
+                return str(parsed.port)
+        return "3333"
 
 
+
+    except Exception:
+        return ""
+def spawner_runtime_health_url(module: Module, env: Any) -> str:
+    try:
+        path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
+        return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
+
+
+
+    except Exception:
+        return ""
+def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if not isinstance(env, dict):
+            env = {}
+        if not module:
+            return ""
+        if getattr(module, "name", None) == "spawner-ui":
+            bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
+            if bind_port:
+                return spawner_runtime_health_url(module, env)
+        return module.ready_check
+
+
+
+    except Exception:
+        return ""
 def expected_runtime_process_names(installed_names: Any, setup_state: dict[str, Any]) -> list[str]:
     names: list[str] = []
     if not isinstance(installed_names, (set, list, tuple)):
