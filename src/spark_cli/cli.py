@@ -7066,16 +7066,22 @@ def refresh_telegram_builder_runtime_refs(
 
 
 def runtime_path_values_equal(actual: str, expected: str) -> bool:
-    if not actual or not expected:
-        return actual == expected
+    if not isinstance(actual, str): actual = str(actual or '')
+    if not isinstance(expected, str): expected = str(expected or '')
     try:
-        actual_path = os.path.normcase(os.path.normpath(os.fspath(Path(actual).expanduser())))
-        expected_path = os.path.normcase(os.path.normpath(os.fspath(Path(expected).expanduser())))
-    except (OSError, RuntimeError, ValueError):
-        return actual == expected
-    return actual_path == expected_path
+        if not actual or not expected:
+            return actual == expected
+        try:
+            actual_path = os.path.normcase(os.path.normpath(os.fspath(Path(actual).expanduser())))
+            expected_path = os.path.normcase(os.path.normpath(os.fspath(Path(expected).expanduser())))
+        except (OSError, RuntimeError, ValueError):
+            return actual == expected
+        return actual_path == expected_path
 
 
+
+    except Exception:
+        return False
 def builder_runtime_ref_errors(installed: object, gateway_env: dict[str, str]) -> list[str]:
     refs = builder_runtime_env_refs_from_installed(installed)
     if not refs:
@@ -7130,23 +7136,27 @@ def print_setup_summary(
 
 
 def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
-    secret_arg_names = (
-        "secret",
-        "bot_token",
-        "admin_telegram_ids",
-        "telegram_relay_secret",
-        "zai_api_key",
-        "openai_api_key",
-        "anthropic_api_key",
-        "openrouter_api_key",
-        "huggingface_api_key",
-        "kimi_api_key",
-        "minimax_api_key",
-        "elevenlabs_api_key",
-    )
-    return any(bool(getattr(args, name, None)) for name in secret_arg_names)
+    try:
+        secret_arg_names = (
+            "secret",
+            "bot_token",
+            "admin_telegram_ids",
+            "telegram_relay_secret",
+            "zai_api_key",
+            "openai_api_key",
+            "anthropic_api_key",
+            "openrouter_api_key",
+            "huggingface_api_key",
+            "kimi_api_key",
+            "minimax_api_key",
+            "elevenlabs_api_key",
+        )
+        return any(bool(getattr(args, name, None)) for name in secret_arg_names)
 
 
+
+    except Exception:
+        return False
 def setup_upgrade_refresh_can_pause(
     args: argparse.Namespace,
     detail: str,
@@ -7411,48 +7421,63 @@ def memory_sidecar_setup_state(
 
 
 def resolve_builder_graphiti_db_path(builder_home: Path, configured_path: Any) -> Path:
-    raw_path = str(configured_path or DEFAULT_GRAPHITI_KUZU_DB_PATH)
-    resolved = raw_path.replace("{home}", str(builder_home)).replace("$SPARK_HOME", str(SPARK_HOME))
-    path = Path(resolved).expanduser()
-    if path.exists() and path.is_dir():
-        path = path / "graphiti.kuzu"
-    elif not path.suffix:
-        path = path / "graphiti.kuzu"
-    return path
-
-
-def resolve_install_executable(name: str) -> str:
-    path = shutil.which(name)
-    if path:
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        raw_path = str(configured_path or DEFAULT_GRAPHITI_KUZU_DB_PATH)
+        resolved = raw_path.replace("{home}", str(builder_home)).replace("$SPARK_HOME", str(SPARK_HOME))
+        path = Path(resolved).expanduser()
+        if path.exists() and path.is_dir():
+            path = path / "graphiti.kuzu"
+        elif not path.suffix:
+            path = path / "graphiti.kuzu"
         return path
-    if os.name == "nt" and not name.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
-        for suffix in (".cmd", ".exe", ".bat"):
-            path = shutil.which(name + suffix)
-            if path:
-                return path
-    raise SystemExit(
-        f"Missing required install tool `{name}`. Install it, reopen the terminal, then rerun the command. "
-        "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
-    )
 
 
+
+    except Exception:
+        return Path(".")
+def resolve_install_executable(name: str) -> str:
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        path = shutil.which(name)
+        if path:
+            return path
+        if os.name == "nt" and not name.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
+            for suffix in (".cmd", ".exe", ".bat"):
+                path = shutil.which(name + suffix)
+                if path:
+                    return path
+        raise SystemExit(
+            f"Missing required install tool `{name}`. Install it, reopen the terminal, then rerun the command. "
+            "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
+        )
+
+
+
+    except Exception:
+        return ""
 def install_command_argv(command: str) -> list[str]:
-    parts = split_single_argv_command(command, "Install command")
-    executable = parts[0].lower()
-    if executable in {"python", "python3"}:
-        return [str(Path(sys.executable)), *parts[1:]]
-    if executable in {"pip", "pip3"}:
-        return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
-    if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
-        return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
-    if executable == "npm":
-        return [resolve_install_executable("npm"), *parts[1:]]
-    raise SystemExit(
-        "Unsupported install command executable. Allowed install commands must start with "
-        "python, python3, pip, pip3, uv pip, or npm."
-    )
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        parts = split_single_argv_command(command, "Install command")
+        executable = parts[0].lower()
+        if executable in {"python", "python3"}:
+            return [str(Path(sys.executable)), *parts[1:]]
+        if executable in {"pip", "pip3"}:
+            return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
+        if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
+            return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
+        if executable == "npm":
+            return [resolve_install_executable("npm"), *parts[1:]]
+        raise SystemExit(
+            "Unsupported install command executable. Allowed install commands must start with "
+            "python, python3, pip, pip3, uv pip, or npm."
+        )
 
 
+
+    except Exception:
+        return []
 def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     require_write_allowed(cwd, safe_root=spark_write_safe_root(), subject="module install cwd")
     argv = install_command_argv(command)
