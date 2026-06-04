@@ -8770,107 +8770,116 @@ def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = 
 
 
 def execute_security_revoke_all(*, dry_run: bool = False, include_logs: bool = False) -> dict[str, Any]:
-    ensure_state_dirs()
-    created_at = timestamp_now()
-    payload: dict[str, Any] = {
-        "ok": True,
-        "summary": "Spark revoke-all security response",
-        "created_at": created_at,
-        "dry_run": dry_run,
-        "actions": {},
-        "support_bundle_path": None,
-        "manual_remote_revocations": [
-            "Telegram bot tokens were removed locally; rotate or revoke the bot with BotFather if a token leaked.",
-            "OAuth/GitHub/Scanner tokens were removed locally when present; revoke them in their provider consoles when applicable.",
-            "Cloud/provider API keys outside Spark's local secret store still need provider-side rotation.",
-        ],
-    }
+    try:
+        ensure_state_dirs()
+        created_at = timestamp_now()
+        payload: dict[str, Any] = {
+            "ok": True,
+            "summary": "Spark revoke-all security response",
+            "created_at": created_at,
+            "dry_run": dry_run,
+            "actions": {},
+            "support_bundle_path": None,
+            "manual_remote_revocations": [
+                "Telegram bot tokens were removed locally; rotate or revoke the bot with BotFather if a token leaked.",
+                "OAuth/GitHub/Scanner tokens were removed locally when present; revoke them in their provider consoles when applicable.",
+                "Cloud/provider API keys outside Spark's local secret store still need provider-side rotation.",
+            ],
+        }
 
-    with pid_file_lock():
-        tracked_processes_before = sorted(load_pids().keys())
-    payload["actions"]["autostart"] = capture_revoke_all_step(
-        "Disable Spark login autostart",
-        lambda: cmd_autostart_uninstall(argparse.Namespace()),
-        dry_run=dry_run,
-    )
-    payload["actions"]["processes"] = {
-        **capture_revoke_all_step(
-            "Stop tracked Spark processes",
-            lambda: cmd_stop(argparse.Namespace(target=None, profile=None, cascade=True)),
+        with pid_file_lock():
+            tracked_processes_before = sorted(load_pids().keys())
+        payload["actions"]["autostart"] = capture_revoke_all_step(
+            "Disable Spark login autostart",
+            lambda: cmd_autostart_uninstall(argparse.Namespace()),
             dry_run=dry_run,
-        ),
-        "tracked_processes_before": tracked_processes_before,
-    }
+        )
+        payload["actions"]["processes"] = {
+            **capture_revoke_all_step(
+                "Stop tracked Spark processes",
+                lambda: cmd_stop(argparse.Namespace(target=None, profile=None, cascade=True)),
+                dry_run=dry_run,
+            ),
+            "tracked_processes_before": tracked_processes_before,
+        }
 
-    secret_ids = sorted(list_stored_secrets())
-    telegram_tokens = telegram_tokens_for_revoke_all(secret_ids)
-    payload["actions"]["telegram"] = clear_telegram_webhook_state(telegram_tokens, dry_run=dry_run)
-    payload["actions"]["secrets"] = delete_revoke_all_secrets(secret_ids, dry_run=dry_run)
-    payload["actions"]["local_keys"] = rotate_revoke_all_env_keys(dry_run=dry_run)
-    payload["actions"]["custom_mcp"] = disable_revoke_all_custom_mcp(dry_run=dry_run)
-    payload["actions"]["missions"] = pause_revoke_all_missions(dry_run=dry_run, timestamp=created_at)
+        secret_ids = sorted(list_stored_secrets())
+        telegram_tokens = telegram_tokens_for_revoke_all(secret_ids)
+        payload["actions"]["telegram"] = clear_telegram_webhook_state(telegram_tokens, dry_run=dry_run)
+        payload["actions"]["secrets"] = delete_revoke_all_secrets(secret_ids, dry_run=dry_run)
+        payload["actions"]["local_keys"] = rotate_revoke_all_env_keys(dry_run=dry_run)
+        payload["actions"]["custom_mcp"] = disable_revoke_all_custom_mcp(dry_run=dry_run)
+        payload["actions"]["missions"] = pause_revoke_all_missions(dry_run=dry_run, timestamp=created_at)
 
-    if not dry_run:
-        try:
-            support_payload = collect_support_bundle_payload(include_logs=include_logs, log_lines=120)
-            support_payload["revoke_all"] = redact_shareable_payload(
-                redact_for_llm({key: value for key, value in payload.items() if key != "support_bundle_path"})
-            )
-            support_path = write_support_bundle(support_payload)
-            payload["support_bundle_path"] = str(support_path)
-            payload["actions"]["support_bundle"] = {"ok": True, "path": str(support_path), "include_logs": include_logs}
-        except Exception as error:
-            payload["actions"]["support_bundle"] = {"ok": False, "error": revoke_all_error_detail(error)}
-    else:
-        payload["actions"]["support_bundle"] = {"ok": True, "planned": True, "path": None}
-
-    critical_actions = ("secrets", "local_keys", "custom_mcp", "missions", "support_bundle")
-    payload["ok"] = all(bool(payload["actions"].get(name, {}).get("ok")) for name in critical_actions)
-    return payload
-
-
-def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
-    dry_run = bool(payload.get("dry_run"))
-    actions = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
-    print("Spark security revoke-all")
-    print("")
-    if dry_run:
-        print("Dry run: no local state was changed.")
-        print("")
-    for key, label in [
-        ("autostart", "login autostart"),
-        ("processes", "tracked processes"),
-        ("telegram", "Telegram webhook/session state"),
-        ("secrets", "local Spark secrets"),
-        ("local_keys", "local bridge/API keys"),
-        ("custom_mcp", "custom MCP config"),
-        ("missions", "active missions"),
-        ("support_bundle", "support bundle"),
-    ]:
-        action = actions.get(key) if isinstance(actions, dict) else None
-        if not isinstance(action, dict):
-            continue
-        marker = "[OK]" if action.get("ok") else "[CHECK]"
-        if key == "secrets":
-            detail = f"{action.get('deleted_count', 0)} secret id(s) {'would be removed' if dry_run else 'removed'}"
-        elif key == "local_keys":
-            detail = f"{len(action.get('rotated_files') or [])} generated env file(s) {'would be rotated' if dry_run else 'rotated'}"
-        elif key == "missions":
-            detail = f"{len(action.get('paused_mission_ids') or [])} mission(s) {'would be paused' if dry_run else 'paused'}"
-        elif key == "support_bundle":
-            detail = str(action.get("path") or ("planned" if dry_run else action.get("error") or "not written"))
+        if not dry_run:
+            try:
+                support_payload = collect_support_bundle_payload(include_logs=include_logs, log_lines=120)
+                support_payload["revoke_all"] = redact_shareable_payload(
+                    redact_for_llm({key: value for key, value in payload.items() if key != "support_bundle_path"})
+                )
+                support_path = write_support_bundle(support_payload)
+                payload["support_bundle_path"] = str(support_path)
+                payload["actions"]["support_bundle"] = {"ok": True, "path": str(support_path), "include_logs": include_logs}
+            except Exception as error:
+                payload["actions"]["support_bundle"] = {"ok": False, "error": revoke_all_error_detail(error)}
         else:
-            detail = "planned" if action.get("planned") else str(action.get("error") or "done")
-        print(f"{marker} {label}: {detail}")
-    if payload.get("support_bundle_path"):
+            payload["actions"]["support_bundle"] = {"ok": True, "planned": True, "path": None}
+
+        critical_actions = ("secrets", "local_keys", "custom_mcp", "missions", "support_bundle")
+        payload["ok"] = all(bool(payload["actions"].get(name, {}).get("ok")) for name in critical_actions)
+        return payload
+
+
+
+    except Exception:
+        return {}
+def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        dry_run = bool(payload.get("dry_run"))
+        actions = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
+        print("Spark security revoke-all")
         print("")
-        print(f"Redacted support bundle: {payload['support_bundle_path']}")
-    print("")
-    print("Remote cleanup still to do where applicable:")
-    for item in payload.get("manual_remote_revocations") or []:
-        print(f"  - {item}")
+        if dry_run:
+            print("Dry run: no local state was changed.")
+            print("")
+        for key, label in [
+            ("autostart", "login autostart"),
+            ("processes", "tracked processes"),
+            ("telegram", "Telegram webhook/session state"),
+            ("secrets", "local Spark secrets"),
+            ("local_keys", "local bridge/API keys"),
+            ("custom_mcp", "custom MCP config"),
+            ("missions", "active missions"),
+            ("support_bundle", "support bundle"),
+        ]:
+            action = actions.get(key) if isinstance(actions, dict) else None
+            if not isinstance(action, dict):
+                continue
+            marker = "[OK]" if action.get("ok") else "[CHECK]"
+            if key == "secrets":
+                detail = f"{action.get('deleted_count', 0)} secret id(s) {'would be removed' if dry_run else 'removed'}"
+            elif key == "local_keys":
+                detail = f"{len(action.get('rotated_files') or [])} generated env file(s) {'would be rotated' if dry_run else 'rotated'}"
+            elif key == "missions":
+                detail = f"{len(action.get('paused_mission_ids') or [])} mission(s) {'would be paused' if dry_run else 'paused'}"
+            elif key == "support_bundle":
+                detail = str(action.get("path") or ("planned" if dry_run else action.get("error") or "not written"))
+            else:
+                detail = "planned" if action.get("planned") else str(action.get("error") or "done")
+            print(f"{marker} {label}: {detail}")
+        if payload.get("support_bundle_path"):
+            print("")
+            print(f"Redacted support bundle: {payload['support_bundle_path']}")
+        print("")
+        print("Remote cleanup still to do where applicable:")
+        for item in payload.get("manual_remote_revocations") or []:
+            print(f"  - {item}")
 
 
+
+    except Exception:
+        return None
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
@@ -8932,67 +8941,75 @@ def secret_surface_file_findings(path: Path) -> dict[str, int]:
 
 
 def collect_secret_surface_payload() -> dict[str, Any]:
-    roots = [MODULE_CONFIG_DIR, LOG_DIR]
-    findings: list[dict[str, Any]] = []
-    scanned_files = 0
-    for root in roots:
-        if not root.exists():
-            continue
-        try:
-            files = [path for path in root.rglob("*") if path.is_file()]
-        except OSError:
-            continue
-        for path in files:
-            scanned_files += 1
-            counts = secret_surface_file_findings(path)
-            if counts:
-                findings.append(
-                    {
-                        "path": redact_shareable_text(str(path)),
-                        "counts": counts,
-                    }
-                )
-
-    return {
-        "ok": not findings,
-        "scanned_files": scanned_files,
-        "findings": findings,
-        "detail": (
-            f"Generated configs/logs scanned clean ({scanned_files} files)."
-            if not findings
-            else f"Found plaintext-looking secrets in {len(findings)} generated config/log file(s)."
-        ),
-        "repair": "spark fix secrets",
-    }
-
-
-def redact_secret_surface_logs() -> dict[str, Any]:
-    changed: list[str] = []
-    scanned = 0
-    if not LOG_DIR.exists():
-        return {"changed": changed, "scanned_files": scanned}
     try:
-        files = [path for path in LOG_DIR.rglob("*") if path.is_file()]
-    except OSError:
-        return {"changed": changed, "scanned_files": scanned}
-    for path in files:
-        scanned += 1
-        try:
-            if path.stat().st_size > SECRET_SURFACE_MAX_FILE_BYTES:
+        roots = [MODULE_CONFIG_DIR, LOG_DIR]
+        findings: list[dict[str, Any]] = []
+        scanned_files = 0
+        for root in roots:
+            if not root.exists():
                 continue
-            original = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        redacted = redact_sensitive_text(original)
-        if redacted != original:
             try:
-                path.write_text(redacted, encoding="utf-8")
+                files = [path for path in root.rglob("*") if path.is_file()]
             except OSError:
                 continue
-            changed.append(redact_shareable_text(str(path)))
-    return {"changed": changed, "scanned_files": scanned}
+            for path in files:
+                scanned_files += 1
+                counts = secret_surface_file_findings(path)
+                if counts:
+                    findings.append(
+                        {
+                            "path": redact_shareable_text(str(path)),
+                            "counts": counts,
+                        }
+                    )
+
+        return {
+            "ok": not findings,
+            "scanned_files": scanned_files,
+            "findings": findings,
+            "detail": (
+                f"Generated configs/logs scanned clean ({scanned_files} files)."
+                if not findings
+                else f"Found plaintext-looking secrets in {len(findings)} generated config/log file(s)."
+            ),
+            "repair": "spark fix secrets",
+        }
 
 
+
+    except Exception:
+        return {}
+def redact_secret_surface_logs() -> dict[str, Any]:
+    try:
+        changed: list[str] = []
+        scanned = 0
+        if not LOG_DIR.exists():
+            return {"changed": changed, "scanned_files": scanned}
+        try:
+            files = [path for path in LOG_DIR.rglob("*") if path.is_file()]
+        except OSError:
+            return {"changed": changed, "scanned_files": scanned}
+        for path in files:
+            scanned += 1
+            try:
+                if path.stat().st_size > SECRET_SURFACE_MAX_FILE_BYTES:
+                    continue
+                original = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            redacted = redact_sensitive_text(original)
+            if redacted != original:
+                try:
+                    path.write_text(redacted, encoding="utf-8")
+                except OSError:
+                    continue
+                changed.append(redact_shareable_text(str(path)))
+        return {"changed": changed, "scanned_files": scanned}
+
+
+
+    except Exception:
+        return {}
 def security_check(
     name: str,
     ok: bool,
@@ -9001,15 +9018,23 @@ def security_check(
     *,
     severity: str = "info",
 ) -> dict[str, Any]:
-    return {
-        "name": name,
-        "ok": bool(ok),
-        "severity": severity if not ok else "info",
-        "detail": detail,
-        "repair": repair,
-    }
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(repair, str): repair = str(repair or '')
+    if not isinstance(severity, str): severity = str(severity or '')
+    try:
+        return {
+            "name": name,
+            "ok": bool(ok),
+            "severity": severity if not ok else "info",
+            "detail": detail,
+            "repair": repair,
+        }
 
 
+
+    except Exception:
+        return {}
 def spark_home_boundary_errors(spark_home: Path = SPARK_HOME) -> list[str]:
     errors: list[str] = []
     try:
