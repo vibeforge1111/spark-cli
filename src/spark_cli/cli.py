@@ -1852,6 +1852,8 @@ def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
                 command,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
             )
             break
