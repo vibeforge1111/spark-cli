@@ -1451,6 +1451,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "git_history_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
 
+    def test_approval_classifier_flags_git_commit_amend(self) -> None:
+        amend_commands = [
+            ["git", "commit", "--amend"],
+            ["git", "commit", "--amend", "--no-edit"],
+        ]
+
+        for command in amend_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "git_history_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+        decision = approval_required_for_command(["git", "commit", "-m", "safe local commit"], CommandContext(non_interactive=True))
+        self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)
