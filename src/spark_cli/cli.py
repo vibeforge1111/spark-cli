@@ -8609,166 +8609,190 @@ def delete_revoke_all_secrets(secret_ids: Iterable[str], *, dry_run: bool = Fals
 
 
 def spawner_state_dir_for_revoke_all() -> Path:
-    spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
-    return Path(raw).expanduser()
+    try:
+        spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
+        raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
+        return Path(raw).expanduser()
 
 
+
+    except Exception:
+        return Path(".")
 def load_json_best_effort(path: Any, default: Any) -> Any:
-    if not path:
-        return default
-    path = Path(path)
     try:
-        if not path.exists():
+        if not path:
             return default
-    except OSError:
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return default
-
-
-def latest_mission_events(recent: list[Any]) -> dict[str, dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
-    if not isinstance(recent, (list, tuple, set)):
-        return latest
-    for entry in recent:
-        if not isinstance(entry, dict):
-            continue
-        mission_id = entry.get("missionId")
-        event_type = entry.get("eventType")
-        if not isinstance(mission_id, str) or not mission_id.strip():
-            continue
-        if not isinstance(event_type, str) or not event_type.strip():
-            continue
-        latest.setdefault(mission_id.strip(), entry)
-    return latest
-
-
-def pause_entry_for_revoke_all(entry: dict[str, Any], timestamp: str) -> dict[str, Any]:
-    next_entry = dict(entry)
-    next_entry.update(
-        {
-            "eventType": "mission_paused",
-            "summary": "Mission paused by spark security revoke-all.",
-            "timestamp": timestamp,
-            "source": "spark-cli-security-revoke-all",
-        }
-    )
-    next_entry["taskId"] = None
-    next_entry["taskName"] = None
-    next_entry["progress"] = None
-    return next_entry
-
-
-def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = None) -> dict[str, Any]:
-    created_at = timestamp or timestamp_now()
-    state_dir = spawner_state_dir_for_revoke_all()
-    active_path = state_dir / "active-mission.json"
-    mission_control_path = state_dir / "mission-control.json"
-    provider_results_path = state_dir / "mission-provider-results.json"
-    pause_marker_path = state_dir / "security-revoke-all.json"
-    paused_mission_ids: set[str] = set()
-    provider_results_cancelled = 0
-    failures: list[dict[str, str]] = []
-
-    mission_control = load_json_best_effort(mission_control_path, {})
-    recent = mission_control.get("recent") if isinstance(mission_control, dict) else None
-    if isinstance(recent, list):
-        latest = latest_mission_events(recent)
-        pause_entries: list[dict[str, Any]] = []
-        for mission_id, entry in latest.items():
-            event_type = str(entry.get("eventType") or "")
-            if event_type in REVOKE_ALL_TERMINAL_MISSION_EVENTS or event_type == "mission_paused":
-                continue
-            if event_type in REVOKE_ALL_PAUSABLE_MISSION_EVENTS:
-                paused_mission_ids.add(mission_id)
-                pause_entries.append(pause_entry_for_revoke_all(entry, created_at))
-        if pause_entries and not dry_run:
-            try:
-                mission_control["recent"] = [*pause_entries, *recent]
-                mission_control["totalRelayed"] = int(mission_control.get("totalRelayed") or 0) + len(pause_entries)
-                per_mission = mission_control.get("perMission")
-                if not isinstance(per_mission, dict):
-                    per_mission = {}
-                for entry in pause_entries:
-                    mission_id = str(entry.get("missionId") or "")
-                    per_mission[mission_id] = int(per_mission.get(mission_id) or 0) + 1
-                mission_control["perMission"] = per_mission
-                save_json(mission_control_path, mission_control)
-            except Exception as error:
-                failures.append({"path": str(mission_control_path), "error": revoke_all_error_detail(error)})
-
-    active = load_json_best_effort(active_path, {})
-    if isinstance(active, dict) and active:
-        mission_id = str(active.get("missionId") or active.get("id") or "").strip()
-        status = str(active.get("status") or "").strip().lower()
-        if mission_id and status not in {"completed", "failed", "cancelled", "paused"}:
-            paused_mission_ids.add(mission_id)
-            if not dry_run:
-                try:
-                    active["status"] = "paused"
-                    active["lastUpdated"] = created_at
-                    active["note"] = "Paused by spark security revoke-all"
-                    active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
-                    save_json(active_path, active)
-                except OSError as error:
-                    failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
-
-    provider_results = load_json_best_effort(provider_results_path, {})
-    missions = provider_results.get("missions") if isinstance(provider_results, dict) else None
-    if isinstance(missions, dict):
-        changed = False
-        for mission_id, results in missions.items():
-            if not isinstance(results, list):
-                continue
-            for result in results:
-                if not isinstance(result, dict):
-                    continue
-                status = str(result.get("status") or "").lower()
-                if status in REVOKE_ALL_NON_TERMINAL_PROVIDER_STATUSES:
-                    paused_mission_ids.add(str(mission_id))
-                    provider_results_cancelled += 1
-                    changed = True
-                    if not dry_run:
-                        result["status"] = "cancelled"
-                        result["error"] = "Security revoke-all stopped runtime while pausing mission."
-                        result.setdefault("completedAt", created_at)
-        if changed and not dry_run:
-            try:
-                save_json(provider_results_path, provider_results)
-            except Exception as error:
-                failures.append({"path": str(provider_results_path), "error": revoke_all_error_detail(error)})
-
-    marker = {
-        "version": 1,
-        "created_at": created_at,
-        "pause_new_missions": True,
-        "custom_mcp_disabled": True,
-        "paused_mission_ids": sorted(paused_mission_ids),
-        "reason": "spark security revoke-all",
-    }
-    if not dry_run:
+        path = Path(path)
         try:
-            save_json(pause_marker_path, marker)
-        except Exception as error:
-            failures.append({"path": str(pause_marker_path), "error": revoke_all_error_detail(error)})
-
-    return {
-        "ok": not failures,
-        "state_dir": str(state_dir),
-        "active_mission_path": str(active_path),
-        "mission_control_path": str(mission_control_path),
-        "provider_results_path": str(provider_results_path),
-        "pause_marker_path": str(pause_marker_path),
-        "paused_mission_ids": sorted(paused_mission_ids),
-        "provider_results_cancelled": provider_results_cancelled,
-        "planned": dry_run,
-        "failures": failures,
-    }
+            if not path.exists():
+                return default
+        except OSError:
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return default
 
 
+
+    except Exception:
+        return None
+def latest_mission_events(recent: list[Any]) -> dict[str, dict[str, Any]]:
+    if not isinstance(recent, list): recent = list(recent or [])
+    try:
+        latest: dict[str, dict[str, Any]] = {}
+        if not isinstance(recent, (list, tuple, set)):
+            return latest
+        for entry in recent:
+            if not isinstance(entry, dict):
+                continue
+            mission_id = entry.get("missionId")
+            event_type = entry.get("eventType")
+            if not isinstance(mission_id, str) or not mission_id.strip():
+                continue
+            if not isinstance(event_type, str) or not event_type.strip():
+                continue
+            latest.setdefault(mission_id.strip(), entry)
+        return latest
+
+
+
+    except Exception:
+        return {}
+def pause_entry_for_revoke_all(entry: dict[str, Any], timestamp: str) -> dict[str, Any]:
+    if not isinstance(entry, str): entry = str(entry or '')
+    if not isinstance(timestamp, str): timestamp = str(timestamp or '')
+    try:
+        next_entry = dict(entry)
+        next_entry.update(
+            {
+                "eventType": "mission_paused",
+                "summary": "Mission paused by spark security revoke-all.",
+                "timestamp": timestamp,
+                "source": "spark-cli-security-revoke-all",
+            }
+        )
+        next_entry["taskId"] = None
+        next_entry["taskName"] = None
+        next_entry["progress"] = None
+        return next_entry
+
+
+
+    except Exception:
+        return {}
+def pause_revoke_all_missions(*, dry_run: bool = False, timestamp: str | None = None) -> dict[str, Any]:
+    if not isinstance(timestamp, str): timestamp = str(timestamp or '')
+    try:
+        created_at = timestamp or timestamp_now()
+        state_dir = spawner_state_dir_for_revoke_all()
+        active_path = state_dir / "active-mission.json"
+        mission_control_path = state_dir / "mission-control.json"
+        provider_results_path = state_dir / "mission-provider-results.json"
+        pause_marker_path = state_dir / "security-revoke-all.json"
+        paused_mission_ids: set[str] = set()
+        provider_results_cancelled = 0
+        failures: list[dict[str, str]] = []
+
+        mission_control = load_json_best_effort(mission_control_path, {})
+        recent = mission_control.get("recent") if isinstance(mission_control, dict) else None
+        if isinstance(recent, list):
+            latest = latest_mission_events(recent)
+            pause_entries: list[dict[str, Any]] = []
+            for mission_id, entry in latest.items():
+                event_type = str(entry.get("eventType") or "")
+                if event_type in REVOKE_ALL_TERMINAL_MISSION_EVENTS or event_type == "mission_paused":
+                    continue
+                if event_type in REVOKE_ALL_PAUSABLE_MISSION_EVENTS:
+                    paused_mission_ids.add(mission_id)
+                    pause_entries.append(pause_entry_for_revoke_all(entry, created_at))
+            if pause_entries and not dry_run:
+                try:
+                    mission_control["recent"] = [*pause_entries, *recent]
+                    mission_control["totalRelayed"] = int(mission_control.get("totalRelayed") or 0) + len(pause_entries)
+                    per_mission = mission_control.get("perMission")
+                    if not isinstance(per_mission, dict):
+                        per_mission = {}
+                    for entry in pause_entries:
+                        mission_id = str(entry.get("missionId") or "")
+                        per_mission[mission_id] = int(per_mission.get(mission_id) or 0) + 1
+                    mission_control["perMission"] = per_mission
+                    save_json(mission_control_path, mission_control)
+                except Exception as error:
+                    failures.append({"path": str(mission_control_path), "error": revoke_all_error_detail(error)})
+
+        active = load_json_best_effort(active_path, {})
+        if isinstance(active, dict) and active:
+            mission_id = str(active.get("missionId") or active.get("id") or "").strip()
+            status = str(active.get("status") or "").strip().lower()
+            if mission_id and status not in {"completed", "failed", "cancelled", "paused"}:
+                paused_mission_ids.add(mission_id)
+                if not dry_run:
+                    try:
+                        active["status"] = "paused"
+                        active["lastUpdated"] = created_at
+                        active["note"] = "Paused by spark security revoke-all"
+                        active["securityRevokeAll"] = {"pausedAt": created_at, "source": "spark-cli"}
+                        save_json(active_path, active)
+                    except OSError as error:
+                        failures.append({"path": str(active_path), "error": revoke_all_error_detail(error)})
+
+        provider_results = load_json_best_effort(provider_results_path, {})
+        missions = provider_results.get("missions") if isinstance(provider_results, dict) else None
+        if isinstance(missions, dict):
+            changed = False
+            for mission_id, results in missions.items():
+                if not isinstance(results, list):
+                    continue
+                for result in results:
+                    if not isinstance(result, dict):
+                        continue
+                    status = str(result.get("status") or "").lower()
+                    if status in REVOKE_ALL_NON_TERMINAL_PROVIDER_STATUSES:
+                        paused_mission_ids.add(str(mission_id))
+                        provider_results_cancelled += 1
+                        changed = True
+                        if not dry_run:
+                            result["status"] = "cancelled"
+                            result["error"] = "Security revoke-all stopped runtime while pausing mission."
+                            result.setdefault("completedAt", created_at)
+            if changed and not dry_run:
+                try:
+                    save_json(provider_results_path, provider_results)
+                except Exception as error:
+                    failures.append({"path": str(provider_results_path), "error": revoke_all_error_detail(error)})
+
+        marker = {
+            "version": 1,
+            "created_at": created_at,
+            "pause_new_missions": True,
+            "custom_mcp_disabled": True,
+            "paused_mission_ids": sorted(paused_mission_ids),
+            "reason": "spark security revoke-all",
+        }
+        if not dry_run:
+            try:
+                save_json(pause_marker_path, marker)
+            except Exception as error:
+                failures.append({"path": str(pause_marker_path), "error": revoke_all_error_detail(error)})
+
+        return {
+            "ok": not failures,
+            "state_dir": str(state_dir),
+            "active_mission_path": str(active_path),
+            "mission_control_path": str(mission_control_path),
+            "provider_results_path": str(provider_results_path),
+            "pause_marker_path": str(pause_marker_path),
+            "paused_mission_ids": sorted(paused_mission_ids),
+            "provider_results_cancelled": provider_results_cancelled,
+            "planned": dry_run,
+            "failures": failures,
+        }
+
+
+
+    except Exception:
+        return {}
 def execute_security_revoke_all(*, dry_run: bool = False, include_logs: bool = False) -> dict[str, Any]:
     ensure_state_dirs()
     created_at = timestamp_now()
