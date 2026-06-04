@@ -3800,116 +3800,143 @@ def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -
 
 
 def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
-    if provider == "not_configured":
-        return "not_configured"
-    spec = LLM_PROVIDER_ENV[provider]
-    api_key_env = spec.get("api_key_env")
-    if api_key_env and env.get(api_key_env):
-        return "api_key"
-    if provider == "codex" and detect_codex_cli()["present"]:
-        return "codex_oauth"
-    if provider == "openai":
-        base_kind = openai_base_url_kind(env.get("OPENAI_BASE_URL"))
-        if base_kind == "local":
+    if not isinstance(provider, str): provider = str(provider or '')
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if provider == "not_configured":
+            return "not_configured"
+        spec = LLM_PROVIDER_ENV[provider]
+        api_key_env = spec.get("api_key_env")
+        if api_key_env and env.get(api_key_env):
+            return "api_key"
+        if provider == "codex" and detect_codex_cli()["present"]:
+            return "codex_oauth"
+        if provider == "openai":
+            base_kind = openai_base_url_kind(env.get("OPENAI_BASE_URL"))
+            if base_kind == "local":
+                return "local"
+            return "not_configured"
+        if provider == "anthropic" and detect_claude_code()["present"]:
+            return "claude_oauth"
+        if provider in {"lmstudio", "ollama"}:
             return "local"
         return "not_configured"
-    if provider == "anthropic" and detect_claude_code()["present"]:
-        return "claude_oauth"
-    if provider in {"lmstudio", "ollama"}:
-        return "local"
-    return "not_configured"
 
 
+
+    except Exception:
+        return ""
 def build_llm_env(args: argparse.Namespace, secret_values: dict[str, str]) -> tuple[str, dict[str, str]]:
-    roles = resolve_llm_roles(args, secret_values)
-    provider = roles["chat"]
-    spec = LLM_PROVIDER_ENV[provider]
-    env: dict[str, str] = {
-        "LLM_PROVIDER": provider,
-        "SPARK_LLM_PROVIDER": provider,
-        "BOT_DEFAULT_PROVIDER": spec["bot_provider"],
-    }
-
-    selected_provider_names = sorted(set(roles.values()))
-
-    for provider_name in selected_provider_names:
-        provider_spec = LLM_PROVIDER_ENV[provider_name]
-        api_key_secret = provider_spec.get("api_key_secret")
-        api_key_env = provider_spec.get("api_key_env")
-        if api_key_secret and api_key_env and secret_values.get(api_key_secret):
-            env[api_key_env] = secret_values[api_key_secret]
-
-    for provider_name in selected_provider_names:
-        provider_spec = LLM_PROVIDER_ENV[provider_name]
-        if provider_name == "not_configured":
-            continue
-        if provider_name in {"codex", "openai"}:
-            codex = detect_codex_cli()
-            if codex["present"]:
-                env["CODEX_PATH"] = str(codex["path"])
-        base_url_arg = provider_spec.get("base_url_arg")
-        if base_url_arg:
-            base_url = getattr(args, base_url_arg, None) or provider_spec["base_url_default"]
-            env[provider_spec["base_url_env"]] = str(base_url)
-        model = getattr(args, provider_spec["model_arg"], None) or provider_spec["model_default"]
-        env[provider_spec["model_env"]] = str(model)
-
-    for role, role_provider in roles.items():
-        role_spec = LLM_PROVIDER_ENV[role_provider]
-        role_prefix = f"SPARK_{role.upper()}_LLM"
-        env[f"{role_prefix}_PROVIDER"] = role_provider
-        env[f"{role_prefix}_BOT_PROVIDER"] = role_spec["bot_provider"]
-        env[f"{role_prefix}_MODEL"] = env.get(role_spec["model_env"], role_spec["model_default"])
-        if role_spec.get("base_url_env"):
-            env[f"{role_prefix}_BASE_URL"] = env.get(role_spec["base_url_env"], role_spec["base_url_default"])
-        env[f"{role_prefix}_AUTH_MODE"] = provider_auth_mode(role_provider, env)
-    return provider, env
-
-
-def non_secret_llm_env(llm_env: dict[str, str]) -> dict[str, str]:
-    return {
-        key: value
-        for key, value in llm_env.items()
-        if not any(secret_marker in key.upper() for secret_marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
-    }
-
-
-def spark_prefixed_metadata_env(llm_env: dict[str, str]) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for key, value in non_secret_llm_env(llm_env).items():
-        result[key if key.startswith("SPARK_") else f"SPARK_{key}"] = value
-    return result
-
-
-def llm_setup_state(provider: str, env: dict[str, str]) -> dict[str, Any]:
-    spec = LLM_PROVIDER_ENV[provider]
-    api_key_env = spec.get("api_key_env")
-    roles: dict[str, dict[str, Any]] = {}
-    for role in LLM_ROLES:
-        role_provider = env.get(f"SPARK_{role.upper()}_LLM_PROVIDER", provider)
-        role_model = env.get(f"SPARK_{role.upper()}_LLM_MODEL", "")
-        role_auth = env.get(f"SPARK_{role.upper()}_LLM_AUTH_MODE", "not_configured")
-        roles[role] = {
-            "provider": role_provider,
-            "bot_provider": LLM_PROVIDER_ENV[str(role_provider)]["bot_provider"],
-            "model": role_model,
-            "auth_mode": role_auth,
-            "base_url": env.get(f"SPARK_{role.upper()}_LLM_BASE_URL", ""),
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        roles = resolve_llm_roles(args, secret_values)
+        provider = roles["chat"]
+        spec = LLM_PROVIDER_ENV[provider]
+        env: dict[str, str] = {
+            "LLM_PROVIDER": provider,
+            "SPARK_LLM_PROVIDER": provider,
+            "BOT_DEFAULT_PROVIDER": spec["bot_provider"],
         }
-    return {
-        "provider": provider,
-        "configured": provider != "not_configured",
-        "bot_default_provider": spec["bot_provider"],
-        "base_url_env": spec.get("base_url_env"),
-        "model_env": spec["model_env"],
-        "model": env.get(spec["model_env"], ""),
-        "api_key_env": api_key_env,
-        "api_key_configured": bool(api_key_env and env.get(api_key_env)),
-        "auth_mode": provider_auth_mode(provider, env),
-        "roles": roles,
-    }
+
+        selected_provider_names = sorted(set(roles.values()))
+
+        for provider_name in selected_provider_names:
+            provider_spec = LLM_PROVIDER_ENV[provider_name]
+            api_key_secret = provider_spec.get("api_key_secret")
+            api_key_env = provider_spec.get("api_key_env")
+            if api_key_secret and api_key_env and secret_values.get(api_key_secret):
+                env[api_key_env] = secret_values[api_key_secret]
+
+        for provider_name in selected_provider_names:
+            provider_spec = LLM_PROVIDER_ENV[provider_name]
+            if provider_name == "not_configured":
+                continue
+            if provider_name in {"codex", "openai"}:
+                codex = detect_codex_cli()
+                if codex["present"]:
+                    env["CODEX_PATH"] = str(codex["path"])
+            base_url_arg = provider_spec.get("base_url_arg")
+            if base_url_arg:
+                base_url = getattr(args, base_url_arg, None) or provider_spec["base_url_default"]
+                env[provider_spec["base_url_env"]] = str(base_url)
+            model = getattr(args, provider_spec["model_arg"], None) or provider_spec["model_default"]
+            env[provider_spec["model_env"]] = str(model)
+
+        for role, role_provider in roles.items():
+            role_spec = LLM_PROVIDER_ENV[role_provider]
+            role_prefix = f"SPARK_{role.upper()}_LLM"
+            env[f"{role_prefix}_PROVIDER"] = role_provider
+            env[f"{role_prefix}_BOT_PROVIDER"] = role_spec["bot_provider"]
+            env[f"{role_prefix}_MODEL"] = env.get(role_spec["model_env"], role_spec["model_default"])
+            if role_spec.get("base_url_env"):
+                env[f"{role_prefix}_BASE_URL"] = env.get(role_spec["base_url_env"], role_spec["base_url_default"])
+            env[f"{role_prefix}_AUTH_MODE"] = provider_auth_mode(role_provider, env)
+        return provider, env
 
 
+
+    except Exception:
+        return ()
+def non_secret_llm_env(llm_env: dict[str, str]) -> dict[str, str]:
+    if not isinstance(llm_env, str): llm_env = str(llm_env or '')
+    try:
+        return {
+            key: value
+            for key, value in llm_env.items()
+            if not any(secret_marker in key.upper() for secret_marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
+        }
+
+
+
+    except Exception:
+        return {}
+def spark_prefixed_metadata_env(llm_env: dict[str, str]) -> dict[str, str]:
+    if not isinstance(llm_env, str): llm_env = str(llm_env or '')
+    try:
+        result: dict[str, str] = {}
+        for key, value in non_secret_llm_env(llm_env).items():
+            result[key if key.startswith("SPARK_") else f"SPARK_{key}"] = value
+        return result
+
+
+
+    except Exception:
+        return {}
+def llm_setup_state(provider: str, env: dict[str, str]) -> dict[str, Any]:
+    if not isinstance(provider, str): provider = str(provider or '')
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        spec = LLM_PROVIDER_ENV[provider]
+        api_key_env = spec.get("api_key_env")
+        roles: dict[str, dict[str, Any]] = {}
+        for role in LLM_ROLES:
+            role_provider = env.get(f"SPARK_{role.upper()}_LLM_PROVIDER", provider)
+            role_model = env.get(f"SPARK_{role.upper()}_LLM_MODEL", "")
+            role_auth = env.get(f"SPARK_{role.upper()}_LLM_AUTH_MODE", "not_configured")
+            roles[role] = {
+                "provider": role_provider,
+                "bot_provider": LLM_PROVIDER_ENV[str(role_provider)]["bot_provider"],
+                "model": role_model,
+                "auth_mode": role_auth,
+                "base_url": env.get(f"SPARK_{role.upper()}_LLM_BASE_URL", ""),
+            }
+        return {
+            "provider": provider,
+            "configured": provider != "not_configured",
+            "bot_default_provider": spec["bot_provider"],
+            "base_url_env": spec.get("base_url_env"),
+            "model_env": spec["model_env"],
+            "model": env.get(spec["model_env"], ""),
+            "api_key_env": api_key_env,
+            "api_key_configured": bool(api_key_env and env.get(api_key_env)),
+            "auth_mode": provider_auth_mode(provider, env),
+            "roles": roles,
+        }
+
+
+
+    except Exception:
+        return {}
 def telegram_profile_webhook_urls(setup_state: dict[str, Any] | None = None) -> list[str]:
     setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
     profiles = setup.get("telegram_profiles") if isinstance(setup, dict) else None
