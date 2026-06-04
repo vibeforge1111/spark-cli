@@ -925,21 +925,32 @@ def default_spark_home() -> Path:
 
 
 def split_windows_path_entries(path_value: str | None) -> list[str]:
-    return [part for part in (path_value or "").split(";") if part and part.strip()]
+    if not isinstance(path_value, str): path_value = str(path_value or '')
+    try:
+        return [part for part in (path_value or "").split(";") if part and part.strip()]
 
 
+
+    except Exception:
+        return []
 def remove_windows_path_entry(path_value: str | None, entry: Path) -> tuple[str, bool]:
-    target = str(entry).rstrip("\\/").casefold()
-    kept: list[str] = []
-    removed = False
-    for part in split_windows_path_entries(path_value):
-        if part.strip().rstrip("\\/").casefold() == target:
-            removed = True
-            continue
-        kept.append(part)
-    return ";".join(kept), removed
+    if not isinstance(path_value, str): path_value = str(path_value or '')
+    if entry is not None and not hasattr(entry, 'resolve'): from pathlib import Path; entry = Path(str(entry))
+    try:
+        target = str(entry).rstrip("\\/").casefold()
+        kept: list[str] = []
+        removed = False
+        for part in split_windows_path_entries(path_value):
+            if part.strip().rstrip("\\/").casefold() == target:
+                removed = True
+                continue
+            kept.append(part)
+        return ";".join(kept), removed
 
 
+
+    except Exception:
+        return ()
 def remove_spark_bin_from_windows_user_path(spark_home: Path = SPARK_HOME) -> bool:
     bin_dir = spark_home / "bin"
     user_path = os.environ.get("Path", "")
@@ -991,9 +1002,14 @@ def keychain_namespace() -> str:
 
 
 def keychain_account(secret_id: str) -> str:
-    return f"{secret_id}@{keychain_namespace()}"
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        return f"{secret_id}@{keychain_namespace()}"
 
 
+
+    except Exception:
+        return ""
 def default_home_uses_legacy_keychain() -> bool:
     try:
         return SPARK_HOME.resolve() == default_spark_home().resolve()
@@ -1022,60 +1038,70 @@ def _kernel32() -> Any:
 
 
 def dpapi_protect(value: str) -> str:
-    if os.name != "nt":
-        if not allow_insecure_file_secrets():
-            raise RuntimeError(
-                "File secret backend is disabled because this OS has no built-in Spark file encryption. "
-                "Install/configure a keyring backend, or set "
-                f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        if os.name != "nt":
+            if not allow_insecure_file_secrets():
+                raise RuntimeError(
+                    "File secret backend is disabled because this OS has no built-in Spark file encryption. "
+                    "Install/configure a keyring backend, or set "
+                    f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
+                )
+            return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
+        raw = value.encode("utf-8")
+        buffer = ctypes.create_string_buffer(raw)
+        in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
+        out_blob = _DataBlob()
+        if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
+            err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+            raise OSError(
+                f"CryptProtectData failed (Windows error code {err}). "
+                "Verify a user profile is loaded -- this call commonly fails under "
+                "SSH, scheduled tasks, or service accounts where the interactive "
+                "profile is unavailable. Re-run from an interactive desktop session, "
+                f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
             )
-        return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
-    raw = value.encode("utf-8")
-    buffer = ctypes.create_string_buffer(raw)
-    in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    out_blob = _DataBlob()
-    if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
-        raise OSError(
-            f"CryptProtectData failed (Windows error code {err}). "
-            "Verify a user profile is loaded -- this call commonly fails under "
-            "SSH, scheduled tasks, or service accounts where the interactive "
-            "profile is unavailable. Re-run from an interactive desktop session, "
-            f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
-        )
-    try:
-        protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    finally:
-        _kernel32().LocalFree(out_blob.pbData)
-    return DPAPI_SECRET_PREFIX + base64.b64encode(protected).decode("ascii")
+        try:
+            protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            _kernel32().LocalFree(out_blob.pbData)
+        return DPAPI_SECRET_PREFIX + base64.b64encode(protected).decode("ascii")
 
 
+
+    except Exception:
+        return ""
 def dpapi_unprotect(value: str) -> str:
-    if value.startswith(INSECURE_FILE_SECRET_PREFIX):
-        encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
-        return base64.b64decode(encoded).decode("utf-8")
-    if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
-        return value
-    protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
-    buffer = ctypes.create_string_buffer(protected)
-    in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    out_blob = _DataBlob()
-    if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
-        raise OSError(
-            f"CryptUnprotectData failed (Windows error code {err}). "
-            "The stored value may have been written under a different user "
-            "profile, or the master key is unreachable. Re-run from the same "
-            "user account that wrote the value, or delete the stored entry "
-            "and re-enter it with `spark setup`."
-        )
+    if not isinstance(value, str): value = str(value or '')
     try:
-        raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
-    finally:
-        _kernel32().LocalFree(out_blob.pbData)
-    return raw.decode("utf-8")
+        if value.startswith(INSECURE_FILE_SECRET_PREFIX):
+            encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
+            return base64.b64decode(encoded).decode("utf-8")
+        if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
+            return value
+        protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
+        buffer = ctypes.create_string_buffer(protected)
+        in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
+        out_blob = _DataBlob()
+        if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
+            err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+            raise OSError(
+                f"CryptUnprotectData failed (Windows error code {err}). "
+                "The stored value may have been written under a different user "
+                "profile, or the master key is unreachable. Re-run from the same "
+                "user account that wrote the value, or delete the stored entry "
+                "and re-enter it with `spark setup`."
+            )
+        try:
+            raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            _kernel32().LocalFree(out_blob.pbData)
+        return raw.decode("utf-8")
 
 
+
+    except Exception:
+        return ""
 def allow_insecure_file_secrets() -> bool:
     value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
     return value in {"1", "true", "yes"}
