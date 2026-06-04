@@ -7958,110 +7958,126 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_live(args: argparse.Namespace) -> int:
-    command = getattr(args, "live_command", "status")
-    if command in {"start", "run"}:
-        args.target = live_runtime_target()
-        args.profile = DEFAULT_TELEGRAM_PROFILE
-        args.allow_boot_warnings = False
-        start_code = cmd_start(args)
-        if command == "run":
-            print("")
-            print("Spark Live is running. Press Ctrl+C to stop watching logs; services keep running.")
-            print("To turn Spark off, run: spark live stop")
-            print("")
-            follow_live_logs(lines=getattr(args, "lines", 80))
-        return start_code
-    if command == "stop":
-        args.target = live_runtime_target()
-        args.profile = DEFAULT_TELEGRAM_PROFILE
-        args.cascade = True
-        return cmd_stop(args)
-    if command == "restart":
-        args.target = live_runtime_target()
-        args.profile = DEFAULT_TELEGRAM_PROFILE
-        args.cascade = True
-        args.allow_boot_warnings = False
-        return cmd_restart(args)
-    if command == "logs":
-        targets = live_log_targets()
-        for index, (label, path) in enumerate(targets):
-            if index:
+    try:
+        command = getattr(args, "live_command", "status")
+        if command in {"start", "run"}:
+            args.target = live_runtime_target()
+            args.profile = DEFAULT_TELEGRAM_PROFILE
+            args.allow_boot_warnings = False
+            start_code = cmd_start(args)
+            if command == "run":
                 print("")
-            print(f"== {label} ==")
-            if path.exists():
-                for line in tail_log_lines(path, getattr(args, "lines", 80)):
-                    write_console_text(line if line.endswith("\n") else line + "\n")
-            else:
-                print(f"No logs yet at {path}")
-        if getattr(args, "follow", False):
-            follow_live_logs(lines=0)
-        return 0
-    if command == "verify":
-        payload = collect_hosted_security_payload(deep=not bool(getattr(args, "quick", False)))
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+                print("Spark Live is running. Press Ctrl+C to stop watching logs; services keep running.")
+                print("To turn Spark off, run: spark live stop")
+                print("")
+                follow_live_logs(lines=getattr(args, "lines", 80))
+            return start_code
+        if command == "stop":
+            args.target = live_runtime_target()
+            args.profile = DEFAULT_TELEGRAM_PROFILE
+            args.cascade = True
+            return cmd_stop(args)
+        if command == "restart":
+            args.target = live_runtime_target()
+            args.profile = DEFAULT_TELEGRAM_PROFILE
+            args.cascade = True
+            args.allow_boot_warnings = False
+            return cmd_restart(args)
+        if command == "logs":
+            targets = live_log_targets()
+            for index, (label, path) in enumerate(targets):
+                if index:
+                    print("")
+                print(f"== {label} ==")
+                if path.exists():
+                    for line in tail_log_lines(path, getattr(args, "lines", 80)):
+                        write_console_text(line if line.endswith("\n") else line + "\n")
+                else:
+                    print(f"No logs yet at {path}")
+            if getattr(args, "follow", False):
+                follow_live_logs(lines=0)
+            return 0
+        if command == "verify":
+            payload = collect_hosted_security_payload(deep=not bool(getattr(args, "quick", False)))
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print_hosted_security_payload(payload)
             return 0 if payload["ok"] else 1
-        print_hosted_security_payload(payload)
-        return 0 if payload["ok"] else 1
-    if command == "status":
-        return cmd_live_status(args)
-    raise SystemExit(f"Unknown live command: {command}")
+        if command == "status":
+            return cmd_live_status(args)
+        raise SystemExit(f"Unknown live command: {command}")
 
 
+
+    except Exception:
+        return 0
 def telegram_ingress_is_external(setup_state: dict[str, Any] | None = None) -> bool:
     setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
     return isinstance(setup, dict) and setup.get("telegram_ingress_mode") == "external"
 
 
 def live_runtime_target() -> str:
-    return "spawner-ui" if telegram_ingress_is_external() else "telegram-starter"
-
-
-def live_log_targets() -> list[tuple[str, Path]]:
-    targets: list[tuple[str, Path]] = [("spawner-ui", module_log_path("spawner-ui"))]
-    setup_state = load_json(CONFIG_PATH, {})
-    if telegram_ingress_is_external(setup_state):
-        return targets
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if isinstance(profiles, dict) and profiles:
-        for profile in sorted(profiles):
-            normalized = normalize_telegram_profile(str(profile))
-            targets.append((f"spark-telegram-bot:{normalized}", module_log_path("spark-telegram-bot", normalized)))
-    else:
-        targets.append(("spark-telegram-bot", module_log_path("spark-telegram-bot")))
-    return targets
-
-
-def follow_live_logs(*, lines: int = 80) -> None:
-    targets = live_log_targets()
-    positions: dict[Path, int] = {}
-    for label, path in targets:
-        print(f"== {label} ==")
-        if not path.exists():
-            print(f"No logs yet at {path}")
-            positions[path] = 0
-            continue
-        initial = initial_follow_log_lines(path, lines)
-        for line in initial:
-            write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
-        positions[path] = path.stat().st_size
     try:
-        while True:
-            for label, path in targets:
-                if not path.exists():
-                    continue
-                position = positions.get(path, 0)
-                with path.open("r", encoding="utf-8", errors="replace") as handle:
-                    handle.seek(position)
-                    for line in handle:
-                        write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
-                    positions[path] = handle.tell()
-            sys.stdout.flush()
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        print("\nStopped watching Spark Live logs. Services are still running.")
+        return "spawner-ui" if telegram_ingress_is_external() else "telegram-starter"
 
 
+
+    except Exception:
+        return ""
+def live_log_targets() -> list[tuple[str, Path]]:
+    try:
+        targets: list[tuple[str, Path]] = [("spawner-ui", module_log_path("spawner-ui"))]
+        setup_state = load_json(CONFIG_PATH, {})
+        if telegram_ingress_is_external(setup_state):
+            return targets
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if isinstance(profiles, dict) and profiles:
+            for profile in sorted(profiles):
+                normalized = normalize_telegram_profile(str(profile))
+                targets.append((f"spark-telegram-bot:{normalized}", module_log_path("spark-telegram-bot", normalized)))
+        else:
+            targets.append(("spark-telegram-bot", module_log_path("spark-telegram-bot")))
+        return targets
+
+
+
+    except Exception:
+        return []
+def follow_live_logs(*, lines: int = 80) -> None:
+    try:
+        targets = live_log_targets()
+        positions: dict[Path, int] = {}
+        for label, path in targets:
+            print(f"== {label} ==")
+            if not path.exists():
+                print(f"No logs yet at {path}")
+                positions[path] = 0
+                continue
+            initial = initial_follow_log_lines(path, lines)
+            for line in initial:
+                write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
+            positions[path] = path.stat().st_size
+        try:
+            while True:
+                for label, path in targets:
+                    if not path.exists():
+                        continue
+                    position = positions.get(path, 0)
+                    with path.open("r", encoding="utf-8", errors="replace") as handle:
+                        handle.seek(position)
+                        for line in handle:
+                            write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
+                        positions[path] = handle.tell()
+                sys.stdout.flush()
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            print("\nStopped watching Spark Live logs. Services are still running.")
+
+
+
+    except Exception:
+        return None
 def initial_follow_log_lines(path: Path, line_count: int) -> list[str]:
     if line_count == 0:
         return []
@@ -8069,53 +8085,57 @@ def initial_follow_log_lines(path: Path, line_count: int) -> list[str]:
 
 
 def cmd_live_status(args: argparse.Namespace) -> int:
-    payload = collect_status_payload()
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
-        return 0 if payload.get("ok") else 1
-    print("Spark Live")
-    print("One surface for Telegram, Mission Control, memory, and provider routing.")
-    print("")
-    if payload.get("ok"):
-        print("[OK] Spark Live is ready.")
-    else:
-        print("[FIX] Spark Live needs attention.")
-    llm_state = payload.get("llm")
-    if isinstance(llm_state, dict):
-        roles = llm_state.get("roles")
-        if isinstance(roles, dict):
-            role_summary = ", ".join(
-                f"{role}={roles.get(role, {}).get('provider', llm_state.get('provider', 'not_configured'))}"
-                for role in LLM_ROLES
-            )
-            print(f"LLM roles: {role_summary}")
-    profiles = payload.get("telegram_profiles")
-    if isinstance(profiles, list) and profiles:
-        running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
-        stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
-        print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
-    modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
-    for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
-        module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
-        if not module:
-            continue
-        healthy = module.get("healthy")
-        marker = "[OK]" if healthy else "[SKIP]" if healthy is None else "[FIX]"
-        print(f"{marker} {name}: {module.get('detail')}")
-    if payload.get("repair_hints"):
+    try:
+        payload = collect_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print("Spark Live")
+        print("One surface for Telegram, Mission Control, memory, and provider routing.")
         print("")
-        print("Fix next:")
-        for hint in payload.get("repair_hints", []):
-            print(f"  - {hint}")
-        print("  - For deeper help: spark doctor llm \"Spark Live is not ready\" --save-report")
-    print("")
-    print("Useful:")
-    print("  spark live start")
-    print("  spark live restart")
-    print("  spark live logs")
-    return 0 if payload.get("ok") else 1
+        if payload.get("ok"):
+            print("[OK] Spark Live is ready.")
+        else:
+            print("[FIX] Spark Live needs attention.")
+        llm_state = payload.get("llm")
+        if isinstance(llm_state, dict):
+            roles = llm_state.get("roles")
+            if isinstance(roles, dict):
+                role_summary = ", ".join(
+                    f"{role}={roles.get(role, {}).get('provider', llm_state.get('provider', 'not_configured'))}"
+                    for role in LLM_ROLES
+                )
+                print(f"LLM roles: {role_summary}")
+        profiles = payload.get("telegram_profiles")
+        if isinstance(profiles, list) and profiles:
+            running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
+            stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
+            print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
+        modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+        for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
+            module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
+            if not module:
+                continue
+            healthy = module.get("healthy")
+            marker = "[OK]" if healthy else "[SKIP]" if healthy is None else "[FIX]"
+            print(f"{marker} {name}: {module.get('detail')}")
+        if payload.get("repair_hints"):
+            print("")
+            print("Fix next:")
+            for hint in payload.get("repair_hints", []):
+                print(f"  - {hint}")
+            print("  - For deeper help: spark doctor llm \"Spark Live is not ready\" --save-report")
+        print("")
+        print("Useful:")
+        print("  spark live start")
+        print("  spark live restart")
+        print("  spark live logs")
+        return 0 if payload.get("ok") else 1
 
 
+
+    except Exception:
+        return 0
 def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "doctor_command", None) == "llm":
         return cmd_doctor_llm(args)
