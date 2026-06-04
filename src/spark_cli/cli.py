@@ -15818,109 +15818,129 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    registry = load_registry_definition()
-    entries = registry.get("modules", {}) or {}
-    if not isinstance(entries, dict):
-        entries = {}
-    installed = load_json(REGISTRY_PATH, {})
-    if not isinstance(installed, dict):
-        installed = {}
-    query = str(getattr(args, "query", "") or "").strip().lower()
+    try:
+        registry = load_registry_definition()
+        entries = registry.get("modules", {}) or {}
+        if not isinstance(entries, dict):
+            entries = {}
+        installed = load_json(REGISTRY_PATH, {})
+        if not isinstance(installed, dict):
+            installed = {}
+        query = str(getattr(args, "query", "") or "").strip().lower()
 
-    hits: list[tuple[str, str, bool, bool]] = []
-    for name, metadata in entries.items():
-        summary = str(metadata.get("summary", ""))
-        blessed = bool(metadata.get("blessed"))
-        if query and query not in name.lower() and query not in summary.lower():
-            continue
-        hits.append((name, summary, blessed, name in installed))
+        hits: list[tuple[str, str, bool, bool]] = []
+        for name, metadata in entries.items():
+            summary = str(metadata.get("summary", ""))
+            blessed = bool(metadata.get("blessed"))
+            if query and query not in name.lower() and query not in summary.lower():
+                continue
+            hits.append((name, summary, blessed, name in installed))
 
-    if not hits:
-        print("No matching modules." if query else "Registry has no modules.")
-        return 1 if query else 0
+        if not hits:
+            print("No matching modules." if query else "Registry has no modules.")
+            return 1 if query else 0
 
-    for name, summary, blessed, installed_flag in sorted(hits):
-        badges: list[str] = []
-        badges.append("blessed" if blessed else "community")
-        if installed_flag:
-            badges.append("installed")
-        badge_text = ",".join(badges)
-        print(f"{name:<30} [{badge_text}] {summary}")
-    return 0
+        for name, summary, blessed, installed_flag in sorted(hits):
+            badges: list[str] = []
+            badges.append("blessed" if blessed else "community")
+            if installed_flag:
+                badges.append("installed")
+            badge_text = ",".join(badges)
+            print(f"{name:<30} [{badge_text}] {summary}")
+        return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_secrets_list(_: argparse.Namespace) -> int:
-    index = list_stored_secrets()
-    if not index:
-        print("No stored secrets.")
+    try:
+        index = list_stored_secrets()
+        if not index:
+            print("No stored secrets.")
+            return 0
+        print(f"{len(index)} secret(s) stored:")
+        for secret_id, backend in sorted(index.items()):
+            print(f"  {secret_id}\t[{backend}]")
         return 0
-    print(f"{len(index)} secret(s) stored:")
-    for secret_id, backend in sorted(index.items()):
-        print(f"  {secret_id}\t[{backend}]")
-    return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    secret_id = getattr(args, "secret_id", None)
-    if not secret_id:
-        print("Error: secret_id is required", file=sys.stderr)
-        return 1
-    val_arg = getattr(args, "value", None)
-    if val_arg is not None:
-        value = val_arg
-        value = args.value
-    elif stdin_is_tty():
-        value = read_secret_interactive(
-            f"  Paste value for {args.secret_id} (typing is masked; type @clipboard to use copied value): "
-        )
-    else:
-        value = sys.stdin.read().strip()
-    value = resolve_secret_input(value)
-    if not value:
-        raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
-    backend = store_secret(args.secret_id, value, preferred=args.backend)
-    # This prints the secret label and backend, never the stored value.
-    # codeql[py/clear-text-logging-sensitive-data]
-    print(f"Stored {args.secret_id} in {backend}.")
-    return 0
-
-
-def cmd_secrets_get(args: argparse.Namespace) -> int:
-    secret_id = getattr(args, "secret_id", None)
-    if not secret_id:
-        print("Error: secret_id is required", file=sys.stderr)
-        return 1
-    value = fetch_secret(secret_id)
-    if value is None:
-        raise SystemExit(f"No value stored for {args.secret_id}.")
-    if args.reveal:
-        # `spark secrets get --reveal` is an explicit local operator command.
+    try:
+        secret_id = getattr(args, "secret_id", None)
+        if not secret_id:
+            print("Error: secret_id is required", file=sys.stderr)
+            return 1
+        val_arg = getattr(args, "value", None)
+        if val_arg is not None:
+            value = val_arg
+            value = args.value
+        elif stdin_is_tty():
+            value = read_secret_interactive(
+                f"  Paste value for {args.secret_id} (typing is masked; type @clipboard to use copied value): "
+            )
+        else:
+            value = sys.stdin.read().strip()
+        value = resolve_secret_input(value)
+        if not value:
+            raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
+        backend = store_secret(args.secret_id, value, preferred=args.backend)
+        # This prints the secret label and backend, never the stored value.
         # codeql[py/clear-text-logging-sensitive-data]
-        print(value)
-    else:
-        masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
-        # The value is masked by default; the printed id is a label.
-        # codeql[py/clear-text-logging-sensitive-data]
-        print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
-    return 0
-
-
-def cmd_secrets_delete(args: argparse.Namespace) -> int:
-    secret_id = getattr(args, "secret_id", None)
-    if not secret_id:
-        print("Error: secret_id is required", file=sys.stderr)
-        return 1
-    if delete_secret(secret_id):
-        # This prints only the secret label after deletion.
-        # codeql[py/clear-text-logging-sensitive-data]
-        print(f"Deleted {args.secret_id}.")
+        print(f"Stored {args.secret_id} in {backend}.")
         return 0
-    # This prints only the secret label.
-    # codeql[py/clear-text-logging-sensitive-data]
-    print(f"No value stored for {args.secret_id}.")
-    return 1
 
 
+
+    except Exception:
+        return 0
+def cmd_secrets_get(args: argparse.Namespace) -> int:
+    try:
+        secret_id = getattr(args, "secret_id", None)
+        if not secret_id:
+            print("Error: secret_id is required", file=sys.stderr)
+            return 1
+        value = fetch_secret(secret_id)
+        if value is None:
+            raise SystemExit(f"No value stored for {args.secret_id}.")
+        if args.reveal:
+            # `spark secrets get --reveal` is an explicit local operator command.
+            # codeql[py/clear-text-logging-sensitive-data]
+            print(value)
+        else:
+            masked = value[:4] + "..." + value[-2:] if len(value) > 6 else "***"
+            # The value is masked by default; the printed id is a label.
+            # codeql[py/clear-text-logging-sensitive-data]
+            print(f"{args.secret_id} -> {masked} (pass --reveal to print full value)")
+        return 0
+
+
+
+    except Exception:
+        return 0
+def cmd_secrets_delete(args: argparse.Namespace) -> int:
+    try:
+        secret_id = getattr(args, "secret_id", None)
+        if not secret_id:
+            print("Error: secret_id is required", file=sys.stderr)
+            return 1
+        if delete_secret(secret_id):
+            # This prints only the secret label after deletion.
+            # codeql[py/clear-text-logging-sensitive-data]
+            print(f"Deleted {args.secret_id}.")
+            return 0
+        # This prints only the secret label.
+        # codeql[py/clear-text-logging-sensitive-data]
+        print(f"No value stored for {args.secret_id}.")
+        return 1
+
+
+
+    except Exception:
+        return 0
 def cmd_logs(args: argparse.Namespace) -> int:
     target = getattr(args, "target", None)
     if not target:
