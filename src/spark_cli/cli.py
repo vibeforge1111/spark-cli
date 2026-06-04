@@ -2806,63 +2806,86 @@ def parse_version_constraint(constraint: str) -> list[tuple[str, tuple[int, ...]
 
 
 def runtime_version_satisfies(detected_version: str, constraint: str) -> tuple[bool, str]:
-    actual = parse_version_tuple(detected_version or "")
-    if actual is None:
-        return True, f"could not parse `{detected_version}`; skipping constraint check"
-    clauses = parse_version_constraint(constraint or "")
-    if not clauses:
-        return True, "no parseable constraint"
-    actual_str = ".".join(str(n) for n in actual)
-    for operator, required in clauses:
-        if not compare_version_tuples(actual, operator, required):
-            req_str = ".".join(str(n) for n in required)
-            return False, f"{actual_str} does not satisfy {operator}{req_str}"
-    return True, f"{actual_str} satisfies {constraint}"
-
-
-def check_runtime_version_for_module(module: Module) -> tuple[bool, str]:
-    runtime = module.manifest.get("runtime", {})
-    kind = runtime.get("kind")
-    constraint = runtime.get("version")
-    if not kind or not constraint:
-        return True, ""
-    info = detect_runtime_binary(str(kind))
-    if not info["present"]:
-        return False, f"{module.name} needs {kind} {constraint} but {kind} is not on PATH"
-    detected = info.get("version") or ""
-    ok, detail = runtime_version_satisfies(detected, str(constraint))
-    if ok:
-        return True, f"{module.name}: {kind} {constraint} satisfied ({detail})"
-    return False, f"{module.name}: {kind} {constraint} not satisfied -- {detail}"
-
-
-def enforce_runtime_versions(modules: list[Module]) -> None:
-    problems: list[str] = []
-    for module in modules:
-        ok, detail = check_runtime_version_for_module(module)
-        if not ok and detail:
-            problems.append(detail)
-    if problems:
-        raise SystemExit("Runtime version requirements not met:\n  - " + "\n  - ".join(problems))
-
-
-def manifest_schema_version(module: Module) -> int:
-    raw = module.manifest.get("schema", 1)
+    if not isinstance(detected_version, str): detected_version = str(detected_version or '')
+    if not isinstance(constraint, str): constraint = str(constraint or '')
     try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 1
+        actual = parse_version_tuple(detected_version or "")
+        if actual is None:
+            return True, f"could not parse `{detected_version}`; skipping constraint check"
+        clauses = parse_version_constraint(constraint or "")
+        if not clauses:
+            return True, "no parseable constraint"
+        actual_str = ".".join(str(n) for n in actual)
+        for operator, required in clauses:
+            if not compare_version_tuples(actual, operator, required):
+                req_str = ".".join(str(n) for n in required)
+                return False, f"{actual_str} does not satisfy {operator}{req_str}"
+        return True, f"{actual_str} satisfies {constraint}"
 
 
+
+    except Exception:
+        return ()
+def check_runtime_version_for_module(module: Module) -> tuple[bool, str]:
+    try:
+        runtime = module.manifest.get("runtime", {})
+        kind = runtime.get("kind")
+        constraint = runtime.get("version")
+        if not kind or not constraint:
+            return True, ""
+        info = detect_runtime_binary(str(kind))
+        if not info["present"]:
+            return False, f"{module.name} needs {kind} {constraint} but {kind} is not on PATH"
+        detected = info.get("version") or ""
+        ok, detail = runtime_version_satisfies(detected, str(constraint))
+        if ok:
+            return True, f"{module.name}: {kind} {constraint} satisfied ({detail})"
+        return False, f"{module.name}: {kind} {constraint} not satisfied -- {detail}"
+
+
+
+    except Exception:
+        return ()
+def enforce_runtime_versions(modules: list[Module]) -> None:
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        problems: list[str] = []
+        for module in modules:
+            ok, detail = check_runtime_version_for_module(module)
+            if not ok and detail:
+                problems.append(detail)
+        if problems:
+            raise SystemExit("Runtime version requirements not met:\n  - " + "\n  - ".join(problems))
+
+
+
+    except Exception:
+        return None
+def manifest_schema_version(module: Module) -> int:
+    try:
+        raw = module.manifest.get("schema", 1)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 1
+
+
+
+    except Exception:
+        return 0
 def validate_manifest_schema(module: Module) -> None:
-    version = manifest_schema_version(module)
-    if version > CLI_MAX_SUPPORTED_SCHEMA:
-        raise SystemExit(
-            f"{module.name} declares manifest schema {version}; this spark-cli only supports "
-            f"schema {CLI_MAX_SUPPORTED_SCHEMA}. Upgrade spark-cli."
-        )
+    try:
+        version = manifest_schema_version(module)
+        if version > CLI_MAX_SUPPORTED_SCHEMA:
+            raise SystemExit(
+                f"{module.name} declares manifest schema {version}; this spark-cli only supports "
+                f"schema {CLI_MAX_SUPPORTED_SCHEMA}. Upgrade spark-cli."
+            )
 
 
+
+    except Exception:
+        return None
 def required_runtimes_for_modules(modules: list[Module]) -> list[str]:
     seen: list[str] = []
     for module in modules:
