@@ -13049,85 +13049,110 @@ def hosted_secret_file_permission_errors(paths: list[Path] | None = None) -> lis
 
 
 def hosted_llm_role_providers(env: dict[str, str] | None = None) -> dict[str, str]:
-    source = env if env is not None else os.environ
-    default_provider = (source.get("SPARK_LLM_PROVIDER") or "").strip().lower()
-    return {
-        "chat": (source.get("SPARK_CHAT_LLM_PROVIDER") or default_provider).strip().lower(),
-        "builder": (source.get("SPARK_BUILDER_LLM_PROVIDER") or default_provider).strip().lower(),
-        "memory": (source.get("SPARK_MEMORY_LLM_PROVIDER") or default_provider).strip().lower(),
-        "mission": (source.get("SPARK_MISSION_LLM_PROVIDER") or default_provider).strip().lower(),
-    }
-
-
-def hosted_headless_provider_errors(env: dict[str, str] | None = None) -> list[str]:
-    source = env if env is not None else os.environ
-    role_providers = hosted_llm_role_providers(source)
-    errors: list[str] = []
-
-    if not any(role_providers.values()):
-        return ["No hosted LLM provider is configured."]
-
-    for role, provider in role_providers.items():
-        if not provider or provider in {"none", "not_configured"}:
-            errors.append(f"{role} provider is not configured.")
-            continue
-
-        auth_mode = (source.get(f"SPARK_{role.upper()}_LLM_AUTH_MODE") or source.get("SPARK_LLM_AUTH_MODE") or "").strip().lower()
-        if auth_mode == "codex_oauth":
-            errors.append(f"{role} uses Codex OAuth; hosted Docker/Railway needs a dedicated OPENAI_API_KEY.")
-        elif provider == "codex" and not (source.get("OPENAI_API_KEY") or "").strip():
-            errors.append(f"{role} uses Codex CLI but OPENAI_API_KEY is not configured for hosted mode.")
-        elif provider == "anthropic" and auth_mode == "claude_oauth":
-            errors.append(f"{role} uses Claude Code OAuth/CLI; hosted Docker/Railway needs ANTHROPIC_API_KEY.")
-        elif provider == "anthropic" and not (source.get("ANTHROPIC_API_KEY") or "").strip():
-            errors.append(f"{role} uses Anthropic Claude but ANTHROPIC_API_KEY is not configured for hosted mode.")
-
-    return errors
-
-
-def hosted_local_provider_endpoint_errors(env: dict[str, str] | None = None) -> list[str]:
-    source = env if env is not None else os.environ
-    role_providers = hosted_llm_role_providers(source)
-    errors: list[str] = []
-    local_provider_urls = {
-        "lmstudio": source.get("LMSTUDIO_BASE_URL") or source.get("SPARK_LMSTUDIO_BASE_URL") or "",
-        "ollama": source.get("OLLAMA_URL") or source.get("SPARK_OLLAMA_URL") or "",
-    }
-    for role, provider in role_providers.items():
-        if provider not in local_provider_urls:
-            continue
-        url = local_provider_urls[provider]
-        if not url:
-            continue
-        host = (urllib.parse.urlparse(url).hostname or "").lower()
-        if host in {"localhost", "127.0.0.1", "::1"}:
-            errors.append(
-                f"{role} uses {provider} at {url}; hosted Docker/Railway should use host.docker.internal or a reachable private provider URL."
-            )
-    return errors
-
-
-def proc_status_fields(status_path: Path = Path("/proc/self/status")) -> dict[str, str]:
-    fields: dict[str, str] = {}
+    if not isinstance(env, str): env = str(env or '')
     try:
-        text = status_path.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, OSError):
+        source = env if env is not None else os.environ
+        default_provider = (source.get("SPARK_LLM_PROVIDER") or "").strip().lower()
+        return {
+            "chat": (source.get("SPARK_CHAT_LLM_PROVIDER") or default_provider).strip().lower(),
+            "builder": (source.get("SPARK_BUILDER_LLM_PROVIDER") or default_provider).strip().lower(),
+            "memory": (source.get("SPARK_MEMORY_LLM_PROVIDER") or default_provider).strip().lower(),
+            "mission": (source.get("SPARK_MISSION_LLM_PROVIDER") or default_provider).strip().lower(),
+        }
+
+
+
+    except Exception:
+        return {}
+def hosted_headless_provider_errors(env: dict[str, str] | None = None) -> list[str]:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        source = env if env is not None else os.environ
+        role_providers = hosted_llm_role_providers(source)
+        errors: list[str] = []
+
+        if not any(role_providers.values()):
+            return ["No hosted LLM provider is configured."]
+
+        for role, provider in role_providers.items():
+            if not provider or provider in {"none", "not_configured"}:
+                errors.append(f"{role} provider is not configured.")
+                continue
+
+            auth_mode = (source.get(f"SPARK_{role.upper()}_LLM_AUTH_MODE") or source.get("SPARK_LLM_AUTH_MODE") or "").strip().lower()
+            if auth_mode == "codex_oauth":
+                errors.append(f"{role} uses Codex OAuth; hosted Docker/Railway needs a dedicated OPENAI_API_KEY.")
+            elif provider == "codex" and not (source.get("OPENAI_API_KEY") or "").strip():
+                errors.append(f"{role} uses Codex CLI but OPENAI_API_KEY is not configured for hosted mode.")
+            elif provider == "anthropic" and auth_mode == "claude_oauth":
+                errors.append(f"{role} uses Claude Code OAuth/CLI; hosted Docker/Railway needs ANTHROPIC_API_KEY.")
+            elif provider == "anthropic" and not (source.get("ANTHROPIC_API_KEY") or "").strip():
+                errors.append(f"{role} uses Anthropic Claude but ANTHROPIC_API_KEY is not configured for hosted mode.")
+
+        return errors
+
+
+
+    except Exception:
+        return []
+def hosted_local_provider_endpoint_errors(env: dict[str, str] | None = None) -> list[str]:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        source = env if env is not None else os.environ
+        role_providers = hosted_llm_role_providers(source)
+        errors: list[str] = []
+        local_provider_urls = {
+            "lmstudio": source.get("LMSTUDIO_BASE_URL") or source.get("SPARK_LMSTUDIO_BASE_URL") or "",
+            "ollama": source.get("OLLAMA_URL") or source.get("SPARK_OLLAMA_URL") or "",
+        }
+        for role, provider in role_providers.items():
+            if provider not in local_provider_urls:
+                continue
+            url = local_provider_urls[provider]
+            if not url:
+                continue
+            host = (urllib.parse.urlparse(url).hostname or "").lower()
+            if host in {"localhost", "127.0.0.1", "::1"}:
+                errors.append(
+                    f"{role} uses {provider} at {url}; hosted Docker/Railway should use host.docker.internal or a reachable private provider URL."
+                )
+        return errors
+
+
+
+    except Exception:
+        return []
+def proc_status_fields(status_path: Path = Path("/proc/self/status")) -> dict[str, str]:
+    if status_path is not None and not hasattr(status_path, 'resolve'): from pathlib import Path; status_path = Path(str(status_path))
+    try:
+        fields: dict[str, str] = {}
+        try:
+            text = status_path.read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, OSError):
+            return fields
+        for line in text.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
         return fields
-    for line in text.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        fields[key.strip()] = value.strip()
-    return fields
 
 
+
+    except Exception:
+        return {}
 def linux_no_new_privileges_enabled(status_path: Path = Path("/proc/self/status")) -> bool | None:
-    fields = proc_status_fields(status_path)
-    if "NoNewPrivs" not in fields:
-        return None
-    return fields["NoNewPrivs"].split()[0] == "1"
+    if status_path is not None and not hasattr(status_path, 'resolve'): from pathlib import Path; status_path = Path(str(status_path))
+    try:
+        fields = proc_status_fields(status_path)
+        if "NoNewPrivs" not in fields:
+            return None
+        return fields["NoNewPrivs"].split()[0] == "1"
 
 
+
+    except Exception:
+        return False
 def linux_effective_capabilities_dropped(status_path: Path = Path("/proc/self/status")) -> bool | None:
     fields = proc_status_fields(status_path)
     value = fields.get("CapEff")
