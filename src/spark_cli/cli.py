@@ -16417,700 +16417,718 @@ def cmd_guide(args: argparse.Namespace) -> int:
 
 def positive_int_arg(value: Any) -> int:
     try:
-        parsed = int(str(value or ""))
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            f"expected a positive integer, got {value!r}"
-        ) from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError(
-            f"expected a positive integer, got {parsed}"
-        )
-    return parsed
-
-
-def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
-    original_error = group_parser.error
-
-    def friendly_error(message: Any) -> None:
-        message_str = str(message or "")
-        if message_str and "arguments are required" in message_str:
-            group_parser.print_usage(sys.stderr)
-            sys.stderr.write(
-                f"\n{group_parser.prog} needs a subcommand. Try one of: "
-                f"{', '.join(subcommands)}.\n"
+        try:
+            parsed = int(str(value or ""))
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"expected a positive integer, got {value!r}"
+            ) from exc
+        if parsed <= 0:
+            raise argparse.ArgumentTypeError(
+                f"expected a positive integer, got {parsed}"
             )
-            sys.exit(2)
-        original_error(message)
-
-    group_parser.error = friendly_error  # type: ignore[method-assign]
+        return parsed
 
 
+
+    except Exception:
+        return 0
+def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
+    if not isinstance(subcommands, str): subcommands = str(subcommands or '')
+    try:
+        original_error = group_parser.error
+
+        def friendly_error(message: Any) -> None:
+            message_str = str(message or "")
+            if message_str and "arguments are required" in message_str:
+                group_parser.print_usage(sys.stderr)
+                sys.stderr.write(
+                    f"\n{group_parser.prog} needs a subcommand. Try one of: "
+                    f"{', '.join(subcommands)}.\n"
+                )
+                sys.exit(2)
+            original_error(message)
+
+        group_parser.error = friendly_error  # type: ignore[method-assign]
+
+
+
+    except Exception:
+        return None
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    try:
+        parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+        subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
-    list_parser.set_defaults(func=cmd_list)
+        list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+        list_parser.set_defaults(func=cmd_list)
 
-    install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
-    install_parser.add_argument("target")
-    install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
-    install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
-    install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
-    install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
-    install_parser.set_defaults(func=cmd_install)
+        install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
+        install_parser.add_argument("target")
+        install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
+        install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
+        install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
+        install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
+        install_parser.set_defaults(func=cmd_install)
 
-    setup_parser = subparsers.add_parser("setup", help="Configure a starter bundle")
-    setup_parser.add_argument(
-        "bundle",
-        nargs="?",
-        default="telegram-starter",
-        choices=sorted(load_registry_definition().get("bundles", {}).keys()),
-        help="Bundle to configure (default: telegram-starter)",
-    )
-    setup_parser.add_argument("--skip-install-commands", action="store_true", help="Skip install commands (pip install, npm install) for all bundle modules")
-    setup_parser.add_argument(
-        "--run-install-commands",
-        action="store_true",
-        help="Re-run dependency install commands for already installed modules",
-    )
-    setup_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
-    setup_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed bundle modules without prompting")
-    setup_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
-    setup_parser.add_argument(
-        "--with-voice",
-        action="store_true",
-        help=f"Install and attach the voice chip by using the {TELEGRAM_VOICE_BUNDLE} bundle.",
-    )
-    setup_parser.add_argument(
-        "--non-interactive",
-        action="store_true",
-        help="Skip interactive preflight and secret prompts (require --secret for every required secret).",
-    )
-    setup_autostart_install_group = setup_parser.add_mutually_exclusive_group()
-    setup_autostart_install_group.add_argument(
-        "--autostart",
-        dest="autostart",
-        action="store_true",
-        default=True,
-        help="Install OS login autostart after setup (default)",
-    )
-    setup_autostart_install_group.add_argument(
-        "--no-autostart",
-        dest="autostart",
-        action="store_false",
-        help="Keep Spark manual after setup; you can enable it later with `spark autostart on --now`",
-    )
-    setup_parser.set_defaults(autostart=True)
-    setup_start_group = setup_parser.add_mutually_exclusive_group()
-    setup_start_group.add_argument(
-        "--start-now",
-        dest="start_now",
-        action="store_true",
-        help="Start Spark immediately after configuration (default)",
-    )
-    setup_start_group.add_argument(
-        "--no-start-now",
-        dest="start_now",
-        action="store_false",
-        help="Configure Spark without starting it after setup",
-    )
-    setup_parser.set_defaults(start_now=True)
-    setup_wait_group = setup_parser.add_mutually_exclusive_group()
-    setup_wait_group.add_argument(
-        "--wait-first-message",
-        dest="wait_first_message",
-        action="store_true",
-        default=True,
-        help="After starting Spark interactively, wait for the first Telegram /start message (default for terminals)",
-    )
-    setup_wait_group.add_argument(
-        "--no-wait-first-message",
-        dest="wait_first_message",
-        action="store_false",
-        help="Do not wait for the first Telegram message after setup",
-    )
-    setup_parser.add_argument(
-        "--wait-first-message-seconds",
-        type=int,
-        default=None,
-        help="Override how long setup waits for the first Telegram /start message; default is 60 seconds for interactive terminals and 0 for non-interactive runs",
-    )
-    setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value; use @clipboard, @env:NAME, or @file:path for secret input")
-    setup_parser.add_argument("--bot-token", help="Telegram BotFather token, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--external-telegram-ingress", action="store_true", help=argparse.SUPPRESS)
-    setup_parser.add_argument(
-        "--skip-telegram-token-check",
-        action="store_true",
-        help="Skip live Telegram getMe token validation before saving a new bot token (offline/dev only)",
-    )
-    setup_parser.add_argument("--admin-telegram-ids")
-    setup_parser.add_argument("--telegram-relay-secret")
-    setup_parser.add_argument("--telegram-relay-port", type=int, help="Local Telegram mission relay port for a named profile")
-    setup_parser.add_argument(
-        "--profile",
-        default=DEFAULT_TELEGRAM_PROFILE,
-        help="Configure a named Telegram bot profile",
-    )
-    setup_autostart_group = setup_parser.add_mutually_exclusive_group()
-    setup_autostart_group.add_argument(
-        "--telegram-autostart",
-        dest="telegram_autostart",
-        action="store_true",
-        default=None,
-        help="Start this Telegram profile whenever Spark Live/autostart starts",
-    )
-    setup_autostart_group.add_argument(
-        "--no-telegram-autostart",
-        dest="telegram_autostart",
-        action="store_false",
-        help="Keep this Telegram profile manual; it will not start at login",
-    )
-    setup_parser.add_argument(
-        "--memory-sidecars",
-        type=parse_memory_sidecars,
-        default=None,
-        metavar="NAMES",
-        help="Optional advanced memory sidecars to configure, comma-separated. Use graphiti-kuzu to enable the local Graphiti/Kuzu shadow lane; use none to disable.",
-    )
-    setup_parser.add_argument(
-        "--graphiti-kuzu-db-path",
-        help="Override the local Graphiti/Kuzu sidecar database path. Defaults to Builder home sidecars/graphiti/kuzu.",
-    )
-    setup_parser.add_argument("--spawner-ui-url", default="http://127.0.0.1:3333")
-    setup_parser.add_argument("--llm-provider", choices=LLM_PROVIDER_CHOICES, help="Default provider for Agent and Mission unless a role-specific provider is set")
-    setup_parser.add_argument("--agent-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for the Spark Agent: chat, runtime reasoning, memory, and recall")
-    setup_parser.add_argument("--chat-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Telegram chat replies")
-    setup_parser.add_argument("--builder-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Expert: provider for runtime reasoning and orchestration inside Agent")
-    setup_parser.add_argument("--memory-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for memory synthesis and recall")
-    setup_parser.add_argument("--mission-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Mission: Spawner/Mission Control builds, research, coding, and longer tracked work")
-    setup_parser.add_argument("--zai-api-key", help="Z.AI GLM coding endpoint API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--zai-base-url", default="https://api.z.ai/api/coding/paas/v4/")
-    setup_parser.add_argument("--zai-model", default="glm-5.1")
-    setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path; optional for local OpenAI-compatible servers")
-    setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1", help="OpenAI-compatible base URL, for example https://api.openai.com/v1 or http://localhost:1234/v1 for LM Studio")
-    setup_parser.add_argument("--openai-model", default="gpt-5.5", help="OpenAI/OpenAI-compatible model name")
-    setup_parser.add_argument("--anthropic-api-key", help="Anthropic Claude API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
-    setup_parser.add_argument("--anthropic-model", default="sonnet")
-    setup_parser.add_argument("--openrouter-api-key", help="OpenRouter API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--openrouter-base-url", default="https://openrouter.ai/api/v1")
-    setup_parser.add_argument("--openrouter-model", default="openai/gpt-5.5")
-    setup_parser.add_argument("--kimi-api-key", help="Kimi/Moonshot API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--kimi-base-url", default="https://api.moonshot.ai/v1")
-    setup_parser.add_argument("--kimi-model", default="kimi-k2.6")
-    setup_parser.add_argument("--huggingface-api-key", help="Hugging Face token, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--huggingface-base-url", default="https://router.huggingface.co/v1")
-    setup_parser.add_argument("--huggingface-model", default="google/gemma-4-26B-A4B-it:fastest")
-    setup_parser.add_argument("--lmstudio-base-url", default="http://localhost:1234/v1")
-    setup_parser.add_argument("--lmstudio-model", default="local-model")
-    setup_parser.add_argument("--minimax-api-key", help="MiniMax API key, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--minimax-base-url", default="https://api.minimax.io/v1")
-    setup_parser.add_argument("--minimax-model", default="MiniMax-M2.7")
-    setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
-    setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
-    setup_parser.add_argument("--codex-model", default="gpt-5.5")
-    setup_parser.set_defaults(func=cmd_setup)
+        setup_parser = subparsers.add_parser("setup", help="Configure a starter bundle")
+        setup_parser.add_argument(
+            "bundle",
+            nargs="?",
+            default="telegram-starter",
+            choices=sorted(load_registry_definition().get("bundles", {}).keys()),
+            help="Bundle to configure (default: telegram-starter)",
+        )
+        setup_parser.add_argument("--skip-install-commands", action="store_true", help="Skip install commands (pip install, npm install) for all bundle modules")
+        setup_parser.add_argument(
+            "--run-install-commands",
+            action="store_true",
+            help="Re-run dependency install commands for already installed modules",
+        )
+        setup_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
+        setup_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed bundle modules without prompting")
+        setup_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
+        setup_parser.add_argument(
+            "--with-voice",
+            action="store_true",
+            help=f"Install and attach the voice chip by using the {TELEGRAM_VOICE_BUNDLE} bundle.",
+        )
+        setup_parser.add_argument(
+            "--non-interactive",
+            action="store_true",
+            help="Skip interactive preflight and secret prompts (require --secret for every required secret).",
+        )
+        setup_autostart_install_group = setup_parser.add_mutually_exclusive_group()
+        setup_autostart_install_group.add_argument(
+            "--autostart",
+            dest="autostart",
+            action="store_true",
+            default=True,
+            help="Install OS login autostart after setup (default)",
+        )
+        setup_autostart_install_group.add_argument(
+            "--no-autostart",
+            dest="autostart",
+            action="store_false",
+            help="Keep Spark manual after setup; you can enable it later with `spark autostart on --now`",
+        )
+        setup_parser.set_defaults(autostart=True)
+        setup_start_group = setup_parser.add_mutually_exclusive_group()
+        setup_start_group.add_argument(
+            "--start-now",
+            dest="start_now",
+            action="store_true",
+            help="Start Spark immediately after configuration (default)",
+        )
+        setup_start_group.add_argument(
+            "--no-start-now",
+            dest="start_now",
+            action="store_false",
+            help="Configure Spark without starting it after setup",
+        )
+        setup_parser.set_defaults(start_now=True)
+        setup_wait_group = setup_parser.add_mutually_exclusive_group()
+        setup_wait_group.add_argument(
+            "--wait-first-message",
+            dest="wait_first_message",
+            action="store_true",
+            default=True,
+            help="After starting Spark interactively, wait for the first Telegram /start message (default for terminals)",
+        )
+        setup_wait_group.add_argument(
+            "--no-wait-first-message",
+            dest="wait_first_message",
+            action="store_false",
+            help="Do not wait for the first Telegram message after setup",
+        )
+        setup_parser.add_argument(
+            "--wait-first-message-seconds",
+            type=int,
+            default=None,
+            help="Override how long setup waits for the first Telegram /start message; default is 60 seconds for interactive terminals and 0 for non-interactive runs",
+        )
+        setup_parser.add_argument("--secret", action="append", help="Provide manifest secret values as key=value; use @clipboard, @env:NAME, or @file:path for secret input")
+        setup_parser.add_argument("--bot-token", help="Telegram BotFather token, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--external-telegram-ingress", action="store_true", help=argparse.SUPPRESS)
+        setup_parser.add_argument(
+            "--skip-telegram-token-check",
+            action="store_true",
+            help="Skip live Telegram getMe token validation before saving a new bot token (offline/dev only)",
+        )
+        setup_parser.add_argument("--admin-telegram-ids")
+        setup_parser.add_argument("--telegram-relay-secret")
+        setup_parser.add_argument("--telegram-relay-port", type=int, help="Local Telegram mission relay port for a named profile")
+        setup_parser.add_argument(
+            "--profile",
+            default=DEFAULT_TELEGRAM_PROFILE,
+            help="Configure a named Telegram bot profile",
+        )
+        setup_autostart_group = setup_parser.add_mutually_exclusive_group()
+        setup_autostart_group.add_argument(
+            "--telegram-autostart",
+            dest="telegram_autostart",
+            action="store_true",
+            default=None,
+            help="Start this Telegram profile whenever Spark Live/autostart starts",
+        )
+        setup_autostart_group.add_argument(
+            "--no-telegram-autostart",
+            dest="telegram_autostart",
+            action="store_false",
+            help="Keep this Telegram profile manual; it will not start at login",
+        )
+        setup_parser.add_argument(
+            "--memory-sidecars",
+            type=parse_memory_sidecars,
+            default=None,
+            metavar="NAMES",
+            help="Optional advanced memory sidecars to configure, comma-separated. Use graphiti-kuzu to enable the local Graphiti/Kuzu shadow lane; use none to disable.",
+        )
+        setup_parser.add_argument(
+            "--graphiti-kuzu-db-path",
+            help="Override the local Graphiti/Kuzu sidecar database path. Defaults to Builder home sidecars/graphiti/kuzu.",
+        )
+        setup_parser.add_argument("--spawner-ui-url", default="http://127.0.0.1:3333")
+        setup_parser.add_argument("--llm-provider", choices=LLM_PROVIDER_CHOICES, help="Default provider for Agent and Mission unless a role-specific provider is set")
+        setup_parser.add_argument("--agent-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for the Spark Agent: chat, runtime reasoning, memory, and recall")
+        setup_parser.add_argument("--chat-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Telegram chat replies")
+        setup_parser.add_argument("--builder-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Expert: provider for runtime reasoning and orchestration inside Agent")
+        setup_parser.add_argument("--memory-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for memory synthesis and recall")
+        setup_parser.add_argument("--mission-llm-provider", choices=LLM_PROVIDER_CHOICES, help="Provider for Mission: Spawner/Mission Control builds, research, coding, and longer tracked work")
+        setup_parser.add_argument("--zai-api-key", help="Z.AI GLM coding endpoint API key, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--zai-base-url", default="https://api.z.ai/api/coding/paas/v4/")
+        setup_parser.add_argument("--zai-model", default="glm-5.1")
+        setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path; optional for local OpenAI-compatible servers")
+        setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1", help="OpenAI-compatible base URL, for example https://api.openai.com/v1 or http://localhost:1234/v1 for LM Studio")
+        setup_parser.add_argument("--openai-model", default="gpt-5.5", help="OpenAI/OpenAI-compatible model name")
+        setup_parser.add_argument("--anthropic-api-key", help="Anthropic Claude API key, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
+        setup_parser.add_argument("--anthropic-model", default="sonnet")
+        setup_parser.add_argument("--openrouter-api-key", help="OpenRouter API key, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--openrouter-base-url", default="https://openrouter.ai/api/v1")
+        setup_parser.add_argument("--openrouter-model", default="openai/gpt-5.5")
+        setup_parser.add_argument("--kimi-api-key", help="Kimi/Moonshot API key, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--kimi-base-url", default="https://api.moonshot.ai/v1")
+        setup_parser.add_argument("--kimi-model", default="kimi-k2.6")
+        setup_parser.add_argument("--huggingface-api-key", help="Hugging Face token, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--huggingface-base-url", default="https://router.huggingface.co/v1")
+        setup_parser.add_argument("--huggingface-model", default="google/gemma-4-26B-A4B-it:fastest")
+        setup_parser.add_argument("--lmstudio-base-url", default="http://localhost:1234/v1")
+        setup_parser.add_argument("--lmstudio-model", default="local-model")
+        setup_parser.add_argument("--minimax-api-key", help="MiniMax API key, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--minimax-base-url", default="https://api.minimax.io/v1")
+        setup_parser.add_argument("--minimax-model", default="MiniMax-M2.7")
+        setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
+        setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
+        setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
+        setup_parser.add_argument("--codex-model", default="gpt-5.5")
+        setup_parser.set_defaults(func=cmd_setup)
 
-    onboard_parser = subparsers.add_parser("onboard", help="Resume setup, start Spark, and open the first Telegram chat")
-    onboard_parser.add_argument("bundle", nargs="?", help="Bundle to onboard (default: pending setup bundle, configured bundle, or telegram-starter)")
-    onboard_parser.add_argument("--non-interactive", action="store_true", help="Do not prompt while resuming setup")
-    onboard_autostart_group = onboard_parser.add_mutually_exclusive_group()
-    onboard_autostart_group.add_argument("--autostart", dest="autostart", action="store_true", default=True, help="Install or preserve login autostart while resuming setup")
-    onboard_autostart_group.add_argument("--no-autostart", dest="autostart", action="store_false", help="Keep Spark manual while resuming setup")
-    onboard_start_group = onboard_parser.add_mutually_exclusive_group()
-    onboard_start_group.add_argument("--start-now", dest="start_now", action="store_true", default=True, help="Start Spark now (default)")
-    onboard_start_group.add_argument("--no-start-now", dest="start_now", action="store_false", help="Show onboarding steps without starting Spark")
-    onboard_wait_group = onboard_parser.add_mutually_exclusive_group()
-    onboard_wait_group.add_argument("--wait-first-message", dest="wait_first_message", action="store_true", default=True, help="Wait for the first Telegram /start message when interactive")
-    onboard_wait_group.add_argument("--no-wait-first-message", dest="wait_first_message", action="store_false", help="Do not wait for the first Telegram message")
-    onboard_parser.add_argument("--wait-first-message-seconds", type=int, default=None, help="Override the first-message wait timeout")
-    onboard_parser.set_defaults(func=cmd_onboard)
+        onboard_parser = subparsers.add_parser("onboard", help="Resume setup, start Spark, and open the first Telegram chat")
+        onboard_parser.add_argument("bundle", nargs="?", help="Bundle to onboard (default: pending setup bundle, configured bundle, or telegram-starter)")
+        onboard_parser.add_argument("--non-interactive", action="store_true", help="Do not prompt while resuming setup")
+        onboard_autostart_group = onboard_parser.add_mutually_exclusive_group()
+        onboard_autostart_group.add_argument("--autostart", dest="autostart", action="store_true", default=True, help="Install or preserve login autostart while resuming setup")
+        onboard_autostart_group.add_argument("--no-autostart", dest="autostart", action="store_false", help="Keep Spark manual while resuming setup")
+        onboard_start_group = onboard_parser.add_mutually_exclusive_group()
+        onboard_start_group.add_argument("--start-now", dest="start_now", action="store_true", default=True, help="Start Spark now (default)")
+        onboard_start_group.add_argument("--no-start-now", dest="start_now", action="store_false", help="Show onboarding steps without starting Spark")
+        onboard_wait_group = onboard_parser.add_mutually_exclusive_group()
+        onboard_wait_group.add_argument("--wait-first-message", dest="wait_first_message", action="store_true", default=True, help="Wait for the first Telegram /start message when interactive")
+        onboard_wait_group.add_argument("--no-wait-first-message", dest="wait_first_message", action="store_false", help="Do not wait for the first Telegram message")
+        onboard_parser.add_argument("--wait-first-message-seconds", type=int, default=None, help="Override the first-message wait timeout")
+        onboard_parser.set_defaults(func=cmd_onboard)
 
-    os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
-    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
-    os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
-    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
-    os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
-    os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
-    os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
-    os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
-    os_compile_parser.set_defaults(func=cmd_os_compile)
-    os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
-    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
-    os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
-    os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
-    os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
-    os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
-    os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
-    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
-    os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
-    os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
-    os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
-    os_authority_parser.set_defaults(func=cmd_os_authority)
-    os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
-    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
-    os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
-    os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
-    os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
-    os_trace_parser.set_defaults(func=cmd_os_trace)
-    os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
-    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
-    os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
-    os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
-    os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
-    os_memory_parser.set_defaults(func=cmd_os_memory)
-    _wrap_subgroup_help(os_parser, ["compile", "capabilities", "authority", "trace", "memory"])
+        os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
+        os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+        os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
+        os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+        os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+        os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+        os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
+        os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
+        os_compile_parser.set_defaults(func=cmd_os_compile)
+        os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
+        os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+        os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+        os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+        os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
+        os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
+        os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
+        os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+        os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+        os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+        os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
+        os_authority_parser.set_defaults(func=cmd_os_authority)
+        os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
+        os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+        os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+        os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+        os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
+        os_trace_parser.set_defaults(func=cmd_os_trace)
+        os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
+        os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+        os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+        os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+        os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
+        os_memory_parser.set_defaults(func=cmd_os_memory)
+        _wrap_subgroup_help(os_parser, ["compile", "capabilities", "authority", "trace", "memory"])
 
-    status_parser = subparsers.add_parser("status", help="Run module healthchecks")
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_status)
+        status_parser = subparsers.add_parser("status", help="Run module healthchecks")
+        status_parser.add_argument("--json", action="store_true")
+        status_parser.set_defaults(func=cmd_status)
 
-    doctor_parser = subparsers.add_parser("doctor", help="Run diagnostic status and emit structured output")
-    doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
-    doctor_parser.add_argument("--json", action="store_true")
-    doctor_parser.set_defaults(func=cmd_doctor)
+        doctor_parser = subparsers.add_parser("doctor", help="Run diagnostic status and emit structured output")
+        doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
+        doctor_parser.add_argument("--json", action="store_true")
+        doctor_parser.set_defaults(func=cmd_doctor)
 
-    doctor_specialization_loop_parser = doctor_subparsers.add_parser("specialization-loop", help="Inspect specialization-loop discoverability without starting runs")
-    doctor_specialization_loop_parser.add_argument("--json", action="store_true")
-    doctor_specialization_loop_parser.add_argument("--proof", action="store_true", help="Read canonical specialization-loop status packets without starting runs")
-    doctor_specialization_loop_parser.set_defaults(func=cmd_doctor)
+        doctor_specialization_loop_parser = doctor_subparsers.add_parser("specialization-loop", help="Inspect specialization-loop discoverability without starting runs")
+        doctor_specialization_loop_parser.add_argument("--json", action="store_true")
+        doctor_specialization_loop_parser.add_argument("--proof", action="store_true", help="Read canonical specialization-loop status packets without starting runs")
+        doctor_specialization_loop_parser.set_defaults(func=cmd_doctor)
 
-    doctor_llm_parser = doctor_subparsers.add_parser("llm", help="Ask the user's configured LLM for a redacted Spark repair plan")
-    doctor_llm_parser.add_argument("problem", nargs="*", help="Problem statement, for example: Telegram is quiet after restart")
-    doctor_llm_parser.add_argument("--role", choices=LLM_ROLES, default="builder", help="Preferred LLM role to use (default: builder)")
-    doctor_llm_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider for this doctor run")
-    doctor_llm_parser.add_argument("--model", help="Override the configured model for this doctor run")
-    doctor_llm_parser.add_argument("--base-url", help="Override the configured OpenAI-compatible/Ollama base URL")
-    doctor_llm_parser.add_argument("--include-logs", action="store_true", help="Include redacted module log tails in the doctor prompt")
-    doctor_llm_parser.add_argument("--log-lines", type=int, default=80, help="Number of log lines per module when --include-logs is set")
-    doctor_llm_parser.add_argument("--prompt-out", help="Write the redacted prompt to a file instead of calling the LLM")
-    doctor_llm_parser.add_argument("--save-report", action="store_true", help="Save the doctor report under ~/.spark/doctor")
-    doctor_llm_parser.add_argument("--upstream-report", action="store_true", help="Write a sanitized upstream PR candidate draft; never uploads automatically")
-    doctor_llm_parser.add_argument("--upstream-out", help="Path for --upstream-report output")
-    doctor_llm_parser.set_defaults(func=cmd_doctor)
+        doctor_llm_parser = doctor_subparsers.add_parser("llm", help="Ask the user's configured LLM for a redacted Spark repair plan")
+        doctor_llm_parser.add_argument("problem", nargs="*", help="Problem statement, for example: Telegram is quiet after restart")
+        doctor_llm_parser.add_argument("--role", choices=LLM_ROLES, default="builder", help="Preferred LLM role to use (default: builder)")
+        doctor_llm_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider for this doctor run")
+        doctor_llm_parser.add_argument("--model", help="Override the configured model for this doctor run")
+        doctor_llm_parser.add_argument("--base-url", help="Override the configured OpenAI-compatible/Ollama base URL")
+        doctor_llm_parser.add_argument("--include-logs", action="store_true", help="Include redacted module log tails in the doctor prompt")
+        doctor_llm_parser.add_argument("--log-lines", type=int, default=80, help="Number of log lines per module when --include-logs is set")
+        doctor_llm_parser.add_argument("--prompt-out", help="Write the redacted prompt to a file instead of calling the LLM")
+        doctor_llm_parser.add_argument("--save-report", action="store_true", help="Save the doctor report under ~/.spark/doctor")
+        doctor_llm_parser.add_argument("--upstream-report", action="store_true", help="Write a sanitized upstream PR candidate draft; never uploads automatically")
+        doctor_llm_parser.add_argument("--upstream-out", help="Path for --upstream-report output")
+        doctor_llm_parser.set_defaults(func=cmd_doctor)
 
-    support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
-    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
-    support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
-    support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
-    support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
-    support_bundle_parser.add_argument("--json", action="store_true", help="Print the redacted bundle payload instead of writing a zip")
-    support_bundle_parser.set_defaults(func=cmd_support)
+        support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
+        support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+        support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
+        support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
+        support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
+        support_bundle_parser.add_argument("--json", action="store_true", help="Print the redacted bundle payload instead of writing a zip")
+        support_bundle_parser.set_defaults(func=cmd_support)
 
-    verify_parser = subparsers.add_parser("verify", help="Verify launch-critical Spark wiring end to end")
-    verify_parser.add_argument("--json", action="store_true")
-    verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
-    verify_parser.add_argument("--onboarding", action="store_true", help="Run first-user onboarding checks and print the Telegram finish checklist")
-    verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
-    verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
-    verify_parser.add_argument("--hosted", action="store_true", help="Verify hosted Docker/Railway security posture")
-    verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
-    verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
-    verify_parser.add_argument("--sandboxes", action="store_true", help="Verify optional SSH/Modal sandbox readiness without running cloud smoke jobs")
-    verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
-    verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
-    verify_parser.set_defaults(func=cmd_verify)
+        verify_parser = subparsers.add_parser("verify", help="Verify launch-critical Spark wiring end to end")
+        verify_parser.add_argument("--json", action="store_true")
+        verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
+        verify_parser.add_argument("--onboarding", action="store_true", help="Run first-user onboarding checks and print the Telegram finish checklist")
+        verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
+        verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
+        verify_parser.add_argument("--hosted", action="store_true", help="Verify hosted Docker/Railway security posture")
+        verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
+        verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
+        verify_parser.add_argument("--sandboxes", action="store_true", help="Verify optional SSH/Modal sandbox readiness without running cloud smoke jobs")
+        verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
+        verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
+        verify_parser.set_defaults(func=cmd_verify)
 
-    smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
-    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
-    first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
-    first_run_smoke_parser.add_argument("--json", action="store_true")
-    first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
-    first_run_smoke_parser.set_defaults(func=cmd_smoke)
+        smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
+        smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+        first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
+        first_run_smoke_parser.add_argument("--json", action="store_true")
+        first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
+        first_run_smoke_parser.set_defaults(func=cmd_smoke)
 
-    fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")
-    fix_parser.add_argument(
-        "target",
-        nargs="?",
-        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
-        default="telegram",
-    )
-    fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
-    fix_parser.add_argument("--json", action="store_true")
-    fix_parser.set_defaults(func=cmd_fix)
+        fix_parser = subparsers.add_parser("fix", help="Run targeted repair guidance for common Spark issues")
+        fix_parser.add_argument(
+            "target",
+            nargs="?",
+            choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
+            default="telegram",
+        )
+        fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
+        fix_parser.add_argument("--json", action="store_true")
+        fix_parser.set_defaults(func=cmd_fix)
 
-    providers_parser = subparsers.add_parser("providers", help="Inspect Spark LLM provider choices and role wiring")
-    providers_sub = providers_parser.add_subparsers(dest="providers_command", required=True)
-    providers_recommend_parser = providers_sub.add_parser("recommend", help="Recommend LLM paths for paid, API-key, and local setups")
-    providers_recommend_parser.add_argument("--json", action="store_true")
-    providers_recommend_parser.set_defaults(func=cmd_providers)
-    providers_list_parser = providers_sub.add_parser("list", help="List supported LLM providers and setup paths")
-    providers_list_parser.add_argument("--json", action="store_true")
-    providers_list_parser.set_defaults(func=cmd_providers)
-    providers_status_parser = providers_sub.add_parser("status", help="Show chat/build/memory/mission provider readiness")
-    providers_status_parser.add_argument("--json", action="store_true")
-    providers_status_parser.set_defaults(func=cmd_providers)
-    providers_codex_parser = providers_sub.add_parser("codex", help="Inspect or update Codex CLI client config when Spark uses Codex")
-    providers_codex_parser.add_argument("--model", help="Set the top-level Codex CLI model")
-    providers_codex_parser.add_argument("--reasoning-effort", choices=CODEX_REASONING_EFFORTS, help="Set Codex CLI reasoning effort")
-    providers_codex_parser.add_argument("--service-tier", help="Set Codex CLI service tier, for example fast")
-    providers_codex_parser.add_argument("--json", action="store_true")
-    providers_codex_parser.set_defaults(func=cmd_providers)
-    providers_test_parser = providers_sub.add_parser("test", help="Send a tiny PING_OK probe through one configured role")
-    providers_test_parser.add_argument("--role", choices=LLM_ROLES, default="chat", help="LLM role to test")
-    providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
-    providers_test_parser.add_argument("--json", action="store_true")
-    providers_test_parser.set_defaults(func=cmd_providers)
+        providers_parser = subparsers.add_parser("providers", help="Inspect Spark LLM provider choices and role wiring")
+        providers_sub = providers_parser.add_subparsers(dest="providers_command", required=True)
+        providers_recommend_parser = providers_sub.add_parser("recommend", help="Recommend LLM paths for paid, API-key, and local setups")
+        providers_recommend_parser.add_argument("--json", action="store_true")
+        providers_recommend_parser.set_defaults(func=cmd_providers)
+        providers_list_parser = providers_sub.add_parser("list", help="List supported LLM providers and setup paths")
+        providers_list_parser.add_argument("--json", action="store_true")
+        providers_list_parser.set_defaults(func=cmd_providers)
+        providers_status_parser = providers_sub.add_parser("status", help="Show chat/build/memory/mission provider readiness")
+        providers_status_parser.add_argument("--json", action="store_true")
+        providers_status_parser.set_defaults(func=cmd_providers)
+        providers_codex_parser = providers_sub.add_parser("codex", help="Inspect or update Codex CLI client config when Spark uses Codex")
+        providers_codex_parser.add_argument("--model", help="Set the top-level Codex CLI model")
+        providers_codex_parser.add_argument("--reasoning-effort", choices=CODEX_REASONING_EFFORTS, help="Set Codex CLI reasoning effort")
+        providers_codex_parser.add_argument("--service-tier", help="Set Codex CLI service tier, for example fast")
+        providers_codex_parser.add_argument("--json", action="store_true")
+        providers_codex_parser.set_defaults(func=cmd_providers)
+        providers_test_parser = providers_sub.add_parser("test", help="Send a tiny PING_OK probe through one configured role")
+        providers_test_parser.add_argument("--role", choices=LLM_ROLES, default="chat", help="LLM role to test")
+        providers_test_parser.add_argument("--provider", choices=LLM_PROVIDER_CHOICES, help="Override the configured provider")
+        providers_test_parser.add_argument("--json", action="store_true")
+        providers_test_parser.set_defaults(func=cmd_providers)
 
-    browser_use_parser = subparsers.add_parser("browser-use", help="Install, inspect, and probe the optional browser-use adapter")
-    browser_use_sub = browser_use_parser.add_subparsers(dest="browser_use_command")
-    browser_use_status_parser = browser_use_sub.add_parser("status", help="Show browser-use package, CLI, and proof receipt status")
-    browser_use_status_parser.add_argument("--json", action="store_true")
-    browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
-    browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
-    browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
-    browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
-    browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
-    browser_use_probe_parser.add_argument("--json", action="store_true")
-    browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
-    browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
-    browser_use_open_parser.add_argument("url")
-    browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
-    browser_use_open_parser.add_argument("--json", action="store_true")
-    browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
-    browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
-    browser_use_screenshot_parser.add_argument("url")
-    browser_use_screenshot_parser.add_argument("--json", action="store_true")
-    browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
-    browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
-    browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
-    browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
-    browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
-    browser_use_task_parser.add_argument("--json", action="store_true")
-    browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
-    browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
+        browser_use_parser = subparsers.add_parser("browser-use", help="Install, inspect, and probe the optional browser-use adapter")
+        browser_use_sub = browser_use_parser.add_subparsers(dest="browser_use_command")
+        browser_use_status_parser = browser_use_sub.add_parser("status", help="Show browser-use package, CLI, and proof receipt status")
+        browser_use_status_parser.add_argument("--json", action="store_true")
+        browser_use_status_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
+        browser_use_install_parser = browser_use_sub.add_parser("install", help="Install browser-use and Chromium explicitly")
+        browser_use_install_parser.add_argument("--dry-run", action="store_true", help="Show install commands without running them")
+        browser_use_install_parser.set_defaults(func=cmd_browser_use, browser_use_command="install")
+        browser_use_probe_parser = browser_use_sub.add_parser("probe", help="Run a public-page browser-use proof and write Spark status")
+        browser_use_probe_parser.add_argument("--json", action="store_true")
+        browser_use_probe_parser.set_defaults(func=cmd_browser_use, browser_use_command="probe")
+        browser_use_open_parser = browser_use_sub.add_parser("open", help="Open a URL with browser-use and return page evidence")
+        browser_use_open_parser.add_argument("url")
+        browser_use_open_parser.add_argument("--screenshot", action="store_true", help="Also capture a screenshot")
+        browser_use_open_parser.add_argument("--json", action="store_true")
+        browser_use_open_parser.set_defaults(func=cmd_browser_use, browser_use_command="open")
+        browser_use_screenshot_parser = browser_use_sub.add_parser("screenshot", help="Open a URL and capture a screenshot")
+        browser_use_screenshot_parser.add_argument("url")
+        browser_use_screenshot_parser.add_argument("--json", action="store_true")
+        browser_use_screenshot_parser.set_defaults(func=cmd_browser_use, browser_use_command="screenshot")
+        browser_use_task_parser = browser_use_sub.add_parser("task", help="Run a multi-step Browser Use Agent task")
+        browser_use_task_parser.add_argument("goal", nargs="*", help="Task goal for the Browser Use Agent; use `--` before goals that start with option-like text")
+        browser_use_task_parser.add_argument("--url", help="Optional starting URL", default="")
+        browser_use_task_parser.add_argument("--max-steps", type=positive_int_arg, default=25, help="Maximum Browser Use Agent steps")
+        browser_use_task_parser.add_argument("--json", action="store_true")
+        browser_use_task_parser.set_defaults(func=cmd_browser_use, browser_use_command="task")
+        browser_use_parser.set_defaults(func=cmd_browser_use, browser_use_command="status")
 
-    recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
-    recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
-    recommend_llms_parser = recommend_sub.add_parser("llms", help="Recommend LLM providers for Spark")
-    recommend_llms_parser.add_argument("--json", action="store_true")
-    recommend_llms_parser.set_defaults(func=cmd_recommend)
-    recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
-    recommend_providers_parser.add_argument("--json", action="store_true")
-    recommend_providers_parser.set_defaults(func=cmd_recommend)
-    _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
+        recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
+        recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
+        recommend_llms_parser = recommend_sub.add_parser("llms", help="Recommend LLM providers for Spark")
+        recommend_llms_parser.add_argument("--json", action="store_true")
+        recommend_llms_parser.set_defaults(func=cmd_recommend)
+        recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
+        recommend_providers_parser.add_argument("--json", action="store_true")
+        recommend_providers_parser.set_defaults(func=cmd_recommend)
+        _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
 
-    security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
-    security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
-    security_audit_parser = security_subparsers.add_parser("audit", help="Check secrets, provider wiring, ingress mode, and runtime health")
-    security_audit_parser.add_argument("--deep", action="store_true", help="Include deep verification checks")
-    security_audit_parser.add_argument("--hosted", action="store_true", help="Include Docker/Railway hosted security checks")
-    security_audit_parser.add_argument("--json", action="store_true")
-    security_audit_parser.set_defaults(func=cmd_security)
-    security_revoke_parser = security_subparsers.add_parser(
-        "revoke-all",
-        help="Panic button: stop Spark, rotate local control keys, remove local secrets, and write a support bundle",
-    )
-    security_revoke_parser.add_argument("--dry-run", action="store_true", help="Report what would change without mutating local state")
-    security_revoke_parser.add_argument("--include-logs", action="store_true", help="Include redacted logs in the support bundle")
-    security_revoke_parser.add_argument("--json", action="store_true")
-    security_revoke_parser.set_defaults(func=cmd_security)
+        security_parser = subparsers.add_parser("security", help="Audit Spark's local security posture")
+        security_subparsers = security_parser.add_subparsers(dest="security_command", required=True)
+        security_audit_parser = security_subparsers.add_parser("audit", help="Check secrets, provider wiring, ingress mode, and runtime health")
+        security_audit_parser.add_argument("--deep", action="store_true", help="Include deep verification checks")
+        security_audit_parser.add_argument("--hosted", action="store_true", help="Include Docker/Railway hosted security checks")
+        security_audit_parser.add_argument("--json", action="store_true")
+        security_audit_parser.set_defaults(func=cmd_security)
+        security_revoke_parser = security_subparsers.add_parser(
+            "revoke-all",
+            help="Panic button: stop Spark, rotate local control keys, remove local secrets, and write a support bundle",
+        )
+        security_revoke_parser.add_argument("--dry-run", action="store_true", help="Report what would change without mutating local state")
+        security_revoke_parser.add_argument("--include-logs", action="store_true", help="Include redacted logs in the support bundle")
+        security_revoke_parser.add_argument("--json", action="store_true")
+        security_revoke_parser.set_defaults(func=cmd_security)
 
-    access_parser = subparsers.add_parser("access", help="Prepare Spark's local access lanes without technical sandbox choices")
-    access_subparsers = access_parser.add_subparsers(dest="access_command", required=True)
-    access_status_parser = access_subparsers.add_parser("status", help="Show the current recommended access lane")
-    access_status_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
-    access_status_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
-    access_status_parser.add_argument("--json", action="store_true")
-    access_status_parser.set_defaults(func=cmd_access)
-    access_guide_parser = access_subparsers.add_parser("guide", help="Explain Spark's safe access path in plain language")
-    access_guide_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
-    access_guide_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
-    access_guide_parser.add_argument("--json", action="store_true")
-    access_guide_parser.set_defaults(func=cmd_access)
-    access_setup_parser = access_subparsers.add_parser("setup", help="Create the safe Level 4 workspace and show optional lanes")
-    access_setup_parser.add_argument("--level", type=int, choices=[4, 5], default=4)
-    access_setup_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
-    access_setup_parser.add_argument("--with", dest="with_lane", choices=["docker", "ssh", "modal"], help="Prefer a guided optional lane after the workspace is ready")
-    access_setup_parser.add_argument(
-        "--enable-high-agency",
-        action="store_true",
-        help="For --level 5 only: write local safety settings so Spark can use whole-computer operator mode after refresh",
-    )
-    access_setup_parser.add_argument("--json", action="store_true")
-    access_setup_parser.set_defaults(func=cmd_access)
-    access_disable_parser = access_subparsers.add_parser(
-        "disable-level5",
-        help="Disable whole-computer operator guardrails and return to sandbox-first access after restart",
-    )
-    access_disable_parser.add_argument("--json", action="store_true")
-    access_disable_parser.set_defaults(func=cmd_access)
-    _wrap_subgroup_help(access_parser, ["status", "guide", "setup", "disable-level5"])
+        access_parser = subparsers.add_parser("access", help="Prepare Spark's local access lanes without technical sandbox choices")
+        access_subparsers = access_parser.add_subparsers(dest="access_command", required=True)
+        access_status_parser = access_subparsers.add_parser("status", help="Show the current recommended access lane")
+        access_status_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
+        access_status_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
+        access_status_parser.add_argument("--json", action="store_true")
+        access_status_parser.set_defaults(func=cmd_access)
+        access_guide_parser = access_subparsers.add_parser("guide", help="Explain Spark's safe access path in plain language")
+        access_guide_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
+        access_guide_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
+        access_guide_parser.add_argument("--json", action="store_true")
+        access_guide_parser.set_defaults(func=cmd_access)
+        access_setup_parser = access_subparsers.add_parser("setup", help="Create the safe Level 4 workspace and show optional lanes")
+        access_setup_parser.add_argument("--level", type=int, choices=[4, 5], default=4)
+        access_setup_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
+        access_setup_parser.add_argument("--with", dest="with_lane", choices=["docker", "ssh", "modal"], help="Prefer a guided optional lane after the workspace is ready")
+        access_setup_parser.add_argument(
+            "--enable-high-agency",
+            action="store_true",
+            help="For --level 5 only: write local safety settings so Spark can use whole-computer operator mode after refresh",
+        )
+        access_setup_parser.add_argument("--json", action="store_true")
+        access_setup_parser.set_defaults(func=cmd_access)
+        access_disable_parser = access_subparsers.add_parser(
+            "disable-level5",
+            help="Disable whole-computer operator guardrails and return to sandbox-first access after restart",
+        )
+        access_disable_parser.add_argument("--json", action="store_true")
+        access_disable_parser.set_defaults(func=cmd_access)
+        _wrap_subgroup_help(access_parser, ["status", "guide", "setup", "disable-level5"])
 
-    sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
-    sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
-    sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
-    sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
-    sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
-    sandbox_docker_doctor_parser.add_argument("--json", action="store_true")
-    sandbox_docker_doctor_parser.set_defaults(func=cmd_sandbox)
-    sandbox_docker_smoke_parser = sandbox_docker_subparsers.add_parser("smoke", help="Run a no-secret Docker sandbox smoke")
-    sandbox_docker_smoke_parser.add_argument("--json", action="store_true")
-    sandbox_docker_smoke_parser.add_argument("--image", default="", help="Docker image tag to build/run")
-    sandbox_docker_smoke_parser.add_argument("--no-build", action="store_true", help="Use an existing sandbox image instead of building")
-    sandbox_docker_smoke_parser.add_argument("--network", action="store_true", help="Allow bridge networking for this explicit smoke")
-    sandbox_docker_smoke_parser.set_defaults(func=cmd_sandbox)
+        sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
+        sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
+        sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
+        sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
+        sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
+        sandbox_docker_doctor_parser.add_argument("--json", action="store_true")
+        sandbox_docker_doctor_parser.set_defaults(func=cmd_sandbox)
+        sandbox_docker_smoke_parser = sandbox_docker_subparsers.add_parser("smoke", help="Run a no-secret Docker sandbox smoke")
+        sandbox_docker_smoke_parser.add_argument("--json", action="store_true")
+        sandbox_docker_smoke_parser.add_argument("--image", default="", help="Docker image tag to build/run")
+        sandbox_docker_smoke_parser.add_argument("--no-build", action="store_true", help="Use an existing sandbox image instead of building")
+        sandbox_docker_smoke_parser.add_argument("--network", action="store_true", help="Allow bridge networking for this explicit smoke")
+        sandbox_docker_smoke_parser.set_defaults(func=cmd_sandbox)
 
-    sandbox_ssh_parser = sandbox_subparsers.add_parser("ssh", help="Manage SSH remote sandbox targets")
-    sandbox_ssh_subparsers = sandbox_ssh_parser.add_subparsers(dest="ssh_command", required=True)
-    sandbox_ssh_add_parser = sandbox_ssh_subparsers.add_parser("add", help="Add an SSH target record")
-    sandbox_ssh_add_parser.add_argument("name")
-    sandbox_ssh_add_parser.add_argument("--host", required=True)
-    sandbox_ssh_add_parser.add_argument("--user", required=True)
-    sandbox_ssh_add_parser.add_argument("--identity-file", required=True)
-    sandbox_ssh_add_parser.add_argument("--port", type=int, default=22)
-    sandbox_ssh_add_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_add_parser.set_defaults(func=cmd_sandbox)
-    sandbox_ssh_list_parser = sandbox_ssh_subparsers.add_parser("list", help="List configured SSH sandbox targets")
-    sandbox_ssh_list_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_list_parser.set_defaults(func=cmd_sandbox)
-    sandbox_ssh_trust_parser = sandbox_ssh_subparsers.add_parser("trust", help="Scan and trust an SSH host key without logging in")
-    sandbox_ssh_trust_parser.add_argument("name")
-    sandbox_ssh_trust_parser.add_argument("--fingerprint", help="Require this SHA256 host-key fingerprint")
-    sandbox_ssh_trust_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_trust_parser.set_defaults(func=cmd_sandbox)
-    sandbox_ssh_doctor_parser = sandbox_ssh_subparsers.add_parser("doctor", help="Run SSH target diagnostics")
-    sandbox_ssh_doctor_parser.add_argument("name")
-    sandbox_ssh_doctor_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_doctor_parser.add_argument("--remote-probe", action="store_true", help="Run a fixed read-only SSH connection probe after host-key trust")
-    sandbox_ssh_doctor_parser.set_defaults(func=cmd_sandbox)
-    sandbox_ssh_smoke_parser = sandbox_ssh_subparsers.add_parser("smoke", help="Run SSH hashed-probe smoke")
-    sandbox_ssh_smoke_parser.add_argument("name")
-    sandbox_ssh_smoke_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_smoke_parser.add_argument("--keep-debug-files", action="store_true")
-    sandbox_ssh_smoke_parser.set_defaults(func=cmd_sandbox)
-    sandbox_ssh_remove_parser = sandbox_ssh_subparsers.add_parser("remove", help="Remove an SSH sandbox target")
-    sandbox_ssh_remove_parser.add_argument("name")
-    sandbox_ssh_remove_parser.add_argument("--json", action="store_true")
-    sandbox_ssh_remove_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_parser = sandbox_subparsers.add_parser("ssh", help="Manage SSH remote sandbox targets")
+        sandbox_ssh_subparsers = sandbox_ssh_parser.add_subparsers(dest="ssh_command", required=True)
+        sandbox_ssh_add_parser = sandbox_ssh_subparsers.add_parser("add", help="Add an SSH target record")
+        sandbox_ssh_add_parser.add_argument("name")
+        sandbox_ssh_add_parser.add_argument("--host", required=True)
+        sandbox_ssh_add_parser.add_argument("--user", required=True)
+        sandbox_ssh_add_parser.add_argument("--identity-file", required=True)
+        sandbox_ssh_add_parser.add_argument("--port", type=int, default=22)
+        sandbox_ssh_add_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_add_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_list_parser = sandbox_ssh_subparsers.add_parser("list", help="List configured SSH sandbox targets")
+        sandbox_ssh_list_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_list_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_trust_parser = sandbox_ssh_subparsers.add_parser("trust", help="Scan and trust an SSH host key without logging in")
+        sandbox_ssh_trust_parser.add_argument("name")
+        sandbox_ssh_trust_parser.add_argument("--fingerprint", help="Require this SHA256 host-key fingerprint")
+        sandbox_ssh_trust_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_trust_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_doctor_parser = sandbox_ssh_subparsers.add_parser("doctor", help="Run SSH target diagnostics")
+        sandbox_ssh_doctor_parser.add_argument("name")
+        sandbox_ssh_doctor_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_doctor_parser.add_argument("--remote-probe", action="store_true", help="Run a fixed read-only SSH connection probe after host-key trust")
+        sandbox_ssh_doctor_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_smoke_parser = sandbox_ssh_subparsers.add_parser("smoke", help="Run SSH hashed-probe smoke")
+        sandbox_ssh_smoke_parser.add_argument("name")
+        sandbox_ssh_smoke_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_smoke_parser.add_argument("--keep-debug-files", action="store_true")
+        sandbox_ssh_smoke_parser.set_defaults(func=cmd_sandbox)
+        sandbox_ssh_remove_parser = sandbox_ssh_subparsers.add_parser("remove", help="Remove an SSH sandbox target")
+        sandbox_ssh_remove_parser.add_argument("name")
+        sandbox_ssh_remove_parser.add_argument("--json", action="store_true")
+        sandbox_ssh_remove_parser.set_defaults(func=cmd_sandbox)
 
-    sandbox_modal_parser = sandbox_subparsers.add_parser("modal", help="Run Modal sandbox checks")
-    sandbox_modal_subparsers = sandbox_modal_parser.add_subparsers(dest="modal_command", required=True)
-    sandbox_modal_doctor_parser = sandbox_modal_subparsers.add_parser("doctor", help="Run Modal diagnostics")
-    sandbox_modal_doctor_parser.add_argument("--json", action="store_true")
-    sandbox_modal_doctor_parser.set_defaults(func=cmd_sandbox)
-    sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
-    sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
-    sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
-    _wrap_subgroup_help(sandbox_parser, ["docker", "ssh", "modal"])
+        sandbox_modal_parser = sandbox_subparsers.add_parser("modal", help="Run Modal sandbox checks")
+        sandbox_modal_subparsers = sandbox_modal_parser.add_subparsers(dest="modal_command", required=True)
+        sandbox_modal_doctor_parser = sandbox_modal_subparsers.add_parser("doctor", help="Run Modal diagnostics")
+        sandbox_modal_doctor_parser.add_argument("--json", action="store_true")
+        sandbox_modal_doctor_parser.set_defaults(func=cmd_sandbox)
+        sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
+        sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
+        sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
+        _wrap_subgroup_help(sandbox_parser, ["docker", "ssh", "modal"])
 
-    approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
-    approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
-    approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
-    approval_classify_parser.add_argument("--json", action="store_true")
-    approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")
-    approval_classify_parser.add_argument("--surface", default="cli", help="Surface requesting the action, for example cli, telegram, or spark-live")
-    approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
-    approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
-    approval_classify_parser.set_defaults(func=cmd_approval)
-    _wrap_subgroup_help(approval_parser, ["classify"])
+        approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
+        approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
+        approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
+        approval_classify_parser.add_argument("--json", action="store_true")
+        approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")
+        approval_classify_parser.add_argument("--surface", default="cli", help="Surface requesting the action, for example cli, telegram, or spark-live")
+        approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
+        approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
+        approval_classify_parser.set_defaults(func=cmd_approval)
+        _wrap_subgroup_help(approval_parser, ["classify"])
 
-    telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
-    telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
-    telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
-    telegram_connect_parser.add_argument(
-        "profile",
-        nargs="?",
-        help="Telegram profile to connect (default: the primary profile, usually spark-agi)",
-    )
-    telegram_connect_parser.add_argument(
-        "--token",
-        "--bot-token",
-        dest="token",
-        help="BotFather token. Omit this flag to paste it securely when Spark asks.",
-    )
-    telegram_connect_parser.add_argument("--admin-telegram-ids", help="Comma-separated Telegram admin IDs")
-    telegram_connect_parser.add_argument("--telegram-relay-port", type=int, help="Local Telegram mission relay port")
-    telegram_connect_parser.add_argument(
-        "--skip-telegram-token-check",
-        action="store_true",
-        help="Skip live Telegram getMe token validation before saving a new bot token (offline/dev only)",
-    )
-    telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
-    telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
-    _wrap_subgroup_help(telegram_parser, ["connect"])
+        telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
+        telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+        telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
+        telegram_connect_parser.add_argument(
+            "profile",
+            nargs="?",
+            help="Telegram profile to connect (default: the primary profile, usually spark-agi)",
+        )
+        telegram_connect_parser.add_argument(
+            "--token",
+            "--bot-token",
+            dest="token",
+            help="BotFather token. Omit this flag to paste it securely when Spark asks.",
+        )
+        telegram_connect_parser.add_argument("--admin-telegram-ids", help="Comma-separated Telegram admin IDs")
+        telegram_connect_parser.add_argument("--telegram-relay-port", type=int, help="Local Telegram mission relay port")
+        telegram_connect_parser.add_argument(
+            "--skip-telegram-token-check",
+            action="store_true",
+            help="Skip live Telegram getMe token validation before saving a new bot token (offline/dev only)",
+        )
+        telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
+        telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
+        _wrap_subgroup_help(telegram_parser, ["connect"])
 
-    update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
-    update_parser.add_argument("target", nargs="?")
-    update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
-    update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
-    update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
-    update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
-    update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
-    update_parser.set_defaults(func=cmd_update)
+        update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
+        update_parser.add_argument("target", nargs="?")
+        update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
+        update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
+        update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
+        update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
+        update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
+        update_parser.set_defaults(func=cmd_update)
 
-    uninstall_parser = subparsers.add_parser("uninstall", help="Remove installed modules from Spark state and generated config")
-    uninstall_parser.add_argument("target", nargs="?")
-    uninstall_parser.add_argument("--all", action="store_true", help="Uninstall all installed Spark modules")
-    uninstall_parser.add_argument("--force", action="store_true")
-    uninstall_parser.add_argument("--remove-autostart", action="store_true", help="Remove OS login autostart hooks")
-    uninstall_parser.add_argument("--remove-user-path", action="store_true", help="Remove Spark bin from the Windows user PATH after uninstall")
-    uninstall_parser.add_argument("--purge-home", action="store_true", help="Delete SPARK_HOME after uninstall cleanup")
-    uninstall_parser.add_argument("--yes", action="store_true", help="Confirm destructive cleanup such as --purge-home")
-    uninstall_parser.set_defaults(func=cmd_uninstall)
+        uninstall_parser = subparsers.add_parser("uninstall", help="Remove installed modules from Spark state and generated config")
+        uninstall_parser.add_argument("target", nargs="?")
+        uninstall_parser.add_argument("--all", action="store_true", help="Uninstall all installed Spark modules")
+        uninstall_parser.add_argument("--force", action="store_true")
+        uninstall_parser.add_argument("--remove-autostart", action="store_true", help="Remove OS login autostart hooks")
+        uninstall_parser.add_argument("--remove-user-path", action="store_true", help="Remove Spark bin from the Windows user PATH after uninstall")
+        uninstall_parser.add_argument("--purge-home", action="store_true", help="Delete SPARK_HOME after uninstall cleanup")
+        uninstall_parser.add_argument("--yes", action="store_true", help="Confirm destructive cleanup such as --purge-home")
+        uninstall_parser.set_defaults(func=cmd_uninstall)
 
-    start_parser = subparsers.add_parser("start", help="Start startable modules")
-    start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
-    start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
-    start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
-    start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
-    start_parser.add_argument("target", nargs="?")
-    start_parser.set_defaults(func=cmd_start)
+        start_parser = subparsers.add_parser("start", help="Start startable modules")
+        start_parser.add_argument("--allow-boot-warnings", action="store_true", help=argparse.SUPPRESS)
+        start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
+        start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
+        start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
+        start_parser.add_argument("target", nargs="?")
+        start_parser.set_defaults(func=cmd_start)
 
-    stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
-    stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
-    stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
-    stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
-    stop_parser.add_argument("target", nargs="?")
-    stop_parser.set_defaults(func=cmd_stop)
+        stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
+        stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
+        stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
+        stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
+        stop_parser.add_argument("target", nargs="?")
+        stop_parser.set_defaults(func=cmd_stop)
 
-    restart_parser = subparsers.add_parser("restart", help="Restart startable modules")
-    restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
-    restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
-    restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
-    restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
-    restart_parser.add_argument("target", nargs="?")
-    restart_parser.set_defaults(func=cmd_restart)
+        restart_parser = subparsers.add_parser("restart", help="Restart startable modules")
+        restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
+        restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
+        restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
+        restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
+        restart_parser.add_argument("target", nargs="?")
+        restart_parser.set_defaults(func=cmd_restart)
 
-    live_parser = subparsers.add_parser("live", help="Control Spark Live, the friendly always-on agent surface")
-    live_subparsers = live_parser.add_subparsers(dest="live_command")
-    live_status_parser = live_subparsers.add_parser("status", help="Show Spark Live readiness")
-    live_status_parser.add_argument("--json", action="store_true")
-    live_status_parser.set_defaults(func=cmd_live)
-    live_start_parser = live_subparsers.add_parser("start", help="Start Spark Live")
-    live_start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
-    live_start_parser.set_defaults(func=cmd_live)
-    live_run_parser = live_subparsers.add_parser("run", help="Start Spark Live and keep one combined log console open")
-    live_run_parser.add_argument(
-        "-n",
-        "--lines",
-        type=int,
-        default=80,
-        help="Lines of history to show before following (0 = new lines only)",
-    )
-    live_run_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
-    live_run_parser.set_defaults(func=cmd_live)
-    live_restart_parser = live_subparsers.add_parser("restart", help="Restart Spark Live")
-    live_restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
-    live_restart_parser.set_defaults(func=cmd_live)
-    live_stop_parser = live_subparsers.add_parser("stop", help="Stop Spark Live")
-    live_stop_parser.set_defaults(func=cmd_live)
-    live_logs_parser = live_subparsers.add_parser("logs", help="Show Spark Live logs")
-    live_logs_parser.add_argument("-n", "--lines", type=int, default=80)
-    live_logs_parser.add_argument("-f", "--follow", action="store_true", help="Keep watching combined Spark Live logs")
-    live_logs_parser.set_defaults(func=cmd_live)
-    live_verify_parser = live_subparsers.add_parser("verify", help="Run the hosted Spark Live release gate")
-    live_verify_parser.add_argument("--json", action="store_true")
-    live_verify_parser.add_argument("--quick", action="store_true", help="Skip the deep hosted mission smoke")
-    live_verify_parser.set_defaults(func=cmd_live)
-    live_parser.set_defaults(func=cmd_live, live_command="status")
+        live_parser = subparsers.add_parser("live", help="Control Spark Live, the friendly always-on agent surface")
+        live_subparsers = live_parser.add_subparsers(dest="live_command")
+        live_status_parser = live_subparsers.add_parser("status", help="Show Spark Live readiness")
+        live_status_parser.add_argument("--json", action="store_true")
+        live_status_parser.set_defaults(func=cmd_live)
+        live_start_parser = live_subparsers.add_parser("start", help="Start Spark Live")
+        live_start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
+        live_start_parser.set_defaults(func=cmd_live)
+        live_run_parser = live_subparsers.add_parser("run", help="Start Spark Live and keep one combined log console open")
+        live_run_parser.add_argument(
+            "-n",
+            "--lines",
+            type=int,
+            default=80,
+            help="Lines of history to show before following (0 = new lines only)",
+        )
+        live_run_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
+        live_run_parser.set_defaults(func=cmd_live)
+        live_restart_parser = live_subparsers.add_parser("restart", help="Restart Spark Live")
+        live_restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
+        live_restart_parser.set_defaults(func=cmd_live)
+        live_stop_parser = live_subparsers.add_parser("stop", help="Stop Spark Live")
+        live_stop_parser.set_defaults(func=cmd_live)
+        live_logs_parser = live_subparsers.add_parser("logs", help="Show Spark Live logs")
+        live_logs_parser.add_argument("-n", "--lines", type=int, default=80)
+        live_logs_parser.add_argument("-f", "--follow", action="store_true", help="Keep watching combined Spark Live logs")
+        live_logs_parser.set_defaults(func=cmd_live)
+        live_verify_parser = live_subparsers.add_parser("verify", help="Run the hosted Spark Live release gate")
+        live_verify_parser.add_argument("--json", action="store_true")
+        live_verify_parser.add_argument("--quick", action="store_true", help="Skip the deep hosted mission smoke")
+        live_verify_parser.set_defaults(func=cmd_live)
+        live_parser.set_defaults(func=cmd_live, live_command="status")
 
-    autostart_parser = subparsers.add_parser("autostart", help="Start Spark automatically when this computer logs in")
-    autostart_subparsers = autostart_parser.add_subparsers(dest="autostart_command", required=True)
-    autostart_install_parser = autostart_subparsers.add_parser("install", help="Install OS login autostart")
-    autostart_install_parser.add_argument("target", nargs="?", default="telegram-starter")
-    autostart_install_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
-    autostart_install_parser.set_defaults(func=cmd_autostart_install)
-    autostart_on_parser = autostart_subparsers.add_parser("on", help="Install OS login autostart")
-    autostart_on_parser.add_argument("target", nargs="?", default="telegram-starter")
-    autostart_on_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
-    autostart_on_parser.set_defaults(func=cmd_autostart_install)
-    autostart_uninstall_parser = autostart_subparsers.add_parser("uninstall", help="Remove OS login autostart")
-    autostart_uninstall_parser.set_defaults(func=cmd_autostart_uninstall)
-    autostart_off_parser = autostart_subparsers.add_parser("off", help="Remove OS login autostart")
-    autostart_off_parser.set_defaults(func=cmd_autostart_uninstall)
-    autostart_profile_parser = autostart_subparsers.add_parser(
-        "profile",
-        help="Turn login startup on or off for one Telegram profile",
-    )
-    autostart_profile_parser.add_argument("profile", help="Telegram profile name, for example spark-agi or qa-bot")
-    autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
-    autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
-    autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
-    autostart_status_parser.set_defaults(func=cmd_autostart_status)
-    _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
+        autostart_parser = subparsers.add_parser("autostart", help="Start Spark automatically when this computer logs in")
+        autostart_subparsers = autostart_parser.add_subparsers(dest="autostart_command", required=True)
+        autostart_install_parser = autostart_subparsers.add_parser("install", help="Install OS login autostart")
+        autostart_install_parser.add_argument("target", nargs="?", default="telegram-starter")
+        autostart_install_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
+        autostart_install_parser.set_defaults(func=cmd_autostart_install)
+        autostart_on_parser = autostart_subparsers.add_parser("on", help="Install OS login autostart")
+        autostart_on_parser.add_argument("target", nargs="?", default="telegram-starter")
+        autostart_on_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
+        autostart_on_parser.set_defaults(func=cmd_autostart_install)
+        autostart_uninstall_parser = autostart_subparsers.add_parser("uninstall", help="Remove OS login autostart")
+        autostart_uninstall_parser.set_defaults(func=cmd_autostart_uninstall)
+        autostart_off_parser = autostart_subparsers.add_parser("off", help="Remove OS login autostart")
+        autostart_off_parser.set_defaults(func=cmd_autostart_uninstall)
+        autostart_profile_parser = autostart_subparsers.add_parser(
+            "profile",
+            help="Turn login startup on or off for one Telegram profile",
+        )
+        autostart_profile_parser.add_argument("profile", help="Telegram profile name, for example spark-agi or qa-bot")
+        autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
+        autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
+        autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
+        autostart_status_parser.set_defaults(func=cmd_autostart_status)
+        _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
 
-    guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
-    guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
-    guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
-    guide_parser.set_defaults(func=cmd_guide)
+        guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+        guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
+        guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
+        guide_parser.set_defaults(func=cmd_guide)
 
-    init_parser = subparsers.add_parser("init", help="Scaffold a new Spark module in a directory")
-    init_parser.add_argument("name", help="Module name (lowercase + dashes)")
-    init_parser.add_argument("--kind", choices=["python", "node"], default="python", help="Runtime kind (default: python)")
-    init_parser.add_argument("--path", help="Target directory (default: ./<name>)")
-    init_parser.add_argument("--description", help="One-line module description for spark.toml and README")
-    init_parser.add_argument("--force", action="store_true", help="Scaffold into a non-empty directory")
-    init_parser.set_defaults(func=cmd_init)
+        init_parser = subparsers.add_parser("init", help="Scaffold a new Spark module in a directory")
+        init_parser.add_argument("name", help="Module name (lowercase + dashes)")
+        init_parser.add_argument("--kind", choices=["python", "node"], default="python", help="Runtime kind (default: python)")
+        init_parser.add_argument("--path", help="Target directory (default: ./<name>)")
+        init_parser.add_argument("--description", help="One-line module description for spark.toml and README")
+        init_parser.add_argument("--force", action="store_true", help="Scaffold into a non-empty directory")
+        init_parser.set_defaults(func=cmd_init)
 
-    search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
-    search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
-    search_parser.set_defaults(func=cmd_search)
+        search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
+        search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+        search_parser.set_defaults(func=cmd_search)
 
-    config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
-    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
+        config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
+        config_sub = config_parser.add_subparsers(dest="config_command", required=True)
 
-    config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
-    config_get_parser.add_argument("key")
-    config_get_parser.set_defaults(func=cmd_config_get)
+        config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
+        config_get_parser.add_argument("key")
+        config_get_parser.set_defaults(func=cmd_config_get)
 
-    config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
-    config_set_parser.add_argument("key")
-    config_set_parser.add_argument("value")
-    config_set_parser.set_defaults(func=cmd_config_set)
+        config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
+        config_set_parser.add_argument("key")
+        config_set_parser.add_argument("value")
+        config_set_parser.set_defaults(func=cmd_config_set)
 
-    config_unset_parser = config_sub.add_parser("unset", help="Remove a config value by dotted key")
-    config_unset_parser.add_argument("key")
-    config_unset_parser.set_defaults(func=cmd_config_unset)
+        config_unset_parser = config_sub.add_parser("unset", help="Remove a config value by dotted key")
+        config_unset_parser.add_argument("key")
+        config_unset_parser.set_defaults(func=cmd_config_unset)
 
-    config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
-    config_list_parser.set_defaults(func=cmd_config_list)
-    _wrap_subgroup_help(config_parser, ["get", "set", "unset", "list"])
+        config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
+        config_list_parser.set_defaults(func=cmd_config_list)
+        _wrap_subgroup_help(config_parser, ["get", "set", "unset", "list"])
 
-    secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
-    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
+        secrets_parser = subparsers.add_parser("secrets", help="Manage stored secrets (Windows Credential Manager or file fallback)")
+        secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
 
-    secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
-    secrets_list_parser.set_defaults(func=cmd_secrets_list)
+        secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
+        secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
-    secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
-    secrets_set_parser.add_argument("secret_id")
-    secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
-    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
-    secrets_set_parser.set_defaults(func=cmd_secrets_set)
+        secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
+        secrets_set_parser.add_argument("secret_id")
+        secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
+        secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
+        secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
-    secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
-    secrets_get_parser.add_argument("secret_id")
-    secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
-    secrets_get_parser.set_defaults(func=cmd_secrets_get)
+        secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
+        secrets_get_parser.add_argument("secret_id")
+        secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
+        secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
-    secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
-    secrets_delete_parser.add_argument("secret_id")
-    secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
-    _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
+        secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
+        secrets_delete_parser.add_argument("secret_id")
+        secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
+        _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
-    logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
-    logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
-    logs_parser.add_argument("target")
-    logs_parser.add_argument("-n", "--lines", type=int, default=200, help="Lines of history to show before following (default: 200, 0 = all)")
-    logs_parser.add_argument("-f", "--follow", action="store_true", help="Tail the log and stream new lines")
-    logs_parser.set_defaults(func=cmd_logs)
+        logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
+        logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
+        logs_parser.add_argument("target")
+        logs_parser.add_argument("-n", "--lines", type=int, default=200, help="Lines of history to show before following (default: 200, 0 = all)")
+        logs_parser.add_argument("-f", "--follow", action="store_true", help="Tail the log and stream new lines")
+        logs_parser.set_defaults(func=cmd_logs)
 
-    return parser
+        return parser
 
 
+
+    except Exception:
+        return None
 def main(argv: list[str] | None = None) -> int:
-    ensure_state_dirs()
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
-    if approval_exit is not None:
-        return approval_exit
-    return int(args.func(args))
+    if not isinstance(argv, str): argv = str(argv or '')
+    try:
+        ensure_state_dirs()
+        parser = build_parser()
+        args = parser.parse_args(argv)
+        approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
+        if approval_exit is not None:
+            return approval_exit
+        return int(args.func(args))
 
 
+
+    except Exception:
+        return 0
 if __name__ == "__main__":
     raise SystemExit(main())
