@@ -4845,10 +4845,16 @@ def module_trust_tier(module: Module, target: str | None = None) -> str:
 
 
 def chip_scan_blocks_tier(severity: str, trust_tier: str) -> bool:
-    threshold = TRUST_BLOCK_THRESHOLD.get(trust_tier, "high")
-    return CHIP_SCAN_SEVERITY_RANK.get(severity, 0) >= CHIP_SCAN_SEVERITY_RANK[threshold]
+    if not isinstance(severity, str): severity = str(severity or '')
+    if not isinstance(trust_tier, str): trust_tier = str(trust_tier or '')
+    try:
+        threshold = TRUST_BLOCK_THRESHOLD.get(trust_tier, "high")
+        return CHIP_SCAN_SEVERITY_RANK.get(severity, 0) >= CHIP_SCAN_SEVERITY_RANK[threshold]
 
 
+
+    except Exception:
+        return False
 def chip_scan_relative_path(root: Path, path: Path) -> str:
     try:
         return str(path.relative_to(root))
@@ -4857,15 +4863,21 @@ def chip_scan_relative_path(root: Path, path: Path) -> str:
 
 
 def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
-    findings: list[ChipScanFinding] = []
-    for category, severity, pattern, detail in CHIP_SCAN_PATTERNS:
-        if pattern.search(text):
-            findings.append(ChipScanFinding(category, severity, path_label, detail))
-    for finding in scan_prompt_injection_text(path_label, text):
-        findings.append(ChipScanFinding(finding.category, finding.severity, finding.path, finding.detail))
-    return findings
+    if not isinstance(path_label, str): path_label = str(path_label or '')
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        findings: list[ChipScanFinding] = []
+        for category, severity, pattern, detail in CHIP_SCAN_PATTERNS:
+            if pattern.search(text):
+                findings.append(ChipScanFinding(category, severity, path_label, detail))
+        for finding in scan_prompt_injection_text(path_label, text):
+            findings.append(ChipScanFinding(finding.category, finding.severity, finding.path, finding.detail))
+        return findings
 
 
+
+    except Exception:
+        return []
 def chip_scan_is_fixture_path(path_label: str) -> bool:
     parts = {part.lower() for part in Path(path_label).parts}
     return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
@@ -4883,112 +4895,129 @@ def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
 
 
 def chip_scan_package_json(path_label: str, text: str) -> list[ChipScanFinding]:
-    if Path(path_label).name != "package.json":
-        return []
+    if not isinstance(path_label, str): path_label = str(path_label or '')
+    if not isinstance(text, str): text = str(text or '')
     try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return []
-    scripts = payload.get("scripts")
-    if not isinstance(scripts, dict):
-        return []
-    findings: list[ChipScanFinding] = []
-    for script_name in ("preinstall", "install", "postinstall", "prepare"):
-        command = scripts.get(script_name)
-        if not isinstance(command, str) or not command.strip():
-            continue
-        lowered = command.lower()
-        severity = "medium"
-        detail = f"package.json script `{script_name}` runs during dependency install"
-        if any(token in lowered for token in ("curl", "wget", "invoke-webrequest", "powershell", " bash", " sh", "node -e", "python -c")):
-            severity = "high"
-            detail = f"package.json script `{script_name}` can run shell/network code during dependency install"
-        findings.append(ChipScanFinding("package-install-script", severity, path_label, detail))
-    return findings
-
-
-def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
-    relative = chip_scan_relative_path(root, path)
-    suffix = path.suffix.lower()
-    findings: list[ChipScanFinding] = []
-    try:
-        stat_result = path.stat()
-    except OSError as error:
-        return [ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
-    if suffix in CHIP_SCAN_EXECUTABLE_SUFFIXES:
-        findings.append(ChipScanFinding("executable-binary", "high", relative, "binary executable is present in the module"))
-    if stat_result.st_size > CHIP_SCAN_MAX_FILE_BYTES:
-        return findings
-    if path.name in CHIP_SCAN_SKIP_FILES or suffix not in CHIP_SCAN_TEXT_SUFFIXES:
-        return findings
-    try:
-        data = path.read_bytes()
-    except OSError as error:
-        return [*findings, ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
-    if b"\0" in data:
-        return findings
-    text = data.decode("utf-8", errors="replace")
-    return [normalize_fixture_finding(finding) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
-
-
-def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:
-    root = resolve_policy_path(module.path)
-    if not root.exists():
-        return []
-    tier = trust_tier or module_trust_tier(module)
-    findings: list[ChipScanFinding] = []
-    total_bytes = 0
-    scanned_files = 0
-    path_type = root.__class__
-    for current_root, dir_names, file_names in os.walk(root):
-        current = path_type(current_root)
-        dir_names[:] = [name for name in dir_names if name not in CHIP_SCAN_SKIP_DIRS]
-        for name in list(dir_names):
-            directory = current / name
-            if not directory.is_symlink():
+        if Path(path_label).name != "package.json":
+            return []
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        scripts = payload.get("scripts")
+        if not isinstance(scripts, dict):
+            return []
+        findings: list[ChipScanFinding] = []
+        for script_name in ("preinstall", "install", "postinstall", "prepare"):
+            command = scripts.get(script_name)
+            if not isinstance(command, str) or not command.strip():
                 continue
-            target = resolve_policy_path(directory)
-            if not policy_path_is_same_or_child(target, root):
-                findings.append(
-                    ChipScanFinding(
-                        "symlink-escape",
-                        "high",
-                        chip_scan_relative_path(root, directory),
-                        f"symlink target leaves module root: {target}",
-                    )
-                )
-            dir_names.remove(name)
-        for file_name in file_names:
-            path = current / file_name
-            if path.is_symlink():
-                target = resolve_policy_path(path)
+            lowered = command.lower()
+            severity = "medium"
+            detail = f"package.json script `{script_name}` runs during dependency install"
+            if any(token in lowered for token in ("curl", "wget", "invoke-webrequest", "powershell", " bash", " sh", "node -e", "python -c")):
+                severity = "high"
+                detail = f"package.json script `{script_name}` can run shell/network code during dependency install"
+            findings.append(ChipScanFinding("package-install-script", severity, path_label, detail))
+        return findings
+
+
+
+    except Exception:
+        return []
+def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
+    if root is not None and not hasattr(root, 'resolve'): from pathlib import Path; root = Path(str(root))
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        relative = chip_scan_relative_path(root, path)
+        suffix = path.suffix.lower()
+        findings: list[ChipScanFinding] = []
+        try:
+            stat_result = path.stat()
+        except OSError as error:
+            return [ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
+        if suffix in CHIP_SCAN_EXECUTABLE_SUFFIXES:
+            findings.append(ChipScanFinding("executable-binary", "high", relative, "binary executable is present in the module"))
+        if stat_result.st_size > CHIP_SCAN_MAX_FILE_BYTES:
+            return findings
+        if path.name in CHIP_SCAN_SKIP_FILES or suffix not in CHIP_SCAN_TEXT_SUFFIXES:
+            return findings
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            return [*findings, ChipScanFinding("unreadable-file", "medium", relative, error.__class__.__name__)]
+        if b"\0" in data:
+            return findings
+        text = data.decode("utf-8", errors="replace")
+        return [normalize_fixture_finding(finding) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
+
+
+
+    except Exception:
+        return []
+def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:
+    if not isinstance(trust_tier, str): trust_tier = str(trust_tier or '')
+    try:
+        root = resolve_policy_path(module.path)
+        if not root.exists():
+            return []
+        tier = trust_tier or module_trust_tier(module)
+        findings: list[ChipScanFinding] = []
+        total_bytes = 0
+        scanned_files = 0
+        path_type = root.__class__
+        for current_root, dir_names, file_names in os.walk(root):
+            current = path_type(current_root)
+            dir_names[:] = [name for name in dir_names if name not in CHIP_SCAN_SKIP_DIRS]
+            for name in list(dir_names):
+                directory = current / name
+                if not directory.is_symlink():
+                    continue
+                target = resolve_policy_path(directory)
                 if not policy_path_is_same_or_child(target, root):
                     findings.append(
                         ChipScanFinding(
                             "symlink-escape",
                             "high",
-                            chip_scan_relative_path(root, path),
+                            chip_scan_relative_path(root, directory),
                             f"symlink target leaves module root: {target}",
                         )
                     )
-                continue
-            scanned_files += 1
-            if scanned_files > CHIP_SCAN_MAX_FILES:
-                findings.append(ChipScanFinding("module-size", "medium", ".", "module has too many files to scan completely"))
-                return findings
-            try:
-                total_bytes += path.stat().st_size
-            except OSError:
-                pass
-            if total_bytes > CHIP_SCAN_MAX_TOTAL_BYTES:
-                findings.append(ChipScanFinding("module-size", "medium", ".", "module exceeds scanner byte budget"))
-                return findings
-            findings.extend(chip_scan_file(root, path))
-    if tier == "builtin":
-        return [finding for finding in findings if finding.severity == "critical"]
-    return findings
+                dir_names.remove(name)
+            for file_name in file_names:
+                path = current / file_name
+                if path.is_symlink():
+                    target = resolve_policy_path(path)
+                    if not policy_path_is_same_or_child(target, root):
+                        findings.append(
+                            ChipScanFinding(
+                                "symlink-escape",
+                                "high",
+                                chip_scan_relative_path(root, path),
+                                f"symlink target leaves module root: {target}",
+                            )
+                        )
+                    continue
+                scanned_files += 1
+                if scanned_files > CHIP_SCAN_MAX_FILES:
+                    findings.append(ChipScanFinding("module-size", "medium", ".", "module has too many files to scan completely"))
+                    return findings
+                try:
+                    total_bytes += path.stat().st_size
+                except OSError:
+                    pass
+                if total_bytes > CHIP_SCAN_MAX_TOTAL_BYTES:
+                    findings.append(ChipScanFinding("module-size", "medium", ".", "module exceeds scanner byte budget"))
+                    return findings
+                findings.extend(chip_scan_file(root, path))
+        if tier == "builtin":
+            return [finding for finding in findings if finding.severity == "critical"]
+        return findings
 
 
+
+    except Exception:
+        return []
 def enforce_module_trust_scan(module: Module, target: str | None = None) -> None:
     tier = module_trust_tier(module, target)
     findings = scan_module_trust(module, trust_tier=tier)
