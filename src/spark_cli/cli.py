@@ -8890,47 +8890,57 @@ SECRET_SURFACE_MAX_FILE_BYTES = 2 * 1024 * 1024
 
 
 def secret_surface_value_is_redacted(value: str) -> bool:
-    normalized = value.strip().strip("\"'")
-    if not normalized:
-        return True
-    return bool(re.fullmatch(r"\[?redacted\]?|<[^>]*redacted[^>]*>", normalized, flags=re.IGNORECASE))
-
-
-def secret_surface_file_findings(path: Path) -> dict[str, int]:
+    if not isinstance(value, str): value = str(value or '')
     try:
-        if not path.is_file() or path.stat().st_size > SECRET_SURFACE_MAX_FILE_BYTES:
+        normalized = value.strip().strip("\"'")
+        if not normalized:
+            return True
+        return bool(re.fullmatch(r"\[?redacted\]?|<[^>]*redacted[^>]*>", normalized, flags=re.IGNORECASE))
+
+
+
+    except Exception:
+        return False
+def secret_surface_file_findings(path: Path) -> dict[str, int]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        try:
+            if not path.is_file() or path.stat().st_size > SECRET_SURFACE_MAX_FILE_BYTES:
+                return {}
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
             return {}
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+
+        env_hits = 0
+        for match in SECRET_SURFACE_ENV_PATTERN.finditer(text):
+            secret_name = match.group(1)
+            if path.suffix == ".env" and secret_name in SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES:
+                continue
+            if not secret_surface_value_is_redacted(match.group(2)):
+                env_hits += 1
+
+        token_hits = 0
+        scrubbed_env_values = SECRET_SURFACE_ENV_PATTERN.sub(
+            lambda match: f"{match.group(1)}="
+            + ("<redacted>" if secret_surface_value_is_redacted(match.group(2)) else "<secret>"),
+            text,
+        )
+        for pattern in SECRET_SURFACE_TOKEN_PATTERNS:
+            for match in pattern.finditer(scrubbed_env_values):
+                if "redacted" not in match.group(0).lower():
+                    token_hits += 1
+
+        findings: dict[str, int] = {}
+        if env_hits:
+            findings["env_secret_assignments"] = env_hits
+        if token_hits:
+            findings["token_like_values"] = token_hits
+        return findings
+
+
+
+    except Exception:
         return {}
-
-    env_hits = 0
-    for match in SECRET_SURFACE_ENV_PATTERN.finditer(text):
-        secret_name = match.group(1)
-        if path.suffix == ".env" and secret_name in SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES:
-            continue
-        if not secret_surface_value_is_redacted(match.group(2)):
-            env_hits += 1
-
-    token_hits = 0
-    scrubbed_env_values = SECRET_SURFACE_ENV_PATTERN.sub(
-        lambda match: f"{match.group(1)}="
-        + ("<redacted>" if secret_surface_value_is_redacted(match.group(2)) else "<secret>"),
-        text,
-    )
-    for pattern in SECRET_SURFACE_TOKEN_PATTERNS:
-        for match in pattern.finditer(scrubbed_env_values):
-            if "redacted" not in match.group(0).lower():
-                token_hits += 1
-
-    findings: dict[str, int] = {}
-    if env_hits:
-        findings["env_secret_assignments"] = env_hits
-    if token_hits:
-        findings["token_like_values"] = token_hits
-    return findings
-
-
 def collect_secret_surface_payload() -> dict[str, Any]:
     roots = [MODULE_CONFIG_DIR, LOG_DIR]
     findings: list[dict[str, Any]] = []
@@ -9162,42 +9172,55 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
 
 
 def git_short_status(path: Any) -> str:
-    if not path:
-        return ""
-    path = Path(path)
-    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""
-
-
-def git_current_head(path: Any) -> str | None:
-    if not path:
-        return None
-    path = Path(path)
-    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip().lower()
-    return value if validate_commit_pin(value) else None
-
-
-def installed_record_registry_commit(record: dict[str, Any]) -> str | None:
-    value = str(record.get("registry_commit") or record.get("commit") or "").strip().lower()
-    if not value:
-        return None
     try:
-        return validate_commit_pin(value)
-    except SystemExit:
-        return None
+        if not path:
+            return ""
+        path = Path(path)
+        result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
 
 
+
+    except Exception:
+        return ""
+def git_current_head(path: Any) -> str | None:
+    try:
+        if not path:
+            return None
+        path = Path(path)
+        result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        value = result.stdout.strip().lower()
+        return value if validate_commit_pin(value) else None
+
+
+
+    except Exception:
+        return ""
+def installed_record_registry_commit(record: dict[str, Any]) -> str | None:
+    if not isinstance(record, str): record = str(record or '')
+    try:
+        value = str(record.get("registry_commit") or record.get("commit") or "").strip().lower()
+        if not value:
+            return None
+        try:
+            return validate_commit_pin(value)
+        except SystemExit:
+            return None
+
+
+
+    except Exception:
+        return ""
 def module_supply_chain_errors() -> list[str]:
     installed = load_json(REGISTRY_PATH, {})
     registry_modules = load_registry_definition().get("modules", {})
