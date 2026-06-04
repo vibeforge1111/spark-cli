@@ -4872,16 +4872,20 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
 
 
 def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
-        return ChipScanFinding(
-            finding.category,
-            "low",
-            finding.path,
-            f"{finding.detail}; appears in test/fixture code and is not installed as runtime secret material",
-        )
-    return finding
+    try:
+        if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
+            return ChipScanFinding(
+                finding.category,
+                "low",
+                finding.path,
+                f"{finding.detail}; appears in test/fixture code and is not installed as runtime secret material",
+            )
+        return finding
 
 
+
+    except Exception:
+        return None
 def chip_scan_package_json(path_label: str, text: str) -> list[ChipScanFinding]:
     if Path(path_label).name != "package.json":
         return []
@@ -5055,14 +5059,19 @@ def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: s
 
 
 def load_install_progress(target: str) -> dict[str, Any]:
-    target_str = str(target or "")
-    if not target_str:
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        target_str = str(target or "")
+        if not target_str:
+            return {}
+        data = load_json(INSTALL_PROGRESS_PATH, {})
+        entry = data.get(target_str) if isinstance(data, dict) else None
+        return dict(entry) if isinstance(entry, dict) else {}
+
+
+
+    except Exception:
         return {}
-    data = load_json(INSTALL_PROGRESS_PATH, {})
-    entry = data.get(target_str) if isinstance(data, dict) else None
-    return dict(entry) if isinstance(entry, dict) else {}
-
-
 def save_install_progress(target: str, progress: dict[str, Any]) -> None:
     target_str = str(target or "")
     if not target_str:
@@ -5075,46 +5084,64 @@ def save_install_progress(target: str, progress: dict[str, Any]) -> None:
 
 
 def clear_install_progress(target: str) -> None:
-    target_str = str(target or "")
-    if not target_str:
-        return
-    data = load_json(INSTALL_PROGRESS_PATH, {})
-    if not isinstance(data, dict):
-        return
-    if target_str not in data:
-        return
-    data.pop(target_str)
-    if data:
-        save_json(INSTALL_PROGRESS_PATH, data)
-    elif INSTALL_PROGRESS_PATH.exists():
-        INSTALL_PROGRESS_PATH.unlink()
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        target_str = str(target or "")
+        if not target_str:
+            return
+        data = load_json(INSTALL_PROGRESS_PATH, {})
+        if not isinstance(data, dict):
+            return
+        if target_str not in data:
+            return
+        data.pop(target_str)
+        if data:
+            save_json(INSTALL_PROGRESS_PATH, data)
+        elif INSTALL_PROGRESS_PATH.exists():
+            INSTALL_PROGRESS_PATH.unlink()
 
 
+
+    except Exception:
+        return None
 def record_install_step(target: str, step: str) -> None:
-    target_str = str(target or "")
-    step_str = str(step or "")
-    if not target_str or not step_str:
-        return
-    progress = load_install_progress(target_str)
-    completed = progress.setdefault("steps_completed", [])
-    if not isinstance(completed, list):
-        completed = []
-        progress["steps_completed"] = completed
-    if step not in completed:
-        completed.append(step)
-    progress["last_step"] = step
-    progress["last_ok_at"] = timestamp_now()
-    save_install_progress(target, progress)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(step, str): step = str(step or '')
+    try:
+        target_str = str(target or "")
+        step_str = str(step or "")
+        if not target_str or not step_str:
+            return
+        progress = load_install_progress(target_str)
+        completed = progress.setdefault("steps_completed", [])
+        if not isinstance(completed, list):
+            completed = []
+            progress["steps_completed"] = completed
+        if step not in completed:
+            completed.append(step)
+        progress["last_step"] = step
+        progress["last_ok_at"] = timestamp_now()
+        save_install_progress(target, progress)
 
 
+
+    except Exception:
+        return None
 def record_install_failure(target: str, step: str, error: str) -> None:
-    progress = load_install_progress(target)
-    progress["failed_step"] = step
-    progress["last_error"] = error
-    progress["failed_at"] = timestamp_now()
-    save_install_progress(target, progress)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(step, str): step = str(step or '')
+    if not isinstance(error, str): error = str(error or '')
+    try:
+        progress = load_install_progress(target)
+        progress["failed_step"] = step
+        progress["last_error"] = error
+        progress["failed_at"] = timestamp_now()
+        save_install_progress(target, progress)
 
 
+
+    except Exception:
+        return None
 def step_previously_completed(target: str, step: str, resume: bool) -> bool:
     if not resume:
         return False
