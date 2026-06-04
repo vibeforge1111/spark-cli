@@ -658,7 +658,8 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
 
 
 def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
-    for repo in repo_paths:
+    paths_list = [Path(p) for p in as_list(repo_paths)]
+    for repo in paths_list:
         candidate = repo / "docs" / "SPARK_UPGRADE_LEDGER.yaml"
         if not candidate.exists():
             continue
@@ -679,7 +680,7 @@ def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
 
 
 def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
-    path = builder_home / "artifacts" / "capability-ledger" / "capability-ledger.json"
+    path = Path(builder_home) / "artifacts" / "capability-ledger" / "capability-ledger.json"
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; contents omitted"}
     if error and error != "missing":
@@ -688,7 +689,7 @@ def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
     if isinstance(data, list):
         out["entry_count"] = len(data)
     elif isinstance(data, dict):
-        out["top_level_keys"] = sorted(data.keys())
+        out["top_level_keys"] = sorted(str(k) for k in data.keys())
         for key, value in data.items():
             if isinstance(value, list):
                 out[f"{key}_count"] = len(value)
@@ -696,6 +697,7 @@ def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
 
 
 def count_safe_jsonl(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -750,20 +752,22 @@ def inspect_safe_jsonl_samples(
     identifier_fields: dict[str, str] | None = None,
     limit: int = 40,
 ) -> dict[str, Any]:
+    path = Path(path)
+    safe_fields = tuple(str(f) for f in as_list(safe_fields))
     out: dict[str, Any] = {
-        "source": source,
+        "source": str(source or ""),
         "path": str(path),
         "exists": path.exists(),
-        "limit": limit,
+        "limit": int(limit or 40),
         "redaction": "bounded samples over allowlisted primitive metadata only; raw messages and text previews omitted",
     }
     if not path.exists():
         return out
 
-    identifier_fields = identifier_fields or {}
+    identifier_fields = as_dict(identifier_fields)
     line_count = parsed_count = parse_errors = redacted_key_name_count = 0
     key_counts: Counter[str] = Counter()
-    samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit), 100)))
+    samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit or 40), 100)))
     try:
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -809,6 +813,8 @@ def inspect_safe_jsonl_samples(
 
 
 def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[str, str]) -> Any:
+    field = str(field or "")
+    identifier_fields = as_dict(identifier_fields)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
