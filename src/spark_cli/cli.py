@@ -12293,555 +12293,577 @@ def summarize_specialization_loop_status_packet(packet: dict[str, Any]) -> str:
 
 
 def collect_specialization_loop_proofs(paths: list[Path], swarm_root: Path | None) -> list[dict[str, Any]]:
-    proofs: list[dict[str, Any]] = []
-    for path in paths:
-        path_key = specialization_path_key(path)
-        command, env = specialization_loop_status_command(path, swarm_root)
-        proof: dict[str, Any] = {
-            "path": str(path),
-            "path_key": path_key,
-            "ok": False,
-            "detail": "",
-            "issues": [],
-        }
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30, env=env)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            proof["detail"] = f"{path_key} status packet could not be read: {exc}"
-            proof["issues"] = ["status command failed"]
-            proofs.append(proof)
-            continue
-        if result.returncode != 0:
-            stderr = result.stderr.strip() or result.stdout.strip()
-            proof["detail"] = f"{path_key} status command exited {result.returncode}: {stderr[:240]}"
-            proof["issues"] = ["status command failed"]
-            proofs.append(proof)
-            continue
-        packet = parse_json_object_from_stdout(result.stdout)
-        if packet is None:
-            proof["detail"] = f"{path_key} status command did not return a JSON object."
-            proof["issues"] = ["status packet was not JSON"]
-            proofs.append(proof)
-            continue
-        ok, issues = validate_specialization_loop_status_packet(packet)
-        proof.update(
-            {
-                "ok": ok,
-                "detail": summarize_specialization_loop_status_packet(packet),
-                "issues": issues,
-                "packet": packet,
+    if not isinstance(paths, list): paths = list(paths or [])
+    if swarm_root is not None and not hasattr(swarm_root, 'resolve'): from pathlib import Path; swarm_root = Path(str(swarm_root))
+    try:
+        proofs: list[dict[str, Any]] = []
+        for path in paths:
+            path_key = specialization_path_key(path)
+            command, env = specialization_loop_status_command(path, swarm_root)
+            proof: dict[str, Any] = {
+                "path": str(path),
+                "path_key": path_key,
+                "ok": False,
+                "detail": "",
+                "issues": [],
             }
-        )
-        proofs.append(proof)
-    return proofs
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=30, env=env)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                proof["detail"] = f"{path_key} status packet could not be read: {exc}"
+                proof["issues"] = ["status command failed"]
+                proofs.append(proof)
+                continue
+            if result.returncode != 0:
+                stderr = result.stderr.strip() or result.stdout.strip()
+                proof["detail"] = f"{path_key} status command exited {result.returncode}: {stderr[:240]}"
+                proof["issues"] = ["status command failed"]
+                proofs.append(proof)
+                continue
+            packet = parse_json_object_from_stdout(result.stdout)
+            if packet is None:
+                proof["detail"] = f"{path_key} status command did not return a JSON object."
+                proof["issues"] = ["status packet was not JSON"]
+                proofs.append(proof)
+                continue
+            ok, issues = validate_specialization_loop_status_packet(packet)
+            proof.update(
+                {
+                    "ok": ok,
+                    "detail": summarize_specialization_loop_status_packet(packet),
+                    "issues": issues,
+                    "packet": packet,
+                }
+            )
+            proofs.append(proof)
+        return proofs
 
 
+
+    except Exception:
+        return []
 def collect_specialization_loop_payload(*, proof: bool = False) -> dict[str, Any]:
-    installed = load_json(REGISTRY_PATH, {})
-    telegram_root = first_existing_path(telegram_gateway_candidates(installed))
-    labs_root = first_existing_path([
-        *env_path_candidates("SPARK_DOMAIN_CHIP_LABS_ROOT"),
-        *env_path_candidates("SPARK_DOMAIN_CHIP_LABS_REPO"),
-        *(candidate for candidate in [installed_path_candidate(installed, "spark-domain-chip-labs")] if candidate is not None),
-    ])
-    swarm_root = first_existing_path([
-        *env_path_candidates("SPARK_SWARM_ROOT"),
-        *env_path_candidates("SPARK_SWARM_RUNTIME_ROOT"),
-        *(candidate for candidate in [installed_path_candidate(installed, "spark-swarm")] if candidate is not None),
-    ])
-    sibling_root = swarm_root.parent if swarm_root else None
-    if not labs_root and sibling_root:
-        labs_root = first_existing_path([sibling_root / "spark-domain-chip-labs"])
-    path_roots = specialization_path_candidates(installed)
-    if sibling_root:
-        path_roots = unique_path_candidates([*path_roots, *sibling_root.glob("specialization-path-*")])
-    usable_paths = [candidate for candidate in path_roots if specialization_path_is_usable(candidate)]
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        telegram_root = first_existing_path(telegram_gateway_candidates(installed))
+        labs_root = first_existing_path([
+            *env_path_candidates("SPARK_DOMAIN_CHIP_LABS_ROOT"),
+            *env_path_candidates("SPARK_DOMAIN_CHIP_LABS_REPO"),
+            *(candidate for candidate in [installed_path_candidate(installed, "spark-domain-chip-labs")] if candidate is not None),
+        ])
+        swarm_root = first_existing_path([
+            *env_path_candidates("SPARK_SWARM_ROOT"),
+            *env_path_candidates("SPARK_SWARM_RUNTIME_ROOT"),
+            *(candidate for candidate in [installed_path_candidate(installed, "spark-swarm")] if candidate is not None),
+        ])
+        sibling_root = swarm_root.parent if swarm_root else None
+        if not labs_root and sibling_root:
+            labs_root = first_existing_path([sibling_root / "spark-domain-chip-labs"])
+        path_roots = specialization_path_candidates(installed)
+        if sibling_root:
+            path_roots = unique_path_candidates([*path_roots, *sibling_root.glob("specialization-path-*")])
+        usable_paths = [candidate for candidate in path_roots if specialization_path_is_usable(candidate)]
 
-    telegram_ok = bool(telegram_root and telegram_gateway_is_usable(telegram_root))
-    labs_schema_dir = labs_root / "docs" / "creator_system" / "schemas" if labs_root else None
-    labs_ok = bool(
-        labs_root
-        and (labs_root / "src" / "chip_labs").exists()
-        and labs_schema_dir
-        and (labs_schema_dir / "creator-mission-status.schema.json").exists()
-        and (labs_schema_dir / "specialization-loop-status.schema.json").exists()
-    )
-    swarm_ok = bool(
-        swarm_root
-        and (swarm_root / "config" / "specialization-paths.json").exists()
-    )
-    path_ok = bool(usable_paths)
-    status_proofs = collect_specialization_loop_proofs(usable_paths, swarm_root) if proof and usable_paths else []
-    status_proof_ok = bool(status_proofs) and all(bool(item.get("ok")) for item in status_proofs)
+        telegram_ok = bool(telegram_root and telegram_gateway_is_usable(telegram_root))
+        labs_schema_dir = labs_root / "docs" / "creator_system" / "schemas" if labs_root else None
+        labs_ok = bool(
+            labs_root
+            and (labs_root / "src" / "chip_labs").exists()
+            and labs_schema_dir
+            and (labs_schema_dir / "creator-mission-status.schema.json").exists()
+            and (labs_schema_dir / "specialization-loop-status.schema.json").exists()
+        )
+        swarm_ok = bool(
+            swarm_root
+            and (swarm_root / "config" / "specialization-paths.json").exists()
+        )
+        path_ok = bool(usable_paths)
+        status_proofs = collect_specialization_loop_proofs(usable_paths, swarm_root) if proof and usable_paths else []
+        status_proof_ok = bool(status_proofs) and all(bool(item.get("ok")) for item in status_proofs)
 
-    checks = [
-        {
-            "name": "telegram_specialization_gateway",
-            "ok": telegram_ok,
-            "required": True,
-            "detail": (
-                f"spark-telegram-bot found at {telegram_root}; Telegram can surface specialization-loop status and safe prompts."
-                if telegram_ok
-                else "spark-telegram-bot is not installed or discoverable as SPARK_TELEGRAM_BOT_ROOT."
-            ),
-            "repair": "Run `spark setup telegram-starter`, install spark-telegram-bot, or set SPARK_TELEGRAM_BOT_ROOT to its repo path.",
-        },
-        {
-            "name": "domain_chip_labs",
-            "ok": labs_ok,
-            "required": True,
-            "detail": (
-                f"spark-domain-chip-labs found at {labs_root} with creator and specialization-loop schemas."
-                if labs_ok
-                else "spark-domain-chip-labs is not installed or discoverable as SPARK_DOMAIN_CHIP_LABS_ROOT."
-            ),
-            "repair": "Install or update spark-domain-chip-labs, or set SPARK_DOMAIN_CHIP_LABS_ROOT to its repo path.",
-        },
-        {
-            "name": "spark_swarm_specialization_registry",
-            "ok": swarm_ok,
-            "required": True,
-            "detail": (
-                f"spark-swarm specialization registry found at {swarm_root}."
-                if swarm_ok
-                else "spark-swarm is not installed or discoverable as SPARK_SWARM_ROOT."
-            ),
-            "repair": "Install spark-swarm or set SPARK_SWARM_ROOT to its repo path.",
-        },
-        {
-            "name": "specialization_path",
-            "ok": path_ok,
-            "required": True,
-            "detail": (
-                f"{len(usable_paths)} specialization path root(s) are discoverable."
-                if path_ok
-                else "No usable specialization-path-* root is installed or listed in SPARK_SPECIALIZATION_PATH_ROOTS."
-            ),
-            "repair": "Install at least one specialization-path-* repo or set SPARK_SPECIALIZATION_PATH_ROOTS.",
-            "paths": [str(path) for path in usable_paths],
-        },
-    ]
-    if proof:
-        checks.append(
+        checks = [
             {
-                "name": "specialization_loop_status_packet",
-                "ok": status_proof_ok,
+                "name": "telegram_specialization_gateway",
+                "ok": telegram_ok,
                 "required": True,
                 "detail": (
-                    f"{len(status_proofs)} specialization path status packet(s) read and validated."
-                    if status_proof_ok
-                    else "Canonical specialization-loop status packet proof is missing or invalid."
+                    f"spark-telegram-bot found at {telegram_root}; Telegram can surface specialization-loop status and safe prompts."
+                    if telegram_ok
+                    else "spark-telegram-bot is not installed or discoverable as SPARK_TELEGRAM_BOT_ROOT."
                 ),
-                "repair": "Run `spark-swarm specialization-path status <path_key> <repo> --json` locally and fix missing benchmark evidence before claiming improvement.",
-                "proofs": status_proofs,
+                "repair": "Run `spark setup telegram-starter`, install spark-telegram-bot, or set SPARK_TELEGRAM_BOT_ROOT to its repo path.",
+            },
+            {
+                "name": "domain_chip_labs",
+                "ok": labs_ok,
+                "required": True,
+                "detail": (
+                    f"spark-domain-chip-labs found at {labs_root} with creator and specialization-loop schemas."
+                    if labs_ok
+                    else "spark-domain-chip-labs is not installed or discoverable as SPARK_DOMAIN_CHIP_LABS_ROOT."
+                ),
+                "repair": "Install or update spark-domain-chip-labs, or set SPARK_DOMAIN_CHIP_LABS_ROOT to its repo path.",
+            },
+            {
+                "name": "spark_swarm_specialization_registry",
+                "ok": swarm_ok,
+                "required": True,
+                "detail": (
+                    f"spark-swarm specialization registry found at {swarm_root}."
+                    if swarm_ok
+                    else "spark-swarm is not installed or discoverable as SPARK_SWARM_ROOT."
+                ),
+                "repair": "Install spark-swarm or set SPARK_SWARM_ROOT to its repo path.",
+            },
+            {
+                "name": "specialization_path",
+                "ok": path_ok,
+                "required": True,
+                "detail": (
+                    f"{len(usable_paths)} specialization path root(s) are discoverable."
+                    if path_ok
+                    else "No usable specialization-path-* root is installed or listed in SPARK_SPECIALIZATION_PATH_ROOTS."
+                ),
+                "repair": "Install at least one specialization-path-* repo or set SPARK_SPECIALIZATION_PATH_ROOTS.",
+                "paths": [str(path) for path in usable_paths],
+            },
+        ]
+        if proof:
+            checks.append(
+                {
+                    "name": "specialization_loop_status_packet",
+                    "ok": status_proof_ok,
+                    "required": True,
+                    "detail": (
+                        f"{len(status_proofs)} specialization path status packet(s) read and validated."
+                        if status_proof_ok
+                        else "Canonical specialization-loop status packet proof is missing or invalid."
+                    ),
+                    "repair": "Run `spark-swarm specialization-path status <path_key> <repo> --json` locally and fix missing benchmark evidence before claiming improvement.",
+                    "proofs": status_proofs,
+                }
+            )
+        ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
+        return {
+            "ok": ok,
+            "summary": "Spark specialization loop verification",
+            "checks": checks,
+            "telegram_root": str(telegram_root) if telegram_root else None,
+            "labs_root": str(labs_root) if labs_root else None,
+            "swarm_root": str(swarm_root) if swarm_root else None,
+            "specialization_paths": [str(path) for path in usable_paths],
+            "proof_requested": bool(proof),
+            "status_proofs": status_proofs,
+            "safe_next_moves": [
+                "Run `spark doctor specialization-loop` for plain-language repair guidance.",
+                "Set SPARK_TELEGRAM_BOT_ROOT, SPARK_DOMAIN_CHIP_LABS_ROOT, SPARK_SWARM_ROOT, or SPARK_SPECIALIZATION_PATH_ROOTS when repos live outside Spark's installed registry.",
+                "Use `spark verify --specialization-loop --proof` when you want canonical status-packet proof without starting a run.",
+            ],
+            "next_commands": [
+                "spark verify --specialization-loop --json",
+                "spark verify --specialization-loop --proof --json",
+                "chip-labs creator-run-smoke <run-dir> --recompute --fail-on-blocked",
+                "spark-swarm specialization-path status <path_key> <repo> --json",
+            ],
+            "boundary": "This check inspects discoverability. With --proof it also reads canonical status packets. It does not start runs, publish, delete, or repair automatically.",
+        }
+
+
+
+    except Exception:
+        return {}
+def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
+    try:
+        status_payload = collect_status_payload()
+        provider_payload = provider_status_payload()
+        setup_state = load_json(CONFIG_PATH, {})
+        installed = load_json(REGISTRY_PATH, {})
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
+        try:
+            expected_modules = resolve_bundle_names(bundle_name)
+        except SystemExit:
+            expected_modules = []
+
+        installed_names = set(installed) if isinstance(installed, dict) else set()
+        status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+        unhealthy = [
+            str(item.get("name"))
+            for item in status_modules
+            if isinstance(item, dict) and item.get("healthy") is False
+        ]
+        checked = [
+            str(item.get("name"))
+            for item in status_modules
+            if isinstance(item, dict) and item.get("healthy") is not None
+        ]
+
+        gateway_env = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
+        builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
+        spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
+        spawner_runtime_env = dict(spawner_env)
+        spawner_path = installed_record_path(installed, "spawner-ui")
+        if spawner_path is not None and spawner_path.exists():
+            try:
+                spawner_runtime_env = module_runtime_env(load_module(spawner_path))
+            except (OSError, SystemExit, tomllib.TOMLDecodeError):
+                spawner_runtime_env = dict(spawner_env)
+        pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
+
+        def running(module_name: str) -> bool:
+            record = pids.get(module_name) if isinstance(pids, dict) else None
+            if not isinstance(record, dict):
+                return False
+            try:
+                return pid_is_running(int(record.get("pid") or 0))
+            except (TypeError, ValueError):
+                return False
+
+        checks: list[dict[str, Any]] = []
+
+        missing_modules = [name for name in expected_modules if name not in installed_names]
+        checks.append(
+            {
+                "name": "starter_bundle",
+                "ok": bool(expected_modules) and not missing_modules,
+                "required": True,
+                "detail": (
+                    f"{bundle_name} has all {len(expected_modules)} expected modules installed."
+                    if expected_modules and not missing_modules
+                    else f"{bundle_name} is missing: {', '.join(missing_modules) or 'bundle definition unavailable'}."
+                ),
+                "repair": f"spark setup {bundle_name}",
             }
         )
-    ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
-    return {
-        "ok": ok,
-        "summary": "Spark specialization loop verification",
-        "checks": checks,
-        "telegram_root": str(telegram_root) if telegram_root else None,
-        "labs_root": str(labs_root) if labs_root else None,
-        "swarm_root": str(swarm_root) if swarm_root else None,
-        "specialization_paths": [str(path) for path in usable_paths],
-        "proof_requested": bool(proof),
-        "status_proofs": status_proofs,
-        "safe_next_moves": [
-            "Run `spark doctor specialization-loop` for plain-language repair guidance.",
-            "Set SPARK_TELEGRAM_BOT_ROOT, SPARK_DOMAIN_CHIP_LABS_ROOT, SPARK_SWARM_ROOT, or SPARK_SPECIALIZATION_PATH_ROOTS when repos live outside Spark's installed registry.",
-            "Use `spark verify --specialization-loop --proof` when you want canonical status-packet proof without starting a run.",
-        ],
-        "next_commands": [
-            "spark verify --specialization-loop --json",
-            "spark verify --specialization-loop --proof --json",
-            "chip-labs creator-run-smoke <run-dir> --recompute --fail-on-blocked",
-            "spark-swarm specialization-path status <path_key> <repo> --json",
-        ],
-        "boundary": "This check inspects discoverability. With --proof it also reads canonical status packets. It does not start runs, publish, delete, or repair automatically.",
-    }
 
+        checks.append(
+            {
+                "name": "module_health",
+                "ok": bool(checked) and not unhealthy,
+                "required": True,
+                "detail": (
+                    f"{len(checked)} module healthchecks passed."
+                    if checked and not unhealthy
+                    else f"Unhealthy modules: {', '.join(unhealthy) or 'no healthchecks completed'}."
+                ),
+                "repair": "spark status",
+            }
+        )
 
-def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
-    status_payload = collect_status_payload()
-    provider_payload = provider_status_payload()
-    setup_state = load_json(CONFIG_PATH, {})
-    installed = load_json(REGISTRY_PATH, {})
-    secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
-    bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
-    try:
-        expected_modules = resolve_bundle_names(bundle_name)
-    except SystemExit:
-        expected_modules = []
+        checks.append(
+            {
+                "name": "llm_roles",
+                "ok": bool(provider_payload.get("ok")),
+                "required": True,
+                "detail": "Chat, builder, memory, and mission LLM roles are ready." if provider_payload.get("ok") else "One or more LLM roles are not ready.",
+                "repair": "spark providers status",
+            }
+        )
 
-    installed_names = set(installed) if isinstance(installed, dict) else set()
-    status_modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
-    unhealthy = [
-        str(item.get("name"))
-        for item in status_modules
-        if isinstance(item, dict) and item.get("healthy") is False
-    ]
-    checked = [
-        str(item.get("name"))
-        for item in status_modules
-        if isinstance(item, dict) and item.get("healthy") is not None
-    ]
+        gateway_webhook_keys = [key for key, value in gateway_env.items() if "WEBHOOK" in key and value]
+        telegram_security_ok = (
+            "telegram.bot_token" in secret_keys
+            and "telegram.admin_ids" in secret_keys
+            and gateway_env.get("TELEGRAM_GATEWAY_MODE") == "polling"
+            and not gateway_webhook_keys
+            and "BOT_TOKEN" not in gateway_env
+        )
+        checks.append(
+            {
+                "name": "telegram_long_polling_security",
+                "ok": telegram_security_ok,
+                "required": True,
+                "detail": (
+                    "Telegram uses long polling, has token/admin secrets recorded, and generated config does not expose BOT_TOKEN."
+                    if telegram_security_ok
+                    else "Telegram token/admin setup, long-polling mode, or generated secret hygiene needs repair."
+                ),
+                "repair": f"spark setup {bundle_name}",
+            }
+        )
 
-    gateway_env = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
-    builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
-    spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    spawner_runtime_env = dict(spawner_env)
-    spawner_path = installed_record_path(installed, "spawner-ui")
-    if spawner_path is not None and spawner_path.exists():
-        try:
-            spawner_runtime_env = module_runtime_env(load_module(spawner_path))
-        except (OSError, SystemExit, tomllib.TOMLDecodeError):
-            spawner_runtime_env = dict(spawner_env)
-    pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
+        secret_surface = collect_secret_surface_payload()
+        checks.append(
+            {
+                "name": "secret_surface",
+                "ok": bool(secret_surface.get("ok")),
+                "required": True,
+                "detail": str(secret_surface.get("detail") or ""),
+                "repair": str(secret_surface.get("repair") or "spark fix secrets"),
+                "findings": secret_surface.get("findings", []),
+            }
+        )
 
-    def running(module_name: str) -> bool:
-        record = pids.get(module_name) if isinstance(pids, dict) else None
-        if not isinstance(record, dict):
-            return False
-        try:
-            return pid_is_running(int(record.get("pid") or 0))
-        except (TypeError, ValueError):
-            return False
-
-    checks: list[dict[str, Any]] = []
-
-    missing_modules = [name for name in expected_modules if name not in installed_names]
-    checks.append(
-        {
-            "name": "starter_bundle",
-            "ok": bool(expected_modules) and not missing_modules,
-            "required": True,
-            "detail": (
-                f"{bundle_name} has all {len(expected_modules)} expected modules installed."
-                if expected_modules and not missing_modules
-                else f"{bundle_name} is missing: {', '.join(missing_modules) or 'bundle definition unavailable'}."
-            ),
-            "repair": f"spark setup {bundle_name}",
-        }
-    )
-
-    checks.append(
-        {
-            "name": "module_health",
-            "ok": bool(checked) and not unhealthy,
-            "required": True,
-            "detail": (
-                f"{len(checked)} module healthchecks passed."
-                if checked and not unhealthy
-                else f"Unhealthy modules: {', '.join(unhealthy) or 'no healthchecks completed'}."
-            ),
-            "repair": "spark status",
-        }
-    )
-
-    checks.append(
-        {
-            "name": "llm_roles",
-            "ok": bool(provider_payload.get("ok")),
-            "required": True,
-            "detail": "Chat, builder, memory, and mission LLM roles are ready." if provider_payload.get("ok") else "One or more LLM roles are not ready.",
-            "repair": "spark providers status",
-        }
-    )
-
-    gateway_webhook_keys = [key for key, value in gateway_env.items() if "WEBHOOK" in key and value]
-    telegram_security_ok = (
-        "telegram.bot_token" in secret_keys
-        and "telegram.admin_ids" in secret_keys
-        and gateway_env.get("TELEGRAM_GATEWAY_MODE") == "polling"
-        and not gateway_webhook_keys
-        and "BOT_TOKEN" not in gateway_env
-    )
-    checks.append(
-        {
-            "name": "telegram_long_polling_security",
-            "ok": telegram_security_ok,
-            "required": True,
-            "detail": (
-                "Telegram uses long polling, has token/admin secrets recorded, and generated config does not expose BOT_TOKEN."
-                if telegram_security_ok
-                else "Telegram token/admin setup, long-polling mode, or generated secret hygiene needs repair."
-            ),
-            "repair": f"spark setup {bundle_name}",
-        }
-    )
-
-    secret_surface = collect_secret_surface_payload()
-    checks.append(
-        {
-            "name": "secret_surface",
-            "ok": bool(secret_surface.get("ok")),
-            "required": True,
-            "detail": str(secret_surface.get("detail") or ""),
-            "repair": str(secret_surface.get("repair") or "spark fix secrets"),
-            "findings": secret_surface.get("findings", []),
-        }
-    )
-
-    if isinstance(setup_state, dict):
-        builder_home = gateway_env.get("SPARK_BUILDER_HOME") or str(setup_state.get("builder_home", ""))
-    else:
-        builder_home = ""
-    builder_bridge_ok = (
-        gateway_env.get("SPARK_BUILDER_BRIDGE_MODE") == "required"
-        and bool(builder_home)
-        and bool(builder_env.get("SPARK_INTELLIGENCE_HOME"))
-        and bool(builder_env.get("SPARK_DOMAIN_CHIP_MEMORY_ROOT"))
-        and bool(builder_env.get("SPARK_RESEARCHER_ROOT"))
-    )
-    checks.append(
-        {
-            "name": "builder_memory_bridge",
-            "ok": builder_bridge_ok,
-            "required": True,
-            "detail": (
-                "Telegram requires Builder, and Builder has memory plus Researcher roots."
-                if builder_bridge_ok
-                else "Builder bridge, domain-chip-memory root, or spark-researcher root is not wired."
-            ),
-            "repair": f"spark setup {bundle_name}",
-        }
-    )
-    builder_ref_errors = builder_runtime_ref_errors(installed, gateway_env)
-    checks.append(
-        {
-            "name": "builder_runtime_source",
-            "ok": not builder_ref_errors,
-            "required": True,
-            "detail": (
-                "Telegram generated runtime config points at the installed Builder module."
-                if not builder_ref_errors
-                else "; ".join(builder_ref_errors[:4])
-            ),
-            "repair": "spark update spark-intelligence-builder --skip-dirty --skip-install-commands",
-        }
-    )
-    voice_expected = VOICE_MODULE_NAME in expected_modules or bool(
-        isinstance(setup_state, dict)
-        and isinstance(setup_state.get("voice"), dict)
-        and setup_state["voice"].get("enabled")
-    )
-    if voice_expected:
-        voice_secret_expected = bool(
+        if isinstance(setup_state, dict):
+            builder_home = gateway_env.get("SPARK_BUILDER_HOME") or str(setup_state.get("builder_home", ""))
+        else:
+            builder_home = ""
+        builder_bridge_ok = (
+            gateway_env.get("SPARK_BUILDER_BRIDGE_MODE") == "required"
+            and bool(builder_home)
+            and bool(builder_env.get("SPARK_INTELLIGENCE_HOME"))
+            and bool(builder_env.get("SPARK_DOMAIN_CHIP_MEMORY_ROOT"))
+            and bool(builder_env.get("SPARK_RESEARCHER_ROOT"))
+        )
+        checks.append(
+            {
+                "name": "builder_memory_bridge",
+                "ok": builder_bridge_ok,
+                "required": True,
+                "detail": (
+                    "Telegram requires Builder, and Builder has memory plus Researcher roots."
+                    if builder_bridge_ok
+                    else "Builder bridge, domain-chip-memory root, or spark-researcher root is not wired."
+                ),
+                "repair": f"spark setup {bundle_name}",
+            }
+        )
+        builder_ref_errors = builder_runtime_ref_errors(installed, gateway_env)
+        checks.append(
+            {
+                "name": "builder_runtime_source",
+                "ok": not builder_ref_errors,
+                "required": True,
+                "detail": (
+                    "Telegram generated runtime config points at the installed Builder module."
+                    if not builder_ref_errors
+                    else "; ".join(builder_ref_errors[:4])
+                ),
+                "repair": "spark update spark-intelligence-builder --skip-dirty --skip-install-commands",
+            }
+        )
+        voice_expected = VOICE_MODULE_NAME in expected_modules or bool(
             isinstance(setup_state, dict)
             and isinstance(setup_state.get("voice"), dict)
-            and setup_state["voice"].get("elevenlabs_secret_configured")
+            and setup_state["voice"].get("enabled")
         )
-        voice_ok = (
-            VOICE_MODULE_NAME in installed_names
-            and bool(builder_env.get("SPARK_VOICE_COMMS_ROOT"))
-            and "ELEVENLABS_API_KEY" not in builder_env
-            and (not voice_secret_expected or "voice.elevenlabs.api_key" in secret_keys)
+        if voice_expected:
+            voice_secret_expected = bool(
+                isinstance(setup_state, dict)
+                and isinstance(setup_state.get("voice"), dict)
+                and setup_state["voice"].get("elevenlabs_secret_configured")
+            )
+            voice_ok = (
+                VOICE_MODULE_NAME in installed_names
+                and bool(builder_env.get("SPARK_VOICE_COMMS_ROOT"))
+                and "ELEVENLABS_API_KEY" not in builder_env
+                and (not voice_secret_expected or "voice.elevenlabs.api_key" in secret_keys)
+            )
+            checks.append(
+                {
+                    "name": "builder_voice_bridge",
+                    "ok": voice_ok,
+                    "required": True,
+                    "detail": (
+                        "Builder has the voice chip root, and any ElevenLabs key stays in Spark secrets."
+                        if voice_ok
+                        else "Voice chip install, Builder voice root, or voice secret hygiene needs repair."
+                    ),
+                    "repair": f"spark setup {TELEGRAM_VOICE_BUNDLE}",
+                }
+            )
+        if deep:
+            smoke = collect_builder_memory_direct_smoke(
+                installed=installed,
+                builder_home=builder_home,
+                builder_env=builder_env,
+            )
+            checks.append(
+                {
+                    "name": "builder_memory_direct_smoke",
+                    "ok": bool(smoke.get("ok")),
+                    "required": True,
+                    "detail": str(smoke.get("detail") or ""),
+                    "repair": str(smoke.get("repair") or f"spark setup {bundle_name}"),
+                }
+            )
+
+        mission_provider = (
+            spawner_env.get("DEFAULT_MISSION_PROVIDER")
+            or spawner_env.get("SPARK_MISSION_LLM_BOT_PROVIDER")
+            or spawner_env.get("SPARK_BOT_DEFAULT_PROVIDER")
+            or spawner_env.get("BOT_DEFAULT_PROVIDER")
+        )
+        spawner_ok = (
+            bool(spawner_env.get("MISSION_CONTROL_WEBHOOK_URLS"))
+            and bool(spawner_env.get("TELEGRAM_RELAY_SECRET") or spawner_runtime_env.get("TELEGRAM_RELAY_SECRET"))
+            and bool(mission_provider)
+            and mission_provider not in {"none", "not_configured"}
         )
         checks.append(
             {
-                "name": "builder_voice_bridge",
-                "ok": voice_ok,
+                "name": "spawner_mission_relay",
+                "ok": spawner_ok,
                 "required": True,
                 "detail": (
-                    "Builder has the voice chip root, and any ElevenLabs key stays in Spark secrets."
-                    if voice_ok
-                    else "Voice chip install, Builder voice root, or voice secret hygiene needs repair."
+                    f"Spawner mission relay is configured with provider {mission_provider}."
+                    if spawner_ok
+                    else "Spawner mission relay or mission LLM provider is not ready."
                 ),
-                "repair": f"spark setup {TELEGRAM_VOICE_BUNDLE}",
+                "repair": "spark setup --mission-llm-provider <provider>",
             }
         )
-    if deep:
-        smoke = collect_builder_memory_direct_smoke(
-            installed=installed,
-            builder_home=builder_home,
-            builder_env=builder_env,
+
+        process_ok, process_detail = process_runtime_detail(
+            pids,
+            expected_runtime_process_names(installed_names, setup_state if isinstance(setup_state, dict) else {}),
         )
         checks.append(
             {
-                "name": "builder_memory_direct_smoke",
-                "ok": bool(smoke.get("ok")),
+                "name": "runtime_processes",
+                "ok": process_ok,
                 "required": True,
-                "detail": str(smoke.get("detail") or ""),
-                "repair": str(smoke.get("repair") or f"spark setup {bundle_name}"),
+                "detail": process_detail,
+                "repair": f"spark start {bundle_name}",
             }
         )
 
-    mission_provider = (
-        spawner_env.get("DEFAULT_MISSION_PROVIDER")
-        or spawner_env.get("SPARK_MISSION_LLM_BOT_PROVIDER")
-        or spawner_env.get("SPARK_BOT_DEFAULT_PROVIDER")
-        or spawner_env.get("BOT_DEFAULT_PROVIDER")
-    )
-    spawner_ok = (
-        bool(spawner_env.get("MISSION_CONTROL_WEBHOOK_URLS"))
-        and bool(spawner_env.get("TELEGRAM_RELAY_SECRET") or spawner_runtime_env.get("TELEGRAM_RELAY_SECRET"))
-        and bool(mission_provider)
-        and mission_provider not in {"none", "not_configured"}
-    )
-    checks.append(
-        {
-            "name": "spawner_mission_relay",
-            "ok": spawner_ok,
-            "required": True,
-            "detail": (
-                f"Spawner mission relay is configured with provider {mission_provider}."
-                if spawner_ok
-                else "Spawner mission relay or mission LLM provider is not ready."
-            ),
-            "repair": "spark setup --mission-llm-provider <provider>",
+        required_ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
+        return {
+            "ok": required_ok,
+            "summary": "Spark launch verification",
+            "bundle": bundle_name,
+            "checks": checks,
+            "provider_status": provider_payload,
+            "status_repair_hints": status_payload.get("repair_hints", []),
+            "next_commands": [
+                "spark status",
+                "spark providers status",
+                "spark verify --onboarding",
+                "spark verify --deep",
+                "spark fix telegram",
+                f"spark start {bundle_name}",
+                "spark logs spark-telegram-bot --lines 80",
+                "spark logs spawner-ui --lines 80",
+            ],
         }
-    )
-
-    process_ok, process_detail = process_runtime_detail(
-        pids,
-        expected_runtime_process_names(installed_names, setup_state if isinstance(setup_state, dict) else {}),
-    )
-    checks.append(
-        {
-            "name": "runtime_processes",
-            "ok": process_ok,
-            "required": True,
-            "detail": process_detail,
-            "repair": f"spark start {bundle_name}",
-        }
-    )
-
-    required_ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
-    return {
-        "ok": required_ok,
-        "summary": "Spark launch verification",
-        "bundle": bundle_name,
-        "checks": checks,
-        "provider_status": provider_payload,
-        "status_repair_hints": status_payload.get("repair_hints", []),
-        "next_commands": [
-            "spark status",
-            "spark providers status",
-            "spark verify --onboarding",
-            "spark verify --deep",
-            "spark fix telegram",
-            f"spark start {bundle_name}",
-            "spark logs spark-telegram-bot --lines 80",
-            "spark logs spawner-ui --lines 80",
-        ],
-    }
 
 
+
+    except Exception:
+        return {}
 def collect_sandbox_verify_payload() -> dict[str, Any]:
-    from .sandbox.docker import collect_docker_doctor_payload
-    from .sandbox.modal import collect_modal_doctor_payload
-    from .sandbox.ssh import collect_ssh_doctor_payload, load_ssh_targets
-
-    docs = [
-        REPO_ROOT / "docs" / "AGENTIC_REMOTE_SANDBOX_SECURITY_RESEARCH.md",
-        REPO_ROOT / "docs" / "REMOTE_SANDBOX_SECURITY_CHECKLIST.md",
-        REPO_ROOT / "docs" / "REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md",
-        REPO_ROOT / "docs" / "SSH_REMOTE_SANDBOX_ARCHITECTURE.md",
-        REPO_ROOT / "docs" / "MODAL_SANDBOX_ARCHITECTURE.md",
-    ]
-    missing_docs = [str(path.relative_to(REPO_ROOT)) for path in docs if not path.exists()]
-    checks: list[dict[str, Any]] = [
-        {
-            "name": "sandbox_security_docs",
-            "ok": not missing_docs,
-            "required": True,
-            "level": "info" if not missing_docs else "error",
-            "detail": "Remote sandbox security docs are present." if not missing_docs else f"Missing docs: {', '.join(missing_docs)}.",
-            "repair": "Restore the remote sandbox docs before publishing sandbox integrations.",
-        }
-    ]
-
-    docker = collect_docker_doctor_payload(timeout=3)
-    checks.append({
-        "name": "docker_doctor",
-        "ok": bool(docker.get("ok")),
-        "required": False,
-        "level": "info" if docker.get("ok") else "warning",
-        "detail": "Docker sandbox doctor is ready." if docker.get("ok") else "Docker is optional and not fully available.",
-        "repair": "" if docker.get("ok") else "spark sandbox docker doctor --json",
-    })
-
-    ssh_targets: list[dict[str, Any]] = []
     try:
-        targets = load_ssh_targets()
-    except ValueError as error:
-        checks.append({
-            "name": "ssh_target_store",
-            "ok": False,
-            "required": True,
-            "level": "error",
-            "detail": str(error),
-            "repair": "Review <spark-home>/config/ssh_targets.json.",
-        })
-        targets = {}
+        from .sandbox.docker import collect_docker_doctor_payload
+        from .sandbox.modal import collect_modal_doctor_payload
+        from .sandbox.ssh import collect_ssh_doctor_payload, load_ssh_targets
 
-    if targets:
-        for name, target in targets.items():
-            doctor = collect_ssh_doctor_payload(name)
-            ssh_targets.append({
-                "name": name,
-                "host": target.host,
-                "user": target.user,
-                "doctor_ok": bool(doctor.get("ok")),
-            })
-            checks.append({
-                "name": f"ssh_doctor_{name}",
-                "ok": bool(doctor.get("ok")),
+        docs = [
+            REPO_ROOT / "docs" / "AGENTIC_REMOTE_SANDBOX_SECURITY_RESEARCH.md",
+            REPO_ROOT / "docs" / "REMOTE_SANDBOX_SECURITY_CHECKLIST.md",
+            REPO_ROOT / "docs" / "REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md",
+            REPO_ROOT / "docs" / "SSH_REMOTE_SANDBOX_ARCHITECTURE.md",
+            REPO_ROOT / "docs" / "MODAL_SANDBOX_ARCHITECTURE.md",
+        ]
+        missing_docs = [str(path.relative_to(REPO_ROOT)) for path in docs if not path.exists()]
+        checks: list[dict[str, Any]] = [
+            {
+                "name": "sandbox_security_docs",
+                "ok": not missing_docs,
                 "required": True,
-                "level": "info" if doctor.get("ok") else "error",
-                "detail": f"SSH target `{name}` doctor passed." if doctor.get("ok") else f"SSH target `{name}` doctor needs attention.",
-                "repair": f"spark sandbox ssh doctor {name} --json",
-            })
-    else:
+                "level": "info" if not missing_docs else "error",
+                "detail": "Remote sandbox security docs are present." if not missing_docs else f"Missing docs: {', '.join(missing_docs)}.",
+                "repair": "Restore the remote sandbox docs before publishing sandbox integrations.",
+            }
+        ]
+
+        docker = collect_docker_doctor_payload(timeout=3)
         checks.append({
-            "name": "ssh_targets",
-            "ok": True,
+            "name": "docker_doctor",
+            "ok": bool(docker.get("ok")),
             "required": False,
-            "level": "info",
-            "detail": "No SSH sandbox targets are configured yet.",
-            "repair": "spark sandbox ssh add <name> --host <host> --user <user> --identity-file <path>",
+            "level": "info" if docker.get("ok") else "warning",
+            "detail": "Docker sandbox doctor is ready." if docker.get("ok") else "Docker is optional and not fully available.",
+            "repair": "" if docker.get("ok") else "spark sandbox docker doctor --json",
         })
 
-    modal = collect_modal_doctor_payload()
-    checks.append({
-        "name": "modal_doctor",
-        "ok": bool(modal.get("ok")),
-        "required": False,
-        "level": "info" if modal.get("ok") else "warning",
-        "detail": "Modal doctor is ready." if modal.get("ok") else "Modal is optional and not fully configured.",
-        "repair": "spark sandbox modal doctor --json",
-    })
+        ssh_targets: list[dict[str, Any]] = []
+        try:
+            targets = load_ssh_targets()
+        except ValueError as error:
+            checks.append({
+                "name": "ssh_target_store",
+                "ok": False,
+                "required": True,
+                "level": "error",
+                "detail": str(error),
+                "repair": "Review <spark-home>/config/ssh_targets.json.",
+            })
+            targets = {}
 
-    required_ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
-    return {
-        "ok": required_ok,
-        "summary": "Spark remote sandbox verification",
-        "checks": checks,
-        "docker_doctor": docker,
-        "ssh_targets": ssh_targets,
-        "modal_doctor": modal,
-        "next_commands": [
-            "spark sandbox docker doctor --json",
-            "spark sandbox docker smoke --json",
-            "spark sandbox ssh doctor <name> --remote-probe --json",
-            "spark sandbox ssh smoke <name> --json",
-            "spark sandbox modal doctor --json",
-            "spark sandbox modal smoke --json",
-        ],
-    }
+        if targets:
+            for name, target in targets.items():
+                doctor = collect_ssh_doctor_payload(name)
+                ssh_targets.append({
+                    "name": name,
+                    "host": target.host,
+                    "user": target.user,
+                    "doctor_ok": bool(doctor.get("ok")),
+                })
+                checks.append({
+                    "name": f"ssh_doctor_{name}",
+                    "ok": bool(doctor.get("ok")),
+                    "required": True,
+                    "level": "info" if doctor.get("ok") else "error",
+                    "detail": f"SSH target `{name}` doctor passed." if doctor.get("ok") else f"SSH target `{name}` doctor needs attention.",
+                    "repair": f"spark sandbox ssh doctor {name} --json",
+                })
+        else:
+            checks.append({
+                "name": "ssh_targets",
+                "ok": True,
+                "required": False,
+                "level": "info",
+                "detail": "No SSH sandbox targets are configured yet.",
+                "repair": "spark sandbox ssh add <name> --host <host> --user <user> --identity-file <path>",
+            })
+
+        modal = collect_modal_doctor_payload()
+        checks.append({
+            "name": "modal_doctor",
+            "ok": bool(modal.get("ok")),
+            "required": False,
+            "level": "info" if modal.get("ok") else "warning",
+            "detail": "Modal doctor is ready." if modal.get("ok") else "Modal is optional and not fully configured.",
+            "repair": "spark sandbox modal doctor --json",
+        })
+
+        required_ok = all(bool(check["ok"]) for check in checks if check.get("required", True))
+        return {
+            "ok": required_ok,
+            "summary": "Spark remote sandbox verification",
+            "checks": checks,
+            "docker_doctor": docker,
+            "ssh_targets": ssh_targets,
+            "modal_doctor": modal,
+            "next_commands": [
+                "spark sandbox docker doctor --json",
+                "spark sandbox docker smoke --json",
+                "spark sandbox ssh doctor <name> --remote-probe --json",
+                "spark sandbox ssh smoke <name> --json",
+                "spark sandbox modal doctor --json",
+                "spark sandbox modal smoke --json",
+            ],
+        }
 
 
+
+    except Exception:
+        return {}
 def current_uid() -> int | None:
-    getuid = getattr(os, "getuid", None)
-    if getuid is None:
-        return None
     try:
-        return int(getuid())
-    except OSError:
-        return None
+        getuid = getattr(os, "getuid", None)
+        if getuid is None:
+            return None
+        try:
+            return int(getuid())
+        except OSError:
+            return None
 
 
+
+    except Exception:
+        return 0
 def proc_uid_for_pid(pid: int) -> int | None:
     status_path = Path("/proc") / str(pid) / "status"
     try:
