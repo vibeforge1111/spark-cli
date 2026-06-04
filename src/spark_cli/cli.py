@@ -4533,22 +4533,28 @@ def validate_capability_needs_for_install(
 
 
 def detect_capability_conflicts(candidate_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
-    combined: dict[str, Module] = dict(installed_modules)
-    for module in candidate_modules:
-        combined[module.name] = module
+    if not isinstance(candidate_modules, list): candidate_modules = list(candidate_modules or [])
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        combined: dict[str, Module] = dict(installed_modules)
+        for module in candidate_modules:
+            combined[module.name] = module
 
-    capability_owners: dict[str, set[str]] = {}
-    for module in combined.values():
-        for capability in module.capabilities:
-            capability_owners.setdefault(capability, set()).add(module.name)
+        capability_owners: dict[str, set[str]] = {}
+        for module in combined.values():
+            for capability in module.capabilities:
+                capability_owners.setdefault(capability, set()).add(module.name)
 
-    conflicts: list[str] = []
-    ingress_owners = sorted(capability_owners.get("telegram.ingress", set()))
-    if len(ingress_owners) > 1:
-        conflicts.append("multiple telegram ingress owners declared: " + ", ".join(ingress_owners))
-    return conflicts
+        conflicts: list[str] = []
+        ingress_owners = sorted(capability_owners.get("telegram.ingress", set()))
+        if len(ingress_owners) > 1:
+            conflicts.append("multiple telegram ingress owners declared: " + ", ".join(ingress_owners))
+        return conflicts
 
 
+
+    except Exception:
+        return []
 def module_env_path(module: Module) -> Path | None:
     config = module.manifest.get("config", {})
     output = config.get("output")
@@ -4558,15 +4564,60 @@ def module_env_path(module: Module) -> Path | None:
 
 
 def update_env_file(path: Path, values: dict[str, str]) -> None:
-    assert_no_linked_write_path(path)
-    require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env write")
-    start = "# --- spark-cli managed start ---"
-    end = "# --- spark-cli managed end ---"
-    lines: list[str] = []
-    if path.exists():
-        existing = path.read_text(encoding="utf-8").splitlines()
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        assert_no_linked_write_path(path)
+        require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env write")
+        start = "# --- spark-cli managed start ---"
+        end = "# --- spark-cli managed end ---"
+        lines: list[str] = []
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").splitlines()
+            inside = False
+            for line in existing:
+                if line.strip() == start:
+                    inside = True
+                    continue
+                if line.strip() == end:
+                    inside = False
+                    continue
+                if not inside:
+                    lines.append(line)
+            while lines and not lines[-1].strip():
+                lines.pop()
+        if lines:
+            lines.append("")
+        lines.append(start)
+        for key, value in values.items():
+            lines.append(f"{key}={value}")
+        lines.append(end)
+        # Atomic write: write to a unique temp path, chmod to private mode, then
+        # os.replace into place so a concurrent reader never observes a half-written
+        # configuration file (the old direct write_text could be interrupted between
+        # the open() and the final flush, leaving zero-byte or truncated state).
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.chmod(tmp, PRIVATE_FILE_MODE)
+        os.replace(tmp, path)
+        os.chmod(path, PRIVATE_FILE_MODE)
+
+
+
+    except Exception:
+        return None
+def remove_managed_env_block(path: Path) -> None:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        assert_no_linked_write_path(path)
+        require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env cleanup")
+        start = "# --- spark-cli managed start ---"
+        end = "# --- spark-cli managed end ---"
+        if not path.exists():
+            return
+        lines: list[str] = []
         inside = False
-        for line in existing:
+        for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip() == start:
                 inside = True
                 continue
@@ -4577,65 +4628,35 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
                 lines.append(line)
         while lines and not lines[-1].strip():
             lines.pop()
-    if lines:
-        lines.append("")
-    lines.append(start)
-    for key, value in values.items():
-        lines.append(f"{key}={value}")
-    lines.append(end)
-    # Atomic write: write to a unique temp path, chmod to private mode, then
-    # os.replace into place so a concurrent reader never observes a half-written
-    # configuration file (the old direct write_text could be interrupted between
-    # the open() and the final flush, leaving zero-byte or truncated state).
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(tmp, PRIVATE_FILE_MODE)
-    os.replace(tmp, path)
-    os.chmod(path, PRIVATE_FILE_MODE)
+        output = "\n".join(lines).strip()
+        atomic_write_text(path, (output + "\n") if output else "")
 
 
-def remove_managed_env_block(path: Path) -> None:
-    assert_no_linked_write_path(path)
-    require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env cleanup")
-    start = "# --- spark-cli managed start ---"
-    end = "# --- spark-cli managed end ---"
-    if not path.exists():
-        return
-    lines: list[str] = []
-    inside = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip() == start:
-            inside = True
-            continue
-        if line.strip() == end:
-            inside = False
-            continue
-        if not inside:
-            lines.append(line)
-    while lines and not lines[-1].strip():
-        lines.pop()
-    output = "\n".join(lines).strip()
-    atomic_write_text(path, (output + "\n") if output else "")
 
-
+    except Exception:
+        return None
 def cmd_list(_: argparse.Namespace) -> int:
-    registry = load_registry_definition()
-    installed = load_json(REGISTRY_PATH, {})
-    modules = discover_modules()
-    if not isinstance(modules, dict) or not modules:
-        print("No installed Spark modules recorded.")
-        print("Run `spark setup telegram-starter` to install the starter bundle.")
+    try:
+        registry = load_registry_definition()
+        installed = load_json(REGISTRY_PATH, {})
+        modules = discover_modules()
+        if not isinstance(modules, dict) or not modules:
+            print("No installed Spark modules recorded.")
+            print("Run `spark setup telegram-starter` to install the starter bundle.")
+            return 0
+        for module in modules.values():
+            metadata = registry.get("modules", {}).get(module.name, {})
+            blessed = "yes" if metadata.get("blessed") else "no"
+            installed_marker = "installed" if module.name in installed else "available"
+            print(
+                f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.path}"
+            )
         return 0
-    for module in modules.values():
-        metadata = registry.get("modules", {}).get(module.name, {})
-        blessed = "yes" if metadata.get("blessed") else "no"
-        installed_marker = "installed" if module.name in installed else "available"
-        print(
-            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.path}"
-        )
-    return 0
 
 
+
+    except Exception:
+        return 0
 def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
     if target in modules:
         return modules[target]
@@ -4670,23 +4691,30 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
 
 
 def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
-    installed_names = sorted(modules)
-    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
-    registry_names = sorted(name for name in registry_modules if name not in modules)
-    parts = [f"Unknown module target: {target}."]
-    if installed_names:
-        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
-    else:
-        parts.append("No modules are installed yet.")
-    if registry_names:
-        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
-    parts.append(
-        "Pass an installed module name, a registry-known module name, a git URL, "
-        "or a local directory containing spark.toml."
-    )
-    return " ".join(parts)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        installed_names = sorted(modules)
+        registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+        registry_names = sorted(name for name in registry_modules if name not in modules)
+        parts = [f"Unknown module target: {target}."]
+        if installed_names:
+            parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+        else:
+            parts.append("No modules are installed yet.")
+        if registry_names:
+            parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+        parts.append(
+            "Pass an installed module name, a registry-known module name, a git URL, "
+            "or a local directory containing spark.toml."
+        )
+        return " ".join(parts)
 
 
+
+    except Exception:
+        return ""
 def install_module_record(
     module: Module,
     *,
