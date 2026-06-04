@@ -212,6 +212,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
         )
 
+    if first == "git" and second == "branch" and "-f" in lowered:
+        return _decision(
+            parts,
+            ctx,
+            "git_history_mutation",
+            "critical",
+            "Command can force-move a branch ref.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git history mutation",
+        )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "filter-branch" in lowered
