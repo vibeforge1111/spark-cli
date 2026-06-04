@@ -16747,14 +16747,14 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Start even when installed runtime code has local edits or is off the registry pin")
     start_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to start")
     start_parser.add_argument("--json", action="store_true", help="Emit a machine-readable start result")
-    start_parser.add_argument("target", nargs="?")
+    start_parser.add_argument("target", nargs="?", help="Module or bundle to start. Common targets: telegram-starter, spark-telegram-bot, spawner-ui")
     start_parser.set_defaults(func=cmd_start)
 
     stop_parser = subparsers.add_parser("stop", help="Stop tracked Spark processes")
     stop_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to stop")
     stop_parser.add_argument("--cascade", action="store_true", help="Also stop running modules that depend on the target")
     stop_parser.add_argument("--json", action="store_true", help="Emit a machine-readable stop result")
-    stop_parser.add_argument("target", nargs="?")
+    stop_parser.add_argument("target", nargs="?", help="Module or bundle to stop. Common targets: telegram-starter, spark-telegram-bot, spawner-ui")
     stop_parser.set_defaults(func=cmd_stop)
 
     restart_parser = subparsers.add_parser("restart", help="Restart startable modules")
@@ -16762,7 +16762,7 @@ def build_parser() -> argparse.ArgumentParser:
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
     restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
-    restart_parser.add_argument("target", nargs="?")
+    restart_parser.add_argument("target", nargs="?", help="Module or bundle to start. Common targets: telegram-starter, spark-telegram-bot, spawner-ui")
     restart_parser.set_defaults(func=cmd_restart)
 
     live_parser = subparsers.add_parser("live", help="Control Spark Live, the friendly always-on agent surface")
