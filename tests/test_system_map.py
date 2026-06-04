@@ -2730,12 +2730,22 @@ routes = []
 
             summary = json.loads(stdout.getvalue())
             system_map = json.loads((out / "system-map.json").read_text(encoding="utf-8"))
+            contract_coverage = json.loads((out / "contract-coverage.json").read_text(encoding="utf-8"))
             output_text = "\n".join(path.read_text(encoding="utf-8") for path in out.glob("*") if path.is_file())
+            authority_count_keys = [
+                "release_blocker_count",
+                "legacy_plane_release_blocker_count",
+                "uncovered_authority_release_blocker_count",
+                "legacy_authority_inventory_release_blocker_count",
+            ]
 
             self.assertEqual(exit_code, 0)
             self.assertTrue(summary["ok"])
             self.assertEqual(summary["modules"], 1)
             self.assertIn("contract_coverage", summary)
+            for key in authority_count_keys:
+                self.assertIsInstance(summary["contract_coverage"][key], int)
+                self.assertEqual(summary["contract_coverage"][key], contract_coverage["summary"][key])
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
             self.assertTrue((out / "authority-view.json").exists())
             self.assertTrue((out / "contract-coverage.json").exists())
