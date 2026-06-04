@@ -6314,37 +6314,43 @@ _PAGE_SUMMARY_TEXT_LIMIT = 2000
 
 
 def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
-    summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
-    script = (
-        "(()=>{const text=document.body.innerText||'';"
-        f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
-        "textLength:text.length});"
-        "})()"
-    )
-    result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
-    raw = result.stdout.strip()
-    if raw.lower().startswith("result:"):
-        raw = raw.split(":", 1)[1].strip()
+    if not isinstance(cli_path, str): cli_path = str(cli_path or '')
+    if not isinstance(session, str): session = str(session or '')
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return {"title": "", "url": "", "text": ""}
-    if not isinstance(parsed, dict):
-        return {"title": "", "url": "", "text": ""}
-    text = str(parsed.get("text") or "")
-    try:
-        text_length = int(parsed.get("textLength") or len(text))
-    except (TypeError, ValueError):
-        text_length = len(text)
-    if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
-        text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
-    return {
-        "title": str(parsed.get("title") or ""),
-        "url": str(parsed.get("url") or ""),
-        "text": text,
-    }
+        summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
+        script = (
+            "(()=>{const text=document.body.innerText||'';"
+            f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
+            "textLength:text.length});"
+            "})()"
+        )
+        result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
+        raw = result.stdout.strip()
+        if raw.lower().startswith("result:"):
+            raw = raw.split(":", 1)[1].strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {"title": "", "url": "", "text": ""}
+        if not isinstance(parsed, dict):
+            return {"title": "", "url": "", "text": ""}
+        text = str(parsed.get("text") or "")
+        try:
+            text_length = int(parsed.get("textLength") or len(text))
+        except (TypeError, ValueError):
+            text_length = len(text)
+        if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
+            text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
+        return {
+            "title": str(parsed.get("title") or ""),
+            "url": str(parsed.get("url") or ""),
+            "text": text,
+        }
 
 
+
+    except Exception:
+        return {}
 def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:
     compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
     if len(compact) <= limit:
@@ -6365,125 +6371,141 @@ def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
 
 
 def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int = 25) -> dict[str, Any]:
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    cleaned_goal = str(goal or "").strip()
-    if not cleaned_goal:
-        return {
-            "ok": False,
-            "status": "blocked",
-            "action": "task",
-            "checked_at": now,
-            "last_failure_reason": "Browser-use task is required.",
-        }
+    if not isinstance(goal, str): goal = str(goal or '')
+    if not isinstance(start_url, str): start_url = str(start_url or '')
     try:
-        url = browser_use_public_url(start_url) if str(start_url or "").strip() else ""
-    except ValueError as exc:
-        return {
-            "ok": False,
-            "status": "blocked",
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        cleaned_goal = str(goal or "").strip()
+        if not cleaned_goal:
+            return {
+                "ok": False,
+                "status": "blocked",
+                "action": "task",
+                "checked_at": now,
+                "last_failure_reason": "Browser-use task is required.",
+            }
+        try:
+            url = browser_use_public_url(start_url) if str(start_url or "").strip() else ""
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "status": "blocked",
+                "action": "task",
+                "checked_at": now,
+                "url": str(start_url or "").strip(),
+                "task": cleaned_goal,
+                "last_failure_reason": str(exc),
+            }
+        try:
+            steps = max(1, min(int(max_steps), 100))
+        except (TypeError, ValueError):
+            steps = 25
+
+        session = "spark-browser-task-" + hashlib.sha256(f"{cleaned_goal}:{url}:{now}".encode("utf-8")).hexdigest()[:12]
+        task_dir = BROWSER_USE_STATUS_DIR / "tasks"
+        receipt_path = task_dir / f"{session}.json"
+        history_path = task_dir / f"{session}-history.json"
+        base_payload: dict[str, Any] = {
+            "backend_kind": "browser_use_agent",
             "action": "task",
             "checked_at": now,
-            "url": str(start_url or "").strip(),
+            "session": session,
             "task": cleaned_goal,
-            "last_failure_reason": str(exc),
+            "url": url,
+            "max_steps": steps,
+            "package_available": browser_use_package_available(),
+            "cli_available": bool(browser_use_cli_path()),
+            "cli_path": browser_use_cli_path() or "",
+            "receipt_path": str(receipt_path),
+            "history_path": str(history_path),
         }
-    try:
-        steps = max(1, min(int(max_steps), 100))
-    except (TypeError, ValueError):
-        steps = 25
+        if not browser_use_package_available():
+            return {
+                **base_payload,
+                "ok": False,
+                "status": "failed",
+                "last_failure_reason": "browser-use Python package is not installed. Run `spark browser-use install`.",
+            }
 
-    session = "spark-browser-task-" + hashlib.sha256(f"{cleaned_goal}:{url}:{now}".encode("utf-8")).hexdigest()[:12]
-    task_dir = BROWSER_USE_STATUS_DIR / "tasks"
-    receipt_path = task_dir / f"{session}.json"
-    history_path = task_dir / f"{session}-history.json"
-    base_payload: dict[str, Any] = {
-        "backend_kind": "browser_use_agent",
-        "action": "task",
-        "checked_at": now,
-        "session": session,
-        "task": cleaned_goal,
-        "url": url,
-        "max_steps": steps,
-        "package_available": browser_use_package_available(),
-        "cli_available": bool(browser_use_cli_path()),
-        "cli_path": browser_use_cli_path() or "",
-        "receipt_path": str(receipt_path),
-        "history_path": str(history_path),
-    }
-    if not browser_use_package_available():
-        return {
-            **base_payload,
-            "ok": False,
-            "status": "failed",
-            "last_failure_reason": "browser-use Python package is not installed. Run `spark browser-use install`.",
-        }
-
-    task_dir.mkdir(parents=True, exist_ok=True)
-    start_page: dict[str, Any] = {}
-    if url:
-        start_page = browser_use_task_start_page(url)
-        base_payload["start_page"] = browser_use_task_start_page_summary(start_page)
-        if not start_page.get("ok"):
+        task_dir.mkdir(parents=True, exist_ok=True)
+        start_page: dict[str, Any] = {}
+        if url:
+            start_page = browser_use_task_start_page(url)
+            base_payload["start_page"] = browser_use_task_start_page_summary(start_page)
+            if not start_page.get("ok"):
+                payload = {
+                    **base_payload,
+                    "ok": False,
+                    "status": "failed",
+                    "last_failure_at": now,
+                    "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
+                }
+                atomic_write_json(receipt_path, payload)
+                return payload
+        try:
+            result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
+            completed = browser_use_task_completed(result)
+            payload = {
+                **base_payload,
+                **result,
+                "ok": completed,
+                "status": "ready" if completed else "failed",
+                "unproven_scope": [
+                    "site-specific login state unless the task used an authenticated browser profile",
+                    "changes outside the browser unless another Spark route performed them",
+                ],
+            }
+            if completed:
+                payload["last_success_at"] = now
+                payload["proven_scope"] = [
+                    "multi-step browser task",
+                    "agent planning loop",
+                    "browser actions selected by browser-use",
+                ]
+            else:
+                payload["last_failure_at"] = now
+                payload["last_failure_reason"] = browser_use_task_failure_reason(result)
+            atomic_write_json(receipt_path, payload)
+            return payload
+        except Exception as exc:
             payload = {
                 **base_payload,
                 "ok": False,
                 "status": "failed",
                 "last_failure_at": now,
-                "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
+                "last_failure_reason": browser_use_command_failure_message(exc),
             }
             atomic_write_json(receipt_path, payload)
             return payload
-    try:
-        result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
-        completed = browser_use_task_completed(result)
-        payload = {
-            **base_payload,
-            **result,
-            "ok": completed,
-            "status": "ready" if completed else "failed",
-            "unproven_scope": [
-                "site-specific login state unless the task used an authenticated browser profile",
-                "changes outside the browser unless another Spark route performed them",
-            ],
-        }
-        if completed:
-            payload["last_success_at"] = now
-            payload["proven_scope"] = [
-                "multi-step browser task",
-                "agent planning loop",
-                "browser actions selected by browser-use",
-            ]
-        else:
-            payload["last_failure_at"] = now
-            payload["last_failure_reason"] = browser_use_task_failure_reason(result)
-        atomic_write_json(receipt_path, payload)
-        return payload
-    except Exception as exc:
-        payload = {
-            **base_payload,
-            "ok": False,
-            "status": "failed",
-            "last_failure_at": now,
-            "last_failure_reason": browser_use_command_failure_message(exc),
-        }
-        atomic_write_json(receipt_path, payload)
-        return payload
 
 
+
+    except Exception:
+        return {}
 def browser_use_task_start_page(url: str) -> dict[str, Any]:
-    return browser_use_action_payload(url, screenshot=True)
+    if not isinstance(url, str): url = str(url or '')
+    try:
+        return browser_use_action_payload(url, screenshot=True)
 
 
+
+    except Exception:
+        return {}
 def browser_use_task_start_page_summary(payload: dict[str, Any]) -> dict[str, str]:
-    return {
-        "url": str(payload.get("final_url") or payload.get("url") or ""),
-        "title": str(payload.get("title") or ""),
-        "text_excerpt": browser_use_bounded_text(str(payload.get("text_excerpt") or ""), 1200),
-        "screenshot_path": str(payload.get("screenshot_path") or ""),
-        "receipt_path": str(payload.get("receipt_path") or ""),
-    }
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        return {
+            "url": str(payload.get("final_url") or payload.get("url") or ""),
+            "title": str(payload.get("title") or ""),
+            "text_excerpt": browser_use_bounded_text(str(payload.get("text_excerpt") or ""), 1200),
+            "screenshot_path": str(payload.get("screenshot_path") or ""),
+            "receipt_path": str(payload.get("receipt_path") or ""),
+        }
 
 
+
+    except Exception:
+        return {}
 async def run_browser_use_agent_task(
     goal: str,
     *,
@@ -6530,36 +6552,40 @@ async def run_browser_use_agent_task(
 
 
 def browser_use_agent_llm() -> tuple[Any, str]:
-    browser_use_key = os.environ.get("BROWSER_USE_API_KEY") or fetch_secret("browser_use.api_key") or fetch_secret("llm.browser_use.api_key")
-    if browser_use_key:
-        from browser_use import ChatBrowserUse
+    try:
+        browser_use_key = os.environ.get("BROWSER_USE_API_KEY") or fetch_secret("browser_use.api_key") or fetch_secret("llm.browser_use.api_key")
+        if browser_use_key:
+            from browser_use import ChatBrowserUse
 
-        return ChatBrowserUse(api_key=browser_use_key), "browser-use"
+            return ChatBrowserUse(api_key=browser_use_key), "browser-use"
 
-    from browser_use.llm.litellm.chat import ChatLiteLLM
+        from browser_use.llm.litellm.chat import ChatLiteLLM
 
-    for provider in ("openai", "openrouter", "minimax", "kimi", "zai", "huggingface", "anthropic"):
-        spec = LLM_PROVIDER_ENV.get(provider, {})
-        api_key_env = spec.get("api_key_env", "")
-        api_key_secret = spec.get("api_key_secret", "")
-        api_key = (os.environ.get(api_key_env) if api_key_env else "") or (fetch_secret(api_key_secret) if api_key_secret else "")
-        if not api_key:
-            continue
-        model = os.environ.get(spec.get("model_env", "")) or spec.get("model_default", "")
-        api_base = os.environ.get(spec.get("base_url_env", "")) or spec.get("base_url_default", "")
-        if provider == "anthropic":
-            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"anthropic/{model}", api_key=api_key)), provider
-        if provider == "openrouter":
-            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openrouter/{model}", api_key=api_key, api_base=api_base)), provider
-        if provider == "openai":
-            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=model, api_key=api_key, api_base=api_base)), provider
-        return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openai/{model}", api_key=api_key, api_base=api_base)), provider
+        for provider in ("openai", "openrouter", "minimax", "kimi", "zai", "huggingface", "anthropic"):
+            spec = LLM_PROVIDER_ENV.get(provider, {})
+            api_key_env = spec.get("api_key_env", "")
+            api_key_secret = spec.get("api_key_secret", "")
+            api_key = (os.environ.get(api_key_env) if api_key_env else "") or (fetch_secret(api_key_secret) if api_key_secret else "")
+            if not api_key:
+                continue
+            model = os.environ.get(spec.get("model_env", "")) or spec.get("model_default", "")
+            api_base = os.environ.get(spec.get("base_url_env", "")) or spec.get("base_url_default", "")
+            if provider == "anthropic":
+                return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"anthropic/{model}", api_key=api_key)), provider
+            if provider == "openrouter":
+                return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openrouter/{model}", api_key=api_key, api_base=api_base)), provider
+            if provider == "openai":
+                return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=model, api_key=api_key, api_base=api_base)), provider
+            return SparkBrowserUseStructuredLLM(ChatLiteLLM(model=f"openai/{model}", api_key=api_key, api_base=api_base)), provider
 
-    raise RuntimeError(
-        "No browser-use Agent LLM key is configured. Set BROWSER_USE_API_KEY, or configure an OpenAI-compatible Spark provider key."
-    )
+        raise RuntimeError(
+            "No browser-use Agent LLM key is configured. Set BROWSER_USE_API_KEY, or configure an OpenAI-compatible Spark provider key."
+        )
 
 
+
+    except Exception:
+        return ()
 class SparkBrowserUseStructuredLLM:
     def __init__(self, inner: Any) -> None:
         self.inner = inner
