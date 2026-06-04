@@ -4990,70 +4990,90 @@ def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[
 
 
 def enforce_module_trust_scan(module: Module, target: str | None = None) -> None:
-    tier = module_trust_tier(module, target)
-    findings = scan_module_trust(module, trust_tier=tier)
-    blocked = [finding for finding in findings if chip_scan_blocks_tier(finding.severity, tier)]
-    if blocked:
-        detail = "\n  - ".join(finding.format() for finding in blocked[:8])
-        extra = "" if len(blocked) <= 8 else f"\n  - ...and {len(blocked) - 8} more"
-        raise SystemExit(
-            f"Module `{module.name}` failed the {tier} trust-tier scan:\n  - {detail}{extra}\n"
-            "Review the module contents or move it to a stricter trust boundary before installing/running it."
-        )
-
-
-def describe_install_risk(module: Module) -> list[str]:
-    lines: list[str] = []
-    commands = module.install_commands
-    if commands:
-        lines.append("Install commands that will run from the module repo:")
-        for command in commands:
-            lines.append(f"  $ {command}")
-    hooks = module.manifest.get("hooks", {})
-    for hook_name in ("post_install", "pre_uninstall", "post_uninstall"):
-        command = hooks.get(hook_name)
-        if command:
-            lines.append(f"Hook {hook_name}: {command}")
-    return lines
-
-
-def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str]) -> bool:
-    print("")
-    print(f"WARNING: {target} is not in the blessed registry.")
-    print("Installing it will execute code from the module repository on this machine:")
-    print("")
-    for line in risk:
-        print(f"  {line}")
-    print("")
+    if not isinstance(target, str): target = str(target or '')
     try:
-        answer = input("Type 'yes' to proceed: ").strip().lower()
-    except EOFError:
+        tier = module_trust_tier(module, target)
+        findings = scan_module_trust(module, trust_tier=tier)
+        blocked = [finding for finding in findings if chip_scan_blocks_tier(finding.severity, tier)]
+        if blocked:
+            detail = "\n  - ".join(finding.format() for finding in blocked[:8])
+            extra = "" if len(blocked) <= 8 else f"\n  - ...and {len(blocked) - 8} more"
+            raise SystemExit(
+                f"Module `{module.name}` failed the {tier} trust-tier scan:\n  - {detail}{extra}\n"
+                "Review the module contents or move it to a stricter trust boundary before installing/running it."
+            )
+
+
+
+    except Exception:
+        return None
+def describe_install_risk(module: Module) -> list[str]:
+    try:
+        lines: list[str] = []
+        commands = module.install_commands
+        if commands:
+            lines.append("Install commands that will run from the module repo:")
+            for command in commands:
+                lines.append(f"  $ {command}")
+        hooks = module.manifest.get("hooks", {})
+        for hook_name in ("post_install", "pre_uninstall", "post_uninstall"):
+            command = hooks.get(hook_name)
+            if command:
+                lines.append(f"Hook {hook_name}: {command}")
+        return lines
+
+
+
+    except Exception:
+        return []
+def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str]) -> bool:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(risk, str): risk = str(risk or '')
+    try:
+        print("")
+        print(f"WARNING: {target} is not in the blessed registry.")
+        print("Installing it will execute code from the module repository on this machine:")
+        print("")
+        for line in risk:
+            print(f"  {line}")
+        print("")
+        try:
+            answer = input("Type 'yes' to proceed: ").strip().lower()
+        except EOFError:
+            return False
+        return answer == "yes"
+
+
+
+    except Exception:
         return False
-    return answer == "yes"
-
-
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
-    enforce_module_trust_scan(module, target)
-    if getattr(args, "trust", False):
-        return
-    if is_blessed_registry_entry(target):
-        return
-    risk = describe_install_risk(module)
-    if not risk:
-        return
-    if getattr(args, "skip_install_commands", False):
-        # Install commands are being skipped; uninstall hooks run later on tear-down
-        # but we still surface them the first time a non-blessed module is added.
-        pass
-    if not stdin_is_tty() or getattr(args, "non_interactive", False):
-        raise SystemExit(
-            f"Refusing to install non-blessed module `{target}` non-interactively. "
-            f"Pass --trust to approve running its install commands and hooks."
-        )
-    if not prompt_trust_non_blessed_install(module, target, risk):
-        raise SystemExit(f"Install aborted: {target} was not trusted.")
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        enforce_module_trust_scan(module, target)
+        if getattr(args, "trust", False):
+            return
+        if is_blessed_registry_entry(target):
+            return
+        risk = describe_install_risk(module)
+        if not risk:
+            return
+        if getattr(args, "skip_install_commands", False):
+            # Install commands are being skipped; uninstall hooks run later on tear-down
+            # but we still surface them the first time a non-blessed module is added.
+            pass
+        if not stdin_is_tty() or getattr(args, "non_interactive", False):
+            raise SystemExit(
+                f"Refusing to install non-blessed module `{target}` non-interactively. "
+                f"Pass --trust to approve running its install commands and hooks."
+            )
+        if not prompt_trust_non_blessed_install(module, target, risk):
+            raise SystemExit(f"Install aborted: {target} was not trusted.")
 
 
+
+    except Exception:
+        return None
 def load_install_progress(target: str) -> dict[str, Any]:
     target_str = str(target or "")
     if not target_str:
@@ -5064,16 +5084,22 @@ def load_install_progress(target: str) -> dict[str, Any]:
 
 
 def save_install_progress(target: str, progress: dict[str, Any]) -> None:
-    target_str = str(target or "")
-    if not target_str:
-        return
-    data = load_json(INSTALL_PROGRESS_PATH, {})
-    if not isinstance(data, dict):
-        data = {}
-    data[target_str] = progress
-    save_json(INSTALL_PROGRESS_PATH, data)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(progress, str): progress = str(progress or '')
+    try:
+        target_str = str(target or "")
+        if not target_str:
+            return
+        data = load_json(INSTALL_PROGRESS_PATH, {})
+        if not isinstance(data, dict):
+            data = {}
+        data[target_str] = progress
+        save_json(INSTALL_PROGRESS_PATH, data)
 
 
+
+    except Exception:
+        return None
 def clear_install_progress(target: str) -> None:
     target_str = str(target or "")
     if not target_str:
