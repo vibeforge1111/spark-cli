@@ -6669,61 +6669,83 @@ def browser_use_agent_history_payload(history: Any) -> dict[str, Any]:
 
 
 def browser_use_task_completed(result: dict[str, Any]) -> bool:
-    if result.get("is_successful") is False:
+    if not isinstance(result, str): result = str(result or '')
+    try:
+        if result.get("is_successful") is False:
+            return False
+        if bool(result.get("is_judged")) and not bool(result.get("is_validated")):
+            return False
+        if bool(result.get("is_done")):
+            return True
+        if str(result.get("final_result") or "").strip():
+            return True
         return False
-    if bool(result.get("is_judged")) and not bool(result.get("is_validated")):
-        return False
-    if bool(result.get("is_done")):
-        return True
-    if str(result.get("final_result") or "").strip():
-        return True
-    return False
 
 
+
+    except Exception:
+        return False
 def browser_use_task_failure_reason(result: dict[str, Any]) -> str:
-    judgement = str(result.get("judgement") or "").strip()
-    if judgement:
-        return judgement[:500]
-    errors = result.get("errors")
-    if isinstance(errors, list):
-        cleaned = [str(item).strip() for item in errors if str(item).strip() and str(item).strip().lower() != "none"]
-        if cleaned:
-            return cleaned[-1][:500]
-    return "Browser-use Agent stopped before completing the task."
+    if not isinstance(result, str): result = str(result or '')
+    try:
+        judgement = str(result.get("judgement") or "").strip()
+        if judgement:
+            return judgement[:500]
+        errors = result.get("errors")
+        if isinstance(errors, list):
+            cleaned = [str(item).strip() for item in errors if str(item).strip() and str(item).strip().lower() != "none"]
+            if cleaned:
+                return cleaned[-1][:500]
+        return "Browser-use Agent stopped before completing the task."
 
 
+
+    except Exception:
+        return ""
 def browser_use_bounded_list(value: Any, *, limit: int) -> list[str]:
-    if not isinstance(value, list):
-        value = [value] if value else []
-    return [browser_use_bounded_text(str(item), 500) for item in value[:limit] if str(item).strip()]
+    try:
+        if not isinstance(value, list):
+            value = [value] if value else []
+        return [browser_use_bounded_text(str(item), 500) for item in value[:limit] if str(item).strip()]
 
 
+
+    except Exception:
+        return []
 def browser_use_command_failure_message(exc: BaseException) -> str:
-    if isinstance(exc, subprocess.CalledProcessError):
-        detail = (exc.stderr or exc.stdout or str(exc)).strip()
-        return detail[:500] or f"browser-use command exited {exc.returncode}"
-    if isinstance(exc, subprocess.TimeoutExpired):
-        return f"browser-use command timed out after {exc.timeout}s"
-    return str(exc)[:500] or type(exc).__name__
+    try:
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            return detail[:500] or f"browser-use command exited {exc.returncode}"
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return f"browser-use command timed out after {exc.timeout}s"
+        return str(exc)[:500] or type(exc).__name__
 
 
+
+    except Exception:
+        return ""
 def browser_use_public_payload(payload: Any) -> Any:
-    if isinstance(payload, dict):
-        public: dict[str, Any] = {}
-        for key, value in payload.items():
-            key_text = str(key)
-            if key_text == "cli_path" or key_text.endswith("_path"):
-                public[key_text] = public_local_path_ref(value)
-            elif key_text.endswith("_paths") and isinstance(value, list):
-                public[key_text] = [public_local_path_ref(item) for item in value]
-            else:
-                public[key_text] = browser_use_public_payload(value)
-        return public
-    if isinstance(payload, list):
-        return [browser_use_public_payload(item) for item in payload]
-    return payload
+    try:
+        if isinstance(payload, dict):
+            public: dict[str, Any] = {}
+            for key, value in payload.items():
+                key_text = str(key)
+                if key_text == "cli_path" or key_text.endswith("_path"):
+                    public[key_text] = public_local_path_ref(value)
+                elif key_text.endswith("_paths") and isinstance(value, list):
+                    public[key_text] = [public_local_path_ref(item) for item in value]
+                else:
+                    public[key_text] = browser_use_public_payload(value)
+            return public
+        if isinstance(payload, list):
+            return [browser_use_public_payload(item) for item in payload]
+        return payload
 
 
+
+    except Exception:
+        return None
 def cmd_browser_use(args: argparse.Namespace) -> int:
     action = getattr(args, "browser_use_command", "status")
     if action == "status":
