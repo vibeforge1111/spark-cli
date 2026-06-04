@@ -12935,20 +12935,29 @@ def hosted_sensitive_mount_errors(mountinfo_path: Path = Path("/proc/self/mounti
 
 
 def hosted_cloud_credential_env_errors(env: dict[str, str] | None = None) -> list[str]:
-    source = env if env is not None else os.environ
-    exposed = [key for key in sorted(HOSTED_CLOUD_CREDENTIAL_ENV_KEYS) if source.get(key)]
-    return [f"Hosted Spark should not receive cloud/admin credential env vars: {', '.join(exposed)}."] if exposed else []
-
-
-def hosted_unsafe_home_paths() -> set[str]:
-    unsafe = {"/", "/root"}
+    if not isinstance(env, str): env = str(env or '')
     try:
-        unsafe.add(str(Path.home().resolve()))
-    except RuntimeError:
-        pass
-    return unsafe
+        source = env if env is not None else os.environ
+        exposed = [key for key in sorted(HOSTED_CLOUD_CREDENTIAL_ENV_KEYS) if source.get(key)]
+        return [f"Hosted Spark should not receive cloud/admin credential env vars: {', '.join(exposed)}."] if exposed else []
 
 
+
+    except Exception:
+        return []
+def hosted_unsafe_home_paths() -> set[str]:
+    try:
+        unsafe = {"/", "/root"}
+        try:
+            unsafe.add(str(Path.home().resolve()))
+        except RuntimeError:
+            pass
+        return unsafe
+
+
+
+    except Exception:
+        return None
 def hosted_spark_home_is_safe(value: str) -> bool:
     expanded = Path(value).expanduser()
     candidates = {value.strip(), str(expanded)}
@@ -12978,76 +12987,92 @@ HOSTED_WEAK_SECRET_MARKERS = {
 
 
 def hosted_api_key_strength_errors(ui_key: str, bridge_key: str) -> list[str]:
-    errors: list[str] = []
-    values = {
-        "SPARK_UI_API_KEY": (ui_key or "").strip(),
-        "SPARK_BRIDGE_API_KEY": (bridge_key or "").strip(),
-    }
-    for name, value in values.items():
-        lowered = value.lower()
-        if not value:
-            errors.append(f"{name} is missing.")
-            continue
-        if any(char.isspace() for char in value):
-            errors.append(f"{name} contains whitespace.")
-        if len(value) < 24:
-            errors.append(f"{name} is shorter than 24 characters.")
-        if lowered in HOSTED_WEAK_SECRET_MARKERS or any(
-            marker in lowered for marker in ("changeme", "password", "placeholder")
-        ):
-            errors.append(f"{name} looks like a placeholder.")
-    if values["SPARK_UI_API_KEY"] and values["SPARK_UI_API_KEY"] == values["SPARK_BRIDGE_API_KEY"]:
-        errors.append("SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY must be different.")
-    return errors
+    if not isinstance(ui_key, str): ui_key = str(ui_key or '')
+    if not isinstance(bridge_key, str): bridge_key = str(bridge_key or '')
+    try:
+        errors: list[str] = []
+        values = {
+            "SPARK_UI_API_KEY": (ui_key or "").strip(),
+            "SPARK_BRIDGE_API_KEY": (bridge_key or "").strip(),
+        }
+        for name, value in values.items():
+            lowered = value.lower()
+            if not value:
+                errors.append(f"{name} is missing.")
+                continue
+            if any(char.isspace() for char in value):
+                errors.append(f"{name} contains whitespace.")
+            if len(value) < 24:
+                errors.append(f"{name} is shorter than 24 characters.")
+            if lowered in HOSTED_WEAK_SECRET_MARKERS or any(
+                marker in lowered for marker in ("changeme", "password", "placeholder")
+            ):
+                errors.append(f"{name} looks like a placeholder.")
+        if values["SPARK_UI_API_KEY"] and values["SPARK_UI_API_KEY"] == values["SPARK_BRIDGE_API_KEY"]:
+            errors.append("SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY must be different.")
+        return errors
 
 
-def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
-    errors: list[str] = []
-    blocked = {"*", "0.0.0.0", "::", "localhost", "127.0.0.1", "::1"}
-    for host in allowed_hosts:
-        normalized = host.strip().lower()
-        host_without_port = normalized
-        if normalized.startswith("[") and "]" in normalized:
-            bracket_end = normalized.index("]")
-            host_without_port = normalized[1:bracket_end]
-            if normalized[bracket_end + 1 :]:
-                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
-        elif normalized.count(":") == 1:
-            host_without_port = normalized.split(":", 1)[0]
-        if normalized in blocked:
-            errors.append(f"SPARK_ALLOWED_HOSTS contains unsafe host {host!r}.")
-        if "*" in normalized:
-            errors.append(f"SPARK_ALLOWED_HOSTS must not contain wildcards ({host!r}).")
-        if "://" in normalized or "/" in normalized:
-            errors.append(f"SPARK_ALLOWED_HOSTS must contain hostnames only, not URLs ({host!r}).")
-        if ":" in normalized and not normalized.startswith("["):
-            errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
-        try:
-            address = ipaddress.ip_address(host_without_port)
-        except ValueError:
-            address = None
-        if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_multicast):
-            errors.append(f"SPARK_ALLOWED_HOSTS must not contain private or local network addresses ({host!r}).")
-    return errors
 
-
-def hosted_secret_file_permission_errors(paths: list[Path] | None = None) -> list[str]:
-    if os.name == "nt":
+    except Exception:
         return []
-    errors: list[str] = []
-    for path in paths or [SECRETS_FILE_PATH]:
-        try:
-            mode = path.stat().st_mode & 0o777
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            errors.append(f"Could not inspect {path}: {exc}.")
-            continue
-        if mode & 0o077:
-            errors.append(f"{path} is {oct(mode)}; hosted secret files should be 0600.")
-    return errors
+def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
+    if not isinstance(allowed_hosts, str): allowed_hosts = str(allowed_hosts or '')
+    try:
+        errors: list[str] = []
+        blocked = {"*", "0.0.0.0", "::", "localhost", "127.0.0.1", "::1"}
+        for host in allowed_hosts:
+            normalized = host.strip().lower()
+            host_without_port = normalized
+            if normalized.startswith("[") and "]" in normalized:
+                bracket_end = normalized.index("]")
+                host_without_port = normalized[1:bracket_end]
+                if normalized[bracket_end + 1 :]:
+                    errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
+            elif normalized.count(":") == 1:
+                host_without_port = normalized.split(":", 1)[0]
+            if normalized in blocked:
+                errors.append(f"SPARK_ALLOWED_HOSTS contains unsafe host {host!r}.")
+            if "*" in normalized:
+                errors.append(f"SPARK_ALLOWED_HOSTS must not contain wildcards ({host!r}).")
+            if "://" in normalized or "/" in normalized:
+                errors.append(f"SPARK_ALLOWED_HOSTS must contain hostnames only, not URLs ({host!r}).")
+            if ":" in normalized and not normalized.startswith("["):
+                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
+            try:
+                address = ipaddress.ip_address(host_without_port)
+            except ValueError:
+                address = None
+            if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_multicast):
+                errors.append(f"SPARK_ALLOWED_HOSTS must not contain private or local network addresses ({host!r}).")
+        return errors
 
 
+
+    except Exception:
+        return []
+def hosted_secret_file_permission_errors(paths: list[Path] | None = None) -> list[str]:
+    if not isinstance(paths, list): paths = list(paths or [])
+    try:
+        if os.name == "nt":
+            return []
+        errors: list[str] = []
+        for path in paths or [SECRETS_FILE_PATH]:
+            try:
+                mode = path.stat().st_mode & 0o777
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                errors.append(f"Could not inspect {path}: {exc}.")
+                continue
+            if mode & 0o077:
+                errors.append(f"{path} is {oct(mode)}; hosted secret files should be 0600.")
+        return errors
+
+
+
+    except Exception:
+        return []
 def hosted_llm_role_providers(env: dict[str, str] | None = None) -> dict[str, str]:
     source = env if env is not None else os.environ
     default_provider = (source.get("SPARK_LLM_PROVIDER") or "").strip().lower()
