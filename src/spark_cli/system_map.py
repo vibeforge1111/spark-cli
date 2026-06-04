@@ -658,7 +658,8 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
 
 
 def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
-    for repo in repo_paths:
+    paths_list = [Path(p) for p in as_list(repo_paths)]
+    for repo in paths_list:
         candidate = repo / "docs" / "SPARK_UPGRADE_LEDGER.yaml"
         if not candidate.exists():
             continue
@@ -679,7 +680,7 @@ def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
 
 
 def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
-    path = builder_home / "artifacts" / "capability-ledger" / "capability-ledger.json"
+    path = Path(builder_home) / "artifacts" / "capability-ledger" / "capability-ledger.json"
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; contents omitted"}
     if error and error != "missing":
@@ -688,7 +689,7 @@ def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
     if isinstance(data, list):
         out["entry_count"] = len(data)
     elif isinstance(data, dict):
-        out["top_level_keys"] = sorted(data.keys())
+        out["top_level_keys"] = sorted(str(k) for k in data.keys())
         for key, value in data.items():
             if isinstance(value, list):
                 out[f"{key}_count"] = len(value)
@@ -696,6 +697,7 @@ def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
 
 
 def count_safe_jsonl(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -750,20 +752,22 @@ def inspect_safe_jsonl_samples(
     identifier_fields: dict[str, str] | None = None,
     limit: int = 40,
 ) -> dict[str, Any]:
+    path = Path(path)
+    safe_fields = tuple(str(f) for f in as_list(safe_fields))
     out: dict[str, Any] = {
-        "source": source,
+        "source": str(source or ""),
         "path": str(path),
         "exists": path.exists(),
-        "limit": limit,
+        "limit": int(limit or 40),
         "redaction": "bounded samples over allowlisted primitive metadata only; raw messages and text previews omitted",
     }
     if not path.exists():
         return out
 
-    identifier_fields = identifier_fields or {}
+    identifier_fields = as_dict(identifier_fields)
     line_count = parsed_count = parse_errors = redacted_key_name_count = 0
     key_counts: Counter[str] = Counter()
-    samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit), 100)))
+    samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit or 40), 100)))
     try:
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -809,6 +813,8 @@ def inspect_safe_jsonl_samples(
 
 
 def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[str, str]) -> Any:
+    field = str(field or "")
+    identifier_fields = as_dict(identifier_fields)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
@@ -824,6 +830,7 @@ def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[s
 
 
 def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out = inspect_safe_jsonl_samples(
         path,
         source="telegram_final_answer_gate",
@@ -842,6 +849,7 @@ def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
 
 
 def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
+    path = Path(path)
     return inspect_safe_jsonl_samples(
         path,
         source="telegram_outbound_audit",
@@ -850,6 +858,8 @@ def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
 
 
 def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    path = Path(path)
+    builder_home = Path(builder_home)
     out = inspect_safe_jsonl_samples(
         path,
         source="spawner_prd_auto_trace",
@@ -909,14 +919,16 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
 
 
 def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
+    builder_home = Path(builder_home)
+    request_ids_set = set(str(r) for r in as_list(request_ids))
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
-        "checked_request_id_count": len(request_ids),
+        "checked_request_id_count": len(request_ids_set),
         "redaction": "overlap counts only; request id values omitted",
     }
-    if not request_ids or not db_path.exists():
+    if not request_ids_set or not db_path.exists():
         out["matched_builder_request_id_count"] = 0
         return out
     try:
@@ -932,7 +944,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
+            candidates = sorted(request_ids_set)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -951,14 +963,16 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
 
 
 def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) -> dict[str, Any]:
+    builder_home = Path(builder_home)
+    trace_refs_set = set(str(t) for t in as_list(trace_refs))
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
-        "checked_trace_ref_count": len(trace_refs),
+        "checked_trace_ref_count": len(trace_refs_set),
         "redaction": "overlap counts only; trace ref values omitted",
     }
-    if not trace_refs or not db_path.exists():
+    if not trace_refs_set or not db_path.exists():
         out["matched_builder_trace_ref_count"] = 0
         return out
     try:
@@ -974,7 +988,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
+            candidates = sorted(trace_refs_set)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -993,6 +1007,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
 
 
 def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "source": "spawner_prd_auto_trace",
         "path": str(path),
@@ -1067,6 +1082,8 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
 
 
 def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    path = Path(path)
+    builder_home = Path(builder_home)
     out: dict[str, Any] = {
         "schema_version": REVIEW_CANDIDATES_SCHEMA,
         "source": "spawner_prd_auto_trace",
@@ -1361,6 +1378,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
 
 
 def inspect_json_shape(path: Path) -> dict[str, Any]:
+    path = Path(path)
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
     if error and error != "missing":
@@ -1379,6 +1397,7 @@ def inspect_json_shape(path: Path) -> dict[str, Any]:
 
 
 def inspect_file_metadata(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1399,14 +1418,15 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
+    limit = int(limit or 240)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
 
 
 def sensitive_identifier(value: str) -> bool:
-    lowered = value.lower()
+    lowered = str(value or "").lower()
     return bool(
         re.search(r"(human|telegram|user|chat):", lowered)
         or re.search(r"\d{7,}", lowered)
@@ -1415,11 +1435,14 @@ def sensitive_identifier(value: str) -> bool:
 
 
 def redacted_identifier(column: str, value: str) -> str:
-    digest = hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    column = str(column or "")
+    value_str = str(value or "")
+    digest = hashlib.sha256(value_str.encode("utf-8", errors="ignore")).hexdigest()[:12]
     return f"{column}:redacted:{digest}"
 
 
 def safe_builder_event_value(column: str, value: Any) -> Any:
+    column = str(column or "")
     if value is None:
         return None
     if isinstance(value, (int, float, bool)):
@@ -1431,11 +1454,12 @@ def safe_builder_event_value(column: str, value: Any) -> Any:
 
 
 def key_has_raw_memory_hint(key: Any) -> bool:
-    lowered = str(key).lower()
+    lowered = str(key or "").lower()
     return any(hint in lowered for hint in RAW_MEMORY_KEY_HINTS)
 
 
 def safe_memory_status_value(value: Any, *, depth: int = 0) -> Any:
+    depth = int(depth or 0)
     if depth > 4:
         return "[depth-limit]"
     if value is None or isinstance(value, (bool, int, float)):
@@ -1464,6 +1488,7 @@ def count_raw_memory_hint_keys(value: Any) -> int:
 
 
 def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
+    builder_home = Path(builder_home)
     path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
     data, error = read_json(path)
     out: dict[str, Any] = {
@@ -1490,6 +1515,7 @@ def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
 
 
 def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1525,6 +1551,7 @@ def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
 
 
 def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1554,6 +1581,8 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
 
 
 def repo_source_ref(repo_path: Path, path: Path) -> str:
+    repo_path = Path(repo_path)
+    path = Path(path)
     try:
         return path.relative_to(repo_path).as_posix()
     except ValueError:
@@ -1573,21 +1602,21 @@ def proof_verdict(
 ) -> dict[str, Any]:
     return {
         "schema_version": CAPABILITY_PROOF_VERDICTS_SCHEMA,
-        "domain": domain,
-        "status": status,
+        "domain": str(domain or ""),
+        "status": str(status or ""),
         "satisfied": status == "passed",
-        "source_kind": source_kind,
-        "source_ref": source_ref,
-        "source_schema_version": schema_version,
-        "source_status": raw_status,
-        "source_verdict": raw_verdict,
-        "detail_counts": detail_counts or {},
+        "source_kind": str(source_kind or ""),
+        "source_ref": str(source_ref or "") if source_ref else None,
+        "source_schema_version": str(schema_version or "") if schema_version else None,
+        "source_status": str(raw_status or "") if raw_status else None,
+        "source_verdict": str(raw_verdict or "") if raw_verdict else None,
+        "detail_counts": detail_counts if isinstance(detail_counts, dict) else {},
         "redaction": "metadata only; proof bodies, commands, labels, and raw evidence omitted",
     }
 
 
 def missing_proof_verdict(domain: str) -> dict[str, Any]:
-    return proof_verdict(domain=domain, status="missing", source_kind="not_found")
+    return proof_verdict(domain=str(domain or ""), status="missing", source_kind="not_found")
 
 
 def source_presence_verdict(
@@ -1597,20 +1626,24 @@ def source_presence_verdict(
     source_path: Path,
     source_kind: str,
 ) -> dict[str, Any]:
+    repo_path = Path(repo_path)
+    source_path = Path(source_path)
     if source_path.exists():
         return proof_verdict(
-            domain=domain,
+            domain=str(domain or ""),
             status="present_unverified",
-            source_kind=source_kind,
+            source_kind=str(source_kind or ""),
             source_ref=repo_source_ref(repo_path, source_path),
         )
     return missing_proof_verdict(domain)
 
 
 def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ...] = ()) -> str:
+    data_dict = data if isinstance(data, dict) else {}
+    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
     values = [
-        str(data.get("verdict") or "").strip().lower(),
-        str(data.get("status") or "").strip().lower(),
+        str(data_dict.get("verdict") or "").strip().lower(),
+        str(data_dict.get("status") or "").strip().lower(),
     ]
     if any(
         value
@@ -1622,8 +1655,8 @@ def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ..
         for value in values
     ):
         return "blocked"
-    for key in passed_keys:
-        value = data.get(key)
+    for key in passed_keys_tuple:
+        value = data_dict.get(key)
         if value is True:
             return "passed"
         if value is False:
@@ -1642,6 +1675,11 @@ def json_proof_verdict(
     source_kind: str,
     passed_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
+    repo_path = Path(repo_path)
+    rel_path = str(rel_path or "")
+    domain = str(domain or "")
+    source_kind = str(source_kind or "")
+    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
     path = repo_path / rel_path
     data, error = read_json(path)
     if error == "missing":
@@ -1656,7 +1694,7 @@ def json_proof_verdict(
     payload = as_dict(data)
     return proof_verdict(
         domain=domain,
-        status=status_from_json_verdict(payload, passed_keys=passed_keys),
+        status=status_from_json_verdict(payload, passed_keys=passed_keys_tuple),
         source_kind=source_kind,
         source_ref=repo_source_ref(repo_path, path),
         schema_version=first_string(payload.get("schema_version")),
@@ -1670,6 +1708,8 @@ def json_proof_verdict(
 
 
 def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
+    repo_path = Path(repo_path)
+    rel_path = str(rel_path or "")
     runs_root = repo_path / "runs"
     if not runs_root.exists():
         return None
