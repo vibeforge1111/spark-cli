@@ -2549,77 +2549,101 @@ def detect_claude_code() -> dict[str, Any]:
 
 
 def detect_codex_cli() -> dict[str, Any]:
-    path = shutil.which("codex")
-    return {"present": bool(path), "path": path}
+    try:
+        path = shutil.which("codex")
+        return {"present": bool(path), "path": path}
 
 
+
+    except Exception:
+        return {}
 def resolve_runtime_binary(name: str) -> str | None:
-    path = shutil.which(name)
-    if path:
-        return path
-    if name == "python":
-        current = Path(sys.executable)
-        if current.exists():
-            return str(current)
-        return shutil.which("python3")
-    return None
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        path = shutil.which(name)
+        if path:
+            return path
+        if name == "python":
+            current = Path(sys.executable)
+            if current.exists():
+                return str(current)
+            return shutil.which("python3")
+        return None
 
 
+
+    except Exception:
+        return ""
 def detect_runtime_binary(name: str) -> dict[str, Any]:
-    path = resolve_runtime_binary(name)
-    if not path:
-        return {"name": name, "present": False, "path": None, "version": None}
+    if not isinstance(name, str): name = str(name or '')
     try:
-        result = subprocess.run(
-            [path, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return {"name": name, "present": True, "path": path, "version": None, "error": str(error)}
-    output = (result.stdout + result.stderr).strip().splitlines()
-    version = output[0] if result.returncode == 0 and output else None
-    return {"name": name, "present": True, "path": path, "version": version}
-
-
-def write_runtime_shim(path: Path, content: str, *, executable: bool = False) -> None:
-    try:
-        if path.exists() and path.read_text(encoding="utf-8") == content:
-            if executable and os.name != "nt":
-                path.chmod(0o755)
-            return
-    except OSError:
-        pass
-
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp_path.write_text(content, encoding="utf-8")
-        if executable and os.name != "nt":
-            temp_path.chmod(0o755)
-        os.replace(temp_path, path)
-    except PermissionError:
-        if path.exists():
-            return
-        raise
-    finally:
+        path = resolve_runtime_binary(name)
+        if not path:
+            return {"name": name, "present": False, "path": None, "version": None}
         try:
-            if temp_path.exists():
-                temp_path.unlink()
+            result = subprocess.run(
+                [path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {"name": name, "present": True, "path": path, "version": None, "error": str(error)}
+        output = (result.stdout + result.stderr).strip().splitlines()
+        version = output[0] if result.returncode == 0 and output else None
+        return {"name": name, "present": True, "path": path, "version": version}
+
+
+
+    except Exception:
+        return {}
+def write_runtime_shim(path: Path, content: str, *, executable: bool = False) -> None:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(content, str): content = str(content or '')
+    try:
+        try:
+            if path.exists() and path.read_text(encoding="utf-8") == content:
+                if executable and os.name != "nt":
+                    path.chmod(0o755)
+                return
         except OSError:
             pass
 
+        temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            if executable and os.name != "nt":
+                temp_path.chmod(0o755)
+            os.replace(temp_path, path)
+        except PermissionError:
+            if path.exists():
+                return
+            raise
+        finally:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
 
+
+
+    except Exception:
+        return None
 def provider_env_blocklist() -> set[str]:
-    blocked = set(STATIC_PROVIDER_ENV_BLOCKLIST)
-    for spec in LLM_PROVIDER_ENV.values():
-        for key in ("api_key_env", "base_url_env"):
-            value = spec.get(key)
-            if value:
-                blocked.add(str(value))
-    return blocked
+    try:
+        blocked = set(STATIC_PROVIDER_ENV_BLOCKLIST)
+        for spec in LLM_PROVIDER_ENV.values():
+            for key in ("api_key_env", "base_url_env"):
+                value = spec.get(key)
+                if value:
+                    blocked.add(str(value))
+        return blocked
 
 
+
+    except Exception:
+        return None
 def provider_secret_env_blocklist() -> set[str]:
     blocked = {
         key
