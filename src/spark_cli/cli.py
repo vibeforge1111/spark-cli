@@ -9311,64 +9311,80 @@ def truthy_env(name: Any) -> bool:
 
 
 def runtime_guard_bypassed(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "allow_dirty_runtime", False)) or truthy_env("SPARK_ALLOW_DIRTY_RUNTIME")
+    try:
+        return bool(getattr(args, "allow_dirty_runtime", False)) or truthy_env("SPARK_ALLOW_DIRTY_RUNTIME")
 
 
-def runtime_guard_is_strict() -> bool:
-    return truthy_env("SPARK_STRICT_RUNTIME_PINS")
 
-
-def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Namespace) -> bool:
-    """Warn, or fail in strict mode, when Spark would run a dirty managed checkout."""
-    if runtime_guard_bypassed(args):
-        return True
-    warnings = runtime_supply_chain_warnings(modules)
-    if not warnings:
-        return True
-
-    strict = runtime_guard_is_strict()
-    marker = "blocked" if strict else "warning"
-    print(f"Spark runtime hygiene {marker}: installed runtime code has drifted from the pinned registry.")
-    for warning in warnings:
-        print(f"  - {warning}")
-    print("")
-    print("Recommended workflow:")
-    print("  - Keep ~/.spark/modules/... as installed runtime only.")
-    print("  - Build in a dev checkout/worktree, for example C:\\Users\\USER\\Desktop\\spawner-ui.")
-    print("  - Test dev servers on another port, for example 5174, then commit/push and run spark update.")
-    if strict:
-        print("")
-        print("To run anyway for local development, add --allow-dirty-runtime or set SPARK_ALLOW_DIRTY_RUNTIME=1.")
+    except Exception:
         return False
-    print("")
-    print("Continuing for now. To silence this for intentional local runtime testing, add --allow-dirty-runtime.")
-    return True
+def runtime_guard_is_strict() -> bool:
+    try:
+        return truthy_env("SPARK_STRICT_RUNTIME_PINS")
 
 
+
+    except Exception:
+        return False
+def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Namespace) -> bool:
+    try:
+        """Warn, or fail in strict mode, when Spark would run a dirty managed checkout."""
+        if runtime_guard_bypassed(args):
+            return True
+        warnings = runtime_supply_chain_warnings(modules)
+        if not warnings:
+            return True
+
+        strict = runtime_guard_is_strict()
+        marker = "blocked" if strict else "warning"
+        print(f"Spark runtime hygiene {marker}: installed runtime code has drifted from the pinned registry.")
+        for warning in warnings:
+            print(f"  - {warning}")
+        print("")
+        print("Recommended workflow:")
+        print("  - Keep ~/.spark/modules/... as installed runtime only.")
+        print("  - Build in a dev checkout/worktree, for example C:\\Users\\USER\\Desktop\\spawner-ui.")
+        print("  - Test dev servers on another port, for example 5174, then commit/push and run spark update.")
+        if strict:
+            print("")
+            print("To run anyway for local development, add --allow-dirty-runtime or set SPARK_ALLOW_DIRTY_RUNTIME=1.")
+            return False
+        print("")
+        print("Continuing for now. To silence this for intentional local runtime testing, add --allow-dirty-runtime.")
+        return True
+
+
+
+    except Exception:
+        return False
 def dependency_lockfile_errors() -> list[str]:
-    installed = load_json(REGISTRY_PATH, {})
-    errors: list[str] = []
-    if not isinstance(installed, dict):
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        errors: list[str] = []
+        if not isinstance(installed, dict):
+            return errors
+        for name, record in sorted(installed.items()):
+            if not isinstance(record, dict):
+                continue
+            path = Path(str(record.get("path") or "")).expanduser()
+            if not path.exists():
+                continue
+            if (path / "package.json").exists() and not any(
+                (path / lockfile).exists()
+                for lockfile in ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock")
+            ):
+                errors.append(f"Node module `{name}` has package.json but no dependency lockfile.")
+            if (path / "pyproject.toml").exists() and not any(
+                (path / lockfile).exists()
+                for lockfile in ("uv.lock", "poetry.lock", "pdm.lock", "requirements.lock", "requirements.txt")
+            ):
+                errors.append(f"Python module `{name}` has pyproject.toml but no dependency lock/requirements file.")
         return errors
-    for name, record in sorted(installed.items()):
-        if not isinstance(record, dict):
-            continue
-        path = Path(str(record.get("path") or "")).expanduser()
-        if not path.exists():
-            continue
-        if (path / "package.json").exists() and not any(
-            (path / lockfile).exists()
-            for lockfile in ("package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock")
-        ):
-            errors.append(f"Node module `{name}` has package.json but no dependency lockfile.")
-        if (path / "pyproject.toml").exists() and not any(
-            (path / lockfile).exists()
-            for lockfile in ("uv.lock", "poetry.lock", "pdm.lock", "requirements.lock", "requirements.txt")
-        ):
-            errors.append(f"Python module `{name}` has pyproject.toml but no dependency lock/requirements file.")
-    return errors
 
 
+
+    except Exception:
+        return []
 def requirement_line_is_pinned(line: str) -> bool:
     raw = line.split("#", 1)[0].strip()
     if not raw:
@@ -9387,34 +9403,38 @@ def requirement_line_is_pinned(line: str) -> bool:
 
 
 def dependency_pin_errors() -> list[str]:
-    installed = load_json(REGISTRY_PATH, {})
-    errors: list[str] = []
-    if not isinstance(installed, dict):
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        errors: list[str] = []
+        if not isinstance(installed, dict):
+            return errors
+        for name, record in sorted(installed.items()):
+            if not isinstance(record, dict):
+                continue
+            path = Path(str(record.get("path") or "")).expanduser()
+            requirements_path = path / "requirements.txt"
+            if not requirements_path.exists():
+                continue
+            try:
+                lines = requirements_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                errors.append(f"Python module `{name}` requirements.txt could not be read.")
+                continue
+            unpinned = [
+                line.split("#", 1)[0].strip()
+                for line in lines
+                if line.split("#", 1)[0].strip() and not requirement_line_is_pinned(line)
+            ]
+            if unpinned:
+                errors.append(
+                    f"Python module `{name}` has unpinned requirements: {', '.join(unpinned[:5])}."
+                )
         return errors
-    for name, record in sorted(installed.items()):
-        if not isinstance(record, dict):
-            continue
-        path = Path(str(record.get("path") or "")).expanduser()
-        requirements_path = path / "requirements.txt"
-        if not requirements_path.exists():
-            continue
-        try:
-            lines = requirements_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            errors.append(f"Python module `{name}` requirements.txt could not be read.")
-            continue
-        unpinned = [
-            line.split("#", 1)[0].strip()
-            for line in lines
-            if line.split("#", 1)[0].strip() and not requirement_line_is_pinned(line)
-        ]
-        if unpinned:
-            errors.append(
-                f"Python module `{name}` has unpinned requirements: {', '.join(unpinned[:5])}."
-            )
-    return errors
 
 
+
+    except Exception:
+        return []
 NODE_LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json")
 
 
