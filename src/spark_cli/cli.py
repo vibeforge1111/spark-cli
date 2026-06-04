@@ -15471,46 +15471,74 @@ def module_log_path(module_name: str, profile: str | None = None) -> Path:
 
 
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
-    path = module_log_path(module_name, profile)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", errors="replace") as handle:
-        handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    if not isinstance(message, str): message = str(message or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        path = module_log_path(module_name, profile)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8", errors="replace") as handle:
+            handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
 
 
+
+    except Exception:
+        return None
 def tail_log_lines(path: Path, line_count: int) -> list[str]:
-    if not path.exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        if not path.exists():
+            return []
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.readlines()
+        if line_count <= 0:
+            return lines
+        return lines[-line_count:]
+
+
+
+    except Exception:
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
-    if line_count <= 0:
-        return lines
-    return lines[-line_count:]
-
-
 def console_safe_text(text: str, encoding: str | None = None) -> str:
-    output_encoding = encoding or getattr(sys.stdout, "encoding", None) or "utf-8"
-    return text.encode(output_encoding, errors="replace").decode(output_encoding, errors="replace")
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(encoding, str): encoding = str(encoding or '')
+    try:
+        output_encoding = encoding or getattr(sys.stdout, "encoding", None) or "utf-8"
+        return text.encode(output_encoding, errors="replace").decode(output_encoding, errors="replace")
 
 
+
+    except Exception:
+        return ""
 def write_console_text(text: str) -> None:
-    sys.stdout.write(console_safe_text(text))
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        sys.stdout.write(console_safe_text(text))
 
 
+
+    except Exception:
+        return None
 def follow_log_file(path: Path) -> None:
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        handle.seek(0, os.SEEK_END)
-        try:
-            while True:
-                chunk = handle.readline()
-                if not chunk:
-                    time.sleep(0.5)
-                    continue
-                write_console_text(chunk)
-                sys.stdout.flush()
-        except KeyboardInterrupt:
-            return
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(0, os.SEEK_END)
+            try:
+                while True:
+                    chunk = handle.readline()
+                    if not chunk:
+                        time.sleep(0.5)
+                        continue
+                    write_console_text(chunk)
+                    sys.stdout.flush()
+            except KeyboardInterrupt:
+                return
 
 
+
+    except Exception:
+        return None
 def load_user_config() -> dict[str, Any]:
     if not USER_CONFIG_PATH.exists():
         return {}
