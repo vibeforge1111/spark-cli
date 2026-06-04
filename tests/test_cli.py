@@ -1463,6 +1463,30 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_ssh_add_agent_mutations(self) -> None:
+        blocked_commands = (
+            ["ssh-add"],
+            ["ssh-add", "/tmp/id_rsa"],
+            ["ssh-add", "-D"],
+            ["ssh-add", "-d", "/tmp/id_rsa"],
+            ["ssh-add", "-x"],
+            ["ssh-add", "-X"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh agent credential change")
+
+        for command in (["ssh-add", "-l"], ["ssh-add", "-L"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
