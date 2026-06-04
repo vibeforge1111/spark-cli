@@ -14695,57 +14695,78 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
 
 
 def spark_invocation_args() -> list[str]:
-    wrapper_name = "spark.cmd" if os.name == "nt" else "spark"
-    spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
-    if spark_home_wrapper.exists():
-        return [str(spark_home_wrapper.resolve())]
-    argv0_str = sys.argv[0] if (sys.argv and len(sys.argv) > 0) else ""
-    if argv0_str:
-        argv0 = Path(str(argv0_str)).expanduser()
-        if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
-            return [str(argv0.resolve())]
-    found = shutil.which("spark")
-    if found:
-        return [found]
-    return [sys.executable, "-m", "spark_cli.cli"]
+    try:
+        wrapper_name = "spark.cmd" if os.name == "nt" else "spark"
+        spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
+        if spark_home_wrapper.exists():
+            return [str(spark_home_wrapper.resolve())]
+        argv0_str = sys.argv[0] if (sys.argv and len(sys.argv) > 0) else ""
+        if argv0_str:
+            argv0 = Path(str(argv0_str)).expanduser()
+            if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
+                return [str(argv0.resolve())]
+        found = shutil.which("spark")
+        if found:
+            return [found]
+        return [sys.executable, "-m", "spark_cli.cli"]
 
 
 
+
+    except Exception:
+        return []
 def shell_join(args: list[str]) -> str:
-    if os.name == "nt":
-        return subprocess.list2cmdline([str(arg) for arg in args])
-    return " ".join(shlex.quote(str(arg)) for arg in args)
+    if not isinstance(args, str): args = str(args or '')
+    try:
+        if os.name == "nt":
+            return subprocess.list2cmdline([str(arg) for arg in args])
+        return " ".join(shlex.quote(str(arg)) for arg in args)
 
 
+
+    except Exception:
+        return ""
 def autostart_telegram_profiles() -> list[str]:
-    setup_state = load_json(CONFIG_PATH, {})
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if not isinstance(profiles, dict):
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if not isinstance(profiles, dict):
+            return []
+        return sorted(
+            normalize_telegram_profile(profile)
+            for profile, profile_state in profiles.items()
+            if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)
+        )
+
+
+
+    except Exception:
         return []
-    return sorted(
-        normalize_telegram_profile(profile)
-        for profile, profile_state in profiles.items()
-        if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)
-    )
-
-
 def manual_telegram_profiles() -> list[str]:
-    autostart_profiles = set(autostart_telegram_profiles())
-    return [profile for profile in configured_telegram_profiles() if profile not in autostart_profiles]
+    try:
+        autostart_profiles = set(autostart_telegram_profiles())
+        return [profile for profile in configured_telegram_profiles() if profile not in autostart_profiles]
 
 
-def configured_telegram_profiles() -> list[str]:
-    setup_state = load_json(CONFIG_PATH, {})
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if not isinstance(profiles, dict):
+
+    except Exception:
         return []
-    return sorted(
-        normalize_telegram_profile(profile)
-        for profile, profile_state in profiles.items()
-        if isinstance(profile_state, dict)
-    )
+def configured_telegram_profiles() -> list[str]:
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if not isinstance(profiles, dict):
+            return []
+        return sorted(
+            normalize_telegram_profile(profile)
+            for profile, profile_state in profiles.items()
+            if isinstance(profile_state, dict)
+        )
 
 
+
+    except Exception:
+        return []
 def telegram_profiles_to_start_by_default() -> list[str]:
     profiles = autostart_telegram_profiles()
     if profiles:
