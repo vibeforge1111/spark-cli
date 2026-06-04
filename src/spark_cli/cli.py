@@ -13749,116 +13749,148 @@ def reverse_dependency_map(modules: dict[str, Module]) -> dict[str, set[str]]:
 
 
 def topologically_sort_modules(modules: dict[str, Module]) -> list[Module]:
-    ordered: list[Module] = []
-    permanent: set[str] = set()
-    temporary: set[str] = set()
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        ordered: list[Module] = []
+        permanent: set[str] = set()
+        temporary: set[str] = set()
 
-    def visit(name: str) -> None:
-        if name in permanent:
-            return
-        if name in temporary:
-            raise SystemExit(f"Dependency cycle detected while ordering modules: {name}")
-        module = modules.get(name)
-        if module is None:
-            raise SystemExit(f"Cannot order missing module: {name}")
-        temporary.add(name)
-        for dependency in module.needs_modules:
-            if dependency in modules:
-                visit(dependency)
-        temporary.remove(name)
-        permanent.add(name)
-        ordered.append(module)
+        def visit(name: str) -> None:
+            if name in permanent:
+                return
+            if name in temporary:
+                raise SystemExit(f"Dependency cycle detected while ordering modules: {name}")
+            module = modules.get(name)
+            if module is None:
+                raise SystemExit(f"Cannot order missing module: {name}")
+            temporary.add(name)
+            for dependency in module.needs_modules:
+                if dependency in modules:
+                    visit(dependency)
+            temporary.remove(name)
+            permanent.add(name)
+            ordered.append(module)
 
-    for name in sorted(modules):
-        visit(name)
-    return ordered
+        for name in sorted(modules):
+            visit(name)
+        return ordered
 
 
+
+    except Exception:
+        return []
 def resolve_start_modules(target: str | None, installed_modules: dict[str, Module]) -> list[Module]:
-    requested_names = expand_targets(target, installed_modules, include_all=True)
-    needed_names: set[str] = set()
-    stack = list(requested_names)
-    while stack:
-        name = stack.pop()
-        module = installed_modules.get(name)
-        if module is None:
-            raise SystemExit(unknown_installed_module_message(name, installed_modules))
-        if name in needed_names:
-            continue
-        needed_names.add(name)
-        missing_dependencies = [dependency for dependency in module.needs_modules if dependency not in installed_modules]
-        if missing_dependencies:
-            raise SystemExit(
-                f"Cannot start {module.name} because required modules are not installed: {', '.join(missing_dependencies)}"
-            )
-        stack.extend(module.needs_modules)
-    selected_modules = {name: installed_modules[name] for name in needed_names}
-    return topologically_sort_modules(selected_modules)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        requested_names = expand_targets(target, installed_modules, include_all=True)
+        needed_names: set[str] = set()
+        stack = list(requested_names)
+        while stack:
+            name = stack.pop()
+            module = installed_modules.get(name)
+            if module is None:
+                raise SystemExit(unknown_installed_module_message(name, installed_modules))
+            if name in needed_names:
+                continue
+            needed_names.add(name)
+            missing_dependencies = [dependency for dependency in module.needs_modules if dependency not in installed_modules]
+            if missing_dependencies:
+                raise SystemExit(
+                    f"Cannot start {module.name} because required modules are not installed: {', '.join(missing_dependencies)}"
+                )
+            stack.extend(module.needs_modules)
+        selected_modules = {name: installed_modules[name] for name in needed_names}
+        return topologically_sort_modules(selected_modules)
 
 
+
+    except Exception:
+        return []
 def resolve_stop_module_names(target: str | None, installed_modules: dict[str, Module], tracked_pids: dict[str, Any]) -> list[str]:
-    if not tracked_pids:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    if not isinstance(tracked_pids, str): tracked_pids = str(tracked_pids or '')
+    try:
+        if not tracked_pids:
+            return []
+        requested_names = expand_targets(target, installed_modules, include_all=True)
+        reverse_map = reverse_dependency_map(installed_modules)
+        stop_names: set[str] = set()
+        stack = list(requested_names)
+        while stack:
+            name = stack.pop()
+            if name in stop_names:
+                continue
+            stop_names.add(name)
+            stack.extend(sorted(reverse_map.get(name, set())))
+
+        installed_subset = {name: installed_modules[name] for name in stop_names if name in installed_modules}
+        ordered_names = [module.name for module in reversed(topologically_sort_modules(installed_subset))]
+        expanded_ordered_names: list[str] = []
+        for name in ordered_names:
+            if name == "spark-telegram-bot":
+                tracked_bot_keys = tracked_process_keys_for_module(tracked_pids, "spark-telegram-bot")
+                expanded_ordered_names.extend(tracked_bot_keys or [name])
+            else:
+                expanded_ordered_names.append(name)
+        extra_names = [name for name in stop_names if name not in installed_subset]
+        return expanded_ordered_names + sorted(extra_names)
+
+
+
+    except Exception:
         return []
-    requested_names = expand_targets(target, installed_modules, include_all=True)
-    reverse_map = reverse_dependency_map(installed_modules)
-    stop_names: set[str] = set()
-    stack = list(requested_names)
-    while stack:
-        name = stack.pop()
-        if name in stop_names:
-            continue
-        stop_names.add(name)
-        stack.extend(sorted(reverse_map.get(name, set())))
-
-    installed_subset = {name: installed_modules[name] for name in stop_names if name in installed_modules}
-    ordered_names = [module.name for module in reversed(topologically_sort_modules(installed_subset))]
-    expanded_ordered_names: list[str] = []
-    for name in ordered_names:
-        if name == "spark-telegram-bot":
-            tracked_bot_keys = tracked_process_keys_for_module(tracked_pids, "spark-telegram-bot")
-            expanded_ordered_names.extend(tracked_bot_keys or [name])
-        else:
-            expanded_ordered_names.append(name)
-    extra_names = [name for name in stop_names if name not in installed_subset]
-    return expanded_ordered_names + sorted(extra_names)
-
-
 def resolve_exact_stop_module_names(target: str | None, installed_modules: dict[str, Module], tracked_pids: dict[str, Any]) -> list[str]:
-    if not tracked_pids:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    if not isinstance(tracked_pids, str): tracked_pids = str(tracked_pids or '')
+    try:
+        if not tracked_pids:
+            return []
+        if target is None:
+            return resolve_stop_module_names(target, installed_modules, tracked_pids)
+        requested_names = expand_targets(target, installed_modules, include_all=True)
+        ordered_names = [
+            module.name
+            for module in topologically_sort_modules(
+                {name: installed_modules[name] for name in requested_names if name in installed_modules}
+            )
+        ]
+        expanded_ordered_names: list[str] = []
+        for name in reversed(ordered_names):
+            if name == "spark-telegram-bot":
+                tracked_bot_keys = tracked_process_keys_for_module(tracked_pids, "spark-telegram-bot")
+                expanded_ordered_names.extend(tracked_bot_keys or [name])
+            else:
+                expanded_ordered_names.append(name)
+        extra_names = [name for name in requested_names if name not in installed_modules]
+        return expanded_ordered_names + sorted(extra_names)
+
+
+
+    except Exception:
         return []
-    if target is None:
-        return resolve_stop_module_names(target, installed_modules, tracked_pids)
-    requested_names = expand_targets(target, installed_modules, include_all=True)
-    ordered_names = [
-        module.name
-        for module in topologically_sort_modules(
-            {name: installed_modules[name] for name in requested_names if name in installed_modules}
-        )
-    ]
-    expanded_ordered_names: list[str] = []
-    for name in reversed(ordered_names):
-        if name == "spark-telegram-bot":
-            tracked_bot_keys = tracked_process_keys_for_module(tracked_pids, "spark-telegram-bot")
-            expanded_ordered_names.extend(tracked_bot_keys or [name])
-        else:
-            expanded_ordered_names.append(name)
-    extra_names = [name for name in requested_names if name not in installed_modules]
-    return expanded_ordered_names + sorted(extra_names)
-
-
 def resolve_restart_modules(target: str | None, installed_modules: dict[str, Module], tracked_pids: dict[str, Any]) -> list[Module]:
-    requested_names = expand_targets(target, installed_modules, include_all=True)
-    restart_names = set(requested_names)
-    restart_names.update(name for name in resolve_stop_module_names(target, installed_modules, tracked_pids) if name in installed_modules)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    if not isinstance(tracked_pids, str): tracked_pids = str(tracked_pids or '')
+    try:
+        requested_names = expand_targets(target, installed_modules, include_all=True)
+        restart_names = set(requested_names)
+        restart_names.update(name for name in resolve_stop_module_names(target, installed_modules, tracked_pids) if name in installed_modules)
 
-    start_names: set[str] = set()
-    for name in restart_names:
-        for module in resolve_start_modules(name, installed_modules):
-            start_names.add(module.name)
-    selected_modules = {name: installed_modules[name] for name in start_names}
-    return topologically_sort_modules(selected_modules)
+        start_names: set[str] = set()
+        for name in restart_names:
+            for module in resolve_start_modules(name, installed_modules):
+                start_names.add(module.name)
+        selected_modules = {name: installed_modules[name] for name in start_names}
+        return topologically_sort_modules(selected_modules)
 
 
+
+    except Exception:
+        return []
 def load_pids() -> dict[str, Any]:
     return load_json(PID_PATH, {})
 
