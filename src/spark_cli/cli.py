@@ -3062,71 +3062,98 @@ def telegram_profile_relay_port(
 
 
 def module_process_key(module_name: str, profile: str | None = None) -> str:
-    normalized = normalize_telegram_profile(profile)
-    if module_name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
-        return f"{module_name}:{normalized}"
-    return module_name
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        if module_name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
+            return f"{module_name}:{normalized}"
+        return module_name
 
 
+
+    except Exception:
+        return ""
 def generated_module_env_path(module: Module, profile: str | None = None) -> Path:
-    normalized = normalize_telegram_profile(profile)
-    if module.name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
-        return MODULE_CONFIG_DIR / f"{module.name}.{normalized}.env"
-    return MODULE_CONFIG_DIR / f"{module.name}.env"
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        if module.name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
+            return MODULE_CONFIG_DIR / f"{module.name}.{normalized}.env"
+        return MODULE_CONFIG_DIR / f"{module.name}.env"
 
 
+
+    except Exception:
+        return Path(".")
 def telegram_profile_secret_id(profile: str, secret_name: str) -> str:
-    normalized = normalize_telegram_profile(profile)
-    return f"telegram.profiles.{normalized}.{secret_name}"
+    if not isinstance(profile, str): profile = str(profile or '')
+    if not isinstance(secret_name, str): secret_name = str(secret_name or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        return f"telegram.profiles.{normalized}.{secret_name}"
 
 
+
+    except Exception:
+        return ""
 def keychain_env_for_telegram_profile(profile: str | None) -> dict[str, str]:
-    normalized = normalize_telegram_profile(profile)
-    env: dict[str, str] = {}
-    bot_token = fetch_secret(telegram_profile_secret_id(normalized, "bot_token"))
-    relay_secret = fetch_secret(telegram_profile_secret_id(normalized, "relay_secret"))
-    if bot_token:
-        env["BOT_TOKEN"] = bot_token
-    if relay_secret:
-        env["TELEGRAM_RELAY_SECRET"] = relay_secret
-    return env
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        env: dict[str, str] = {}
+        bot_token = fetch_secret(telegram_profile_secret_id(normalized, "bot_token"))
+        relay_secret = fetch_secret(telegram_profile_secret_id(normalized, "relay_secret"))
+        if bot_token:
+            env["BOT_TOKEN"] = bot_token
+        if relay_secret:
+            env["TELEGRAM_RELAY_SECRET"] = relay_secret
+        return env
 
 
+
+    except Exception:
+        return {}
 def validate_telegram_profile_token_identity(profile: str | None) -> None:
-    """Fail closed when a named Telegram profile's token points at the wrong bot."""
-    normalized = normalize_telegram_profile(profile)
-    if telegram_profile_is_default(normalized):
-        return
-    setup_state = load_json(CONFIG_PATH, {})
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    profile_state = profiles.get(normalized) if isinstance(profiles, dict) else None
-    if not isinstance(profile_state, dict):
-        return
-    expected_username = str(profile_state.get("telegram_username") or "").strip().lstrip("@")
-    expected_id = str(profile_state.get("telegram_bot_id") or "").strip()
-    if not expected_username and not expected_id:
-        return
-    token = fetch_secret(telegram_profile_secret_id(normalized, "bot_token"))
-    if not token:
-        raise SystemExit(
-            f"Telegram profile `{normalized}` has no stored bot token. "
-            f"Reconnect it with `spark telegram connect {normalized}`."
-        )
-    identity = validate_telegram_bot_token(token, secret_id=telegram_profile_secret_id(normalized, "bot_token"))
-    actual_username = str(identity.get("username") or "").strip().lstrip("@")
-    actual_id = str(identity.get("id") or "").strip()
-    username_mismatch = expected_username and actual_username.lower() != expected_username.lower()
-    id_mismatch = expected_id and actual_id != expected_id
-    if username_mismatch or id_mismatch:
-        expected_label = f"@{expected_username}" if expected_username else f"id {expected_id}"
-        actual_label = f"@{actual_username}" if actual_username else f"id {actual_id or 'unknown'}"
-        raise SystemExit(
-            f"Refusing to start Telegram profile `{normalized}`: stored token belongs to {actual_label}, "
-            f"but this profile is locked to {expected_label}. "
-            f"Reconnect the intended bot with `spark telegram connect {normalized}`."
-        )
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        """Fail closed when a named Telegram profile's token points at the wrong bot."""
+        normalized = normalize_telegram_profile(profile)
+        if telegram_profile_is_default(normalized):
+            return
+        setup_state = load_json(CONFIG_PATH, {})
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        profile_state = profiles.get(normalized) if isinstance(profiles, dict) else None
+        if not isinstance(profile_state, dict):
+            return
+        expected_username = str(profile_state.get("telegram_username") or "").strip().lstrip("@")
+        expected_id = str(profile_state.get("telegram_bot_id") or "").strip()
+        if not expected_username and not expected_id:
+            return
+        token = fetch_secret(telegram_profile_secret_id(normalized, "bot_token"))
+        if not token:
+            raise SystemExit(
+                f"Telegram profile `{normalized}` has no stored bot token. "
+                f"Reconnect it with `spark telegram connect {normalized}`."
+            )
+        identity = validate_telegram_bot_token(token, secret_id=telegram_profile_secret_id(normalized, "bot_token"))
+        actual_username = str(identity.get("username") or "").strip().lstrip("@")
+        actual_id = str(identity.get("id") or "").strip()
+        username_mismatch = expected_username and actual_username.lower() != expected_username.lower()
+        id_mismatch = expected_id and actual_id != expected_id
+        if username_mismatch or id_mismatch:
+            expected_label = f"@{expected_username}" if expected_username else f"id {expected_id}"
+            actual_label = f"@{actual_username}" if actual_username else f"id {actual_id or 'unknown'}"
+            raise SystemExit(
+                f"Refusing to start Telegram profile `{normalized}`: stored token belongs to {actual_label}, "
+                f"but this profile is locked to {expected_label}. "
+                f"Reconnect the intended bot with `spark telegram connect {normalized}`."
+            )
 
 
+
+    except Exception:
+        return None
 def spark_builder_home() -> Path:
     return STATE_DIR / "spark-intelligence"
 
