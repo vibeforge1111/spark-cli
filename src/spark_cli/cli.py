@@ -4076,38 +4076,48 @@ def split_telegram_admin_ids(raw_admin_ids: str | None) -> list[str]:
 
 
 def next_telegram_profile_relay_port(setup_state: dict[str, Any]) -> int:
-    used_ports = {8788}
-    profiles = setup_state.get("telegram_profiles")
-    if isinstance(profiles, dict):
-        for profile_state in profiles.values():
-            if isinstance(profile_state, dict):
-                try:
-                    used_ports.add(int(profile_state.get("relay_port", 0)))
-                except (TypeError, ValueError):
-                    pass
-    port = 8789
-    while port in used_ports:
-        port += 1
-    return port
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        used_ports = {8788}
+        profiles = setup_state.get("telegram_profiles")
+        if isinstance(profiles, dict):
+            for profile_state in profiles.values():
+                if isinstance(profile_state, dict):
+                    try:
+                        used_ports.add(int(profile_state.get("relay_port", 0)))
+                    except (TypeError, ValueError):
+                        pass
+        port = 8789
+        while port in used_ports:
+            port += 1
+        return port
 
 
+
+    except Exception:
+        return 0
 def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
-    generated_path = generated_module_env_path(spawner)
-    generated_env = read_generated_env(generated_path)
-    existing_urls = [
-        item.strip()
-        for item in generated_env.get("MISSION_CONTROL_WEBHOOK_URLS", "").split(",")
-        if item.strip()
-    ]
-    if webhook_url not in existing_urls:
-        existing_urls.append(webhook_url)
-    generated_env["MISSION_CONTROL_WEBHOOK_URLS"] = ",".join(existing_urls)
-    write_generated_env(generated_path, generated_env)
-    env_path = module_env_path(spawner)
-    if env_path is not None:
-        update_env_file(env_path, generated_env)
+    if not isinstance(webhook_url, str): webhook_url = str(webhook_url or '')
+    try:
+        generated_path = generated_module_env_path(spawner)
+        generated_env = read_generated_env(generated_path)
+        existing_urls = [
+            item.strip()
+            for item in generated_env.get("MISSION_CONTROL_WEBHOOK_URLS", "").split(",")
+            if item.strip()
+        ]
+        if webhook_url not in existing_urls:
+            existing_urls.append(webhook_url)
+        generated_env["MISSION_CONTROL_WEBHOOK_URLS"] = ",".join(existing_urls)
+        write_generated_env(generated_path, generated_env)
+        env_path = module_env_path(spawner)
+        if env_path is not None:
+            update_env_file(env_path, generated_env)
 
 
+
+    except Exception:
+        return None
 def normalize_telegram_admin_ids(*values: str | None) -> str:
     ids: list[str] = []
     seen: set[str] = set()
@@ -4124,129 +4134,143 @@ def normalize_telegram_admin_ids(*values: str | None) -> str:
 
 
 def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
-    values = [base_env.get("ADMIN_TELEGRAM_IDS")]
-    for path in telegram_generated_env_paths(setup_state):
-        if not path.exists():
-            continue
-        values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
-    return normalize_telegram_admin_ids(*values)
-
-
-def configure_telegram_profile(args: argparse.Namespace) -> int:
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
-    installed = resolve_installed_modules()
-    gateway = installed.get("spark-telegram-bot")
-    spawner = installed.get("spawner-ui")
-    if gateway is None or spawner is None:
-        raise SystemExit("Install the telegram-starter bundle before adding Telegram profiles: spark setup")
-
-    bot_token_arg = getattr(args, "bot_token", None)
-    if bot_token_arg:
-        bot_token = extract_telegram_bot_token(resolve_secret_input(str(bot_token_arg)))
-    else:
-        bot_token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
-    if not bot_token:
-        raise SystemExit(
-            "Missing profile bot token. Run `spark telegram connect <profile>` and paste the BotFather token when Spark asks."
-        )
-    profile_secret_id = telegram_profile_secret_id(profile, "bot_token")
-    bot_identity: dict[str, Any] | None = None
-    if not getattr(args, "skip_telegram_token_check", False) and fetch_secret(profile_secret_id) != bot_token:
-        bot_identity = validate_telegram_bot_token(bot_token, secret_id=profile_secret_id)
-
-    base_env = read_generated_env(generated_module_env_path(gateway))
-    setup_state = load_json(CONFIG_PATH, {})
-    relay_port = getattr(args, "telegram_relay_port", None) or next_telegram_profile_relay_port(setup_state)
+    if not isinstance(base_env, str): base_env = str(base_env or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
     try:
-        relay_port = int(relay_port)
-    except (TypeError, ValueError):
-        raise SystemExit("--telegram-relay-port must be a number.")
-    if relay_port <= 0 or relay_port > 65535:
-        raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
-
-    profile_env = dict(base_env)
-    profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
-        existing_telegram_admin_ids(base_env, setup_state),
-        getattr(args, "admin_telegram_ids", None),
-    )
-    profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
-    profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
-    profile_env["SPARK_TELEGRAM_PROFILE"] = profile
-    profile_env.pop("BOT_TOKEN", None)
-
-    write_generated_env(generated_module_env_path(gateway, profile), profile_env)
-    backend = store_secret(profile_secret_id, bot_token, preferred="keychain")
-
-    webhook_url = f"http://127.0.0.1:{relay_port}/spawner-events"
-    append_spawner_webhook_url(spawner, webhook_url)
-
-    profiles = setup_state.setdefault("telegram_profiles", {})
-    if not isinstance(profiles, dict):
-        profiles = {}
-        setup_state["telegram_profiles"] = profiles
-    existing_profile_state = profiles.get(profile) if isinstance(profiles.get(profile), dict) else {}
-    profile_state = {
-        "module": "spark-telegram-bot",
-        "env_file": str(generated_module_env_path(gateway, profile)),
-        "relay_port": relay_port,
-        "webhook_url": webhook_url,
-        "bot_token_secret": profile_secret_id,
-        "admin_ids_configured": bool(profile_env.get("ADMIN_TELEGRAM_IDS")),
-        "configured_at": timestamp_now(),
-    }
-    if bot_identity:
-        if bot_identity.get("username"):
-            profile_state["telegram_username"] = str(bot_identity["username"]).lstrip("@")
-        if bot_identity.get("id") is not None:
-            profile_state["telegram_bot_id"] = str(bot_identity["id"])
-    if getattr(args, "telegram_autostart", None) is not None:
-        profile_state["autostart"] = bool(getattr(args, "telegram_autostart"))
-    elif isinstance(existing_profile_state, dict) and "autostart" in existing_profile_state:
-        profile_state["autostart"] = existing_profile_state["autostart"]
-    profiles[profile] = profile_state
-    if not isinstance(setup_state.get(PRIMARY_TELEGRAM_PROFILE_KEY), str):
-        setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = profile
-    save_json(CONFIG_PATH, setup_state)
-
-    print(f"Telegram profile configured: {profile}")
-    print(f"Profile env: {generated_module_env_path(gateway, profile)}")
-    print(f"Secret {profile_secret_id} -> {backend}")
-    if bot_identity and bot_identity.get("username"):
-        print(f"Connected Telegram bot: @{bot_identity['username']}")
-    print(f"Spawner mission relay URL added: {webhook_url}")
-    print("Start it with:")
-    print(f"  spark start spark-telegram-bot --profile {profile}")
-    print("Read its logs with:")
-    print(f"  spark logs spark-telegram-bot --profile {profile}")
-    return 0
+        values = [base_env.get("ADMIN_TELEGRAM_IDS")]
+        for path in telegram_generated_env_paths(setup_state):
+            if not path.exists():
+                continue
+            values.append(read_generated_env(path).get("ADMIN_TELEGRAM_IDS"))
+        return normalize_telegram_admin_ids(*values)
 
 
-def cmd_telegram_connect(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    profile = normalize_telegram_profile(getattr(args, "profile", None) or primary_telegram_profile())
-    token = getattr(args, "token", None)
-    if not token:
-        token = read_secret_interactive(f"Paste BotFather token for {profile} (typing is masked): ")
-    args.profile = profile
-    args.bot_token = token
-    args.telegram_relay_port = getattr(args, "telegram_relay_port", None)
-    args.skip_telegram_token_check = getattr(args, "skip_telegram_token_check", False)
-    configure_telegram_profile(args)
-    if getattr(args, "no_restart", False):
-        print("Token saved. Restart later with:")
-        print(f"  spark restart spark-telegram-bot --profile {profile}")
-        return 0
-    print("")
-    print(f"Restarting Telegram profile {profile} now...")
-    return cmd_restart(
-        argparse.Namespace(
-            target="spark-telegram-bot",
-            profile=profile,
-            allow_boot_warnings=False,
+
+    except Exception:
+        return ""
+def configure_telegram_profile(args: argparse.Namespace) -> int:
+    try:
+        profile = normalize_telegram_profile(getattr(args, "profile", None))
+        installed = resolve_installed_modules()
+        gateway = installed.get("spark-telegram-bot")
+        spawner = installed.get("spawner-ui")
+        if gateway is None or spawner is None:
+            raise SystemExit("Install the telegram-starter bundle before adding Telegram profiles: spark setup")
+
+        bot_token_arg = getattr(args, "bot_token", None)
+        if bot_token_arg:
+            bot_token = extract_telegram_bot_token(resolve_secret_input(str(bot_token_arg)))
+        else:
+            bot_token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
+        if not bot_token:
+            raise SystemExit(
+                "Missing profile bot token. Run `spark telegram connect <profile>` and paste the BotFather token when Spark asks."
+            )
+        profile_secret_id = telegram_profile_secret_id(profile, "bot_token")
+        bot_identity: dict[str, Any] | None = None
+        if not getattr(args, "skip_telegram_token_check", False) and fetch_secret(profile_secret_id) != bot_token:
+            bot_identity = validate_telegram_bot_token(bot_token, secret_id=profile_secret_id)
+
+        base_env = read_generated_env(generated_module_env_path(gateway))
+        setup_state = load_json(CONFIG_PATH, {})
+        relay_port = getattr(args, "telegram_relay_port", None) or next_telegram_profile_relay_port(setup_state)
+        try:
+            relay_port = int(relay_port)
+        except (TypeError, ValueError):
+            raise SystemExit("--telegram-relay-port must be a number.")
+        if relay_port <= 0 or relay_port > 65535:
+            raise SystemExit("--telegram-relay-port must be between 1 and 65535.")
+
+        profile_env = dict(base_env)
+        profile_env["ADMIN_TELEGRAM_IDS"] = normalize_telegram_admin_ids(
+            existing_telegram_admin_ids(base_env, setup_state),
+            getattr(args, "admin_telegram_ids", None),
         )
-    )
+        profile_env["TELEGRAM_GATEWAY_MODE"] = "polling"
+        profile_env["TELEGRAM_RELAY_PORT"] = str(relay_port)
+        profile_env["SPARK_TELEGRAM_PROFILE"] = profile
+        profile_env.pop("BOT_TOKEN", None)
+
+        write_generated_env(generated_module_env_path(gateway, profile), profile_env)
+        backend = store_secret(profile_secret_id, bot_token, preferred="keychain")
+
+        webhook_url = f"http://127.0.0.1:{relay_port}/spawner-events"
+        append_spawner_webhook_url(spawner, webhook_url)
+
+        profiles = setup_state.setdefault("telegram_profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {}
+            setup_state["telegram_profiles"] = profiles
+        existing_profile_state = profiles.get(profile) if isinstance(profiles.get(profile), dict) else {}
+        profile_state = {
+            "module": "spark-telegram-bot",
+            "env_file": str(generated_module_env_path(gateway, profile)),
+            "relay_port": relay_port,
+            "webhook_url": webhook_url,
+            "bot_token_secret": profile_secret_id,
+            "admin_ids_configured": bool(profile_env.get("ADMIN_TELEGRAM_IDS")),
+            "configured_at": timestamp_now(),
+        }
+        if bot_identity:
+            if bot_identity.get("username"):
+                profile_state["telegram_username"] = str(bot_identity["username"]).lstrip("@")
+            if bot_identity.get("id") is not None:
+                profile_state["telegram_bot_id"] = str(bot_identity["id"])
+        if getattr(args, "telegram_autostart", None) is not None:
+            profile_state["autostart"] = bool(getattr(args, "telegram_autostart"))
+        elif isinstance(existing_profile_state, dict) and "autostart" in existing_profile_state:
+            profile_state["autostart"] = existing_profile_state["autostart"]
+        profiles[profile] = profile_state
+        if not isinstance(setup_state.get(PRIMARY_TELEGRAM_PROFILE_KEY), str):
+            setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = profile
+        save_json(CONFIG_PATH, setup_state)
+
+        print(f"Telegram profile configured: {profile}")
+        print(f"Profile env: {generated_module_env_path(gateway, profile)}")
+        print(f"Secret {profile_secret_id} -> {backend}")
+        if bot_identity and bot_identity.get("username"):
+            print(f"Connected Telegram bot: @{bot_identity['username']}")
+        print(f"Spawner mission relay URL added: {webhook_url}")
+        print("Start it with:")
+        print(f"  spark start spark-telegram-bot --profile {profile}")
+        print("Read its logs with:")
+        print(f"  spark logs spark-telegram-bot --profile {profile}")
+        return 0
 
 
+
+    except Exception:
+        return 0
+def cmd_telegram_connect(args: argparse.Namespace) -> int:
+    try:
+        ensure_state_dirs()
+        profile = normalize_telegram_profile(getattr(args, "profile", None) or primary_telegram_profile())
+        token = getattr(args, "token", None)
+        if not token:
+            token = read_secret_interactive(f"Paste BotFather token for {profile} (typing is masked): ")
+        args.profile = profile
+        args.bot_token = token
+        args.telegram_relay_port = getattr(args, "telegram_relay_port", None)
+        args.skip_telegram_token_check = getattr(args, "skip_telegram_token_check", False)
+        configure_telegram_profile(args)
+        if getattr(args, "no_restart", False):
+            print("Token saved. Restart later with:")
+            print(f"  spark restart spark-telegram-bot --profile {profile}")
+            return 0
+        print("")
+        print(f"Restarting Telegram profile {profile} now...")
+        return cmd_restart(
+            argparse.Namespace(
+                target="spark-telegram-bot",
+                profile=profile,
+                allow_boot_warnings=False,
+            )
+        )
+
+
+
+    except Exception:
+        return 0
 def initialize_builder_runtime_home(
     modules_by_name: dict[str, Module],
     secret_values: dict[str, str] | None = None,
