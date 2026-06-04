@@ -7154,208 +7154,231 @@ def setup_upgrade_refresh_can_pause(
     existing_config: bool,
     existing_modules: bool,
 ) -> bool:
-    if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
-        return False
-    if not getattr(args, "non_interactive", False):
-        return False
-    if getattr(args, "start_now", True) or getattr(args, "autostart", True):
-        return False
-    if setup_args_include_explicit_secrets(args):
-        return False
-    if "File secret backend is disabled" not in detail:
-        return False
-    return existing_config and existing_modules
-
-
-def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
-    bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
-    print("")
-    print("Spark upgrade status")
-    print("  [OK] CLI upgrade: complete")
-    print("  [PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them")
-    print("  [OK] Existing runtime: can keep running with the current setup")
-    print("")
-    print("Next when you are ready:")
-    print(f"  spark setup {bundle} --resume")
-    print("")
-    print("To review what needs attention:")
-    print("  spark doctor")
-    print("")
-    print("To keep working now:")
-    print(f"  spark start {bundle}")
-    print("  spark live status")
-
-
-def cmd_setup(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    if not telegram_profile_is_default(getattr(args, "profile", None)):
-        return configure_telegram_profile(args)
-    apply_setup_feature_aliases(args)
-    setup_state: dict[str, Any] | None = None
-    pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
-    existing_config_before_setup = CONFIG_PATH.exists()
-    existing_installed_before_setup = load_json(REGISTRY_PATH, {})
-    existing_modules_before_setup = isinstance(existing_installed_before_setup, dict) and bool(existing_installed_before_setup)
-    if pending:
-        pending_bundle = str(pending.get("bundle") or "").strip()
-        if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
-            setattr(args, "bundle", pending_bundle)
-        apply_setup_feature_aliases(args)
-        print("Resuming pending Spark setup.")
-        print(f"Last stop: {pending.get('detail') or pending.get('stage') or 'unknown'}")
+    if not isinstance(detail, str): detail = str(detail or '')
     try:
-        plan = resolve_setup_bundle_plan(args)
-        interactive = setup_is_interactive(args)
-        if interactive:
-            print("")
-            print("Spark is waking up.")
-            print_setup_preflight(plan.bundle)
-        secret_values, setup_state = collect_setup_configuration(
-            args,
-            plan.bundle,
-            plan.ingress_owner,
-            interactive,
-        )
-        setattr(args, "onboarding_session", setup_state.get("onboarding_session"))
-        validate_new_telegram_bot_tokens(args, secret_values)
-        save_json(CONFIG_PATH, setup_state)
-        install_setup_bundle(args, plan.bundle, plan.installed_modules)
-        install_memory_sidecar_dependencies(args, plan.modules, setup_state)
-        builder_notes, keychain_report = write_setup_runtime_config(
-            args,
-            plan.modules,
-            plan.bundle,
-            secret_values,
-            setup_state,
-        )
-        clear_pending_setup_state()
-        start_now = bool(getattr(args, "start_now", True))
-        start_ok = False
-        if getattr(args, "autostart", True):
-            print("")
-            if start_now:
-                print("Installing login autostart and starting Spark now.")
-            else:
-                print("Installing login autostart. Turn it off with: spark autostart off")
-            start_ok = cmd_autostart_install(argparse.Namespace(target=args.bundle, now=start_now)) == 0
-        elif start_now:
-            print("")
+        if not truthy_env(SETUP_OPTIONAL_ON_UPGRADE_ENV):
+            return False
+        if not getattr(args, "non_interactive", False):
+            return False
+        if getattr(args, "start_now", True) or getattr(args, "autostart", True):
+            return False
+        if setup_args_include_explicit_secrets(args):
+            return False
+        if "File secret backend is disabled" not in detail:
+            return False
+        return existing_config and existing_modules
+
+
+
+    except Exception:
+        return False
+def print_setup_upgrade_refresh_paused(args: argparse.Namespace) -> None:
+    try:
+        bundle = str(getattr(args, "bundle", "telegram-starter") or "telegram-starter")
+        print("")
+        print("Spark upgrade status")
+        print("  [OK] CLI upgrade: complete")
+        print("  [PAUSED] Setup refresh: secrets need a secure backend before Spark rewrites them")
+        print("  [OK] Existing runtime: can keep running with the current setup")
+        print("")
+        print("Next when you are ready:")
+        print(f"  spark setup {bundle} --resume")
+        print("")
+        print("To review what needs attention:")
+        print("  spark doctor")
+        print("")
+        print("To keep working now:")
+        print(f"  spark start {bundle}")
+        print("  spark live status")
+
+
+
+    except Exception:
+        return None
+def cmd_setup(args: argparse.Namespace) -> int:
+    try:
+        ensure_state_dirs()
+        if not telegram_profile_is_default(getattr(args, "profile", None)):
+            return configure_telegram_profile(args)
+        apply_setup_feature_aliases(args)
+        setup_state: dict[str, Any] | None = None
+        pending = load_pending_setup_state() if getattr(args, "resume", False) else {}
+        existing_config_before_setup = CONFIG_PATH.exists()
+        existing_installed_before_setup = load_json(REGISTRY_PATH, {})
+        existing_modules_before_setup = isinstance(existing_installed_before_setup, dict) and bool(existing_installed_before_setup)
+        if pending:
+            pending_bundle = str(pending.get("bundle") or "").strip()
+            if pending_bundle and getattr(args, "bundle", "telegram-starter") == "telegram-starter":
+                setattr(args, "bundle", pending_bundle)
+            apply_setup_feature_aliases(args)
+            print("Resuming pending Spark setup.")
+            print(f"Last stop: {pending.get('detail') or pending.get('stage') or 'unknown'}")
+        try:
+            plan = resolve_setup_bundle_plan(args)
+            interactive = setup_is_interactive(args)
+            if interactive:
+                print("")
+                print("Spark is waking up.")
+                print_setup_preflight(plan.bundle)
+            secret_values, setup_state = collect_setup_configuration(
+                args,
+                plan.bundle,
+                plan.ingress_owner,
+                interactive,
+            )
+            setattr(args, "onboarding_session", setup_state.get("onboarding_session"))
+            validate_new_telegram_bot_tokens(args, secret_values)
+            save_json(CONFIG_PATH, setup_state)
+            install_setup_bundle(args, plan.bundle, plan.installed_modules)
+            install_memory_sidecar_dependencies(args, plan.modules, setup_state)
+            builder_notes, keychain_report = write_setup_runtime_config(
+                args,
+                plan.modules,
+                plan.bundle,
+                secret_values,
+                setup_state,
+            )
+            clear_pending_setup_state()
+            start_now = bool(getattr(args, "start_now", True))
+            start_ok = False
+            if getattr(args, "autostart", True):
+                print("")
+                if start_now:
+                    print("Installing login autostart and starting Spark now.")
+                else:
+                    print("Installing login autostart. Turn it off with: spark autostart off")
+                start_ok = cmd_autostart_install(argparse.Namespace(target=args.bundle, now=start_now)) == 0
+            elif start_now:
+                print("")
+                print("Starting Spark now.")
+                start_ok = cmd_start(argparse.Namespace(target=args.bundle, profile=None)) == 0
+            print_setup_summary(
+                args,
+                plan.ingress_owner,
+                builder_notes,
+                keychain_report,
+                setup_state,
+                start_now=start_now,
+                start_ok=start_ok,
+            )
+            first_message_ok = True
+            wait_seconds = first_message_wait_seconds(args, interactive)
+            if start_now and start_ok and wait_seconds:
+                print("")
+                print("Waiting for Spark to hear you in Telegram...")
+                result = wait_for_telegram_first_message(str(setup_state.get("onboarding_session") or ""), wait_seconds)
+                print_first_message_wait_result(result)
+                maybe_offer_first_message_repair(result, interactive)
+                first_message_ok = bool(result.get("received") and result.get("replied"))
+            return 0 if ((start_ok or not start_now) and first_message_ok) else 1
+        except SystemExit as exc:
+            detail = str(exc)
+            if setup_upgrade_refresh_can_pause(
+                args,
+                detail,
+                existing_config=existing_config_before_setup,
+                existing_modules=existing_modules_before_setup,
+            ):
+                save_paused_setup_refresh_state("setup", detail, setup_state)
+                print_setup_upgrade_refresh_paused(args)
+                return 0
+            save_pending_setup_state("setup", detail, setup_state)
+            print_setup_failure_truth_screen(detail)
+            raise
+
+
+
+    except Exception:
+        return 0
+def cmd_onboard(args: argparse.Namespace) -> int:
+    try:
+        ensure_state_dirs()
+        pending = load_pending_setup_state()
+        setup_state = load_json(CONFIG_PATH, {})
+        installed = load_json(REGISTRY_PATH, {})
+        bundle = str(getattr(args, "bundle", None) or pending.get("bundle") or setup_state.get("bundle") or "telegram-starter")
+        setup_needed = bool(pending) or not CONFIG_PATH.exists() or not isinstance(installed, dict) or not installed
+
+        if setup_needed:
+            setup_argv = ["setup", bundle, "--resume"]
+            setup_argv.append("--start-now" if getattr(args, "start_now", True) else "--no-start-now")
+            setup_argv.append("--autostart" if getattr(args, "autostart", True) else "--no-autostart")
+            if getattr(args, "non_interactive", False):
+                setup_argv.append("--non-interactive")
+            if not getattr(args, "wait_first_message", True):
+                setup_argv.append("--no-wait-first-message")
+            elif getattr(args, "wait_first_message_seconds", None) is not None:
+                setup_argv.extend(["--wait-first-message-seconds", str(args.wait_first_message_seconds)])
+            print("Spark onboard is resuming setup.")
+            return cmd_setup(build_parser().parse_args(setup_argv))
+
+        print("Spark onboard")
+        print(f"Bundle: {bundle}")
+        start_ok = True
+        if getattr(args, "start_now", True):
             print("Starting Spark now.")
-            start_ok = cmd_start(argparse.Namespace(target=args.bundle, profile=None)) == 0
-        print_setup_summary(
-            args,
-            plan.ingress_owner,
-            builder_notes,
-            keychain_report,
-            setup_state,
-            start_now=start_now,
-            start_ok=start_ok,
-        )
+            start_ok = cmd_start(argparse.Namespace(target=bundle, profile=None, allow_boot_warnings=False, allow_dirty_runtime=False)) == 0
+
+        session = str(setup_state.get("onboarding_session") or new_onboarding_session_code()) if isinstance(setup_state, dict) else new_onboarding_session_code()
+        if isinstance(setup_state, dict) and setup_state.get("onboarding_session") != session:
+            setup_state["onboarding_session"] = session
+            save_json(CONFIG_PATH, setup_state)
+        print("")
+        print("Start chatting and building:")
+        print("  1. Open your Spark bot in Telegram.")
+        print(f"  2. If Telegram asks for a start code, send: /start {session}")
+        print("  3. Send a normal message, or try: /run say exactly OK")
+        print("")
+        print("Checks:")
+        print("  spark verify --onboarding")
+        print("  spark fix telegram")
+
         first_message_ok = True
-        wait_seconds = first_message_wait_seconds(args, interactive)
-        if start_now and start_ok and wait_seconds:
+        wait_seconds = first_message_wait_seconds(args, setup_is_interactive(args))
+        if start_ok and wait_seconds:
             print("")
             print("Waiting for Spark to hear you in Telegram...")
-            result = wait_for_telegram_first_message(str(setup_state.get("onboarding_session") or ""), wait_seconds)
+            result = wait_for_telegram_first_message(session, wait_seconds)
             print_first_message_wait_result(result)
-            maybe_offer_first_message_repair(result, interactive)
+            maybe_offer_first_message_repair(result, setup_is_interactive(args))
             first_message_ok = bool(result.get("received") and result.get("replied"))
-        return 0 if ((start_ok or not start_now) and first_message_ok) else 1
-    except SystemExit as exc:
-        detail = str(exc)
-        if setup_upgrade_refresh_can_pause(
-            args,
-            detail,
-            existing_config=existing_config_before_setup,
-            existing_modules=existing_modules_before_setup,
-        ):
-            save_paused_setup_refresh_state("setup", detail, setup_state)
-            print_setup_upgrade_refresh_paused(args)
-            return 0
-        save_pending_setup_state("setup", detail, setup_state)
-        print_setup_failure_truth_screen(detail)
-        raise
+        return 0 if start_ok and first_message_ok else 1
 
 
-def cmd_onboard(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    pending = load_pending_setup_state()
-    setup_state = load_json(CONFIG_PATH, {})
-    installed = load_json(REGISTRY_PATH, {})
-    bundle = str(getattr(args, "bundle", None) or pending.get("bundle") or setup_state.get("bundle") or "telegram-starter")
-    setup_needed = bool(pending) or not CONFIG_PATH.exists() or not isinstance(installed, dict) or not installed
 
-    if setup_needed:
-        setup_argv = ["setup", bundle, "--resume"]
-        setup_argv.append("--start-now" if getattr(args, "start_now", True) else "--no-start-now")
-        setup_argv.append("--autostart" if getattr(args, "autostart", True) else "--no-autostart")
-        if getattr(args, "non_interactive", False):
-            setup_argv.append("--non-interactive")
-        if not getattr(args, "wait_first_message", True):
-            setup_argv.append("--no-wait-first-message")
-        elif getattr(args, "wait_first_message_seconds", None) is not None:
-            setup_argv.extend(["--wait-first-message-seconds", str(args.wait_first_message_seconds)])
-        print("Spark onboard is resuming setup.")
-        return cmd_setup(build_parser().parse_args(setup_argv))
-
-    print("Spark onboard")
-    print(f"Bundle: {bundle}")
-    start_ok = True
-    if getattr(args, "start_now", True):
-        print("Starting Spark now.")
-        start_ok = cmd_start(argparse.Namespace(target=bundle, profile=None, allow_boot_warnings=False, allow_dirty_runtime=False)) == 0
-
-    session = str(setup_state.get("onboarding_session") or new_onboarding_session_code()) if isinstance(setup_state, dict) else new_onboarding_session_code()
-    if isinstance(setup_state, dict) and setup_state.get("onboarding_session") != session:
-        setup_state["onboarding_session"] = session
-        save_json(CONFIG_PATH, setup_state)
-    print("")
-    print("Start chatting and building:")
-    print("  1. Open your Spark bot in Telegram.")
-    print(f"  2. If Telegram asks for a start code, send: /start {session}")
-    print("  3. Send a normal message, or try: /run say exactly OK")
-    print("")
-    print("Checks:")
-    print("  spark verify --onboarding")
-    print("  spark fix telegram")
-
-    first_message_ok = True
-    wait_seconds = first_message_wait_seconds(args, setup_is_interactive(args))
-    if start_ok and wait_seconds:
-        print("")
-        print("Waiting for Spark to hear you in Telegram...")
-        result = wait_for_telegram_first_message(session, wait_seconds)
-        print_first_message_wait_result(result)
-        maybe_offer_first_message_repair(result, setup_is_interactive(args))
-        first_message_ok = bool(result.get("received") and result.get("replied"))
-    return 0 if start_ok and first_message_ok else 1
-
-
+    except Exception:
+        return 0
 def persist_keychain_secrets(bundle: list[Module], secret_values: dict[str, str]) -> dict[str, str]:
-    """Store each keychain-declared secret from the bundle; return {secret_id: backend_used}."""
-    report: dict[str, str] = {}
-    seen: set[str] = set()
-    for module in bundle:
-        _, keychain_backed = split_secret_bindings(module)
-        for binding in keychain_backed:
-            secret_id = binding["secret_id"]
-            if secret_id in seen:
-                continue
-            value = secret_values.get(secret_id)
-            if not value:
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        """Store each keychain-declared secret from the bundle; return {secret_id: backend_used}."""
+        report: dict[str, str] = {}
+        seen: set[str] = set()
+        for module in bundle:
+            _, keychain_backed = split_secret_bindings(module)
+            for binding in keychain_backed:
+                secret_id = binding["secret_id"]
+                if secret_id in seen:
+                    continue
+                value = secret_values.get(secret_id)
+                if not value:
+                    continue
+                backend = store_secret(secret_id, value, preferred="keychain")
+                report[secret_id] = backend
+                seen.add(secret_id)
+        for secret_id, value in secret_values.items():
+            if secret_id in seen or not secret_id.startswith("telegram.profiles.") or not value:
                 continue
             backend = store_secret(secret_id, value, preferred="keychain")
             report[secret_id] = backend
             seen.add(secret_id)
-    for secret_id, value in secret_values.items():
-        if secret_id in seen or not secret_id.startswith("telegram.profiles.") or not value:
-            continue
-        backend = store_secret(secret_id, value, preferred="keychain")
-        report[secret_id] = backend
-        seen.add(secret_id)
-    return report
+        return report
 
 
+
+    except Exception:
+        return {}
 def command_with_managed_python(command: str) -> str:
     return subprocess.list2cmdline(install_command_argv(command))
 
