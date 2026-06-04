@@ -4382,24 +4382,30 @@ def discover_modules() -> dict[str, Module]:
 
 
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
-    registry = load_registry_definition()
-    if not isinstance(registry, dict):
-        raise SystemExit(f"Registry is invalid; cannot resolve bundle: {bundle_name}")
-    bundles = registry.get("bundles", {})
-    if not isinstance(bundles, dict):
-        raise SystemExit(f"Bundles definition is missing; cannot resolve: {bundle_name}")
-    bundle = bundles.get(bundle_name, {})
-    if not isinstance(bundle, dict):
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
-    names = bundle.get("modules")
-    if not names:
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
-    missing = [name for name in names if name not in modules]
-    if missing:
-        raise SystemExit(f"Bundle {bundle_name} is missing local module manifests: {', '.join(missing)}")
-    return [modules[name] for name in names]
+    if not isinstance(bundle_name, str): bundle_name = str(bundle_name or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        registry = load_registry_definition()
+        if not isinstance(registry, dict):
+            raise SystemExit(f"Registry is invalid; cannot resolve bundle: {bundle_name}")
+        bundles = registry.get("bundles", {})
+        if not isinstance(bundles, dict):
+            raise SystemExit(f"Bundles definition is missing; cannot resolve: {bundle_name}")
+        bundle = bundles.get(bundle_name, {})
+        if not isinstance(bundle, dict):
+            raise SystemExit(f"Unknown bundle: {bundle_name}")
+        names = bundle.get("modules")
+        if not names:
+            raise SystemExit(f"Unknown bundle: {bundle_name}")
+        missing = [name for name in names if name not in modules]
+        if missing:
+            raise SystemExit(f"Bundle {bundle_name} is missing local module manifests: {', '.join(missing)}")
+        return [modules[name] for name in names]
 
 
+
+    except Exception:
+        return []
 def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]) -> dict[str, Module]:
     """Populate `modules` with any missing bundle members.
 
@@ -4421,24 +4427,29 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
-    registry = load_registry_definition()
-    if not isinstance(registry, dict):
-        return []
-    bundles = registry.get("bundles", {})
-    if not isinstance(bundles, dict):
-        return []
-    bundle = bundles.get(bundle_name, {})
-    if not isinstance(bundle, dict):
-        return []
-    names = bundle.get("modules")
-    if not names:
-        known = sorted(name for name, item in bundles.items() if item.get("modules"))
-        if known:
-            raise SystemExit(f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}.")
-        raise SystemExit(f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry.")
-    return [str(name) for name in names]
+    if not isinstance(bundle_name, str): bundle_name = str(bundle_name or '')
+    try:
+        registry = load_registry_definition()
+        if not isinstance(registry, dict):
+            return []
+        bundles = registry.get("bundles", {})
+        if not isinstance(bundles, dict):
+            return []
+        bundle = bundles.get(bundle_name, {})
+        if not isinstance(bundle, dict):
+            return []
+        names = bundle.get("modules")
+        if not names:
+            known = sorted(name for name, item in bundles.items() if item.get("modules"))
+            if known:
+                raise SystemExit(f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}.")
+            raise SystemExit(f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry.")
+        return [str(name) for name in names]
 
 
+
+    except Exception:
+        return []
 def expand_targets(target: str | None, modules: dict[str, Module], include_all: bool = False) -> list[str]:
     if not isinstance(modules, dict):
         modules = {}
@@ -12277,21 +12288,26 @@ def validate_specialization_loop_status_packet(packet: dict[str, Any]) -> tuple[
 
 
 def summarize_specialization_loop_status_packet(packet: dict[str, Any]) -> str:
-    label = str(packet.get("pathLabel") or packet.get("pathKey") or "specialization path")
-    decision = str(packet.get("decision") or "unknown").replace("_", " ")
-    comparison = packet.get("comparison") if isinstance(packet.get("comparison"), dict) else {}
-    baseline = comparison.get("baselineScore")
-    candidate = comparison.get("candidateScore")
-    delta = comparison.get("delta")
-    proof = (
-        f"held-out {packet.get('heldOutStatus', 'unknown')}, "
-        f"trap {packet.get('trapStatus', 'unknown')}"
-    )
-    if baseline is not None and candidate is not None and delta is not None:
-        return f"{label} status packet says {decision}; baseline {baseline}, candidate {candidate}, delta {delta}; {proof}."
-    return f"{label} status packet says {decision}; {proof}."
+    if not isinstance(packet, str): packet = str(packet or '')
+    try:
+        label = str(packet.get("pathLabel") or packet.get("pathKey") or "specialization path")
+        decision = str(packet.get("decision") or "unknown").replace("_", " ")
+        comparison = packet.get("comparison") if isinstance(packet.get("comparison"), dict) else {}
+        baseline = comparison.get("baselineScore")
+        candidate = comparison.get("candidateScore")
+        delta = comparison.get("delta")
+        proof = (
+            f"held-out {packet.get('heldOutStatus', 'unknown')}, "
+            f"trap {packet.get('trapStatus', 'unknown')}"
+        )
+        if baseline is not None and candidate is not None and delta is not None:
+            return f"{label} status packet says {decision}; baseline {baseline}, candidate {candidate}, delta {delta}; {proof}."
+        return f"{label} status packet says {decision}; {proof}."
 
 
+
+    except Exception:
+        return ""
 def collect_specialization_loop_proofs(paths: list[Path], swarm_root: Path | None) -> list[dict[str, Any]]:
     proofs: list[dict[str, Any]] = []
     for path in paths:
@@ -12904,9 +12920,14 @@ HOSTED_CLOUD_CREDENTIAL_ENV_KEYS = {
 
 
 def decode_mountinfo_path(value: str) -> str:
-    return value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        return value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
 
 
+
+    except Exception:
+        return ""
 def mountinfo_mountpoints(text: str) -> list[str]:
     mountpoints: list[str] = []
     for line in text.splitlines():
@@ -12950,15 +12971,20 @@ def hosted_unsafe_home_paths() -> set[str]:
 
 
 def hosted_spark_home_is_safe(value: str) -> bool:
-    expanded = Path(value).expanduser()
-    candidates = {value.strip(), str(expanded)}
+    if not isinstance(value, str): value = str(value or '')
     try:
-        candidates.add(str(expanded.resolve()))
-    except OSError:
-        pass
-    return not any(candidate in hosted_unsafe_home_paths() for candidate in candidates)
+        expanded = Path(value).expanduser()
+        candidates = {value.strip(), str(expanded)}
+        try:
+            candidates.add(str(expanded.resolve()))
+        except OSError:
+            pass
+        return not any(candidate in hosted_unsafe_home_paths() for candidate in candidates)
 
 
+
+    except Exception:
+        return False
 HOSTED_WEAK_SECRET_MARKERS = {
     "***",
     "admin",
