@@ -14195,81 +14195,111 @@ def module_runtime_listener_ports(module: Module, profile: str | None = None) ->
 
 
 def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int:
-    for port in module_runtime_listener_ports(module, profile):
-        pid = listening_pid_for_tcp_port(port)
-        if pid and pid_is_running(pid):
-            return pid
-    if pid_is_running(process.pid):
-        return int(process.pid)
-    return int(process.pid)
-
-
-def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
-    if runtime_pid == launched_pid:
-        return
-    with pid_file_lock():
-        pids = load_pids()
-        record = pids.get(process_key)
-        if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
-            record["pid"] = int(runtime_pid)
-            record["launcher_pid"] = int(launched_pid)
-            save_pids(pids)
-
-
-def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
-    if not module_names:
-        return (
-            False,
-            "No Spark-supervised runtime processes are expected from the current install state. "
-            "Install or repair the starter bundle first.",
-        )
-    missing: list[str] = []
-    running_names: list[str] = []
-    for name in module_names:
-        record = pids.get(name) if isinstance(pids, dict) else None
-        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
-        if pid and pid_is_running(pid):
-            running_names.append(f"{name} (pid {pid})")
-        else:
-            missing.append(name)
-    if not missing:
-        return True, "Runtime processes are running under Spark supervision: " + ", ".join(running_names) + "."
-    if running_names:
-        return False, "Missing Spark-supervised runtime process(es): " + ", ".join(missing) + f". Running: {', '.join(running_names)}."
-    return False, "Missing Spark-supervised runtime process(es): " + ", ".join(missing) + "."
-
-
-def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
-    if not isinstance(argv, (list, tuple)):
-        argv = []
-    updated = list(argv)
+    if not isinstance(profile, str): profile = str(profile or '')
     try:
-        index = updated.index(flag)
-    except ValueError:
-        updated.extend([flag, value])
+        for port in module_runtime_listener_ports(module, profile):
+            pid = listening_pid_for_tcp_port(port)
+            if pid and pid_is_running(pid):
+                return pid
+        if pid_is_running(process.pid):
+            return int(process.pid)
+        return int(process.pid)
+
+
+
+    except Exception:
+        return 0
+def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
+    if not isinstance(process_key, str): process_key = str(process_key or '')
+    try:
+        if runtime_pid == launched_pid:
+            return
+        with pid_file_lock():
+            pids = load_pids()
+            record = pids.get(process_key)
+            if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
+                record["pid"] = int(runtime_pid)
+                record["launcher_pid"] = int(launched_pid)
+                save_pids(pids)
+
+
+
+    except Exception:
+        return None
+def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tuple[bool, str]:
+    if not isinstance(pids, str): pids = str(pids or '')
+    if not isinstance(module_names, str): module_names = str(module_names or '')
+    try:
+        if not module_names:
+            return (
+                False,
+                "No Spark-supervised runtime processes are expected from the current install state. "
+                "Install or repair the starter bundle first.",
+            )
+        missing: list[str] = []
+        running_names: list[str] = []
+        for name in module_names:
+            record = pids.get(name) if isinstance(pids, dict) else None
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
+            if pid and pid_is_running(pid):
+                running_names.append(f"{name} (pid {pid})")
+            else:
+                missing.append(name)
+        if not missing:
+            return True, "Runtime processes are running under Spark supervision: " + ", ".join(running_names) + "."
+        if running_names:
+            return False, "Missing Spark-supervised runtime process(es): " + ", ".join(missing) + f". Running: {', '.join(running_names)}."
+        return False, "Missing Spark-supervised runtime process(es): " + ", ".join(missing) + "."
+
+
+
+    except Exception:
+        return ()
+def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
+    if not isinstance(argv, str): argv = str(argv or '')
+    if not isinstance(flag, str): flag = str(flag or '')
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        if not isinstance(argv, (list, tuple)):
+            argv = []
+        updated = list(argv)
+        try:
+            index = updated.index(flag)
+        except ValueError:
+            updated.extend([flag, value])
+            return updated
+        if index + 1 < len(updated):
+            updated[index + 1] = value
+        else:
+            updated.append(value)
         return updated
-    if index + 1 < len(updated):
-        updated[index + 1] = value
-    else:
-        updated.append(value)
-    return updated
 
 
+
+    except Exception:
+        return []
 def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: dict[str, str]) -> list[str]:
-    argv = direct_node_package_script_argv(command, cwd) or runtime_command_argv(command)
-    if not isinstance(env, dict):
-        env = {}
-    if not module or getattr(module, "name", None) != "spawner-ui":
+    if not isinstance(command, str): command = str(command or '')
+    if cwd is not None and not hasattr(cwd, 'resolve'): from pathlib import Path; cwd = Path(str(cwd))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        argv = direct_node_package_script_argv(command, cwd) or runtime_command_argv(command)
+        if not isinstance(env, dict):
+            env = {}
+        if not module or getattr(module, "name", None) != "spawner-ui":
+            return argv
+        bind_host = (env.get("SPARK_SPAWNER_HOST") or "").strip()
+        bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
+        if bind_host:
+            argv = replace_or_append_flag(argv, "--host", bind_host)
+        if bind_port:
+            argv = replace_or_append_flag(argv, "--port", bind_port)
         return argv
-    bind_host = (env.get("SPARK_SPAWNER_HOST") or "").strip()
-    bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
-    if bind_host:
-        argv = replace_or_append_flag(argv, "--host", bind_host)
-    if bind_port:
-        argv = replace_or_append_flag(argv, "--port", bind_port)
-    return argv
 
 
+
+    except Exception:
+        return []
 def spawner_should_use_liveness_endpoint(env: Any) -> bool:
     # Spawner liveness is separate from provider readiness; provider details
     # stay visible through `spark providers status`.
