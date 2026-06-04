@@ -836,56 +836,80 @@ def print_dirty_update_preflight(dirty: list[tuple[Module, str]]) -> None:
 
 
 def update_should_restart_live(args: argparse.Namespace, stopped_processes: list[str]) -> bool:
-    if not stopped_processes:
-        return False
-    if getattr(args, "no_live_restart", False):
-        return False
-    return os.environ.get("SPARK_AUTOSTART", "0").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def print_update_live_status_summary() -> int:
-    payload = collect_status_payload()
-    ok = bool(payload.get("ok"))
-    print("")
-    print("Post-update live state:")
-    print(f"  Spark Live: {'OK' if ok else 'needs attention'}")
-    profiles = payload.get("telegram_profiles")
-    if isinstance(profiles, list):
-        running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
-        stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
-        print(f"  Telegram profiles: {len(running)} running, {len(stopped)} stopped")
-    modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
-    for name in ["spawner-ui", "spark-telegram-bot"]:
-        module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
-        if isinstance(module, dict):
-            state = "OK" if module.get("healthy") else "attention"
-            print(f"  {name}: {state}")
-    if not ok and payload.get("repair_hints"):
-        print("  Repair:")
-        for hint in payload.get("repair_hints", [])[:2]:
-            print(f"    - {hint}")
-    return 0 if ok else 1
-
-
-def module_is_git_managed(module_path: Path) -> bool:
+    if not isinstance(stopped_processes, str): stopped_processes = str(stopped_processes or '')
     try:
-        return module_path.is_relative_to(SPARK_HOME / "modules")
-    except AttributeError:  # pragma: no cover - Python <3.9 fallback
-        return str(SPARK_HOME / "modules") in str(module_path)
+        if not stopped_processes:
+            return False
+        if getattr(args, "no_live_restart", False):
+            return False
+        return os.environ.get("SPARK_AUTOSTART", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+
+    except Exception:
+        return False
+def print_update_live_status_summary() -> int:
+    try:
+        payload = collect_status_payload()
+        ok = bool(payload.get("ok"))
+        print("")
+        print("Post-update live state:")
+        print(f"  Spark Live: {'OK' if ok else 'needs attention'}")
+        profiles = payload.get("telegram_profiles")
+        if isinstance(profiles, list):
+            running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
+            stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
+            print(f"  Telegram profiles: {len(running)} running, {len(stopped)} stopped")
+        modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+        for name in ["spawner-ui", "spark-telegram-bot"]:
+            module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
+            if isinstance(module, dict):
+                state = "OK" if module.get("healthy") else "attention"
+                print(f"  {name}: {state}")
+        if not ok and payload.get("repair_hints"):
+            print("  Repair:")
+            for hint in payload.get("repair_hints", [])[:2]:
+                print(f"    - {hint}")
+        return 0 if ok else 1
+
+
+
+    except Exception:
+        return 0
+def module_is_git_managed(module_path: Path) -> bool:
+    if module_path is not None and not hasattr(module_path, 'resolve'): from pathlib import Path; module_path = Path(str(module_path))
+    try:
+        try:
+            return module_path.is_relative_to(SPARK_HOME / "modules")
+        except AttributeError:  # pragma: no cover - Python <3.9 fallback
+            return str(SPARK_HOME / "modules") in str(module_path)
+
+
+
+    except Exception:
+        return False
 def long_path_aware(path: Path) -> str:
-    resolved = str(path.resolve())
-    if os.name == "nt" and not resolved.startswith("\\\\?\\"):
-        return f"\\\\?\\{resolved}"
-    return resolved
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        resolved = str(path.resolve())
+        if os.name == "nt" and not resolved.startswith("\\\\?\\"):
+            return f"\\\\?\\{resolved}"
+        return resolved
 
 
+
+    except Exception:
+        return ""
 def retry_remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
-    os.chmod(path, stat.S_IWRITE)
-    func(path)
+    if not isinstance(path, str): path = str(path or '')
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
 
 
+
+    except Exception:
+        return None
 def remove_tree(path: Path) -> None:
     target = long_path_aware(path)
     try:
