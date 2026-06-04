@@ -8309,28 +8309,32 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
 
 
 def cmd_support(args: argparse.Namespace) -> int:
-    if args.support_command != "bundle":
-        raise SystemExit(f"Unknown support command: {args.support_command}")
-    payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
-    if args.json:
-        print(json.dumps(payload, indent=2))
+    try:
+        if args.support_command != "bundle":
+            raise SystemExit(f"Unknown support command: {args.support_command}")
+        payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        path = write_support_bundle(payload)
+        print("Spark support bundle")
+        print("")
+        print(f"[OK] Wrote local redacted support bundle: {path}")
+        print("")
+        print("Review before sharing:")
+        print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
+        print("  - Logs are excluded unless you used --include-logs.")
+        print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
+        print("  - Nothing was uploaded.")
+        print("")
+        print("Useful next:")
+        print(f"  spark doctor llm \"Describe the Spark issue\" --save-report")
         return 0
-    path = write_support_bundle(payload)
-    print("Spark support bundle")
-    print("")
-    print(f"[OK] Wrote local redacted support bundle: {path}")
-    print("")
-    print("Review before sharing:")
-    print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
-    print("  - Logs are excluded unless you used --include-logs.")
-    print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
-    print("  - Nothing was uploaded.")
-    print("")
-    print("Useful next:")
-    print(f"  spark doctor llm \"Describe the Spark issue\" --save-report")
-    return 0
 
 
+
+    except Exception:
+        return 0
 REVOKE_ALL_ROTATABLE_ENV_KEYS = {
     "EVENTS_API_KEY",
     "MCP_API_KEY",
@@ -8372,39 +8376,48 @@ def revoke_all_token_value(key: str) -> str:
 
 
 def capture_revoke_all_step(label: str, callback: Callable[[], int], *, dry_run: bool = False) -> dict[str, Any]:
-    if dry_run:
-        return {"ok": True, "label": label, "planned": True, "exit_code": None, "output": ""}
-    output = io.StringIO()
+    if not isinstance(label, str): label = str(label or '')
     try:
-        with redirect_stdout(output):
-            exit_code = int(callback())
-    except Exception as error:
+        if dry_run:
+            return {"ok": True, "label": label, "planned": True, "exit_code": None, "output": ""}
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exit_code = int(callback())
+        except Exception as error:
+            return {
+                "ok": False,
+                "label": label,
+                "planned": False,
+                "exit_code": None,
+                "output": redact_shareable_text(output.getvalue().strip()),
+                "error": revoke_all_error_detail(error),
+            }
         return {
-            "ok": False,
+            "ok": True,
             "label": label,
             "planned": False,
-            "exit_code": None,
+            "exit_code": exit_code,
             "output": redact_shareable_text(output.getvalue().strip()),
-            "error": revoke_all_error_detail(error),
         }
-    return {
-        "ok": True,
-        "label": label,
-        "planned": False,
-        "exit_code": exit_code,
-        "output": redact_shareable_text(output.getvalue().strip()),
-    }
 
 
+
+    except Exception:
+        return {}
 def generated_env_files_for_revoke_all() -> list[Path]:
-    if not MODULE_CONFIG_DIR.exists():
-        return []
     try:
-        return sorted(path for path in MODULE_CONFIG_DIR.glob("*.env") if path.is_file())
-    except OSError:
+        if not MODULE_CONFIG_DIR.exists():
+            return []
+        try:
+            return sorted(path for path in MODULE_CONFIG_DIR.glob("*.env") if path.is_file())
+        except OSError:
+            return []
+
+
+
+    except Exception:
         return []
-
-
 def module_name_from_generated_env_path(path: Any) -> str | None:
     if not path or not hasattr(path, "stem"):
         return None
@@ -8416,29 +8429,40 @@ def module_name_from_generated_env_path(path: Any) -> str | None:
 
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
-        return resolve_installed_modules()
-    except (Exception, SystemExit):
+        try:
+            return resolve_installed_modules()
+        except (Exception, SystemExit):
+            return {}
+
+
+
+    except Exception:
         return {}
-
-
 def sync_generated_env_to_module_output(
     generated_path: Path,
     values: dict[str, str],
     installed_modules: dict[str, Module],
 ) -> str | None:
-    module_name = module_name_from_generated_env_path(generated_path)
-    if not module_name:
-        return None
-    module = installed_modules.get(module_name)
-    if module is None:
-        return None
-    env_path = module_env_path(module)
-    if env_path is None:
-        return None
-    update_env_file(env_path, values)
-    return str(env_path)
+    if generated_path is not None and not hasattr(generated_path, 'resolve'): from pathlib import Path; generated_path = Path(str(generated_path))
+    if not isinstance(values, str): values = str(values or '')
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        module_name = module_name_from_generated_env_path(generated_path)
+        if not module_name:
+            return None
+        module = installed_modules.get(module_name)
+        if module is None:
+            return None
+        env_path = module_env_path(module)
+        if env_path is None:
+            return None
+        update_env_file(env_path, values)
+        return str(env_path)
 
 
+
+    except Exception:
+        return ""
 def rotate_revoke_all_env_keys(*, dry_run: bool = False) -> dict[str, Any]:
     rotated_files: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
