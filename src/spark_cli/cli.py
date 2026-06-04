@@ -14954,45 +14954,68 @@ def wsl_windows_startup_script_path() -> Path | None:
 
 
 def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
-    resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
-    if not resolved_distro:
-        raise ValueError("Could not determine the WSL distro name for Windows-login autostart.")
-    command = subprocess.list2cmdline(
-        [
-            "wsl.exe",
-            "-d",
-            resolved_distro,
-            "--cd",
-            str(Path.home()),
-            "--exec",
-            "sh",
-            "-lc",
-            str(start_command or ""),
-        ]
-    )
-    return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    if not isinstance(distro_name, str): distro_name = str(distro_name or '')
+    try:
+        resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
+        if not resolved_distro:
+            raise ValueError("Could not determine the WSL distro name for Windows-login autostart.")
+        command = subprocess.list2cmdline(
+            [
+                "wsl.exe",
+                "-d",
+                resolved_distro,
+                "--cd",
+                str(Path.home()),
+                "--exec",
+                "sh",
+                "-lc",
+                str(start_command or ""),
+            ]
+        )
+        return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
 
 
+
+    except Exception:
+        return ""
 def windows_startup_script_path() -> Path:
-    appdata = os.environ.get("APPDATA")
-    base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-    return base / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.vbs"
+    try:
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.vbs"
 
 
+
+    except Exception:
+        return Path(".")
 def windows_startup_legacy_cmd_path() -> Path:
-    appdata = os.environ.get("APPDATA")
-    base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-    return base / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.cmd"
+    try:
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.cmd"
 
 
+
+    except Exception:
+        return Path(".")
 def windows_run_key_path() -> str:
-    return r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+    try:
+        return r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 
 
+
+    except Exception:
+        return ""
 def windows_run_key_command(startup_path: Path) -> str:
-    return f'wscript.exe "{startup_path}"'
+    if startup_path is not None and not hasattr(startup_path, 'resolve'): from pathlib import Path; startup_path = Path(str(startup_path))
+    try:
+        return f'wscript.exe "{startup_path}"'
 
 
+
+    except Exception:
+        return ""
 def vbs_string(value: str) -> str:
     val_str = str(value or "")
     return '"' + val_str.replace('"', '""') + '"'
