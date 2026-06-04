@@ -11864,154 +11864,178 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
-    if args.providers_command == "recommend":
-        payload = provider_recommendations_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload.get("ok") else 1
-        print_llm_provider_recommendations(payload)
-        return 0
-    if args.providers_command == "list":
-        payload = provider_catalog_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload.get("ok") else 1
-        print("Spark LLM providers")
-        for provider in payload["providers"]:
-            auth = ", ".join(provider["auth"])
-            oauth = "available" if provider["oauth_available"] else "not detected"
-            print(f"{provider['id']:<10} {provider['label']:<16} auth={auth}; oauth={oauth}")
-            print(f"           setup: {provider['setup']}")
-        return 0
-    if args.providers_command == "status":
-        payload = provider_status_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
+    try:
+        if args.providers_command == "recommend":
+            payload = provider_recommendations_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print_llm_provider_recommendations(payload)
+            return 0
+        if args.providers_command == "list":
+            payload = provider_catalog_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print("Spark LLM providers")
+            for provider in payload["providers"]:
+                auth = ", ".join(provider["auth"])
+                oauth = "available" if provider["oauth_available"] else "not detected"
+                print(f"{provider['id']:<10} {provider['label']:<16} auth={auth}; oauth={oauth}")
+                print(f"           setup: {provider['setup']}")
+            return 0
+        if args.providers_command == "status":
+            payload = provider_status_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            print(payload["summary"])
+            for role in LLM_ROLES:
+                state = payload["roles"].get(role, {})
+                marker = "[OK]" if state.get("ready") else "[FIX]"
+                print(
+                    f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
+                    f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
+                )
+                codex_client = state.get("codex_client") if isinstance(state, dict) else None
+                if isinstance(codex_client, dict) and codex_client.get("ok"):
+                    values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+                    tier = values.get("service_tier") or "default"
+                    effort = values.get("model_reasoning_effort") or "default"
+                    print(f"          codex_client service_tier={tier} reasoning={effort}")
+            for hint in payload["repair_hints"]:
+                print(f"Repair: {hint}")
             return 0 if payload["ok"] else 1
-        print(payload["summary"])
-        for role in LLM_ROLES:
-            state = payload["roles"].get(role, {})
-            marker = "[OK]" if state.get("ready") else "[FIX]"
+        if args.providers_command == "codex":
+            updates = {
+                key: value
+                for key, value in {
+                    "model": getattr(args, "model", None),
+                    "model_reasoning_effort": getattr(args, "reasoning_effort", None),
+                    "service_tier": getattr(args, "service_tier", None),
+                }.items()
+                if value is not None
+            }
+            payload = save_codex_client_config(updates) if updates else codex_client_config_payload()
+            payload["active_roles"] = codex_active_roles()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print("Spark Codex client config")
+            print("")
+            if payload.get("active_roles"):
+                print(f"Active Spark roles: {', '.join(payload['active_roles'])}")
+            else:
+                print("Active Spark roles: none currently using Codex")
+            values = payload.get("values") if isinstance(payload.get("values"), dict) else {}
+            print(f"model: {values.get('model') or 'default'}")
+            print(f"reasoning: {values.get('model_reasoning_effort') or 'default'}")
+            print(f"service_tier: {values.get('service_tier') or 'default'}")
+            if payload.get("updated"):
+                changed = "updated" if payload.get("changed") else "already set"
+                print(f"Change: {changed} ({', '.join(payload['updated'])})")
+            for note in payload.get("notes", []):
+                print(f"Note: {note}")
+            return 0 if payload.get("ok") else 1
+        if args.providers_command == "test":
+            payload = provider_test_payload(role=args.role, provider=args.provider)
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["ok"] else 1
+            marker = "[OK]" if payload.get("ok") else "[FIX]"
+            print("Spark provider test")
+            print("")
             print(
-                f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
-                f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
+                f"{marker} {payload.get('role')} -> {payload.get('provider')} "
+                f"({payload.get('model') or 'model unknown'}): {payload.get('detail')}"
             )
-            codex_client = state.get("codex_client") if isinstance(state, dict) else None
-            if isinstance(codex_client, dict) and codex_client.get("ok"):
-                values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
-                tier = values.get("service_tier") or "default"
-                effort = values.get("model_reasoning_effort") or "default"
-                print(f"          codex_client service_tier={tier} reasoning={effort}")
-        for hint in payload["repair_hints"]:
-            print(f"Repair: {hint}")
-        return 0 if payload["ok"] else 1
-    if args.providers_command == "codex":
-        updates = {
-            key: value
-            for key, value in {
-                "model": getattr(args, "model", None),
-                "model_reasoning_effort": getattr(args, "reasoning_effort", None),
-                "service_tier": getattr(args, "service_tier", None),
-            }.items()
-            if value is not None
-        }
-        payload = save_codex_client_config(updates) if updates else codex_client_config_payload()
-        payload["active_roles"] = codex_active_roles()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload.get("ok") else 1
-        print("Spark Codex client config")
-        print("")
-        if payload.get("active_roles"):
-            print(f"Active Spark roles: {', '.join(payload['active_roles'])}")
-        else:
-            print("Active Spark roles: none currently using Codex")
-        values = payload.get("values") if isinstance(payload.get("values"), dict) else {}
-        print(f"model: {values.get('model') or 'default'}")
-        print(f"reasoning: {values.get('model_reasoning_effort') or 'default'}")
-        print(f"service_tier: {values.get('service_tier') or 'default'}")
-        if payload.get("updated"):
-            changed = "updated" if payload.get("changed") else "already set"
-            print(f"Change: {changed} ({', '.join(payload['updated'])})")
-        for note in payload.get("notes", []):
-            print(f"Note: {note}")
-        return 0 if payload.get("ok") else 1
-    if args.providers_command == "test":
-        payload = provider_test_payload(role=args.role, provider=args.provider)
-        if args.json:
-            print(json.dumps(payload, indent=2))
+            if not payload.get("ok") and payload.get("repair"):
+                print(f"Repair: {payload['repair']}")
             return 0 if payload["ok"] else 1
-        marker = "[OK]" if payload.get("ok") else "[FIX]"
-        print("Spark provider test")
-        print("")
-        print(
-            f"{marker} {payload.get('role')} -> {payload.get('provider')} "
-            f"({payload.get('model') or 'model unknown'}): {payload.get('detail')}"
-        )
-        if not payload.get("ok") and payload.get("repair"):
-            print(f"Repair: {payload['repair']}")
-        return 0 if payload["ok"] else 1
-    known = "recommend, list, status, codex, test"
-    raise SystemExit(f"Unknown providers command: {args.providers_command}. Known commands: {known}.")
+        known = "recommend, list, status, codex, test"
+        raise SystemExit(f"Unknown providers command: {args.providers_command}. Known commands: {known}.")
 
 
-def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
-    print(terminal_color(f" {payload['summary']} ", "spark-title"))
-    print(payload["default_rule"])
-    print("")
-    print(terminal_color("Best starting points", "spark-section"))
-    print("  OpenAI Codex subscription:     spark setup --llm-provider codex")
-    print("     Sign in first with:         codex login")
-    print("")
-    print("  Anthropic Claude subscription: spark setup --llm-provider anthropic")
-    print('     Verify first with:          claude -p "hello"')
-    print("")
-    print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key <key>")
-    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key <key>")
-    print("  Local/private desktop route:   spark setup --llm-provider lmstudio")
-    print("  Local/private terminal:        spark setup --llm-provider ollama")
-    print("")
-    print(terminal_color("Provider guide", "spark-section"))
-    for provider in payload["providers"]:
-        models = ", ".join(provider["recommended_models"])
-        provider_id = str(provider["id"])
-        provider_pad = " " * max(1, 18 - len(provider_id))
-        print(f"  {terminal_color(provider_id, 'spark-provider')}{provider_pad} {provider['lane']}")
-        print(f"    Models: {models}")
-        print(f"    Best for: {provider['best_for']}")
-        print(f"    Start: {provider['getting_started']}")
-        print("")
 
-
-def cmd_recommend(args: argparse.Namespace) -> int:
-    if args.recommend_command in {"llms", "providers"}:
-        payload = provider_recommendations_payload()
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if payload.get("ok") else 1
-        print_llm_provider_recommendations(payload)
+    except Exception:
         return 0
-    raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
+def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        print(terminal_color(f" {payload['summary']} ", "spark-title"))
+        print(payload["default_rule"])
+        print("")
+        print(terminal_color("Best starting points", "spark-section"))
+        print("  OpenAI Codex subscription:     spark setup --llm-provider codex")
+        print("     Sign in first with:         codex login")
+        print("")
+        print("  Anthropic Claude subscription: spark setup --llm-provider anthropic")
+        print('     Verify first with:          claude -p "hello"')
+        print("")
+        print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key <key>")
+        print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key <key>")
+        print("  Local/private desktop route:   spark setup --llm-provider lmstudio")
+        print("  Local/private terminal:        spark setup --llm-provider ollama")
+        print("")
+        print(terminal_color("Provider guide", "spark-section"))
+        for provider in payload["providers"]:
+            models = ", ".join(provider["recommended_models"])
+            provider_id = str(provider["id"])
+            provider_pad = " " * max(1, 18 - len(provider_id))
+            print(f"  {terminal_color(provider_id, 'spark-provider')}{provider_pad} {provider['lane']}")
+            print(f"    Models: {models}")
+            print(f"    Best for: {provider['best_for']}")
+            print(f"    Start: {provider['getting_started']}")
+            print("")
 
 
+
+    except Exception:
+        return None
+def cmd_recommend(args: argparse.Namespace) -> int:
+    try:
+        if args.recommend_command in {"llms", "providers"}:
+            payload = provider_recommendations_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print_llm_provider_recommendations(payload)
+            return 0
+        raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
+
+
+
+    except Exception:
+        return 0
 def installed_record_path(installed: object, module_name: str) -> Path | None:
-    if not isinstance(installed, dict):
-        return None
-    record = installed.get(module_name)
-    raw_path = record.get("path") if isinstance(record, dict) else record
-    if not raw_path:
-        return None
-    return Path(str(raw_path)).expanduser()
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    try:
+        if not isinstance(installed, dict):
+            return None
+        record = installed.get(module_name)
+        raw_path = record.get("path") if isinstance(record, dict) else record
+        if not raw_path:
+            return None
+        return Path(str(raw_path)).expanduser()
 
 
+
+    except Exception:
+        return Path(".")
 def prepend_pythonpath(env: dict[str, str], paths: list[Path]) -> None:
-    existing = env.get("PYTHONPATH", "").strip()
-    present = [str(path) for path in paths if path.exists()]
-    if not present:
-        return
-    env["PYTHONPATH"] = os.pathsep.join([*present, existing]) if existing else os.pathsep.join(present)
+    if not isinstance(env, str): env = str(env or '')
+    if not isinstance(paths, list): paths = list(paths or [])
+    try:
+        existing = env.get("PYTHONPATH", "").strip()
+        present = [str(path) for path in paths if path.exists()]
+        if not present:
+            return
+        env["PYTHONPATH"] = os.pathsep.join([*present, existing]) if existing else os.pathsep.join(present)
 
 
+
+    except Exception:
+        return None
 def collect_builder_memory_direct_smoke(
     *,
     installed: object,
