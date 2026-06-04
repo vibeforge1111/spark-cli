@@ -24,7 +24,7 @@ from .paths import ssh_known_hosts_path, ssh_targets_path, validate_target_name
 SSH_TARGETS_SCHEMA_VERSION = 1
 SSH_HOST_PATTERN = re.compile(r"^[A-Za-z0-9.:-]+$")
 SSH_USER_PATTERN = re.compile(r"^[a-z_][a-z0-9_-]{0,31}\$?$")
-SSH_REMOTE_WORKSPACE_PATTERN = re.compile(r"^(?:~(?:/|$)|/)[A-Za-z0-9._~@%+=:,/-]*$")
+SSH_REMOTE_WORKSPACE_PATTERN = re.compile(r"^(?:~(?:/|$)|/)[A-Za-z0-9._~@:,/-]*$")
 SSH_SUBPROCESS_ENV_ALLOWLIST = {
     "APPDATA",
     "HOME",
