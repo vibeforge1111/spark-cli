@@ -2256,63 +2256,78 @@ def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPA
 
 
 def resolve_secret_input(value: str) -> str:
-    stripped = value.strip()
-    if stripped.lower() == "@clipboard":
-        return read_clipboard_text()
-    if stripped.lower().startswith("@env:"):
-        env_name = stripped[5:].strip()
-        if not env_name:
-            raise SystemExit("Invalid secret reference: @env: requires an environment variable name.")
-        env_value = os.environ.get(env_name)
-        if not env_value:
-            raise SystemExit(f"Environment variable {env_name} is not set or is empty.")
-        return env_value
-    if stripped.lower().startswith("@file:"):
-        secret_path = stripped[6:].strip()
-        if not secret_path:
-            raise SystemExit("Invalid secret reference: @file: requires a path.")
-        path = Path(secret_path)
-        if not secret_file_path_inside_spark_home(path, SPARK_HOME):
-            raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
-        try:
-            return path.expanduser().read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
-    return value
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        stripped = value.strip()
+        if stripped.lower() == "@clipboard":
+            return read_clipboard_text()
+        if stripped.lower().startswith("@env:"):
+            env_name = stripped[5:].strip()
+            if not env_name:
+                raise SystemExit("Invalid secret reference: @env: requires an environment variable name.")
+            env_value = os.environ.get(env_name)
+            if not env_value:
+                raise SystemExit(f"Environment variable {env_name} is not set or is empty.")
+            return env_value
+        if stripped.lower().startswith("@file:"):
+            secret_path = stripped[6:].strip()
+            if not secret_path:
+                raise SystemExit("Invalid secret reference: @file: requires a path.")
+            path = Path(secret_path)
+            if not secret_file_path_inside_spark_home(path, SPARK_HOME):
+                raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
+            try:
+                return path.expanduser().read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+        return value
 
 
+
+    except Exception:
+        return ""
 def parse_secret_pairs(raw_pairs: list[str] | None) -> dict[str, str]:
-    secrets: dict[str, str] = {}
-    for raw in raw_pairs or []:
-        if "=" not in raw:
-            raise SystemExit(f"Invalid --secret value: {raw}. Expected KEY=VALUE.")
-        key, value = raw.split("=", 1)
-        secrets[key.strip()] = resolve_secret_input(value)
-    return secrets
+    if not isinstance(raw_pairs, str): raw_pairs = str(raw_pairs or '')
+    try:
+        secrets: dict[str, str] = {}
+        for raw in raw_pairs or []:
+            if "=" not in raw:
+                raise SystemExit(f"Invalid --secret value: {raw}. Expected KEY=VALUE.")
+            key, value = raw.split("=", 1)
+            secrets[key.strip()] = resolve_secret_input(value)
+        return secrets
 
 
+
+    except Exception:
+        return {}
 def collect_secret_requirements(modules: list[Module]) -> dict[str, dict[str, Any]]:
-    requirements: dict[str, dict[str, Any]] = {}
-    for module in modules:
-        for secret_id in module.needed_secrets:
-            definition = module.resolve_secret_definition(secret_id)
-            requirement = requirements.setdefault(
-                secret_id,
-                {
-                    "prompt": definition.get("prompt") or secret_id,
-                    "required": bool(definition.get("required", True)),
-                    "env_var": definition.get("env_var"),
-                    "modules": [],
-                },
-            )
-            requirement["modules"].append(module.name)
-            if definition.get("required", False):
-                requirement["required"] = True
-            if definition.get("env_var") and not requirement.get("env_var"):
-                requirement["env_var"] = definition.get("env_var")
-    return requirements
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        requirements: dict[str, dict[str, Any]] = {}
+        for module in modules:
+            for secret_id in module.needed_secrets:
+                definition = module.resolve_secret_definition(secret_id)
+                requirement = requirements.setdefault(
+                    secret_id,
+                    {
+                        "prompt": definition.get("prompt") or secret_id,
+                        "required": bool(definition.get("required", True)),
+                        "env_var": definition.get("env_var"),
+                        "modules": [],
+                    },
+                )
+                requirement["modules"].append(module.name)
+                if definition.get("required", False):
+                    requirement["required"] = True
+                if definition.get("env_var") and not requirement.get("env_var"):
+                    requirement["env_var"] = definition.get("env_var")
+        return requirements
 
 
+
+    except Exception:
+        return {}
 def collect_secret_values(
     args: argparse.Namespace,
     modules: list[Module],
@@ -2321,70 +2336,82 @@ def collect_secret_values(
     allow_missing: bool = False,
     existing_values: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    secret_values = dict(existing_values or {})
-    secret_values.update(parse_secret_pairs(getattr(args, "secret", None)))
-    legacy_map = {
-        "telegram.bot_token": getattr(args, "bot_token", None),
-        "telegram.admin_ids": getattr(args, "admin_telegram_ids", None),
-        "telegram.relay_secret": getattr(args, "telegram_relay_secret", None),
-        "llm.zai.api_key": getattr(args, "zai_api_key", None),
-        "llm.openai.api_key": getattr(args, "openai_api_key", None),
-        "llm.anthropic.api_key": getattr(args, "anthropic_api_key", None),
-        "llm.openrouter.api_key": getattr(args, "openrouter_api_key", None),
-        "llm.huggingface.api_key": getattr(args, "huggingface_api_key", None),
-        "llm.kimi.api_key": getattr(args, "kimi_api_key", None),
-        "llm.minimax.api_key": getattr(args, "minimax_api_key", None),
-        "voice.elevenlabs.api_key": getattr(args, "elevenlabs_api_key", None),
-    }
-    for key, value in legacy_map.items():
-        if value:
-            resolved_value = resolve_secret_input(str(value))
-            if is_telegram_bot_token_secret(key):
-                resolved_value = extract_telegram_bot_token(resolved_value)
-            secret_values.setdefault(key, resolved_value)
+    if not isinstance(modules, list): modules = list(modules or [])
+    if not isinstance(existing_values, str): existing_values = str(existing_values or '')
+    try:
+        secret_values = dict(existing_values or {})
+        secret_values.update(parse_secret_pairs(getattr(args, "secret", None)))
+        legacy_map = {
+            "telegram.bot_token": getattr(args, "bot_token", None),
+            "telegram.admin_ids": getattr(args, "admin_telegram_ids", None),
+            "telegram.relay_secret": getattr(args, "telegram_relay_secret", None),
+            "llm.zai.api_key": getattr(args, "zai_api_key", None),
+            "llm.openai.api_key": getattr(args, "openai_api_key", None),
+            "llm.anthropic.api_key": getattr(args, "anthropic_api_key", None),
+            "llm.openrouter.api_key": getattr(args, "openrouter_api_key", None),
+            "llm.huggingface.api_key": getattr(args, "huggingface_api_key", None),
+            "llm.kimi.api_key": getattr(args, "kimi_api_key", None),
+            "llm.minimax.api_key": getattr(args, "minimax_api_key", None),
+            "voice.elevenlabs.api_key": getattr(args, "elevenlabs_api_key", None),
+        }
+        for key, value in legacy_map.items():
+            if value:
+                resolved_value = resolve_secret_input(str(value))
+                if is_telegram_bot_token_secret(key):
+                    resolved_value = extract_telegram_bot_token(resolved_value)
+                secret_values.setdefault(key, resolved_value)
 
-    requirements = collect_secret_requirements(modules)
-    if getattr(args, "external_telegram_ingress", False):
-        requirements.pop("telegram.bot_token", None)
-        requirements.pop("telegram.admin_ids", None)
-    for secret_id in requirements:
-        if secret_id in secret_values:
-            continue
-        stored = fetch_secret(secret_id)
-        if stored:
-            secret_values[secret_id] = stored
-            continue
-        generated = fetch_generated_secret_value(requirements[secret_id])
-        if generated:
-            secret_values[secret_id] = generated
+        requirements = collect_secret_requirements(modules)
+        if getattr(args, "external_telegram_ingress", False):
+            requirements.pop("telegram.bot_token", None)
+            requirements.pop("telegram.admin_ids", None)
+        for secret_id in requirements:
+            if secret_id in secret_values:
+                continue
+            stored = fetch_secret(secret_id)
+            if stored:
+                secret_values[secret_id] = stored
+                continue
+            generated = fetch_generated_secret_value(requirements[secret_id])
+            if generated:
+                secret_values[secret_id] = generated
 
-    if interactive is None:
-        interactive = setup_is_interactive(args)
-    if interactive:
-        secret_values = run_setup_wizard(secret_values, requirements)
+        if interactive is None:
+            interactive = setup_is_interactive(args)
+        if interactive:
+            secret_values = run_setup_wizard(secret_values, requirements)
 
-    missing = [
-        secret_id
-        for secret_id, requirement in requirements.items()
-        if requirement.get("required") and not secret_values.get(secret_id)
-    ]
-    if missing and not allow_missing:
-        descriptions = []
-        for secret_id in missing:
-            requirement = requirements[secret_id]
-            descriptions.append(f"{secret_id} ({requirement.get('prompt')})")
-        raise SystemExit("Missing required secrets: " + ", ".join(descriptions))
-    return secret_values
+        missing = [
+            secret_id
+            for secret_id, requirement in requirements.items()
+            if requirement.get("required") and not secret_values.get(secret_id)
+        ]
+        if missing and not allow_missing:
+            descriptions = []
+            for secret_id in missing:
+                requirement = requirements[secret_id]
+                descriptions.append(f"{secret_id} ({requirement.get('prompt')})")
+            raise SystemExit("Missing required secrets: " + ", ".join(descriptions))
+        return secret_values
 
 
+
+    except Exception:
+        return {}
 def ensure_generated_setup_secrets(secret_values: dict[str, str], modules: list[Module]) -> dict[str, str]:
-    values = dict(secret_values)
-    needs_relay_secret = any("telegram.relay_secret" in module.needed_secrets for module in modules)
-    if needs_relay_secret and not values.get("telegram.relay_secret"):
-        values["telegram.relay_secret"] = py_secrets.token_urlsafe(32)
-    return values
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        values = dict(secret_values)
+        needs_relay_secret = any("telegram.relay_secret" in module.needed_secrets for module in modules)
+        if needs_relay_secret and not values.get("telegram.relay_secret"):
+            values["telegram.relay_secret"] = py_secrets.token_urlsafe(32)
+        return values
 
 
+
+    except Exception:
+        return {}
 def telegram_relay_secret_is_valid(value: str | None) -> bool:
     if not value:
         return False
