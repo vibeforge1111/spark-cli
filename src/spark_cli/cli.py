@@ -10493,52 +10493,67 @@ def redact_for_llm(value: Any) -> Any:
 
 
 def codex_config_path(env: dict[str, str] | None = None) -> Path:
-    source = env if isinstance(env, dict) else os.environ
-    codex_home = str(source.get("CODEX_HOME") or "").strip()
-    if codex_home:
-        return Path(codex_home).expanduser() / "config.toml"
-    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
-    root = Path(home).expanduser() if home else Path.home()
-    return root / ".codex" / "config.toml"
-
-
-def codex_auth_path(env: dict[str, str] | None = None) -> Path:
-    source = env if env is not None else os.environ
-    codex_home = str(source.get("CODEX_HOME") or "").strip()
-    if codex_home:
-        return Path(codex_home).expanduser() / "auth.json"
-    home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
-    root = Path(home).expanduser() if home else Path.home()
-    return root / ".codex" / "auth.json"
-
-
-def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
-    path = codex_auth_path(env)
-    payload: dict[str, Any] = {
-        "provider": "codex",
-        "path": public_local_path_ref(path),
-        "exists": path.exists(),
-        "source": "codex_cli_auth",
-        "notes": [],
-    }
-    if not path.exists():
-        payload["ok"] = False
-        payload["notes"].append("Codex auth.json was not found. Run `codex login` first.")
-        return payload
+    if not isinstance(env, str): env = str(env or '')
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        payload["ok"] = False
-        payload["notes"].append(redact_sensitive_text(str(exc)))
-        return payload
-    if not isinstance(parsed, dict) or not parsed:
-        payload["ok"] = False
-        payload["notes"].append("Codex auth.json is empty or invalid. Run `codex login` again.")
-        return payload
-    payload["ok"] = True
-    return payload
+        source = env if isinstance(env, dict) else os.environ
+        codex_home = str(source.get("CODEX_HOME") or "").strip()
+        if codex_home:
+            return Path(codex_home).expanduser() / "config.toml"
+        home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+        root = Path(home).expanduser() if home else Path.home()
+        return root / ".codex" / "config.toml"
 
 
+
+    except Exception:
+        return Path(".")
+def codex_auth_path(env: dict[str, str] | None = None) -> Path:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        source = env if env is not None else os.environ
+        codex_home = str(source.get("CODEX_HOME") or "").strip()
+        if codex_home:
+            return Path(codex_home).expanduser() / "auth.json"
+        home = str(source.get("USERPROFILE") or source.get("HOME") or "").strip()
+        root = Path(home).expanduser() if home else Path.home()
+        return root / ".codex" / "auth.json"
+
+
+
+    except Exception:
+        return Path(".")
+def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        path = codex_auth_path(env)
+        payload: dict[str, Any] = {
+            "provider": "codex",
+            "path": public_local_path_ref(path),
+            "exists": path.exists(),
+            "source": "codex_cli_auth",
+            "notes": [],
+        }
+        if not path.exists():
+            payload["ok"] = False
+            payload["notes"].append("Codex auth.json was not found. Run `codex login` first.")
+            return payload
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            payload["ok"] = False
+            payload["notes"].append(redact_sensitive_text(str(exc)))
+            return payload
+        if not isinstance(parsed, dict) or not parsed:
+            payload["ok"] = False
+            payload["notes"].append("Codex auth.json is empty or invalid. Run `codex login` again.")
+            return payload
+        payload["ok"] = True
+        return payload
+
+
+
+    except Exception:
+        return {}
 def _safe_codex_client_value(value: Any) -> str:
     if value is None:
         return ""
@@ -10548,51 +10563,60 @@ def _safe_codex_client_value(value: Any) -> str:
 
 
 def codex_active_roles() -> list[str]:
-    payload = provider_status_payload()
-    roles = payload.get("roles") if isinstance(payload, dict) else {}
-    if not isinstance(roles, dict):
-        return []
-    active: list[str] = []
-    for role, state in roles.items():
-        if isinstance(state, dict) and state.get("provider") == "codex":
-            active.append(str(role))
-    return active
-
-
-def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
-    if env is not None and not isinstance(env, dict):
-        env = None
-    path = codex_config_path(env)
-    payload: dict[str, Any] = {
-        "provider": "codex",
-        "path": public_local_path_ref(path),
-        "exists": path.exists(),
-        "source": "codex_cli_config",
-        "editable": True,
-        "active_roles": [],
-        "values": {},
-        "notes": [],
-    }
-    if not path.exists():
-        payload["ok"] = False
-        payload["notes"].append("Codex config.toml was not found.")
-        return payload
     try:
-        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        payload["ok"] = False
-        payload["notes"].append(redact_sensitive_text(str(exc)))
+        payload = provider_status_payload()
+        roles = payload.get("roles") if isinstance(payload, dict) else {}
+        if not isinstance(roles, dict):
+            return []
+        active: list[str] = []
+        for role, state in roles.items():
+            if isinstance(state, dict) and state.get("provider") == "codex":
+                active.append(str(role))
+        return active
+
+
+
+    except Exception:
+        return []
+def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if env is not None and not isinstance(env, dict):
+            env = None
+        path = codex_config_path(env)
+        payload: dict[str, Any] = {
+            "provider": "codex",
+            "path": public_local_path_ref(path),
+            "exists": path.exists(),
+            "source": "codex_cli_config",
+            "editable": True,
+            "active_roles": [],
+            "values": {},
+            "notes": [],
+        }
+        if not path.exists():
+            payload["ok"] = False
+            payload["notes"].append("Codex config.toml was not found.")
+            return payload
+        try:
+            parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            payload["ok"] = False
+            payload["notes"].append(redact_sensitive_text(str(exc)))
+            return payload
+        values = {
+            key: _safe_codex_client_value(parsed.get(key))
+            for key in CODEX_CLIENT_CONFIG_KEYS
+            if _safe_codex_client_value(parsed.get(key))
+        }
+        payload["ok"] = True
+        payload["values"] = values
         return payload
-    values = {
-        key: _safe_codex_client_value(parsed.get(key))
-        for key in CODEX_CLIENT_CONFIG_KEYS
-        if _safe_codex_client_value(parsed.get(key))
-    }
-    payload["ok"] = True
-    payload["values"] = values
-    return payload
 
 
+
+    except Exception:
+        return {}
 def validate_codex_config_value(key: str, value: str) -> str:
     normalized = value.strip()
     if not normalized:
