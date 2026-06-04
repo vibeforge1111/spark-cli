@@ -824,6 +824,7 @@ def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[s
 
 
 def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out = inspect_safe_jsonl_samples(
         path,
         source="telegram_final_answer_gate",
@@ -842,6 +843,7 @@ def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
 
 
 def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
+    path = Path(path)
     return inspect_safe_jsonl_samples(
         path,
         source="telegram_outbound_audit",
@@ -850,6 +852,8 @@ def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
 
 
 def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    path = Path(path)
+    builder_home = Path(builder_home)
     out = inspect_safe_jsonl_samples(
         path,
         source="spawner_prd_auto_trace",
@@ -909,14 +913,16 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
 
 
 def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
+    builder_home = Path(builder_home)
+    request_ids_set = set(str(r) for r in as_list(request_ids))
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
-        "checked_request_id_count": len(request_ids),
+        "checked_request_id_count": len(request_ids_set),
         "redaction": "overlap counts only; request id values omitted",
     }
-    if not request_ids or not db_path.exists():
+    if not request_ids_set or not db_path.exists():
         out["matched_builder_request_id_count"] = 0
         return out
     try:
@@ -932,7 +938,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
+            candidates = sorted(request_ids_set)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -951,14 +957,16 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
 
 
 def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) -> dict[str, Any]:
+    builder_home = Path(builder_home)
+    trace_refs_set = set(str(t) for t in as_list(trace_refs))
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
-        "checked_trace_ref_count": len(trace_refs),
+        "checked_trace_ref_count": len(trace_refs_set),
         "redaction": "overlap counts only; trace ref values omitted",
     }
-    if not trace_refs or not db_path.exists():
+    if not trace_refs_set or not db_path.exists():
         out["matched_builder_trace_ref_count"] = 0
         return out
     try:
@@ -974,7 +982,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
+            candidates = sorted(trace_refs_set)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
