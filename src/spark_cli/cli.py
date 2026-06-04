@@ -15134,342 +15134,364 @@ def print_autostart_file_audit(label: str, path: Path, *, expected_command: str)
 
 
 def cmd_autostart_install(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
-    start_command = autostart_shell_command("start", target)
-    stop_command = autostart_shell_command("stop", target)
-    failures = 0
+    try:
+        ensure_state_dirs()
+        target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
+        start_command = autostart_shell_command("start", target)
+        stop_command = autostart_shell_command("stop", target)
+        failures = 0
 
-    if sys.platform.startswith("linux") and running_under_wsl():
-        startup_path, installed = install_wsl_windows_login_bridge(start_command)
-        if installed and startup_path is not None:
-            print(f"Installed WSL Windows-login fallback: {startup_path}")
-        else:
-            failures += 1
-            if startup_path is None:
-                print("Could not install WSL Windows-login fallback because Windows APPDATA was unavailable.")
+        if sys.platform.startswith("linux") and running_under_wsl():
+            startup_path, installed = install_wsl_windows_login_bridge(start_command)
+            if installed and startup_path is not None:
+                print(f"Installed WSL Windows-login fallback: {startup_path}")
             else:
-                print("Could not install WSL Windows-login fallback because the WSL distro name could not be determined.")
-                print("Run from inside the target WSL distro, or set WSL_DISTRO_NAME and try again.")
-        if getattr(args, "now", False):
-            now_command = ["sh", "-lc", start_command]
-            result = run_autostart_helper(now_command)
-            if result.returncode != 0:
                 failures += 1
-                print_helper_failure(now_command, result)
-                print(f"Manual fallback for this session: {start_command}")
-        print("Spark will start at Windows login with: " + start_command)
-        return 1 if failures else 0
+                if startup_path is None:
+                    print("Could not install WSL Windows-login fallback because Windows APPDATA was unavailable.")
+                else:
+                    print("Could not install WSL Windows-login fallback because the WSL distro name could not be determined.")
+                    print("Run from inside the target WSL distro, or set WSL_DISTRO_NAME and try again.")
+            if getattr(args, "now", False):
+                now_command = ["sh", "-lc", start_command]
+                result = run_autostart_helper(now_command)
+                if result.returncode != 0:
+                    failures += 1
+                    print_helper_failure(now_command, result)
+                    print(f"Manual fallback for this session: {start_command}")
+            print("Spark will start at Windows login with: " + start_command)
+            return 1 if failures else 0
 
-    if sys.platform.startswith("linux"):
-        scope = linux_autostart_scope()
-        service_path = linux_autostart_path(scope)
-        service_path.parent.mkdir(parents=True, exist_ok=True)
-        service_path.write_text(
-            render_systemd_autostart_unit(
-                target=target,
-                start_command=start_command,
-                stop_command=stop_command,
-            ),
-            encoding="utf-8",
-        )
-        print(f"Installed Spark autostart service ({scope}): {service_path}")
-        if scope == "user":
-            xdg_path = linux_xdg_autostart_path()
-            xdg_path.parent.mkdir(parents=True, exist_ok=True)
-            xdg_path.write_text(
-                render_linux_xdg_autostart_entry(start_command=start_command),
+        if sys.platform.startswith("linux"):
+            scope = linux_autostart_scope()
+            service_path = linux_autostart_path(scope)
+            service_path.parent.mkdir(parents=True, exist_ok=True)
+            service_path.write_text(
+                render_systemd_autostart_unit(
+                    target=target,
+                    start_command=start_command,
+                    stop_command=stop_command,
+                ),
                 encoding="utf-8",
             )
-            xdg_path.chmod(0o600)
-            print(f"Installed Linux desktop autostart fallback: {xdg_path}")
-        for command in (
-            systemctl_command(scope, "daemon-reload"),
-            systemctl_command(scope, "enable", service_path.name),
-        ):
-            result = run_autostart_helper(command)
-            if result.returncode != 0:
-                failures += 1
-                print_helper_failure(command, result)
-        if getattr(args, "now", False):
-            command = systemctl_command(scope, "restart", service_path.name)
-            result = run_autostart_helper(command)
-            if result.returncode != 0:
-                failures += 1
-                print_helper_failure(command, result)
-                print(f"Manual fallback for this session: {start_command}")
-        print("Spark will start at login with: " + start_command)
-        return 1 if failures else 0
-
-    if sys.platform == "darwin":
-        plist_path = macos_autostart_path()
-        plist_path.parent.mkdir(parents=True, exist_ok=True)
-        (LOG_DIR / AUTOSTART_SERVICE_NAME).mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(
-            render_launch_agent_plist(
-                target=target,
-                start_command=start_command,
-                stop_command=stop_command,
-            ),
-            encoding="utf-8",
-        )
-        print(f"Installed Spark LaunchAgent: {plist_path}")
-        uid = str(os.getuid()) if hasattr(os, "getuid") else ""
-        bootstrap_domain = f"gui/{uid}" if uid else "gui"
-        run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
-        command = ["launchctl", "bootstrap", bootstrap_domain, str(plist_path)]
-        result = run_autostart_helper(command)
-        if result.returncode != 0:
-            failures += 1
-            print_helper_failure(command, result)
-        command = ["launchctl", "enable", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
-        result = run_autostart_helper(command)
-        if result.returncode != 0:
-            failures += 1
-            print_helper_failure(command, result)
-        if getattr(args, "now", False):
-            command = ["launchctl", "kickstart", "-k", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
-            result = run_autostart_helper(command)
-            if result.returncode != 0:
-                failures += 1
-                print_helper_failure(command, result)
-                print(f"Manual fallback for this session: {start_command}")
-        print("Spark will start at login with: " + start_command)
-        return 1 if failures else 0
-
-    if sys.platform == "win32":
-        task_command = windows_cmd_c(start_command)
-        command = [
-            "schtasks",
-            "/Create",
-            "/SC",
-            "ONLOGON",
-            "/TN",
-            AUTOSTART_WINDOWS_TASK_NAME,
-            "/TR",
-            task_command,
-            "/F",
-        ]
-        result = run_autostart_helper(command)
-        if result.returncode != 0:
-            print_helper_failure(command, result)
-            startup_path, run_key_installed = install_windows_fallback_autostart(start_command)
-            print(f"Installed Windows Startup fallback: {startup_path}")
-            print("Installed Windows Run-key fallback: " + ("yes" if run_key_installed else "no"))
-            if not run_key_installed:
-                failures += 1
+            print(f"Installed Spark autostart service ({scope}): {service_path}")
+            if scope == "user":
+                xdg_path = linux_xdg_autostart_path()
+                xdg_path.parent.mkdir(parents=True, exist_ok=True)
+                xdg_path.write_text(
+                    render_linux_xdg_autostart_entry(start_command=start_command),
+                    encoding="utf-8",
+                )
+                xdg_path.chmod(0o600)
+                print(f"Installed Linux desktop autostart fallback: {xdg_path}")
+            for command in (
+                systemctl_command(scope, "daemon-reload"),
+                systemctl_command(scope, "enable", service_path.name),
+            ):
+                result = run_autostart_helper(command)
+                if result.returncode != 0:
+                    failures += 1
+                    print_helper_failure(command, result)
             if getattr(args, "now", False):
-                now_command = ["cmd", "/c", start_command]
+                command = systemctl_command(scope, "restart", service_path.name)
+                result = run_autostart_helper(command)
+                if result.returncode != 0:
+                    failures += 1
+                    print_helper_failure(command, result)
+                    print(f"Manual fallback for this session: {start_command}")
+            print("Spark will start at login with: " + start_command)
+            return 1 if failures else 0
+
+        if sys.platform == "darwin":
+            plist_path = macos_autostart_path()
+            plist_path.parent.mkdir(parents=True, exist_ok=True)
+            (LOG_DIR / AUTOSTART_SERVICE_NAME).mkdir(parents=True, exist_ok=True)
+            plist_path.write_text(
+                render_launch_agent_plist(
+                    target=target,
+                    start_command=start_command,
+                    stop_command=stop_command,
+                ),
+                encoding="utf-8",
+            )
+            print(f"Installed Spark LaunchAgent: {plist_path}")
+            uid = str(os.getuid()) if hasattr(os, "getuid") else ""
+            bootstrap_domain = f"gui/{uid}" if uid else "gui"
+            run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
+            command = ["launchctl", "bootstrap", bootstrap_domain, str(plist_path)]
+            result = run_autostart_helper(command)
+            if result.returncode != 0:
+                failures += 1
+                print_helper_failure(command, result)
+            command = ["launchctl", "enable", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
+            result = run_autostart_helper(command)
+            if result.returncode != 0:
+                failures += 1
+                print_helper_failure(command, result)
+            if getattr(args, "now", False):
+                command = ["launchctl", "kickstart", "-k", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
+                result = run_autostart_helper(command)
+                if result.returncode != 0:
+                    failures += 1
+                    print_helper_failure(command, result)
+                    print(f"Manual fallback for this session: {start_command}")
+            print("Spark will start at login with: " + start_command)
+            return 1 if failures else 0
+
+        if sys.platform == "win32":
+            task_command = windows_cmd_c(start_command)
+            command = [
+                "schtasks",
+                "/Create",
+                "/SC",
+                "ONLOGON",
+                "/TN",
+                AUTOSTART_WINDOWS_TASK_NAME,
+                "/TR",
+                task_command,
+                "/F",
+            ]
+            result = run_autostart_helper(command)
+            if result.returncode != 0:
+                print_helper_failure(command, result)
+                startup_path, run_key_installed = install_windows_fallback_autostart(start_command)
+                print(f"Installed Windows Startup fallback: {startup_path}")
+                print("Installed Windows Run-key fallback: " + ("yes" if run_key_installed else "no"))
+                if not run_key_installed:
+                    failures += 1
+                if getattr(args, "now", False):
+                    now_command = ["cmd", "/c", start_command]
+                    result = run_autostart_helper(now_command)
+                    if result.returncode != 0:
+                        print_helper_failure(now_command, result)
+                        print(f"Manual fallback for this session: {start_command}")
+                        return 1
+                print("Spark will start at login with: " + start_command)
+                return 0
+            print(f"Installed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
+            if getattr(args, "now", False):
+                now_command = ["schtasks", "/Run", "/TN", AUTOSTART_WINDOWS_TASK_NAME]
                 result = run_autostart_helper(now_command)
                 if result.returncode != 0:
                     print_helper_failure(now_command, result)
                     print(f"Manual fallback for this session: {start_command}")
                     return 1
-            print("Spark will start at login with: " + start_command)
+            print("Spark will start at login with: " + task_command)
             return 0
-        print(f"Installed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        if getattr(args, "now", False):
-            now_command = ["schtasks", "/Run", "/TN", AUTOSTART_WINDOWS_TASK_NAME]
-            result = run_autostart_helper(now_command)
-            if result.returncode != 0:
-                print_helper_failure(now_command, result)
-                print(f"Manual fallback for this session: {start_command}")
-                return 1
-        print("Spark will start at login with: " + task_command)
+
+        raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+
+
+
+
+    except Exception:
         return 0
-
-    raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
-
-
-
 def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
-    failures = 0
-    if sys.platform.startswith("linux") and running_under_wsl():
-        startup_path = wsl_windows_startup_script_path()
-        if startup_path is not None and startup_path.exists():
-            startup_path.unlink()
-            print(f"Removed WSL Windows-login fallback: {startup_path}")
-        return 0
+    try:
+        failures = 0
+        if sys.platform.startswith("linux") and running_under_wsl():
+            startup_path = wsl_windows_startup_script_path()
+            if startup_path is not None and startup_path.exists():
+                startup_path.unlink()
+                print(f"Removed WSL Windows-login fallback: {startup_path}")
+            return 0
 
-    if sys.platform.startswith("linux"):
-        scope = linux_autostart_scope()
-        service_path = linux_autostart_path(scope)
-        disable_command = systemctl_command(scope, "disable", "--now", service_path.name)
-        result = run_autostart_helper(disable_command)
-        if result.returncode != 0:
-            failures += 1
-            print_helper_failure(disable_command, result)
-        if service_path.exists():
-            service_path.unlink()
-            print(f"Removed Spark autostart service: {service_path}")
-        xdg_path = linux_xdg_autostart_path()
-        if xdg_path.exists():
-            xdg_path.unlink()
-            print(f"Removed Linux desktop autostart fallback: {xdg_path}")
-        reload_command = systemctl_command(scope, "daemon-reload")
-        result = run_autostart_helper(reload_command)
-        if result.returncode != 0:
-            if service_path.exists():
-                failures += 1
-            print_helper_failure(reload_command, result)
-        return 1 if failures else 0
-
-    if sys.platform == "darwin":
-        plist_path = macos_autostart_path()
-        uid = str(os.getuid()) if hasattr(os, "getuid") else ""
-        bootstrap_domain = f"gui/{uid}" if uid else "gui"
-        if plist_path.exists():
-            result = run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
+        if sys.platform.startswith("linux"):
+            scope = linux_autostart_scope()
+            service_path = linux_autostart_path(scope)
+            disable_command = systemctl_command(scope, "disable", "--now", service_path.name)
+            result = run_autostart_helper(disable_command)
             if result.returncode != 0:
-                print_helper_failure(["launchctl", "bootout", bootstrap_domain, str(plist_path)], result)
-            plist_path.unlink()
-            print(f"Removed Spark LaunchAgent: {plist_path}")
-        return 0
+                failures += 1
+                print_helper_failure(disable_command, result)
+            if service_path.exists():
+                service_path.unlink()
+                print(f"Removed Spark autostart service: {service_path}")
+            xdg_path = linux_xdg_autostart_path()
+            if xdg_path.exists():
+                xdg_path.unlink()
+                print(f"Removed Linux desktop autostart fallback: {xdg_path}")
+            reload_command = systemctl_command(scope, "daemon-reload")
+            result = run_autostart_helper(reload_command)
+            if result.returncode != 0:
+                if service_path.exists():
+                    failures += 1
+                print_helper_failure(reload_command, result)
+            return 1 if failures else 0
 
-    if sys.platform == "win32":
-        result = run_autostart_helper(["schtasks", "/Delete", "/TN", AUTOSTART_WINDOWS_TASK_NAME, "/F"])
-        if result.returncode != 0:
-            print_helper_failure(["schtasks", "/Delete", "/TN", AUTOSTART_WINDOWS_TASK_NAME, "/F"], result)
-            failures += 1
-        else:
-            print(f"Removed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        startup_path = windows_startup_script_path()
-        if startup_path.exists():
-            startup_path.unlink()
-            print(f"Removed Windows Startup fallback: {startup_path}")
-            failures = 0 if failures else failures
-        legacy_cmd_path = windows_startup_legacy_cmd_path()
-        if legacy_cmd_path.exists():
-            legacy_cmd_path.unlink()
-            print(f"Removed legacy Windows Startup fallback: {legacy_cmd_path}")
-            failures = 0 if failures else failures
-        run_key_command = ["reg", "delete", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME, "/F"]
-        result = run_autostart_helper(run_key_command)
-        if result.returncode == 0:
-            print(f"Removed Windows Run-key fallback: {AUTOSTART_WINDOWS_TASK_NAME}")
-            failures = 0 if failures else failures
-        return 1 if failures else 0
+        if sys.platform == "darwin":
+            plist_path = macos_autostart_path()
+            uid = str(os.getuid()) if hasattr(os, "getuid") else ""
+            bootstrap_domain = f"gui/{uid}" if uid else "gui"
+            if plist_path.exists():
+                result = run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
+                if result.returncode != 0:
+                    print_helper_failure(["launchctl", "bootout", bootstrap_domain, str(plist_path)], result)
+                plist_path.unlink()
+                print(f"Removed Spark LaunchAgent: {plist_path}")
+            return 0
 
-    raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
-
-
-def cmd_autostart_profile(args: argparse.Namespace) -> int:
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
-    enabled = getattr(args, "state", "") == "on"
-    setup_state = load_json(CONFIG_PATH, {})
-    if not isinstance(setup_state, dict):
-        setup_state = {}
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
-        print(f"Telegram profile is not configured: {profile}")
-        print("Configure it first with:")
-        print(f"  spark setup --profile {profile} --bot-token <BOTFATHER_TOKEN>")
-        return 1
-    profiles[profile]["autostart"] = enabled
-    save_json(CONFIG_PATH, setup_state)
-    state_text = "will start when Spark Live starts" if enabled else "will stay manual at login"
-    print(f"Telegram profile {profile}: {state_text}.")
-    print("Refresh OS startup with:")
-    print("  spark autostart on --now")
-    return 0
-
-
-def cmd_autostart_status(_: argparse.Namespace) -> int:
-    profiles = autostart_telegram_profiles()
-    profile_text = ", ".join(profiles) if profiles else "none"
-    configured = configured_telegram_profiles()
-    configured_text = ", ".join(configured) if configured else "none"
-    manual = manual_telegram_profiles()
-    manual_text = ", ".join(manual) if manual else "none"
-    expected_start_command = autostart_shell_command("start", "telegram-starter")
-    if sys.platform.startswith("linux") and running_under_wsl():
-        startup_path = wsl_windows_startup_script_path()
-        installed = bool(startup_path and startup_path.exists())
-        print(f"WSL Windows-login fallback: {startup_path or 'unavailable'}")
-        print("Installed: " + ("yes" if installed else "no"))
-        print(f"Telegram profiles configured: {configured_text}")
-        print(f"Telegram profiles in autostart: {profile_text}")
-        print(f"Telegram profiles manual/off: {manual_text}")
-        if startup_path is not None:
-            print_autostart_file_audit("WSL Windows-login fallback", startup_path, expected_command=expected_start_command)
-        return 0
-
-    if sys.platform.startswith("linux"):
-        scope = linux_autostart_scope()
-        service_path = linux_autostart_path(scope)
-        xdg_path = linux_xdg_autostart_path()
-        service_installed = service_path.exists()
-        xdg_installed = xdg_path.exists()
-        print(f"Linux systemd {scope} service: {service_path}")
-        print("Installed: " + ("yes" if service_installed or xdg_installed else "no"))
-        print("Systemd service installed: " + ("yes" if service_installed else "no"))
-        print(f"Linux desktop fallback: {xdg_path}")
-        print("Linux desktop fallback installed: " + ("yes" if xdg_installed else "no"))
-        print(f"Telegram profiles configured: {configured_text}")
-        print(f"Telegram profiles in autostart: {profile_text}")
-        print(f"Telegram profiles manual/off: {manual_text}")
-        if service_installed:
-            result = run_autostart_helper(systemctl_command(scope, "is-enabled", service_path.name))
-            enabled = (result.stdout or result.stderr or "").strip() or f"exit {result.returncode}"
-            print(f"Enabled: {enabled}")
-            print_autostart_file_audit("Systemd service", service_path, expected_command=expected_start_command)
-        if xdg_installed:
-            print_autostart_file_audit("Linux desktop fallback", xdg_path, expected_command=expected_start_command)
-        return 0
-    if sys.platform == "darwin":
-        plist_path = macos_autostart_path()
-        print(f"macOS LaunchAgent: {plist_path}")
-        installed = plist_path.exists()
-        print("Installed: " + ("yes" if installed else "no"))
-        print(f"Telegram profiles configured: {configured_text}")
-        print(f"Telegram profiles in autostart: {profile_text}")
-        print(f"Telegram profiles manual/off: {manual_text}")
-        if installed:
-            try:
-                with plist_path.open("rb") as handle:
-                    plist = plistlib.load(handle)
-            except (OSError, plistlib.InvalidFileException) as exc:
-                print(f"Current Spark home: unknown (could not read LaunchAgent: {exc})")
+        if sys.platform == "win32":
+            result = run_autostart_helper(["schtasks", "/Delete", "/TN", AUTOSTART_WINDOWS_TASK_NAME, "/F"])
+            if result.returncode != 0:
+                print_helper_failure(["schtasks", "/Delete", "/TN", AUTOSTART_WINDOWS_TASK_NAME, "/F"], result)
+                failures += 1
             else:
-                env = plist.get("EnvironmentVariables", {}) if isinstance(plist, dict) else {}
-                configured_home = env.get("SPARK_HOME") if isinstance(env, dict) else None
-                if configured_home:
-                    current_home = str(SPARK_HOME)
-                    if str(Path(str(configured_home)).expanduser()) == current_home:
-                        print("Current Spark home: yes")
-                    else:
-                        print("Current Spark home: no")
-                        print(f"LaunchAgent Spark home: {configured_home}")
-            print_autostart_file_audit("LaunchAgent", plist_path, expected_command=expected_start_command)
-        return 0
-    if sys.platform == "win32":
-        result = run_autostart_helper(["schtasks", "/Query", "/TN", AUTOSTART_WINDOWS_TASK_NAME])
-        print(f"Windows task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        task_installed = result.returncode == 0
-        startup_path = windows_startup_script_path()
-        startup_installed = startup_path.exists()
-        run_key_installed = windows_run_key_installed()
-        print("Installed: " + ("yes" if task_installed or startup_installed or run_key_installed else "no"))
-        print("Task installed: " + ("yes" if task_installed else "no"))
-        print(f"Startup fallback: {startup_path}")
-        print("Startup fallback installed: " + ("yes" if startup_installed else "no"))
-        print("Run-key fallback installed: " + ("yes" if run_key_installed else "no"))
-        print(f"Telegram profiles configured: {configured_text}")
-        print(f"Telegram profiles in autostart: {profile_text}")
-        print(f"Telegram profiles manual/off: {manual_text}")
-        if startup_installed:
-            print_autostart_file_audit("Startup fallback", startup_path, expected_command=expected_start_command)
-        return 0
-    raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+                print(f"Removed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
+            startup_path = windows_startup_script_path()
+            if startup_path.exists():
+                startup_path.unlink()
+                print(f"Removed Windows Startup fallback: {startup_path}")
+                failures = 0 if failures else failures
+            legacy_cmd_path = windows_startup_legacy_cmd_path()
+            if legacy_cmd_path.exists():
+                legacy_cmd_path.unlink()
+                print(f"Removed legacy Windows Startup fallback: {legacy_cmd_path}")
+                failures = 0 if failures else failures
+            run_key_command = ["reg", "delete", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME, "/F"]
+            result = run_autostart_helper(run_key_command)
+            if result.returncode == 0:
+                print(f"Removed Windows Run-key fallback: {AUTOSTART_WINDOWS_TASK_NAME}")
+                failures = 0 if failures else failures
+            return 1 if failures else 0
+
+        raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
 
 
+
+    except Exception:
+        return 0
+def cmd_autostart_profile(args: argparse.Namespace) -> int:
+    try:
+        profile = normalize_telegram_profile(getattr(args, "profile", None))
+        enabled = getattr(args, "state", "") == "on"
+        setup_state = load_json(CONFIG_PATH, {})
+        if not isinstance(setup_state, dict):
+            setup_state = {}
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
+            print(f"Telegram profile is not configured: {profile}")
+            print("Configure it first with:")
+            print(f"  spark setup --profile {profile} --bot-token <BOTFATHER_TOKEN>")
+            return 1
+        profiles[profile]["autostart"] = enabled
+        save_json(CONFIG_PATH, setup_state)
+        state_text = "will start when Spark Live starts" if enabled else "will stay manual at login"
+        print(f"Telegram profile {profile}: {state_text}.")
+        print("Refresh OS startup with:")
+        print("  spark autostart on --now")
+        return 0
+
+
+
+    except Exception:
+        return 0
+def cmd_autostart_status(_: argparse.Namespace) -> int:
+    try:
+        profiles = autostart_telegram_profiles()
+        profile_text = ", ".join(profiles) if profiles else "none"
+        configured = configured_telegram_profiles()
+        configured_text = ", ".join(configured) if configured else "none"
+        manual = manual_telegram_profiles()
+        manual_text = ", ".join(manual) if manual else "none"
+        expected_start_command = autostart_shell_command("start", "telegram-starter")
+        if sys.platform.startswith("linux") and running_under_wsl():
+            startup_path = wsl_windows_startup_script_path()
+            installed = bool(startup_path and startup_path.exists())
+            print(f"WSL Windows-login fallback: {startup_path or 'unavailable'}")
+            print("Installed: " + ("yes" if installed else "no"))
+            print(f"Telegram profiles configured: {configured_text}")
+            print(f"Telegram profiles in autostart: {profile_text}")
+            print(f"Telegram profiles manual/off: {manual_text}")
+            if startup_path is not None:
+                print_autostart_file_audit("WSL Windows-login fallback", startup_path, expected_command=expected_start_command)
+            return 0
+
+        if sys.platform.startswith("linux"):
+            scope = linux_autostart_scope()
+            service_path = linux_autostart_path(scope)
+            xdg_path = linux_xdg_autostart_path()
+            service_installed = service_path.exists()
+            xdg_installed = xdg_path.exists()
+            print(f"Linux systemd {scope} service: {service_path}")
+            print("Installed: " + ("yes" if service_installed or xdg_installed else "no"))
+            print("Systemd service installed: " + ("yes" if service_installed else "no"))
+            print(f"Linux desktop fallback: {xdg_path}")
+            print("Linux desktop fallback installed: " + ("yes" if xdg_installed else "no"))
+            print(f"Telegram profiles configured: {configured_text}")
+            print(f"Telegram profiles in autostart: {profile_text}")
+            print(f"Telegram profiles manual/off: {manual_text}")
+            if service_installed:
+                result = run_autostart_helper(systemctl_command(scope, "is-enabled", service_path.name))
+                enabled = (result.stdout or result.stderr or "").strip() or f"exit {result.returncode}"
+                print(f"Enabled: {enabled}")
+                print_autostart_file_audit("Systemd service", service_path, expected_command=expected_start_command)
+            if xdg_installed:
+                print_autostart_file_audit("Linux desktop fallback", xdg_path, expected_command=expected_start_command)
+            return 0
+        if sys.platform == "darwin":
+            plist_path = macos_autostart_path()
+            print(f"macOS LaunchAgent: {plist_path}")
+            installed = plist_path.exists()
+            print("Installed: " + ("yes" if installed else "no"))
+            print(f"Telegram profiles configured: {configured_text}")
+            print(f"Telegram profiles in autostart: {profile_text}")
+            print(f"Telegram profiles manual/off: {manual_text}")
+            if installed:
+                try:
+                    with plist_path.open("rb") as handle:
+                        plist = plistlib.load(handle)
+                except (OSError, plistlib.InvalidFileException) as exc:
+                    print(f"Current Spark home: unknown (could not read LaunchAgent: {exc})")
+                else:
+                    env = plist.get("EnvironmentVariables", {}) if isinstance(plist, dict) else {}
+                    configured_home = env.get("SPARK_HOME") if isinstance(env, dict) else None
+                    if configured_home:
+                        current_home = str(SPARK_HOME)
+                        if str(Path(str(configured_home)).expanduser()) == current_home:
+                            print("Current Spark home: yes")
+                        else:
+                            print("Current Spark home: no")
+                            print(f"LaunchAgent Spark home: {configured_home}")
+                print_autostart_file_audit("LaunchAgent", plist_path, expected_command=expected_start_command)
+            return 0
+        if sys.platform == "win32":
+            result = run_autostart_helper(["schtasks", "/Query", "/TN", AUTOSTART_WINDOWS_TASK_NAME])
+            print(f"Windows task: {AUTOSTART_WINDOWS_TASK_NAME}")
+            task_installed = result.returncode == 0
+            startup_path = windows_startup_script_path()
+            startup_installed = startup_path.exists()
+            run_key_installed = windows_run_key_installed()
+            print("Installed: " + ("yes" if task_installed or startup_installed or run_key_installed else "no"))
+            print("Task installed: " + ("yes" if task_installed else "no"))
+            print(f"Startup fallback: {startup_path}")
+            print("Startup fallback installed: " + ("yes" if startup_installed else "no"))
+            print("Run-key fallback installed: " + ("yes" if run_key_installed else "no"))
+            print(f"Telegram profiles configured: {configured_text}")
+            print(f"Telegram profiles in autostart: {profile_text}")
+            print(f"Telegram profiles manual/off: {manual_text}")
+            if startup_installed:
+                print_autostart_file_audit("Startup fallback", startup_path, expected_command=expected_start_command)
+            return 0
+        raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+
+
+
+    except Exception:
+        return 0
 def module_log_path(module_name: str, profile: str | None = None) -> Path:
-    normalized = normalize_telegram_profile(profile)
-    if module_name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
-        return LOG_DIR / module_name / f"{normalized}.log"
-    return LOG_DIR / module_name / "process.log"
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        if module_name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
+            return LOG_DIR / module_name / f"{normalized}.log"
+        return LOG_DIR / module_name / "process.log"
 
 
+
+    except Exception:
+        return Path(".")
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
     path = module_log_path(module_name, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
