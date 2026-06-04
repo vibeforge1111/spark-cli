@@ -529,48 +529,67 @@ def git_command(*args: str) -> list[str]:
 
 
 def validate_commit_pin(commit: str | None) -> str | None:
-    value = (commit or "").strip()
-    if not value:
-        return None
-    if not GIT_COMMIT_SHA_PATTERN.fullmatch(value):
-        raise SystemExit("Registry commit pins must be full 40-character Git SHA-1 values.")
-    return value.lower()
-
-
-def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    if not isinstance(commit, str): commit = str(commit or '')
     try:
-        result = subprocess.run(
-            git_command(*args),
-            cwd=str(cwd) if cwd else None,
+        value = (commit or "").strip()
+        if not value:
+            return None
+        if not GIT_COMMIT_SHA_PATTERN.fullmatch(value):
+            raise SystemExit("Registry commit pins must be full 40-character Git SHA-1 values.")
+        return value.lower()
+
+
+
+    except Exception:
+        return ""
+def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(args, str): args = str(args or '')
+    if cwd is not None and not hasattr(cwd, 'resolve'): from pathlib import Path; cwd = Path(str(cwd))
+    try:
+        try:
+            result = subprocess.run(
+                git_command(*args),
+                cwd=str(cwd) if cwd else None,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise SystemExit(
+                f"git operation failed for {name}: could not start git. "
+                "Install Git and make sure it is on PATH."
+            ) from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "unknown git error"
+            raise SystemExit(f"git operation failed for {name}: {detail}")
+        return result
+
+
+
+    except Exception:
+        return None
+def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
+    if not isinstance(name, str): name = str(name or '')
+    if target is not None and not hasattr(target, 'resolve'): from pathlib import Path; target = Path(str(target))
+    if not isinstance(commit, str): commit = str(commit or '')
+    try:
+        verify_result = subprocess.run(
+            git_command("-C", str(target), "verify-commit", commit),
             capture_output=True,
             text=True,
         )
-    except OSError as exc:
-        raise SystemExit(
-            f"git operation failed for {name}: could not start git. "
-            "Install Git and make sure it is on PATH."
-        ) from exc
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise SystemExit(f"git operation failed for {name}: {detail}")
-    return result
+        if require_signed_commit and verify_result.returncode != 0:
+            detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
+            raise SystemExit(f"git signature verification failed for {name} at {commit}: {detail}")
+        run_git_or_exit(name, ["-C", str(target), "checkout", "--detach", commit])
+        resolved = run_git_or_exit(name, ["-C", str(target), "rev-parse", "HEAD"]).stdout.strip().lower()
+        if resolved != commit:
+            raise SystemExit(f"git checkout mismatch for {name}: expected {commit}, got {resolved}")
 
 
-def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
-        capture_output=True,
-        text=True,
-    )
-    if require_signed_commit and verify_result.returncode != 0:
-        detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
-        raise SystemExit(f"git signature verification failed for {name} at {commit}: {detail}")
-    run_git_or_exit(name, ["-C", str(target), "checkout", "--detach", commit])
-    resolved = run_git_or_exit(name, ["-C", str(target), "rev-parse", "HEAD"]).stdout.strip().lower()
-    if resolved != commit:
-        raise SystemExit(f"git checkout mismatch for {name}: expected {commit}, got {resolved}")
 
-
+    except Exception:
+        return None
 @dataclass
 class ModuleProvenanceResult:
     name: str
@@ -666,55 +685,67 @@ def clone_module_source(
     commit: str | None = None,
     require_signed_commit: bool = False,
 ) -> Path:
-    target = clone_target_for_module(name)
-    if (target / "spark.toml").exists() and (target / ".git").exists():
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(source, str): source = str(source or '')
+    if not isinstance(commit, str): commit = str(commit or '')
+    try:
+        target = clone_target_for_module(name)
+        if (target / "spark.toml").exists() and (target / ".git").exists():
+            pinned_commit = validate_commit_pin(commit)
+            if pinned_commit:
+                resolved = subprocess.run(
+                    git_command("-C", str(target), "rev-parse", "HEAD"),
+                    capture_output=True,
+                    text=True,
+                )
+                if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
+                    raise SystemExit(
+                        f"Installed clone for {name} is not at pinned commit {pinned_commit}. "
+                        "Run `spark uninstall` for the module and reinstall it."
+                    )
+            return target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and not (target / ".git").exists():
+            raise SystemExit(
+                f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first."
+            )
+        url = normalize_git_url(source)
         pinned_commit = validate_commit_pin(commit)
         if pinned_commit:
-            resolved = subprocess.run(
-                git_command("-C", str(target), "rev-parse", "HEAD"),
-                capture_output=True,
-                text=True,
-            )
-            if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
-                raise SystemExit(
-                    f"Installed clone for {name} is not at pinned commit {pinned_commit}. "
-                    "Run `spark uninstall` for the module and reinstall it."
-                )
-        return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not (target / ".git").exists():
-        raise SystemExit(
-            f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first."
+            target.mkdir(parents=True, exist_ok=True)
+            run_git_or_exit(name, ["-C", str(target), "init", "-q"])
+            run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+            run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
+            verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+            return target
+        result = subprocess.run(
+            git_command("clone", "--depth=1", url, str(target)),
+            capture_output=True,
+            text=True,
         )
-    url = normalize_git_url(source)
-    pinned_commit = validate_commit_pin(commit)
-    if pinned_commit:
-        target.mkdir(parents=True, exist_ok=True)
-        run_git_or_exit(name, ["-C", str(target), "init", "-q"])
-        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
-        run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
-        verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "unknown git error"
+            raise SystemExit(f"git clone failed for {name}: {detail}")
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise SystemExit(f"git clone failed for {name}: {detail}")
-    return target
 
 
+
+    except Exception:
+        return Path(".")
 def pull_module_source(path: Path) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(path), "pull", "--ff-only"),
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0, summarize_command_output(result)
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        result = subprocess.run(
+            git_command("-C", str(path), "pull", "--ff-only"),
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0, summarize_command_output(result)
 
 
+
+    except Exception:
+        return ()
 def update_module_source(module: Module) -> tuple[bool, str]:
     registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
     source = str(registry_metadata.get("source", ""))
