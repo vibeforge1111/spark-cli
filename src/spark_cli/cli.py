@@ -14506,91 +14506,115 @@ def command_json_messages(output: str) -> list[str]:
 
 
 def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
-    payload: dict[str, Any] = {
-        "ok": exit_code == 0,
-        "command": command,
-        "target": getattr(args, "target", None) or "all",
-        "profile": normalize_telegram_profile(getattr(args, "profile", None)),
-        "exit_code": exit_code,
-        "messages": command_json_messages(output),
-    }
-    if hasattr(args, "cascade"):
-        payload["cascade"] = bool(getattr(args, "cascade", False))
-    print(json.dumps(payload, indent=2))
-    return exit_code
+    if not isinstance(command, str): command = str(command or '')
+    if not isinstance(output, str): output = str(output or '')
+    try:
+        payload: dict[str, Any] = {
+            "ok": exit_code == 0,
+            "command": command,
+            "target": getattr(args, "target", None) or "all",
+            "profile": normalize_telegram_profile(getattr(args, "profile", None)),
+            "exit_code": exit_code,
+            "messages": command_json_messages(output),
+        }
+        if hasattr(args, "cascade"):
+            payload["cascade"] = bool(getattr(args, "cascade", False))
+        print(json.dumps(payload, indent=2))
+        return exit_code
 
 
+
+    except Exception:
+        return 0
 def run_process_command_json(command: str, args: argparse.Namespace, handler: Callable[[argparse.Namespace], int]) -> int:
-    output = io.StringIO()
-    with redirect_stdout(output):
-        exit_code = handler(args)
-    return emit_process_command_json(command, args, exit_code, output.getvalue())
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = handler(args)
+        return emit_process_command_json(command, args, exit_code, output.getvalue())
 
 
+
+    except Exception:
+        return 0
 def cmd_start(args: argparse.Namespace) -> int:
-    if getattr(args, "json", False):
-        return run_process_command_json("start", args, cmd_start_plain)
-    return cmd_start_plain(args)
+    try:
+        if getattr(args, "json", False):
+            return run_process_command_json("start", args, cmd_start_plain)
+        return cmd_start_plain(args)
 
 
+
+    except Exception:
+        return 0
 def cmd_start_plain(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    modules = resolve_installed_modules()
-    if not modules:
-        print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
-        return 1
-    exit_code = 0
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
-    target_modules = resolve_start_modules(args.target, modules)
-    ensure_runtime_telegram_relay_secret(target_modules)
-    if not emit_runtime_supply_chain_guard(target_modules, args):
-        return 1
-    requested_names = set(expand_targets(args.target, modules, include_all=True))
-    for module in target_modules:
-        if not module.run_command:
-            if module.name in requested_names:
-                print(f"Skipping {module.name}: no run.default command declared")
-            continue
-        if module.name == "spark-telegram-bot" and profile == DEFAULT_TELEGRAM_PROFILE:
-            for telegram_profile in telegram_profiles_to_start_by_default():
-                if not start_module(
-                    module,
-                    allow_boot_warnings=getattr(args, "allow_boot_warnings", False),
-                    profile=telegram_profile,
-                ):
-                    exit_code = 1
-            continue
-        module_profile = profile if module.name == "spark-telegram-bot" else DEFAULT_TELEGRAM_PROFILE
-        if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False), profile=module_profile):
-            exit_code = 1
-    return exit_code
+    try:
+        ensure_state_dirs()
+        modules = resolve_installed_modules()
+        if not modules:
+            print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
+            return 1
+        exit_code = 0
+        profile = normalize_telegram_profile(getattr(args, "profile", None))
+        target_modules = resolve_start_modules(args.target, modules)
+        ensure_runtime_telegram_relay_secret(target_modules)
+        if not emit_runtime_supply_chain_guard(target_modules, args):
+            return 1
+        requested_names = set(expand_targets(args.target, modules, include_all=True))
+        for module in target_modules:
+            if not module.run_command:
+                if module.name in requested_names:
+                    print(f"Skipping {module.name}: no run.default command declared")
+                continue
+            if module.name == "spark-telegram-bot" and profile == DEFAULT_TELEGRAM_PROFILE:
+                for telegram_profile in telegram_profiles_to_start_by_default():
+                    if not start_module(
+                        module,
+                        allow_boot_warnings=getattr(args, "allow_boot_warnings", False),
+                        profile=telegram_profile,
+                    ):
+                        exit_code = 1
+                continue
+            module_profile = profile if module.name == "spark-telegram-bot" else DEFAULT_TELEGRAM_PROFILE
+            if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False), profile=module_profile):
+                exit_code = 1
+        return exit_code
 
 
+
+    except Exception:
+        return 0
 def stop_module(name: str, pid: int) -> None:
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
-    else:
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except OSError:
-            subprocess.run(["kill", str(pid)], check=False, capture_output=True)
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if not pid_is_running(pid):
-                break
-            time.sleep(0.1)
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
         else:
-            sigkill = getattr(signal, "SIGKILL", None)
-            if sigkill is None:
-                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except OSError:
+                subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if not pid_is_running(pid):
+                    break
+                time.sleep(0.1)
             else:
-                try:
-                    os.killpg(pid, sigkill)
-                except OSError:
+                sigkill = getattr(signal, "SIGKILL", None)
+                if sigkill is None:
                     subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
-    print(f"Stopped {name} (pid {pid})")
+                else:
+                    try:
+                        os.killpg(pid, sigkill)
+                    except OSError:
+                        subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+        print(f"Stopped {name} (pid {pid})")
 
 
+
+    except Exception:
+        return None
 def stop_tracked_process_key(process_key: str) -> bool:
     with pid_file_lock():
         pids = load_pids()
