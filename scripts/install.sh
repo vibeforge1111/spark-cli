@@ -3,8 +3,8 @@ set -euo pipefail
 
 SPARK_PREFIX="${SPARK_PREFIX:-$HOME/.spark}"
 SPARK_CLI_SOURCE="${SPARK_CLI_SOURCE:-https://github.com/vibeforge1111/spark-cli}"
-SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-06-02-r23}"
-SPARK_DEFAULT_CLI_REF="spark-cli-public-installer-2026-06-02-r23"
+SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-06-03-r24-v2}"
+SPARK_DEFAULT_CLI_REF="spark-cli-public-installer-2026-06-03-r24-v2"
 SPARK_CLI_REF_USER_SET=0
 if [ -n "${SPARK_CLI_REF:-}" ]; then
   SPARK_CLI_REF_USER_SET=1
@@ -31,6 +31,9 @@ SPARK_ZAI_API_KEY="${SPARK_ZAI_API_KEY:-}"
 SPARK_OPENAI_API_KEY="${SPARK_OPENAI_API_KEY:-}"
 SPARK_ANTHROPIC_API_KEY="${SPARK_ANTHROPIC_API_KEY:-}"
 SPARK_MINIMAX_API_KEY="${SPARK_MINIMAX_API_KEY:-}"
+SPARK_KIMI_API_KEY="${SPARK_KIMI_API_KEY:-}"
+SPARK_OPENROUTER_API_KEY="${SPARK_OPENROUTER_API_KEY:-}"
+SPARK_HUGGINGFACE_API_KEY="${SPARK_HUGGINGFACE_API_KEY:-}"
 SPARK_NON_INTERACTIVE_SETUP="${SPARK_NON_INTERACTIVE_SETUP:-0}"
 SPARK_SETUP_SKIP_INSTALL_COMMANDS="${SPARK_SETUP_SKIP_INSTALL_COMMANDS:-0}"
 SPARK_SETUP_SKIP_RUNTIME_CHECK="${SPARK_SETUP_SKIP_RUNTIME_CHECK:-0}"
@@ -70,6 +73,9 @@ Options:
   --openai-api-key KEY      OpenAI API key passed to setup
   --anthropic-api-key KEY   Anthropic API key passed to setup
   --minimax-api-key KEY     MiniMax API key passed to setup
+  --kimi-api-key KEY        Kimi / Moonshot API key passed to setup
+  --openrouter-api-key KEY  OpenRouter API key passed to setup
+  --huggingface-api-key KEY Hugging Face API key passed to setup
   --non-interactive-setup   Pass --non-interactive to setup
   --setup-skip-install-commands
                             Pass --skip-install-commands to setup
@@ -90,11 +96,12 @@ Options:
 
 Environment mirrors these flags:
   SPARK_PREFIX, SPARK_CLI_SOURCE, SPARK_CLI_REF, SPARK_NODE_VERSION,
-  SPARK_PYTHON_VERSION, SPARK_UV_VERSION, SPARK_BUNDLE, SPARK_SETUP_ARGS, SPARK_LOCAL_REGISTRY, SPARK_SKIP_SETUP,
+  SPARK_PYTHON_VERSION, SPARK_UV_VERSION, SPARK_BUNDLE, SPARK_SETUP_ARGS (newline-delimited), SPARK_LOCAL_REGISTRY, SPARK_SKIP_SETUP,
   SPARK_AUTOSTART, SPARK_ALLOW_DEV_SOURCE, SPARK_MANAGED_NODE,
   SPARK_BOT_TOKEN, SPARK_ADMIN_TELEGRAM_IDS, SPARK_LLM_PROVIDER,
   SPARK_ZAI_API_KEY, SPARK_OPENAI_API_KEY, SPARK_ANTHROPIC_API_KEY,
-  SPARK_MINIMAX_API_KEY,
+  SPARK_MINIMAX_API_KEY, SPARK_KIMI_API_KEY, SPARK_OPENROUTER_API_KEY,
+  SPARK_HUGGINGFACE_API_KEY,
   SPARK_NON_INTERACTIVE_SETUP, SPARK_SETUP_SKIP_INSTALL_COMMANDS,
   SPARK_SETUP_SKIP_RUNTIME_CHECK, SPARK_SHELL_PROFILE,
   SPARK_NODE_PLATFORM, SPARK_DRY_RUN, SPARK_PREFLIGHT_ONLY,
@@ -171,6 +178,15 @@ while [ "$#" -gt 0 ]; do
     --minimax-api-key)
       require_non_option_value "$@"
       SPARK_MINIMAX_API_KEY="$2"; shift 2 ;;
+    --kimi-api-key)
+      require_non_option_value "$@"
+      SPARK_KIMI_API_KEY="$2"; shift 2 ;;
+    --openrouter-api-key)
+      require_non_option_value "$@"
+      SPARK_OPENROUTER_API_KEY="$2"; shift 2 ;;
+    --huggingface-api-key)
+      require_non_option_value "$@"
+      SPARK_HUGGINGFACE_API_KEY="$2"; shift 2 ;;
     --non-interactive-setup)
       SPARK_NON_INTERACTIVE_SETUP=1; shift ;;
     --setup-skip-install-commands)
@@ -209,6 +225,19 @@ while [ "$#" -gt 0 ]; do
       exit 2 ;;
   esac
 done
+
+spark_setup_args_from_env=()
+load_spark_setup_args_from_env() {
+  spark_setup_args_from_env=()
+  if [ -z "$SPARK_SETUP_ARGS" ]; then
+    return
+  fi
+
+  local setup_arg_line
+  while IFS= read -r setup_arg_line || [ -n "$setup_arg_line" ]; do
+    spark_setup_args_from_env+=("$setup_arg_line")
+  done < <(printf '%s' "$SPARK_SETUP_ARGS")
+}
 
 SPARK_AUTOSTART_AUTO_DISABLED=0
 if [ "$SPARK_AUTOSTART_USER_SET" = "0" ] && { [ "$SPARK_ASSUME_YES" = "1" ] || [ ! -t 0 ]; }; then
@@ -512,7 +541,7 @@ validate_install_settings() {
     exit 1
   fi
 
-  if [ "$SPARK_CLI_REF_USER_SET" = "0" ] && ! printf '%s' "$SPARK_CLI_REF" | grep -Eq '^([0-9a-f]{40}|spark-cli-public-installer-[0-9]{4}-[0-9]{2}-[0-9]{2}-r[0-9]+)$'; then
+  if [ "$SPARK_CLI_REF_USER_SET" = "0" ] && ! printf '%s' "$SPARK_CLI_REF" | grep -Eq '^([0-9a-f]{40}|spark-cli-public-installer-[0-9]{4}-[0-9]{2}-[0-9]{2}-r[0-9]+(-v[0-9]+)?)$'; then
     echo "Default Spark CLI ref must be a 40-character commit SHA or Spark public release tag: $SPARK_CLI_REF" >&2
     exit 1
   fi
@@ -706,10 +735,18 @@ EOF
     if [ -n "$SPARK_MINIMAX_API_KEY" ]; then
       preview_setup_cmd+=("--minimax-api-key" "<redacted>")
     fi
-    if [ -n "$SPARK_SETUP_ARGS" ]; then
-      # shellcheck disable=SC2206
-      local setup_words=($SPARK_SETUP_ARGS)
-      preview_setup_cmd+=("${setup_words[@]}")
+    if [ -n "$SPARK_KIMI_API_KEY" ]; then
+      preview_setup_cmd+=("--kimi-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_OPENROUTER_API_KEY" ]; then
+      preview_setup_cmd+=("--openrouter-api-key" "<redacted>")
+    fi
+    if [ -n "$SPARK_HUGGINGFACE_API_KEY" ]; then
+      preview_setup_cmd+=("--huggingface-api-key" "<redacted>")
+    fi
+    load_spark_setup_args_from_env
+    if [ "${#spark_setup_args_from_env[@]}" -gt 0 ]; then
+      preview_setup_cmd+=("${spark_setup_args_from_env[@]}")
     fi
     if [ "${#extra_setup_args[@]}" -gt 0 ]; then
       preview_setup_cmd+=("${extra_setup_args[@]}")
@@ -749,7 +786,10 @@ redact_install_log_stream() {
       "$SPARK_ZAI_API_KEY" \
       "$SPARK_OPENAI_API_KEY" \
       "$SPARK_ANTHROPIC_API_KEY" \
-      "$SPARK_MINIMAX_API_KEY"; do
+      "$SPARK_MINIMAX_API_KEY" \
+      "$SPARK_KIMI_API_KEY" \
+      "$SPARK_OPENROUTER_API_KEY" \
+      "$SPARK_HUGGINGFACE_API_KEY"; do
       if [ -n "$secret" ]; then
         line="${line//$secret/[redacted]}"
       fi
@@ -1068,10 +1108,21 @@ run_setup() {
     spark_secret_ref "$SPARK_MINIMAX_API_KEY"
     spark_setup_cmd+=("--minimax-api-key" "$spark_secret_ref_value")
   fi
-  if [ -n "$SPARK_SETUP_ARGS" ]; then
-    # shellcheck disable=SC2206
-    local setup_words=($SPARK_SETUP_ARGS)
-    spark_setup_cmd+=("${setup_words[@]}")
+  if [ -n "$SPARK_KIMI_API_KEY" ]; then
+    spark_secret_ref "$SPARK_KIMI_API_KEY"
+    spark_setup_cmd+=("--kimi-api-key" "$spark_secret_ref_value")
+  fi
+  if [ -n "$SPARK_OPENROUTER_API_KEY" ]; then
+    spark_secret_ref "$SPARK_OPENROUTER_API_KEY"
+    spark_setup_cmd+=("--openrouter-api-key" "$spark_secret_ref_value")
+  fi
+  if [ -n "$SPARK_HUGGINGFACE_API_KEY" ]; then
+    spark_secret_ref "$SPARK_HUGGINGFACE_API_KEY"
+    spark_setup_cmd+=("--huggingface-api-key" "$spark_secret_ref_value")
+  fi
+  load_spark_setup_args_from_env
+  if [ "${#spark_setup_args_from_env[@]}" -gt 0 ]; then
+    spark_setup_cmd+=("${spark_setup_args_from_env[@]}")
   fi
   if [ "${#extra_setup_args[@]}" -gt 0 ]; then
     spark_setup_cmd+=("${extra_setup_args[@]}")
