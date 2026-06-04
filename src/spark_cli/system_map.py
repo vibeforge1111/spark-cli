@@ -993,6 +993,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
 
 
 def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "source": "spawner_prd_auto_trace",
         "path": str(path),
@@ -1067,6 +1068,8 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
 
 
 def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    path = Path(path)
+    builder_home = Path(builder_home)
     out: dict[str, Any] = {
         "schema_version": REVIEW_CANDIDATES_SCHEMA,
         "source": "spawner_prd_auto_trace",
@@ -1361,6 +1364,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
 
 
 def inspect_json_shape(path: Path) -> dict[str, Any]:
+    path = Path(path)
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
     if error and error != "missing":
@@ -1379,6 +1383,7 @@ def inspect_json_shape(path: Path) -> dict[str, Any]:
 
 
 def inspect_file_metadata(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1399,7 +1404,8 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
+    limit = int(limit or 240)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
