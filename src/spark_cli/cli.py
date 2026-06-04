@@ -8440,174 +8440,197 @@ def sync_generated_env_to_module_output(
 
 
 def rotate_revoke_all_env_keys(*, dry_run: bool = False) -> dict[str, Any]:
-    rotated_files: list[dict[str, Any]] = []
-    failures: list[dict[str, str]] = []
-    generated_values: dict[str, str] = {}
-    installed_modules = resolve_installed_modules_best_effort()
+    try:
+        rotated_files: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        generated_values: dict[str, str] = {}
+        installed_modules = resolve_installed_modules_best_effort()
 
-    for path in generated_env_files_for_revoke_all():
-        values = read_generated_env(path)
-        keys = {key for key in REVOKE_ALL_ROTATABLE_ENV_KEYS if key in values}
-        if path.name == "spawner-ui.env":
-            keys.update(REVOKE_ALL_SPAWNER_REQUIRED_KEYS)
-        if not keys:
-            continue
+        for path in generated_env_files_for_revoke_all():
+            values = read_generated_env(path)
+            keys = {key for key in REVOKE_ALL_ROTATABLE_ENV_KEYS if key in values}
+            if path.name == "spawner-ui.env":
+                keys.update(REVOKE_ALL_SPAWNER_REQUIRED_KEYS)
+            if not keys:
+                continue
+            try:
+                next_values = dict(values)
+                for key in sorted(keys):
+                    generated_values.setdefault(key, revoke_all_token_value(key))
+                    next_values[key] = generated_values[key]
+                synced_env_path = None
+                if not dry_run:
+                    write_generated_env(path, next_values)
+                    synced_env_path = sync_generated_env_to_module_output(path, next_values, installed_modules)
+                rotated_files.append(
+                    {
+                        "path": str(path),
+                        "keys": sorted(keys),
+                        "synced_module_env_path": synced_env_path,
+                        "planned": dry_run,
+                    }
+                )
+            except Exception as error:
+                failures.append({"path": str(path), "error": revoke_all_error_detail(error)})
+
+        return {
+            "ok": not failures,
+            "rotated_files": rotated_files,
+            "rotated_key_names": sorted(generated_values),
+            "failures": failures,
+            "planned": dry_run,
+        }
+
+
+
+    except Exception:
+        return {}
+def disable_revoke_all_custom_mcp(*, dry_run: bool = False) -> dict[str, Any]:
+    try:
+        spawner_env_path = MODULE_CONFIG_DIR / "spawner-ui.env"
+        if not spawner_env_path.exists():
+            return {
+                "ok": True,
+                "disabled": False,
+                "planned": dry_run,
+                "detail": "No generated spawner-ui env file was present.",
+                "files": [],
+            }
         try:
-            next_values = dict(values)
-            for key in sorted(keys):
-                generated_values.setdefault(key, revoke_all_token_value(key))
-                next_values[key] = generated_values[key]
+            values = read_generated_env(spawner_env_path)
+            values["MCP_ALLOW_CUSTOM_CONFIG"] = "0"
             synced_env_path = None
             if not dry_run:
-                write_generated_env(path, next_values)
-                synced_env_path = sync_generated_env_to_module_output(path, next_values, installed_modules)
-            rotated_files.append(
-                {
-                    "path": str(path),
-                    "keys": sorted(keys),
-                    "synced_module_env_path": synced_env_path,
-                    "planned": dry_run,
-                }
-            )
+                write_generated_env(spawner_env_path, values)
+                synced_env_path = sync_generated_env_to_module_output(
+                    spawner_env_path,
+                    values,
+                    resolve_installed_modules_best_effort(),
+                )
+            return {
+                "ok": True,
+                "disabled": True,
+                "planned": dry_run,
+                "files": [
+                    {
+                        "path": str(spawner_env_path),
+                        "synced_module_env_path": synced_env_path,
+                        "key": "MCP_ALLOW_CUSTOM_CONFIG",
+                        "value": "0",
+                    }
+                ],
+            }
         except Exception as error:
-            failures.append({"path": str(path), "error": revoke_all_error_detail(error)})
-
-    return {
-        "ok": not failures,
-        "rotated_files": rotated_files,
-        "rotated_key_names": sorted(generated_values),
-        "failures": failures,
-        "planned": dry_run,
-    }
+            return {
+                "ok": False,
+                "disabled": False,
+                "planned": dry_run,
+                "files": [{"path": str(spawner_env_path)}],
+                "error": revoke_all_error_detail(error),
+            }
 
 
-def disable_revoke_all_custom_mcp(*, dry_run: bool = False) -> dict[str, Any]:
-    spawner_env_path = MODULE_CONFIG_DIR / "spawner-ui.env"
-    if not spawner_env_path.exists():
-        return {
-            "ok": True,
-            "disabled": False,
-            "planned": dry_run,
-            "detail": "No generated spawner-ui env file was present.",
-            "files": [],
-        }
-    try:
-        values = read_generated_env(spawner_env_path)
-        values["MCP_ALLOW_CUSTOM_CONFIG"] = "0"
-        synced_env_path = None
-        if not dry_run:
-            write_generated_env(spawner_env_path, values)
-            synced_env_path = sync_generated_env_to_module_output(
-                spawner_env_path,
-                values,
-                resolve_installed_modules_best_effort(),
-            )
-        return {
-            "ok": True,
-            "disabled": True,
-            "planned": dry_run,
-            "files": [
-                {
-                    "path": str(spawner_env_path),
-                    "synced_module_env_path": synced_env_path,
-                    "key": "MCP_ALLOW_CUSTOM_CONFIG",
-                    "value": "0",
-                }
-            ],
-        }
-    except Exception as error:
-        return {
-            "ok": False,
-            "disabled": False,
-            "planned": dry_run,
-            "files": [{"path": str(spawner_env_path)}],
-            "error": revoke_all_error_detail(error),
-        }
 
-
+    except Exception:
+        return {}
 def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, str]]:
-    tokens: list[dict[str, str]] = []
-    if not isinstance(secret_ids, (list, tuple, set, dict)):
+    if not isinstance(secret_ids, str): secret_ids = str(secret_ids or '')
+    try:
+        tokens: list[dict[str, str]] = []
+        if not isinstance(secret_ids, (list, tuple, set, dict)):
+            return tokens
+        seen: set[str] = set()
+        for secret_id in sorted(secret_ids):
+            if not is_telegram_bot_token_secret(secret_id):
+                continue
+            value = fetch_secret(secret_id)
+            if not value:
+                continue
+            token = extract_telegram_bot_token(value)
+            if token in seen:
+                continue
+            seen.add(token)
+            tokens.append({"secret_id": secret_id, "token": token})
         return tokens
-    seen: set[str] = set()
-    for secret_id in sorted(secret_ids):
-        if not is_telegram_bot_token_secret(secret_id):
-            continue
-        value = fetch_secret(secret_id)
-        if not value:
-            continue
-        token = extract_telegram_bot_token(value)
-        if token in seen:
-            continue
-        seen.add(token)
-        tokens.append({"secret_id": secret_id, "token": token})
-    return tokens
 
 
+
+    except Exception:
+        return []
 def clear_telegram_webhook_state(tokens: list[dict[str, str]], *, dry_run: bool = False) -> dict[str, Any]:
-    results: list[dict[str, Any]] = []
-    failures: list[dict[str, str]] = []
-    if not isinstance(tokens, (list, tuple, set)):
-        return {"ok": True, "planned": dry_run, "tokens": results, "failures": failures}
-    for item in tokens:
-        secret_id = item["secret_id"]
-        if dry_run:
-            results.append({"secret_id": secret_id, "ok": True, "planned": True})
-            continue
-        token = urllib.parse.quote(item["token"], safe=":")
-        url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true"
-        request = urllib.request.Request(url, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-            ok = bool(payload.get("ok"))
-            entry: dict[str, Any] = {"secret_id": secret_id, "ok": ok, "planned": False}
-            if not ok:
-                entry["description"] = redact_sensitive_text(str(payload.get("description") or "Telegram rejected deleteWebhook"))
-                failures.append({"secret_id": secret_id, "error": str(entry["description"])})
-            results.append(entry)
-        except Exception as error:
-            detail = revoke_all_error_detail(error)
-            failures.append({"secret_id": secret_id, "error": detail})
-            results.append({"secret_id": secret_id, "ok": False, "planned": False, "error": detail})
-    return {
-        "ok": not failures,
-        "requested": len(tokens),
-        "results": results,
-        "failures": failures,
-        "planned": dry_run,
-    }
+    if not isinstance(tokens, str): tokens = str(tokens or '')
+    try:
+        results: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        if not isinstance(tokens, (list, tuple, set)):
+            return {"ok": True, "planned": dry_run, "tokens": results, "failures": failures}
+        for item in tokens:
+            secret_id = item["secret_id"]
+            if dry_run:
+                results.append({"secret_id": secret_id, "ok": True, "planned": True})
+                continue
+            token = urllib.parse.quote(item["token"], safe=":")
+            url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true"
+            request = urllib.request.Request(url, method="POST")
+            try:
+                with urllib.request.urlopen(request, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                ok = bool(payload.get("ok"))
+                entry: dict[str, Any] = {"secret_id": secret_id, "ok": ok, "planned": False}
+                if not ok:
+                    entry["description"] = redact_sensitive_text(str(payload.get("description") or "Telegram rejected deleteWebhook"))
+                    failures.append({"secret_id": secret_id, "error": str(entry["description"])})
+                results.append(entry)
+            except Exception as error:
+                detail = revoke_all_error_detail(error)
+                failures.append({"secret_id": secret_id, "error": detail})
+                results.append({"secret_id": secret_id, "ok": False, "planned": False, "error": detail})
+        return {
+            "ok": not failures,
+            "requested": len(tokens),
+            "results": results,
+            "failures": failures,
+            "planned": dry_run,
+        }
 
 
+
+    except Exception:
+        return {}
 def delete_revoke_all_secrets(secret_ids: Iterable[str], *, dry_run: bool = False) -> dict[str, Any]:
-    deleted: list[str] = []
-    failures: list[dict[str, str]] = []
-    for secret_id in sorted(secret_ids):
-        if dry_run:
-            deleted.append(secret_id)
-            continue
-        try:
-            delete_secret(secret_id)
-            deleted.append(secret_id)
-        except Exception as error:
-            failures.append({"secret_id": secret_id, "error": revoke_all_error_detail(error)})
-    external_markers = ("github", "scanner", "oauth", "access_token", "refresh_token")
-    external_ids = [secret_id for secret_id in deleted if any(marker in secret_id.lower() for marker in external_markers)]
-    return {
-        "ok": not failures,
-        "deleted_secret_ids": deleted,
-        "deleted_count": len(deleted),
-        "external_token_secret_ids": external_ids,
-        "failures": failures,
-        "planned": dry_run,
-        "remote_revoke_note": (
-            "Local Spark copies were removed. Revoke provider-side OAuth/GitHub/Scanner tokens in the provider console when applicable."
-            if external_ids
-            else ""
-        ),
-    }
+    if not isinstance(secret_ids, str): secret_ids = str(secret_ids or '')
+    try:
+        deleted: list[str] = []
+        failures: list[dict[str, str]] = []
+        for secret_id in sorted(secret_ids):
+            if dry_run:
+                deleted.append(secret_id)
+                continue
+            try:
+                delete_secret(secret_id)
+                deleted.append(secret_id)
+            except Exception as error:
+                failures.append({"secret_id": secret_id, "error": revoke_all_error_detail(error)})
+        external_markers = ("github", "scanner", "oauth", "access_token", "refresh_token")
+        external_ids = [secret_id for secret_id in deleted if any(marker in secret_id.lower() for marker in external_markers)]
+        return {
+            "ok": not failures,
+            "deleted_secret_ids": deleted,
+            "deleted_count": len(deleted),
+            "external_token_secret_ids": external_ids,
+            "failures": failures,
+            "planned": dry_run,
+            "remote_revoke_note": (
+                "Local Spark copies were removed. Revoke provider-side OAuth/GitHub/Scanner tokens in the provider console when applicable."
+                if external_ids
+                else ""
+            ),
+        }
 
 
+
+    except Exception:
+        return {}
 def spawner_state_dir_for_revoke_all() -> Path:
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
     raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
