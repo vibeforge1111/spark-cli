@@ -67,7 +67,11 @@ def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None
     configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
     if configured:
         return Path(configured).expanduser()
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+    if home is not None:
+        spark_home = home
+    else:
+        configured_home = env_values.get("SPARK_HOME")
+        spark_home = Path(configured_home).expanduser() if configured_home else (Path.home() / ".spark").expanduser()
     return spark_home / "workspaces"
 
 
@@ -80,7 +84,11 @@ def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | N
 
 def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
     env_values = env or os.environ
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+    if home is not None:
+        spark_home = home
+    else:
+        configured_home = env_values.get("SPARK_HOME")
+        spark_home = Path(configured_home).expanduser() if configured_home else (Path.home() / ".spark").expanduser()
     return spark_home / "config" / "modules"
 
 
