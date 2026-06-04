@@ -12146,38 +12146,52 @@ def specialization_path_candidates(installed: object) -> list[Path]:
 
 
 def telegram_gateway_candidates(installed: object) -> list[Path]:
-    candidates = env_path_candidates("SPARK_TELEGRAM_BOT_ROOT")
-    candidate = installed_path_candidate(installed, "spark-telegram-bot")
-    if candidate is not None:
-        candidates.append(candidate)
-    return candidates
+    try:
+        candidates = env_path_candidates("SPARK_TELEGRAM_BOT_ROOT")
+        candidate = installed_path_candidate(installed, "spark-telegram-bot")
+        if candidate is not None:
+            candidates.append(candidate)
+        return candidates
 
 
+
+    except Exception:
+        return []
 def telegram_gateway_is_usable(path: Path) -> bool:
-    return any(
-        candidate.exists()
-        for candidate in (
-            path / "spark.toml",
-            path / "package.json",
-            path / "pyproject.toml",
-            path / "src",
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        return any(
+            candidate.exists()
+            for candidate in (
+                path / "spark.toml",
+                path / "package.json",
+                path / "pyproject.toml",
+                path / "src",
+            )
         )
-    )
 
 
+
+    except Exception:
+        return False
 def specialization_path_is_usable(path: Path) -> bool:
-    return any(
-        candidate.exists()
-        for candidate in (
-            path / "specialization-path.json",
-            path / "scripts" / "run_autoloop.py",
-            path / "specialization-path" / "path.manifest.json",
-            path / "path.manifest.json",
-            path / "pyproject.toml",
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        return any(
+            candidate.exists()
+            for candidate in (
+                path / "specialization-path.json",
+                path / "scripts" / "run_autoloop.py",
+                path / "specialization-path" / "path.manifest.json",
+                path / "path.manifest.json",
+                path / "pyproject.toml",
+            )
         )
-    )
 
 
+
+    except Exception:
+        return False
 def specialization_path_key(path: Path) -> str:
     for manifest in (
         path / "specialization-path.json",
@@ -12202,28 +12216,34 @@ def specialization_path_key(path: Path) -> str:
 
 
 def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> tuple[list[str], dict[str, str]]:
-    python = os.environ.get("SPARK_SWARM_BRIDGE_PYTHON") or sys.executable
-    env = dict(os.environ)
-    if swarm_root:
-        bridge_src = swarm_root / "apps" / "bridge" / "src"
-        if bridge_src.exists():
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
-    return (
-        [
-            python,
-            "-m",
-            "spark_swarm_bridge.cli",
-            "specialization-path",
-            "status",
-            specialization_path_key(path),
-            str(path),
-            "--json",
-        ],
-        env,
-    )
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if swarm_root is not None and not hasattr(swarm_root, 'resolve'): from pathlib import Path; swarm_root = Path(str(swarm_root))
+    try:
+        python = os.environ.get("SPARK_SWARM_BRIDGE_PYTHON") or sys.executable
+        env = dict(os.environ)
+        if swarm_root:
+            bridge_src = swarm_root / "apps" / "bridge" / "src"
+            if bridge_src.exists():
+                existing = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
+        return (
+            [
+                python,
+                "-m",
+                "spark_swarm_bridge.cli",
+                "specialization-path",
+                "status",
+                specialization_path_key(path),
+                str(path),
+                "--json",
+            ],
+            env,
+        )
 
 
+
+    except Exception:
+        return ()
 def parse_json_object_from_stdout(stdout: str) -> dict[str, Any] | None:
     text = stdout.strip()
     if not text:
@@ -12243,39 +12263,44 @@ def parse_json_object_from_stdout(stdout: str) -> dict[str, Any] | None:
 
 
 def validate_specialization_loop_status_packet(packet: dict[str, Any]) -> tuple[bool, list[str]]:
-    issues: list[str] = []
-    for field in ("schemaId", "pathKey", "decision", "evidenceState", "claimBoundary"):
-        if packet.get(field) in (None, "", []):
-            issues.append(f"missing {field}")
-    decision = str(packet.get("decision") or "").strip().lower()
-    comparison = packet.get("comparison")
-    rounds = packet.get("rounds")
-    evidence_decisions = {"improved", "held_steady", "regressed"}
-    if decision in evidence_decisions:
-        if not isinstance(comparison, dict):
-            issues.append("comparison is not an object")
-            comparison = {}
-        if not isinstance(rounds, dict):
-            issues.append("rounds is not an object")
-            rounds = {}
-        if comparison.get("baselineScore") is None:
-            issues.append("missing comparison.baselineScore")
-        if comparison.get("candidateScore") is None:
-            issues.append("missing comparison.candidateScore")
-        if comparison.get("delta") is None:
-            issues.append("missing comparison.delta")
-        if rounds.get("completed") is None:
-            issues.append("missing rounds.completed")
-    if decision == "improved":
-        held_out = str(packet.get("heldOutStatus") or "").strip().lower()
-        trap = str(packet.get("trapStatus") or "").strip().lower()
-        if held_out not in {"passed", "pass"}:
-            issues.append("improved claim requires held-out proof")
-        if trap not in {"passed", "pass"}:
-            issues.append("improved claim requires trap proof")
-    return not issues, issues
+    if not isinstance(packet, str): packet = str(packet or '')
+    try:
+        issues: list[str] = []
+        for field in ("schemaId", "pathKey", "decision", "evidenceState", "claimBoundary"):
+            if packet.get(field) in (None, "", []):
+                issues.append(f"missing {field}")
+        decision = str(packet.get("decision") or "").strip().lower()
+        comparison = packet.get("comparison")
+        rounds = packet.get("rounds")
+        evidence_decisions = {"improved", "held_steady", "regressed"}
+        if decision in evidence_decisions:
+            if not isinstance(comparison, dict):
+                issues.append("comparison is not an object")
+                comparison = {}
+            if not isinstance(rounds, dict):
+                issues.append("rounds is not an object")
+                rounds = {}
+            if comparison.get("baselineScore") is None:
+                issues.append("missing comparison.baselineScore")
+            if comparison.get("candidateScore") is None:
+                issues.append("missing comparison.candidateScore")
+            if comparison.get("delta") is None:
+                issues.append("missing comparison.delta")
+            if rounds.get("completed") is None:
+                issues.append("missing rounds.completed")
+        if decision == "improved":
+            held_out = str(packet.get("heldOutStatus") or "").strip().lower()
+            trap = str(packet.get("trapStatus") or "").strip().lower()
+            if held_out not in {"passed", "pass"}:
+                issues.append("improved claim requires held-out proof")
+            if trap not in {"passed", "pass"}:
+                issues.append("improved claim requires trap proof")
+        return not issues, issues
 
 
+
+    except Exception:
+        return ()
 def summarize_specialization_loop_status_packet(packet: dict[str, Any]) -> str:
     label = str(packet.get("pathLabel") or packet.get("pathKey") or "specialization path")
     decision = str(packet.get("decision") or "unknown").replace("_", " ")
