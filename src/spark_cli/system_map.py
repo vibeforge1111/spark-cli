@@ -1464,6 +1464,7 @@ def count_raw_memory_hint_keys(value: Any) -> int:
 
 
 def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
+    builder_home = Path(builder_home)
     path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
     data, error = read_json(path)
     out: dict[str, Any] = {
@@ -1490,6 +1491,7 @@ def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
 
 
 def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1525,6 +1527,7 @@ def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
 
 
 def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1554,6 +1557,8 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
 
 
 def repo_source_ref(repo_path: Path, path: Path) -> str:
+    repo_path = Path(repo_path)
+    path = Path(path)
     try:
         return path.relative_to(repo_path).as_posix()
     except ValueError:
@@ -1573,21 +1578,21 @@ def proof_verdict(
 ) -> dict[str, Any]:
     return {
         "schema_version": CAPABILITY_PROOF_VERDICTS_SCHEMA,
-        "domain": domain,
-        "status": status,
+        "domain": str(domain or ""),
+        "status": str(status or ""),
         "satisfied": status == "passed",
-        "source_kind": source_kind,
-        "source_ref": source_ref,
-        "source_schema_version": schema_version,
-        "source_status": raw_status,
-        "source_verdict": raw_verdict,
-        "detail_counts": detail_counts or {},
+        "source_kind": str(source_kind or ""),
+        "source_ref": str(source_ref or "") if source_ref else None,
+        "source_schema_version": str(schema_version or "") if schema_version else None,
+        "source_status": str(raw_status or "") if raw_status else None,
+        "source_verdict": str(raw_verdict or "") if raw_verdict else None,
+        "detail_counts": detail_counts if isinstance(detail_counts, dict) else {},
         "redaction": "metadata only; proof bodies, commands, labels, and raw evidence omitted",
     }
 
 
 def missing_proof_verdict(domain: str) -> dict[str, Any]:
-    return proof_verdict(domain=domain, status="missing", source_kind="not_found")
+    return proof_verdict(domain=str(domain or ""), status="missing", source_kind="not_found")
 
 
 def source_presence_verdict(
@@ -1597,20 +1602,24 @@ def source_presence_verdict(
     source_path: Path,
     source_kind: str,
 ) -> dict[str, Any]:
+    repo_path = Path(repo_path)
+    source_path = Path(source_path)
     if source_path.exists():
         return proof_verdict(
-            domain=domain,
+            domain=str(domain or ""),
             status="present_unverified",
-            source_kind=source_kind,
+            source_kind=str(source_kind or ""),
             source_ref=repo_source_ref(repo_path, source_path),
         )
     return missing_proof_verdict(domain)
 
 
 def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ...] = ()) -> str:
+    data_dict = data if isinstance(data, dict) else {}
+    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
     values = [
-        str(data.get("verdict") or "").strip().lower(),
-        str(data.get("status") or "").strip().lower(),
+        str(data_dict.get("verdict") or "").strip().lower(),
+        str(data_dict.get("status") or "").strip().lower(),
     ]
     if any(
         value
@@ -1622,8 +1631,8 @@ def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ..
         for value in values
     ):
         return "blocked"
-    for key in passed_keys:
-        value = data.get(key)
+    for key in passed_keys_tuple:
+        value = data_dict.get(key)
         if value is True:
             return "passed"
         if value is False:
@@ -1642,6 +1651,11 @@ def json_proof_verdict(
     source_kind: str,
     passed_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
+    repo_path = Path(repo_path)
+    rel_path = str(rel_path or "")
+    domain = str(domain or "")
+    source_kind = str(source_kind or "")
+    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
     path = repo_path / rel_path
     data, error = read_json(path)
     if error == "missing":
@@ -1656,7 +1670,7 @@ def json_proof_verdict(
     payload = as_dict(data)
     return proof_verdict(
         domain=domain,
-        status=status_from_json_verdict(payload, passed_keys=passed_keys),
+        status=status_from_json_verdict(payload, passed_keys=passed_keys_tuple),
         source_kind=source_kind,
         source_ref=repo_source_ref(repo_path, path),
         schema_version=first_string(payload.get("schema_version")),
@@ -1670,6 +1684,8 @@ def json_proof_verdict(
 
 
 def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
+    repo_path = Path(repo_path)
+    rel_path = str(rel_path or "")
     runs_root = repo_path / "runs"
     if not runs_root.exists():
         return None
