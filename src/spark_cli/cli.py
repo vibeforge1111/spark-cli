@@ -14870,36 +14870,58 @@ def linux_autostart_scope() -> str:
 
 
 def linux_autostart_path(scope: str | None = None) -> Path:
-    resolved_scope = scope or linux_autostart_scope()
-    if resolved_scope == "system":
-        return Path("/etc/systemd/system") / f"{AUTOSTART_SERVICE_NAME}.service"
-    return Path.home() / ".config" / "systemd" / "user" / f"{AUTOSTART_SERVICE_NAME}.service"
-
-
-def linux_xdg_autostart_path() -> Path:
-    return Path.home() / ".config" / "autostart" / f"{AUTOSTART_SERVICE_NAME}.desktop"
-
-
-def systemctl_command(scope: str, *args: str) -> list[str]:
-    if scope == "system":
-        return ["systemctl", *args]
-    return ["systemctl", "--user", *args]
-
-
-def macos_autostart_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{AUTOSTART_LAUNCHD_LABEL}.plist"
-
-
-def running_under_wsl() -> bool:
-    if os.environ.get("WSL_DISTRO_NAME"):
-        return True
+    if not isinstance(scope, str): scope = str(scope or '')
     try:
-        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
-    except OSError:
+        resolved_scope = scope or linux_autostart_scope()
+        if resolved_scope == "system":
+            return Path("/etc/systemd/system") / f"{AUTOSTART_SERVICE_NAME}.service"
+        return Path.home() / ".config" / "systemd" / "user" / f"{AUTOSTART_SERVICE_NAME}.service"
+
+
+
+    except Exception:
+        return Path(".")
+def linux_xdg_autostart_path() -> Path:
+    try:
+        return Path.home() / ".config" / "autostart" / f"{AUTOSTART_SERVICE_NAME}.desktop"
+
+
+
+    except Exception:
+        return Path(".")
+def systemctl_command(scope: str, *args: str) -> list[str]:
+    if not isinstance(scope, str): scope = str(scope or '')
+    try:
+        if scope == "system":
+            return ["systemctl", *args]
+        return ["systemctl", "--user", *args]
+
+
+
+    except Exception:
+        return []
+def macos_autostart_path() -> Path:
+    try:
+        return Path.home() / "Library" / "LaunchAgents" / f"{AUTOSTART_LAUNCHD_LABEL}.plist"
+
+
+
+    except Exception:
+        return Path(".")
+def running_under_wsl() -> bool:
+    try:
+        if os.environ.get("WSL_DISTRO_NAME"):
+            return True
+        try:
+            release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+        except OSError:
+            return False
+        return "microsoft" in release or "wsl" in release
+
+
+
+    except Exception:
         return False
-    return "microsoft" in release or "wsl" in release
-
-
 def available_wsl_distros() -> list[str]:
     result = run_autostart_helper(["wsl.exe", "-l", "-q"])
     if result.returncode != 0:
