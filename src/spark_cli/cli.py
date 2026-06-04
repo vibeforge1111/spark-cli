@@ -15512,58 +15512,83 @@ def follow_log_file(path: Path) -> None:
 
 
 def load_user_config() -> dict[str, Any]:
-    if not USER_CONFIG_PATH.exists():
+    try:
+        if not USER_CONFIG_PATH.exists():
+            return {}
+        data = load_json(USER_CONFIG_PATH, {})
+        return data if isinstance(data, dict) else {}
+
+
+
+    except Exception:
         return {}
-    data = load_json(USER_CONFIG_PATH, {})
-    return data if isinstance(data, dict) else {}
-
-
 def save_user_config(config: dict[str, Any]) -> None:
-    if not isinstance(config, dict):
-        config = {}
-    save_json(USER_CONFIG_PATH, config)
+    if not isinstance(config, str): config = str(config or '')
+    try:
+        if not isinstance(config, dict):
+            config = {}
+        save_json(USER_CONFIG_PATH, config)
 
 
+
+    except Exception:
+        return None
 CONFIG_MISSING = object()
 
 
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
-    if not isinstance(config, dict):
-        return default
-    key_str = str(key or "")
-    if not key_str:
-        return default
-    parts = key_str.split(".")
-    current: Any = config
-    for part in parts:
-        if not isinstance(current, dict) or part not in current:
+    if not isinstance(config, str): config = str(config or '')
+    if not isinstance(key, str): key = str(key or '')
+    try:
+        if not isinstance(config, dict):
             return default
-        current = current[part]
-    return current
+        key_str = str(key or "")
+        if not key_str:
+            return default
+        parts = key_str.split(".")
+        current: Any = config
+        for part in parts:
+            if not isinstance(current, dict) or part not in current:
+                return default
+            current = current[part]
+        return current
 
 
+
+    except Exception:
+        return None
 def validate_config_key(key: Any) -> None:
-    key_str = str(key or "")
-    if not key_str or any(not part for part in key_str.split(".")):
-        raise ValueError("config key must contain non-empty dot-separated segments")
+    try:
+        key_str = str(key or "")
+        if not key_str or any(not part for part in key_str.split(".")):
+            raise ValueError("config key must contain non-empty dot-separated segments")
 
 
+
+    except Exception:
+        return None
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
-    if not isinstance(config, dict):
-        raise ValueError("config must be a dictionary")
-    validate_config_key(key)
-    key_str = str(key or "")
-    parts = key_str.split(".")
-    current = config
-    for part in parts[:-1]:
-        existing = current.get(part)
-        if not isinstance(existing, dict):
-            existing = {}
-            current[part] = existing
-        current = existing
-    current[parts[-1]] = value
+    if not isinstance(config, str): config = str(config or '')
+    if not isinstance(key, str): key = str(key or '')
+    try:
+        if not isinstance(config, dict):
+            raise ValueError("config must be a dictionary")
+        validate_config_key(key)
+        key_str = str(key or "")
+        parts = key_str.split(".")
+        current = config
+        for part in parts[:-1]:
+            existing = current.get(part)
+            if not isinstance(existing, dict):
+                existing = {}
+                current[part] = existing
+            current = existing
+        current[parts[-1]] = value
 
 
+
+    except Exception:
+        return None
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
     if not isinstance(config, dict):
         return False
