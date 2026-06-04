@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import hashlib
 import json
@@ -13,6 +14,7 @@ import urllib.error
 import urllib.request
 from argparse import Namespace
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from http.client import HTTPMessage
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from spark_cli.cli import (
     apply_setup_feature_aliases,
     atomic_write_json,
     ALLOW_INSECURE_FILE_SECRETS_ENV,
+    PRIVATE_FILE_MODE,
     build_module_repair_hints,
     build_llm_env,
     build_parser,
@@ -67,6 +70,8 @@ from spark_cli.cli import (
     detect_runtime_binary,
     direct_node_package_script_argv,
     DPAPI_SECRET_PREFIX,
+    dpapi_protect,
+    dpapi_unprotect,
     evaluate_module_health,
     clone_module_source,
     clone_target_for_module,
@@ -103,6 +108,7 @@ from spark_cli.cli import (
     list_stored_secrets,
     load_json,
     load_json_best_effort,
+    load_module,
     long_path_aware,
     module_log_path,
     live_log_targets,
@@ -215,6 +221,7 @@ from spark_cli.cli import (
     listening_pid_for_tcp_port,
     remove_managed_env_block,
     pid_is_running,
+    pid_registry_errors,
     print_install_summary,
     process_runtime_detail,
     provider_secret_env_blocklist,
@@ -223,6 +230,7 @@ from spark_cli.cli import (
     format_start_warning,
     post_ready_watch_seconds,
     prompt_for_secret,
+    prompt_trust_non_blessed_install,
     ready_check_headers,
     ready_timeout_seconds,
     read_generated_env,
@@ -251,11 +259,14 @@ from spark_cli.cli import (
     wait_for_ready_check,
     write_boundary_env,
     write_browser_use_screenshot,
+    write_doctor_report,
     write_denied_paths,
     write_denied_prefixes,
+    write_support_bundle,
     windows_service_creationflags,
     resolve_bundle_names,
     resolve_setup_bundle_plan,
+    resolve_installed_modules_best_effort,
     resolve_install_target,
     resolve_restart_modules,
     resolve_start_modules,
@@ -288,6 +299,7 @@ from spark_cli.cli import (
     write_runtime_shim,
     telegram_profile_secret_id,
     hosted_cloud_credential_env_errors,
+    hosted_allowed_host_errors,
     hosted_sensitive_mount_errors,
     hosted_local_provider_endpoint_errors,
     linux_effective_capabilities_dropped,
@@ -456,6 +468,27 @@ class SparkCliTests(unittest.TestCase):
         bounded = bound_sandbox_output(raw, max_bytes=80, max_lines=3)
         self.assertNotIn("\x1b", bounded.text)
         self.assertNotIn(fake_openai_key, bounded.text)
+        self.assertIn("[output truncated]", bounded.text)
+        self.assertTrue(bounded.truncated)
+
+    def test_sandbox_output_truncates_on_utf8_boundary(self) -> None:
+        bounded = bound_sandbox_output("ok \U0001f4a5 done", max_bytes=5, max_lines=10)
+        prefix = bounded.text.splitlines()[0]
+
+        self.assertEqual(prefix, "ok ")
+        self.assertNotIn("\ufffd", bounded.text)
+        self.assertNotIn("\U0001f4a5", prefix)
+        self.assertLessEqual(len(prefix.encode("utf-8")), 5)
+        self.assertIn("[output truncated]", bounded.text)
+        self.assertTrue(bounded.truncated)
+
+    def test_sandbox_output_keeps_complete_multibyte_character(self) -> None:
+        bounded = bound_sandbox_output("ok \u00e9 done", max_bytes=5, max_lines=10)
+        prefix = bounded.text.splitlines()[0]
+
+        self.assertEqual(prefix, "ok \u00e9")
+        self.assertNotIn("\ufffd", bounded.text)
+        self.assertLessEqual(len(prefix.encode("utf-8")), 5)
         self.assertIn("[output truncated]", bounded.text)
         self.assertTrue(bounded.truncated)
 
@@ -1406,6 +1439,18 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "git_history_mutation")
 
+    def test_approval_classifier_flags_git_filter_branch(self) -> None:
+        decision = approval_required_for_command(["git", "filter-branch", "--all"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "git_history_mutation")
+        self.assertEqual(decision.risk, "critical")
+
+    def test_approval_classifier_flags_git_filter_branch_without_flags(self) -> None:
+        decision = approval_required_for_command(["git", "filter-branch"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "git_history_mutation")
+        self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)
@@ -1580,6 +1625,8 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 2)
         delete_secret_command.assert_not_called()
         self.assertIn("Approval not granted", stdout.getvalue())
+        self.assertIn("Re-run the same command", stdout.getvalue())
+        self.assertIn("approve secret access", stdout.getvalue())
 
     def test_main_runs_sensitive_command_after_exact_phrase(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
@@ -1624,6 +1671,15 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parsed["runtime"]["version"], ">=22")
         self.assertIn("node -e", parsed["healthcheck"]["command"])
 
+    def test_render_init_spark_toml_escapes_dynamic_strings(self) -> None:
+        import tomllib as _toml
+        description = "Demo \"quoted\"\nmodule with backslash \\"
+        parsed = _toml.loads(render_init_spark_toml("my-module", "python", description))
+        self.assertEqual(parsed["module"]["name"], "my-module")
+        self.assertEqual(parsed["module"]["description"], description)
+        self.assertEqual(parsed["healthcheck"]["success_hint"], "my-module is healthy.")
+        self.assertEqual(parsed["paths"]["home"], "~/.spark/modules/my-module")
+
     def test_scaffold_module_files_writes_expected_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             target = Path(tmp_dir) / "new-module"
@@ -1639,6 +1695,21 @@ class SparkCliTests(unittest.TestCase):
             loaded = load_module(target)
             self.assertEqual(loaded.name, "new-module")
             self.assertEqual(loaded.kind, "service")
+
+    def test_load_module_reports_missing_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(SystemExit) as raised:
+                load_module(Path(tmp_dir) / "missing-module")
+        self.assertIn("Module manifest not found", str(raised.exception))
+
+    def test_load_module_reports_invalid_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "bad-module"
+            target.mkdir()
+            (target / "spark.toml").write_text("[module\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                load_module(target)
+        self.assertIn("Invalid TOML in module manifest", str(raised.exception))
 
     def test_dotted_set_and_get_roundtrips_nested_paths(self) -> None:
         config: dict = {}
@@ -2127,6 +2198,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(any(item["path"] == str(active_path) for item in payload["failures"]))
         self.assertTrue(all("PermissionError" in item["error"] for item in payload["failures"]))
 
+    def test_resolve_installed_modules_best_effort_survives_broken_manifest(self) -> None:
+        with patch("spark_cli.cli.resolve_installed_modules", side_effect=SystemExit("broken manifest")):
+            self.assertEqual(resolve_installed_modules_best_effort(), {})
+
     def test_security_audit_includes_secret_surface_and_provider_checks(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": False, "detail": "secret found"}), \
              patch("spark_cli.cli.provider_status_payload", return_value={"ok": False, "summary": "No LLM provider is configured."}), \
@@ -2142,6 +2217,22 @@ class SparkCliTests(unittest.TestCase):
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertIn("<spark-home>/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
         self.assertNotIn("~/.spark/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
+
+    def test_support_bundle_sets_private_file_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.SPARK_HOME", Path(tmp_dir)), \
+             patch("spark_cli.cli.os.chmod") as chmod:
+            path = write_support_bundle({"ok": True})
+
+        chmod.assert_called_once_with(path, PRIVATE_FILE_MODE)
+
+    def test_doctor_report_sets_private_file_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.SPARK_HOME", Path(tmp_dir)), \
+             patch("spark_cli.cli.os.chmod") as chmod:
+            path = write_doctor_report("redacted report")
+
+        chmod.assert_called_once_with(path, PRIVATE_FILE_MODE)
 
     def test_security_audit_flags_registry_provenance_failures(self) -> None:
         with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean"}), \
@@ -2312,6 +2403,27 @@ class SparkCliTests(unittest.TestCase):
                  patch("spark_cli.cli.load_registry_definition", return_value=registry):
                 errors = module_supply_chain_errors()
         self.assertTrue(any("no recorded registry commit provenance" in error for error in errors))
+
+    def test_module_supply_chain_flags_empty_installed_module_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            installed = {"spawner-ui": {"path": ""}}
+            registry = {
+                "modules": {
+                    "spawner-ui": {
+                        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+                        "commit": "a" * 40,
+                        "blessed": True,
+                    }
+                }
+            }
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                 patch("spark_cli.cli.load_json", return_value=installed), \
+                 patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                errors = module_supply_chain_errors()
+
+        self.assertTrue(any("registry record has an empty path field" in error for error in errors))
+        self.assertFalse(any("lives outside Spark's managed module directory" in error for error in errors))
 
     def test_telegram_polling_conflict_errors_ignore_stale_logs_for_external_ingress(self) -> None:
         setup_state = {"telegram_ingress_mode": "external"}
@@ -2656,6 +2768,18 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://10.0.0.8/v1", label="llm role chat")
         self.assertTrue(any("private network address" in error for error in errors))
 
+    def test_url_policy_blocks_cloud_metadata_hosts(self) -> None:
+        cases = [
+            "https://169.254.170.2/v2/credentials",
+            "https://metadata.amazonaws.com/latest/meta-data/",
+            "https://metadata.azure.com/metadata/instance",
+            "https://metadata.google.internal./computeMetadata/v1",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                errors = validate_url_safety(url, label="provider endpoint")
+                self.assertTrue(any("cloud metadata service" in error for error in errors), errors)
+
     def test_url_policy_allows_local_provider_targets_by_default(self) -> None:
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
@@ -2762,6 +2886,29 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(command[:5], ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         self.assertIn(r"C:\nvm\nodejs\claude.ps1", command)
         self.assertIn("--model", command)
+
+    def test_call_llm_doctor_unsupported_provider_names_supported_set(self) -> None:
+        target = {"provider": "experimental-xyz", "auth_mode": "api"}
+
+        with self.assertRaises(SystemExit) as captured:
+            call_llm_doctor(target, "Spark is not working correctly.")
+
+        message = str(captured.exception)
+        self.assertIn("`experimental-xyz`", message)
+        for provider in [
+            "anthropic",
+            "codex",
+            "huggingface",
+            "kimi",
+            "minimax",
+            "ollama",
+            "openai",
+            "openrouter",
+            "zai",
+        ]:
+            self.assertIn(provider, message)
+        self.assertIn("spark providers list", message)
+        self.assertIn("spark setup", message)
 
     def test_provider_test_explicit_codex_uses_codex_oauth_defaults(self) -> None:
         setup_state = {
@@ -3007,6 +3154,15 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(statuses[0]["relay_port"], 8789)
         self.assertTrue(statuses[0]["primary"])
         self.assertTrue(statuses[0]["autostart"])
+
+    def test_telegram_profile_runtime_status_treats_null_pid_as_stopped(self) -> None:
+        setup_state = {"primary_telegram_profile": "qa-bot", "telegram_profiles": {"qa-bot": {"relay_port": 8789}}}
+        pids = {"spark-telegram-bot:qa-bot": {"pid": None}}
+
+        statuses = telegram_profile_runtime_status(setup_state, pids)
+
+        self.assertIsNone(statuses[0]["pid"])
+        self.assertFalse(statuses[0]["running"])
 
     def test_telegram_profile_runtime_status_marks_manual_profiles(self) -> None:
         setup_state = {
@@ -3309,6 +3465,27 @@ class SparkCliTests(unittest.TestCase):
             skip_install_commands = False
 
         ensure_trust_for_install(Args(), module, "thirdparty")
+
+    def test_prompt_trust_non_blessed_install_accepts_literal_yes(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", return_value="yes"), \
+             patch("builtins.print"):
+            self.assertTrue(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
+
+    def test_prompt_trust_non_blessed_install_rejects_short_y(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", return_value="y"), \
+             patch("builtins.print"):
+            self.assertFalse(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
+
+    def test_prompt_trust_non_blessed_install_rejects_eof(self) -> None:
+        module = make_module("thirdparty", [])
+
+        with patch("builtins.input", side_effect=EOFError), \
+             patch("builtins.print"):
+            self.assertFalse(prompt_trust_non_blessed_install(module, "thirdparty", ["$ npm ci"]))
 
     def test_module_trust_tier_treats_blessed_registry_entries_as_trusted(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])
@@ -3844,6 +4021,24 @@ class SparkCliTests(unittest.TestCase):
             "Spawner UI unhealthy: cannot reach http://127.0.0.1:3333/api/providers",
         )
 
+    def test_summarize_command_output_skips_node_runtime_warning_noise(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["dummy"],
+            returncode=1,
+            stdout="",
+            stderr="\n".join(
+                [
+                    "(node:1234) ExperimentalWarning: SQLite is an experimental feature and might change at any time",
+                    "(Use `node --trace-warnings ...` to show where the warning was created)",
+                    "Spawner UI unhealthy: cannot reach http://127.0.0.1:3333/api/providers",
+                ]
+            ),
+        )
+        self.assertEqual(
+            summarize_command_output(result),
+            "Spawner UI unhealthy: cannot reach http://127.0.0.1:3333/api/providers",
+        )
+
     def test_summarize_command_output_handles_missing_streams(self) -> None:
         result = subprocess.CompletedProcess(
             args=["dummy"],
@@ -3906,6 +4101,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("ADMIN_TELEGRAM_IDS=123", contents)
             self.assertNotIn("OLD=1", contents)
 
+    def test_update_env_file_uses_atomic_temp_then_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+
+            update_env_file(env_path, {"BOT_TOKEN": "abc"})
+
+            self.assertIn("BOT_TOKEN=abc", env_path.read_text(encoding="utf-8"))
+            self.assertEqual(list(Path(tmp_dir).glob(".env.*.tmp")), [])
+
     def test_resolve_install_target_prefers_registry_module_name(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         resolved = resolve_install_target("spark-telegram-bot", {"spark-telegram-bot": gateway})
@@ -3921,6 +4125,40 @@ class SparkCliTests(unittest.TestCase):
             )
             resolved = resolve_install_target(str(repo_path), {})
             self.assertEqual(resolved.name, "test-module")
+
+    def test_resolve_install_target_unknown_message_lists_installed_and_registry(self) -> None:
+        installed = {
+            "spark-cli": make_module("spark-cli", ["spark.cli"]),
+            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
+        }
+        registry = {
+            "modules": {
+                "spark-cli": {},
+                "spark-character": {},
+                "spark-researcher": {},
+            }
+        }
+
+        with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+            with self.assertRaises(SystemExit) as captured:
+                resolve_install_target("typo", installed)
+
+        message = str(captured.exception)
+        self.assertIn("Unknown module target: typo.", message)
+        self.assertIn("Installed modules: spark-cli, spark-telegram-bot.", message)
+        self.assertIn("Registry-known modules: spark-character, spark-researcher.", message)
+        self.assertIn("git URL", message)
+        self.assertIn("spark.toml", message)
+
+    def test_resolve_install_target_unknown_message_handles_empty_registry(self) -> None:
+        with patch("spark_cli.cli.load_registry_definition", return_value={"modules": {}}):
+            with self.assertRaises(SystemExit) as captured:
+                resolve_install_target("typo", {})
+
+        message = str(captured.exception)
+        self.assertIn("Unknown module target: typo.", message)
+        self.assertIn("No modules are installed yet.", message)
+        self.assertNotIn("Registry-known modules:", message)
 
     def test_resolve_bundle_names_reads_registry_bundle(self) -> None:
         self.assertEqual(
@@ -4135,6 +4373,7 @@ class SparkCliTests(unittest.TestCase):
         run.assert_called_once_with(
             [sys.executable, "-m", "pip", "install", "-e", f"{memory_root}[graphiti-kuzu]"],
             check=True,
+            timeout=300,
         )
 
     def test_install_memory_sidecar_dependencies_honors_skip_install_commands(self) -> None:
@@ -4170,6 +4409,22 @@ class SparkCliTests(unittest.TestCase):
 
         message = str(error.exception)
         self.assertIn("Optional Graphiti/Kuzu memory sidecar install failed", message)
+        self.assertIn("--skip-install-commands", message)
+
+    def test_install_memory_sidecar_dependencies_reports_pip_timeout_without_traceback(self) -> None:
+        memory = make_module("domain-chip-memory", ["spark.memory.substrate"])
+        args = build_parser().parse_args(["setup", "--non-interactive", "--memory-sidecars", "graphiti-kuzu"])
+        setup_state = {"memory_sidecars": {"enabled": ["graphiti-kuzu"]}}
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired([sys.executable, "-m", "pip"], 300),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                install_memory_sidecar_dependencies(args, {"domain-chip-memory": memory}, setup_state)
+
+        message = str(error.exception)
+        self.assertIn("Optional Graphiti/Kuzu memory sidecar install timed out after 300s", message)
         self.assertIn("--skip-install-commands", message)
 
     def test_install_memory_sidecar_dependencies_reports_start_failure_without_traceback(self) -> None:
@@ -5533,6 +5788,7 @@ class SparkCliTests(unittest.TestCase):
         with patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
         self.assertEqual(payload["title"], "Spark starter guide")
         self.assertIn("starter_bundle", payload)
         self.assertIn("quick_start", payload)
@@ -6050,6 +6306,43 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(graphiti["group_id"], "spark-memory")
             self.assertEqual(graphiti["db_path"], str(builder_home / "sidecars" / "graphiti" / "kuzu" / "graphiti.kuzu"))
             self.assertTrue((builder_home / "sidecars" / "graphiti" / "kuzu").exists())
+
+    def test_initialize_builder_runtime_home_hides_unexpected_exception_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            builder_root = tmp / "spark-intelligence-builder"
+            package_root = builder_root / "src" / "spark_intelligence"
+            package_root.mkdir(parents=True)
+            (package_root / "__init__.py").write_text("", encoding="utf-8")
+            (package_root / "attachments.py").write_text(
+                "raise RuntimeError('SPARK_OPENAI_API_KEY=leaky-secret')\n",
+                encoding="utf-8",
+            )
+            builder = Module(
+                name="spark-intelligence-builder",
+                path=builder_root,
+                manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0"}},
+            )
+            spark_home = tmp / "spark-home"
+            state_dir = spark_home / "state"
+            saved_modules = {
+                key: value
+                for key, value in sys.modules.items()
+                if key == "spark_intelligence" or key.startswith("spark_intelligence.")
+            }
+            for key in list(saved_modules):
+                sys.modules.pop(key, None)
+            try:
+                with patch.multiple("spark_cli.cli", SPARK_HOME=spark_home, STATE_DIR=state_dir):
+                    notes = initialize_builder_runtime_home({"spark-intelligence-builder": builder})
+            finally:
+                for key in [key for key in sys.modules if key == "spark_intelligence" or key.startswith("spark_intelligence.")]:
+                    sys.modules.pop(key, None)
+                sys.modules.update(saved_modules)
+
+            self.assertIn("Builder runtime bootstrap failed: RuntimeError", notes)
+            self.assertFalse(any("leaky-secret" in note for note in notes))
+            self.assertFalse(any("SPARK_OPENAI_API_KEY" in note for note in notes))
 
     def test_voice_setup_secret_is_keychain_backed_for_builder_runtime(self) -> None:
         args = build_parser().parse_args(
@@ -7714,6 +8007,21 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark-telegram-bot", detail)
         self.assertIn("spawner-ui (pid 102)", detail)
 
+    def test_process_runtime_detail_treats_null_pid_as_missing(self) -> None:
+        pids = {"spark-telegram-bot": {"pid": None}}
+
+        ok, detail = process_runtime_detail(pids, ["spark-telegram-bot"])
+
+        self.assertFalse(ok)
+        self.assertIn("spark-telegram-bot", detail)
+
+    def test_pid_registry_errors_treats_null_pid_as_empty(self) -> None:
+        with patch("spark_cli.cli.load_pids", return_value={"spawner-ui": {"pid": None}}), \
+             patch("spark_cli.cli.pid_is_running") as running:
+            self.assertEqual(pid_registry_errors(), [])
+
+        running.assert_not_called()
+
     def test_expected_runtime_process_names_includes_telegram_profiles(self) -> None:
         setup_state = {
             "telegram_profiles": {
@@ -8720,6 +9028,7 @@ class SparkCliTests(unittest.TestCase):
 
     def test_provider_recommendations_cover_paid_api_and_local_paths(self) -> None:
         payload = provider_recommendations_payload()
+        self.assertTrue(payload["ok"])
         self.assertIn("Choose one default provider for Agent and Mission", payload["default_rule"])
         self.assertIn("codex", payload["paths"]["already_have_subscription"])
         self.assertIn("kimi", payload["paths"]["already_have_api_key"])
@@ -8885,8 +9194,48 @@ class SparkCliTests(unittest.TestCase):
         with patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
         self.assertIn("want_local_private", payload["paths"])
         self.assertIn("lmstudio", payload["paths"]["want_local_private"])
+
+    def test_cmd_providers_list_json_is_agent_readable(self) -> None:
+        args = build_parser().parse_args(["providers", "list", "--json"])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertIn("providers", payload)
+
+    def test_cmd_search_json_is_agent_readable(self) -> None:
+        registry = {
+            "modules": {
+                "spark-telegram-bot": {"summary": "Telegram gateway", "blessed": True},
+                "spark-researcher": {"summary": "Research assistant", "blessed": False},
+            }
+        }
+        installed = {"spark-telegram-bot": {"path": "/spark/modules/spark-telegram-bot"}}
+        args = build_parser().parse_args(["search", "telegram", "--json"])
+
+        with patch("spark_cli.cli.load_registry_definition", return_value=registry), \
+             patch("spark_cli.cli.load_json", return_value=installed), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["query"], "telegram")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(
+            payload["results"],
+            [
+                {
+                    "name": "spark-telegram-bot",
+                    "summary": "Telegram gateway",
+                    "blessed": True,
+                    "installed": True,
+                }
+            ],
+        )
 
     def test_cmd_recommend_providers_is_alias_for_llms(self) -> None:
         args = build_parser().parse_args(["recommend", "providers"])
@@ -9362,6 +9711,30 @@ class SparkCliTests(unittest.TestCase):
                 self.assertIsNone(fetch_secret("telegram.bot_token"))
                 self.assertEqual(list_stored_secrets(), {})
 
+    def test_store_secret_warns_on_keychain_fallback_without_leaking_value(self) -> None:
+        class FailingKeyring:
+            def set_password(self, *_: object) -> None:
+                raise RuntimeError("boom secret-token")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            index_path = Path(tmp_dir) / "secrets_index.json"
+            file_path = Path(tmp_dir) / "secrets.local.json"
+            stderr = StringIO()
+            with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path), \
+                 patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
+                 patch("spark_cli.cli._keyring", FailingKeyring()), \
+                 patch("spark_cli.cli.keychain_available", return_value=True), \
+                 patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}), \
+                 redirect_stderr(stderr):
+                backend = store_secret("telegram.bot_token", "secret-token", preferred="keychain")
+
+        self.assertEqual(backend, "file")
+        warning = stderr.getvalue()
+        self.assertIn("system store write failed", warning)
+        self.assertIn("RuntimeError", warning)
+        self.assertNotIn("secret-token", warning)
+        self.assertNotIn("telegram.bot_token", warning)
+
     def test_store_secret_refuses_file_backend_without_explicit_opt_in(self) -> None:
         if os.name == "nt":
             self.skipTest("Windows file secret backend uses DPAPI.")
@@ -9375,6 +9748,27 @@ class SparkCliTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as error:
                     store_secret("telegram.bot_token", "abc", preferred="keychain")
         self.assertIn("File secret backend is disabled", str(error.exception))
+
+    def test_dpapi_failures_include_windows_error_code_and_recovery_hint(self) -> None:
+        class FailingCrypt32:
+            def CryptProtectData(self, *_: object) -> bool:
+                return False
+
+            def CryptUnprotectData(self, *_: object) -> bool:
+                return False
+
+        with patch("spark_cli.cli.os.name", "nt"), \
+             patch("spark_cli.cli._crypt32", return_value=FailingCrypt32()), \
+             patch.object(ctypes, "get_last_error", return_value=5, create=True):
+            with self.assertRaises(OSError) as protect_error:
+                dpapi_protect("secret")
+            with self.assertRaises(OSError) as unprotect_error:
+                dpapi_unprotect(DPAPI_SECRET_PREFIX + "YmFk")
+
+        self.assertIn("Windows error code 5", str(protect_error.exception))
+        self.assertIn("interactive desktop session", str(protect_error.exception))
+        self.assertIn("Windows error code 5", str(unprotect_error.exception))
+        self.assertIn("same user account", str(unprotect_error.exception))
 
     def test_validate_telegram_bot_token_uses_getme_without_leaking_token_on_rejection(self) -> None:
         class FakeResponse:
@@ -9407,6 +9801,18 @@ class SparkCliTests(unittest.TestCase):
                 validate_telegram_bot_token("123456:bad-token", secret_id="telegram.bot_token")
         self.assertIn("Telegram rejected the bot token", str(error.exception))
         self.assertNotIn("123456:bad-token", str(error.exception))
+
+    def test_validate_telegram_bot_token_redacts_token_from_transport_error_detail(self) -> None:
+        with patch(
+            "spark_cli.cli.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("https://api.telegram.org/bot123456:secret-token/getMe connection failed"),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                validate_telegram_bot_token("123456:secret-token", secret_id="telegram.bot_token")
+        message = str(error.exception)
+        self.assertIn("URLError", message)
+        self.assertNotIn("123456:secret-token", message)
+        self.assertIn("[REDACTED]", message)
 
     def test_validate_new_telegram_bot_tokens_skips_unchanged_tokens_and_supports_offline_bypass(self) -> None:
         class Args:
@@ -9600,6 +10006,37 @@ class SparkCliTests(unittest.TestCase):
             )
             remove_managed_env_block(env_path)
             self.assertEqual(env_path.read_text(encoding="utf-8"), "KEEP=1\n")
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
+            if os.name != "nt":
+                self.assertEqual(env_path.stat().st_mode & 0o777, 0o600)
+
+    def test_remove_managed_env_block_can_atomically_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            env_path.write_text(
+                "# --- spark-cli managed start ---\nBOT_TOKEN=abc\n# --- spark-cli managed end ---\n",
+                encoding="utf-8",
+            )
+
+            remove_managed_env_block(env_path)
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), "")
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
+            if os.name != "nt":
+                self.assertEqual(env_path.stat().st_mode & 0o777, 0o600)
+
+    def test_remove_managed_env_block_preserves_file_when_replace_interrupts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            original = "KEEP=1\n# --- spark-cli managed start ---\nBOT_TOKEN=abc\n# --- spark-cli managed end ---\n"
+            env_path.write_text(original, encoding="utf-8")
+
+            with patch("spark_cli.cli.os.replace", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    remove_managed_env_block(env_path)
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), original)
+            self.assertFalse(list(Path(tmp_dir).glob(".env.*.tmp")))
 
     def test_execute_install_commands_runs_manifest_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -10620,6 +11057,58 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result, "PING_OK")
         self.assertEqual(captured["User-Agent"], OPENAI_COMPAT_HTTP_USER_AGENT)
 
+    def test_openai_compatible_chat_completion_reports_http_error_safely(self) -> None:
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        error = urllib.error.HTTPError(
+            "https://api.example.test/v1/chat/completions",
+            400,
+            "Bad Request",
+            HTTPMessage(),
+            tempfile.SpooledTemporaryFile(),
+        )
+        error.fp.write(b'{"error":"api_key=sk-test-secret failed"}')
+        error.fp.seek(0)
+        with patch("urllib.request.urlopen", side_effect=error), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        message = str(raised.exception)
+        self.assertIn("LLM provider returned HTTP 400", message)
+        self.assertIn("[REDACTED]", message)
+        self.assertNotIn("sk-test-secret", message)
+
+    def test_openai_compatible_chat_completion_reports_network_error(self) -> None:
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        self.assertIn("Could not reach LLM provider", str(raised.exception))
+
+    def test_openai_compatible_chat_completion_reports_invalid_json(self) -> None:
+        class FakeResponse:
+            def read(self) -> bytes:
+                return b"not-json"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        target = {
+            "base_url": "https://api.example.test/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }
+        with patch("urllib.request.urlopen", return_value=FakeResponse()), self.assertRaises(SystemExit) as raised:
+            openai_compatible_chat_completion(target, "ping")
+        self.assertIn("LLM provider returned invalid JSON", str(raised.exception))
+
     def test_collect_verify_payload_reports_launch_ready_stack(self) -> None:
         expected = [
             "spark-researcher",
@@ -11490,6 +11979,58 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Could not fetch hosted installer checksum metadata", hosted["detail"])
         self.assertIn("<fetch failed>", hosted["detail"])
 
+    def test_hosted_installer_json_metadata_rejects_non_object_payloads(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.payload
+
+        local = collect_installer_integrity_payload()
+        local_hashes = {
+            check["name"].removeprefix("local_"): check["actual_sha256"]
+            for check in local["checks"]
+            if check["name"].startswith("local_install.")
+        }
+        checksums_payload = (
+            f"{local_hashes['install.sh']}  install.sh\n"
+            f"{local_hashes['install.ps1']}  install.ps1\n"
+        ).encode("utf-8")
+
+        def fake_urlopen(request: Any, timeout: int = 0, **_: Any) -> FakeResponse:
+            url = request.full_url
+            if url.endswith("/install/checksums.txt"):
+                return FakeResponse(checksums_payload)
+            if url.endswith("/install/release-manifest.json"):
+                return FakeResponse(b"[]")
+            if url.endswith("/install/commands.json"):
+                return FakeResponse(b"[]")
+            if url.endswith("/install.sh"):
+                return FakeResponse((Path(__file__).resolve().parents[1] / "scripts" / "install.sh").read_bytes())
+            if url.endswith("/install.ps1"):
+                return FakeResponse((Path(__file__).resolve().parents[1] / "scripts" / "install.ps1").read_bytes())
+            raise AssertionError(url)
+
+        with patch("spark_cli.cli.current_git_commit", return_value=installer_manifest_payload()["source"]["ref"]), \
+             patch("spark_cli.cli.urllib.request.urlopen", side_effect=fake_urlopen):
+            payload = collect_installer_integrity_payload(hosted=True)
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["hosted_release_manifest"]["ok"])
+        self.assertFalse(checks["hosted_commands_metadata"]["ok"])
+        self.assertIn("must be a JSON object", checks["hosted_release_manifest"]["detail"])
+        self.assertIn("must be a JSON object", checks["hosted_commands_metadata"]["detail"])
+        self.assertNotIn("stale", checks["hosted_release_manifest"]["detail"].lower())
+        self.assertNotIn("stale", checks["hosted_commands_metadata"]["detail"].lower())
+
     def test_verify_installers_uses_integrity_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--installers", "--json"])
         payload = {
@@ -11875,6 +12416,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertFalse(checks["allowed_hosts"]["ok"])
         self.assertIn("private or local network", checks["allowed_hosts"]["detail"])
+
+    def test_hosted_allowed_hosts_rejects_bracketed_ipv6_with_port(self) -> None:
+        errors = hosted_allowed_host_errors(["[2001:4860:4860::8888]:443"])
+
+        self.assertEqual(
+            errors,
+            ["SPARK_ALLOWED_HOSTS must not include ports ('[2001:4860:4860::8888]:443')."],
+        )
+
+    def test_hosted_allowed_hosts_allows_bracketed_public_ipv6_without_port(self) -> None:
+        self.assertEqual(hosted_allowed_host_errors(["[2001:4860:4860::8888]"]), [])
 
     def test_collect_hosted_security_payload_requires_strict_pins_for_public_bind(self) -> None:
         with patch.dict(
@@ -12615,6 +13167,20 @@ class SparkCliTests(unittest.TestCase):
         message = str(error.exception)
         self.assertIn("browser-use package install failed", message)
         self.assertIn("exit code 2", message)
+
+    def test_browser_use_install_reports_package_install_timeout_without_traceback(self) -> None:
+        args = build_parser().parse_args(["browser-use", "install"])
+
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired([sys.executable, "-m", "pip"], 300),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                cmd_browser_use(args)
+
+        message = str(error.exception)
+        self.assertIn("browser-use package install timed out after 300s", message)
+        self.assertIn("network unreachable", message)
 
     def test_browser_use_install_reports_browser_setup_failure_without_traceback(self) -> None:
         args = build_parser().parse_args(["browser-use", "install"])

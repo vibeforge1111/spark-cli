@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +10,7 @@ import tempfile
 import types
 import unittest
 from argparse import Namespace
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -256,6 +259,60 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertIn("https://example.com", called_commands[0])
         self.assertIn("state", called_commands[1])
         self.assertIn("eval", called_commands[2])
+
+    def test_page_summary_marks_truncated_text(self) -> None:
+        long_text = "x" * 2001
+        calls: list[list[str]] = []
+
+        def fake_run(*argv: str, **_: object) -> subprocess.CompletedProcess[str]:
+            command = list(argv)
+            calls.append(command)
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="result: "
+                + cli.json.dumps(
+                    {
+                        "title": "Long",
+                        "url": "https://example.com/",
+                        "text": long_text,
+                        "textLength": 2500,
+                    }
+                ),
+                stderr="",
+            )
+
+        with patch("spark_cli.cli.run_browser_use_command", side_effect=fake_run):
+            payload = cli.browser_use_page_summary("browser-use", "spark-browser-long")
+
+        self.assertEqual(payload["title"], "Long")
+        self.assertEqual(payload["text"], ("x" * 2000) + "\n[truncated]")
+        self.assertIn("slice(0,2001)", calls[0][-1])
+
+    def test_page_summary_leaves_exact_limit_unmarked(self) -> None:
+        exact_text = "x" * 2000
+
+        with patch(
+            "spark_cli.cli.run_browser_use_command",
+            return_value=subprocess.CompletedProcess(
+                ["browser-use"],
+                0,
+                stdout="result: "
+                + cli.json.dumps(
+                    {
+                        "title": "Exact",
+                        "url": "https://example.com/",
+                        "text": exact_text,
+                        "textLength": len(exact_text),
+                    }
+                ),
+                stderr="",
+            ),
+        ):
+            payload = cli.browser_use_page_summary("browser-use", "spark-browser-exact")
+
+        self.assertEqual(payload["text"], exact_text)
+        self.assertNotIn("[truncated]", payload["text"])
 
     def test_screenshot_writes_screenshot_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -570,6 +627,92 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(wrapper.name, "glm")
         self.assertEqual(wrapper.model, "openai/glm-5.1")
         self.assertEqual(wrapper.model_name, "openai/glm-5.1")
+
+    def test_task_json_output_uses_public_artifact_paths(self) -> None:
+        async def fake_agent(
+            goal: str,
+            *,
+            start_url: str = "",
+            max_steps: int = 25,
+            history_path: Path | None = None,
+            start_page: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            screenshot_paths: list[str] = []
+            if history_path is not None:
+                history_path.write_text("{}", encoding="utf-8")
+                screenshot_paths.append(str(history_path.with_suffix(".png")))
+            return {
+                "final_result": "done",
+                "number_of_steps": 1,
+                "is_done": True,
+                "is_successful": True,
+                "screenshot_paths": screenshot_paths,
+            }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            browser_use_path = Path.home() / ".cache" / "spark-browser-use-test" / "browser-use"
+            buffer = io.StringIO()
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(browser_use_path)), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.run_browser_use_agent_task", side_effect=fake_agent), \
+                 redirect_stdout(buffer):
+                exit_code = cli.cmd_browser_use(
+                    Namespace(
+                        browser_use_command="task",
+                        goal=["review", "page"],
+                        url="",
+                        max_steps=1,
+                        json=True,
+                    )
+                )
+
+            output = buffer.getvalue()
+            payload = json.loads(output)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["cli_path"], "<local-path>/browser-use")
+            self.assertTrue(payload["receipt_path"].startswith("<local-path>/spark-browser-task-"))
+            self.assertTrue(payload["history_path"].startswith("<local-path>/spark-browser-task-"))
+            self.assertTrue(all(item.startswith("<local-path>/") for item in payload["screenshot_paths"]))
+            self.assertNotIn(str(Path(tmp_dir)), output)
+
+    def test_probe_json_output_uses_public_artifact_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
+            browser_use_path = Path.home() / ".cache" / "spark-browser-use-test" / "browser-use"
+            completed = subprocess.CompletedProcess(["browser-use"], 0, stdout="ok", stderr="")
+
+            def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "screenshot" in argv:
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        stdout=cli.json.dumps({"success": True, "data": {"screenshot": "cG5n"}}),
+                        stderr="",
+                    )
+                return completed
+
+            buffer = io.StringIO()
+            with patch.object(cli, "BROWSER_USE_STATUS_DIR", status_path.parent), \
+                 patch.object(cli, "BROWSER_USE_STATUS_PATH", status_path), \
+                 patch("spark_cli.cli.browser_use_cli_path", return_value=str(browser_use_path)), \
+                 patch("spark_cli.cli.browser_use_package_available", return_value=True), \
+                 patch("spark_cli.cli.subprocess.run", side_effect=fake_run), \
+                 redirect_stdout(buffer):
+                exit_code = cli.cmd_browser_use(Namespace(browser_use_command="probe", json=True))
+
+            output = buffer.getvalue()
+            payload = json.loads(output)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["cli_path"], "<local-path>/browser-use")
+            self.assertEqual(payload["status_path"], "<local-path>/status.json")
+            self.assertEqual(payload["probe"]["cli_path"], "<local-path>/browser-use")
+            self.assertEqual(payload["probe"]["status_path"], "<local-path>/status.json")
+            self.assertEqual(payload["probe"]["screenshot_path"], "<local-path>/probe-screenshot.png")
+            self.assertNotIn(str(Path(tmp_dir)), output)
 
 
 if __name__ == "__main__":

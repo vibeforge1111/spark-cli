@@ -103,13 +103,14 @@ PRIMARY_TELEGRAM_PROFILE_KEY = "primary_telegram_profile"
 TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+$")
+INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
 POWERSHELL_INSTALLER_REF_PATTERN = re.compile(r'\[string\]\$Ref\s*=\s*"([A-Za-z0-9._/-]+)"')
 TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}\b")
 TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS = 10
+PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS = 300
 MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
@@ -1034,7 +1035,14 @@ def dpapi_protect(value: str) -> str:
     in_blob = _DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptProtectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptProtectData failed (Windows error code {err}). "
+            "Verify a user profile is loaded -- this call commonly fails under "
+            "SSH, scheduled tasks, or service accounts where the interactive "
+            "profile is unavailable. Re-run from an interactive desktop session, "
+            f"or set {ALLOW_INSECURE_FILE_SECRETS_ENV}=1 to opt out (insecure)."
+        )
     try:
         protected = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1053,7 +1061,14 @@ def dpapi_unprotect(value: str) -> str:
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
     if not _crypt32().CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
-        raise OSError("CryptUnprotectData failed")
+        err = ctypes.get_last_error() if hasattr(ctypes, "get_last_error") else 0
+        raise OSError(
+            f"CryptUnprotectData failed (Windows error code {err}). "
+            "The stored value may have been written under a different user "
+            "profile, or the master key is unreachable. Re-run from the same "
+            "user account that wrote the value, or delete the stored entry "
+            "and re-enter it with `spark setup`."
+        )
     try:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
@@ -1094,8 +1109,17 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
-        except Exception:
-            pass
+        except Exception as _store_exc:
+            # Surface the fall-back so the operator notices that the value
+            # landed on disk instead of in the system store. Log only the
+            # exception class name -- the message can echo the value, which
+            # we never want in a log line. The file path it falls back to is
+            # already chmod 0o600 by harden_secret_file below.
+            sys.stderr.write(
+                f"spark-cli: system store write failed "
+                f"(error type: {type(_store_exc).__name__}); "
+                f"falling back to file storage.\n"
+            )
     file_secrets = load_json(SECRETS_FILE_PATH, {})
     try:
         file_secrets[secret_id] = dpapi_protect(value)
@@ -1133,6 +1157,11 @@ def is_telegram_bot_token_secret(secret_id: str) -> bool:
     )
 
 
+def telegram_token_validation_error_detail(error: BaseException) -> str:
+    detail = redact_sensitive_text(str(error))
+    return re.sub(r"/bot[^/\s]+/", "/bot[REDACTED]/", detail, flags=re.IGNORECASE)
+
+
 def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_token") -> dict[str, Any]:
     """Validate a Telegram bot token with getMe before persisting it."""
     token = extract_telegram_bot_token(token)
@@ -1153,10 +1182,12 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
             f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
             "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
         )
-    except (OSError, TimeoutError, json.JSONDecodeError) as error:
+    except (OSError, TimeoutError, json.JSONDecodeError, urllib.error.URLError) as error:
+        safe_detail = telegram_token_validation_error_detail(error)
         raise SystemExit(
-            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}. "
-            "Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
+            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}"
+            + (f" ({safe_detail})" if safe_detail else "")
+            + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
         )
     if not payload.get("ok"):
         description = str(payload.get("description") or "token rejected")
@@ -1446,7 +1477,9 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
     parsed = json.loads(payload)
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
+    return parsed
 
 
 def installer_ssl_context() -> ssl.SSLContext | None:
@@ -1934,7 +1967,14 @@ def save_json(path: Path, payload: Any) -> None:
 
 def load_module(path: Path) -> Module:
     manifest_path = path / "spark.toml"
-    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+    except PermissionError as exc:
+        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -3233,6 +3273,17 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
 }
 
 LLM_PROVIDER_CHOICES = sorted(provider for provider in LLM_PROVIDER_ENV if provider != "not_configured")
+LLM_DOCTOR_DIRECT_PROVIDER_CHOICES = (
+    "anthropic",
+    "codex",
+    "huggingface",
+    "kimi",
+    "minimax",
+    "ollama",
+    "openai",
+    "openrouter",
+    "zai",
+)
 LLM_ROLES = ("chat", "builder", "memory", "mission")
 LLM_PROVIDER_WIZARD_ORDER = ("codex", "anthropic", "zai", "kimi", "openrouter", "huggingface", "minimax", "lmstudio", "ollama", "openai")
 LLM_ROLE_LABELS = {
@@ -3376,6 +3427,7 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "summary": "Spark LLM recommendations",
         "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
         "paths": {
@@ -4290,8 +4342,10 @@ def initialize_builder_runtime_home(
                 status="enabled",
             )
             notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except Exception as exc:  # pragma: no cover - defensive fallback for partial installs
+    except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
         notes.append(f"Builder runtime bootstrap skipped: {exc}")
+    except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
+        notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
     finally:
         if inserted:
             try:
@@ -4495,7 +4549,15 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     for key, value in values.items():
         lines.append(f"{key}={value}")
     lines.append(end)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to a unique temp path, chmod to private mode, then
+    # os.replace into place so a concurrent reader never observes a half-written
+    # configuration file (the old direct write_text could be interrupted between
+    # the open() and the final flush, leaving zero-byte or truncated state).
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, PRIVATE_FILE_MODE)
+    os.replace(tmp, path)
+    os.chmod(path, PRIVATE_FILE_MODE)
 
 
 def remove_managed_env_block(path: Path) -> None:
@@ -4519,7 +4581,7 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    atomic_write_text(path, (output + "\n") if output else "")
 
 
 def cmd_list(_: argparse.Namespace) -> int:
@@ -4570,7 +4632,25 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
         if not manifest_path.exists():
             raise SystemExit(f"{candidate} does not contain spark.toml")
         return load_module(candidate)
-    raise SystemExit(f"Unknown module target: {target}")
+    raise SystemExit(unknown_install_target_message(target, modules, registry))
+
+
+def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
+    installed_names = sorted(modules)
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    registry_names = sorted(name for name in registry_modules if name not in modules)
+    parts = [f"Unknown module target: {target}."]
+    if installed_names:
+        parts.append("Installed modules: " + ", ".join(installed_names) + ".")
+    else:
+        parts.append("No modules are installed yet.")
+    if registry_names:
+        parts.append("Registry-known modules: " + ", ".join(registry_names) + ".")
+    parts.append(
+        "Pass an installed module name, a registry-known module name, a git URL, "
+        "or a local directory containing spark.toml."
+    )
+    return " ".join(parts)
 
 
 def install_module_record(
@@ -4902,7 +4982,7 @@ def prompt_trust_non_blessed_install(module: Module, target: str, risk: list[str
         answer = input("Type 'yes' to proceed: ").strip().lower()
     except EOFError:
         return False
-    return answer in ("yes", "y")
+    return answer == "yes"
 
 
 def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: str) -> None:
@@ -5694,10 +5774,20 @@ def install_memory_sidecar_dependencies(
     install_target = f"{memory.path}[graphiti-kuzu]"
     print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
     try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", install_target], check=True)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", install_target],
+            check=True,
+            timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+        )
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
             f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+            "Re-run setup with --skip-install-commands or install the sidecar manually."
+        ) from None
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+            "The package download may be slow or the network unreachable. "
             "Re-run setup with --skip-install-commands or install the sidecar manually."
         ) from None
     except OSError as exc:
@@ -5842,6 +5932,8 @@ def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
         parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     except ValueError:
         return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
 
 
@@ -6126,8 +6218,17 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         )
 
 
+_PAGE_SUMMARY_TEXT_LIMIT = 2000
+
+
 def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
-    script = "JSON.stringify({title:document.title,url:location.href,text:document.body.innerText.slice(0,2000)})"
+    summary_limit = _PAGE_SUMMARY_TEXT_LIMIT + 1
+    script = (
+        "(()=>{const text=document.body.innerText||'';"
+        f"return JSON.stringify({{title:document.title,url:location.href,text:text.slice(0,{summary_limit}),"
+        "textLength:text.length});"
+        "})()"
+    )
     result = run_browser_use_command(cli_path, "--session", session, "eval", script, timeout=45)
     raw = result.stdout.strip()
     if raw.lower().startswith("result:"):
@@ -6138,10 +6239,17 @@ def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
         return {"title": "", "url": "", "text": ""}
     if not isinstance(parsed, dict):
         return {"title": "", "url": "", "text": ""}
+    text = str(parsed.get("text") or "")
+    try:
+        text_length = int(parsed.get("textLength") or len(text))
+    except (TypeError, ValueError):
+        text_length = len(text)
+    if text_length > _PAGE_SUMMARY_TEXT_LIMIT or len(text) > _PAGE_SUMMARY_TEXT_LIMIT:
+        text = text[:_PAGE_SUMMARY_TEXT_LIMIT].rstrip() + "\n[truncated]"
     return {
         "title": str(parsed.get("title") or ""),
         "url": str(parsed.get("url") or ""),
-        "text": str(parsed.get("text") or ""),
+        "text": text,
     }
 
 
@@ -6507,6 +6615,23 @@ def browser_use_command_failure_message(exc: BaseException) -> str:
     return str(exc)[:500] or type(exc).__name__
 
 
+def browser_use_public_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        public: dict[str, Any] = {}
+        for key, value in payload.items():
+            key_text = str(key)
+            if key_text == "cli_path" or key_text.endswith("_path"):
+                public[key_text] = public_local_path_ref(value)
+            elif key_text.endswith("_paths") and isinstance(value, list):
+                public[key_text] = [public_local_path_ref(item) for item in value]
+            else:
+                public[key_text] = browser_use_public_payload(value)
+        return public
+    if isinstance(payload, list):
+        return [browser_use_public_payload(item) for item in payload]
+    return payload
+
+
 def cmd_browser_use(args: argparse.Namespace) -> int:
     action = getattr(args, "browser_use_command", "status")
     if action == "status":
@@ -6543,11 +6668,20 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Then run: spark browser-use probe")
             return 0
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"], check=True)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
+                check=True,
+                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+            )
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
                 f"browser-use package install failed with exit code {exc.returncode}. "
                 "Fix the Python package install, then rerun `spark browser-use install`."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"browser-use package install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable."
             ) from None
         except OSError as exc:
             raise SystemExit(
@@ -6569,7 +6703,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
         payload = browser_use_probe_payload()
         status_payload = browser_use_status_payload()
         if getattr(args, "json", False):
-            print(json.dumps(status_payload | {"probe": payload}, indent=2))
+            print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
             return 0 if status_payload["ok"] else 1
         if status_payload["ok"]:
             print("Browser-use is ready for the probed scope.")
@@ -6585,7 +6719,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
     if action in {"open", "screenshot"}:
         payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
         if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
             return 0 if payload.get("ok") else 1
         if payload.get("ok"):
             print(f"Browser-use {payload['action']} succeeded.")
@@ -6611,7 +6745,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             max_steps=int(getattr(args, "max_steps", 25) or 25),
         )
         if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+            print(json.dumps(browser_use_public_payload(payload), indent=2))
             return 0 if payload.get("ok") else 1
         if payload.get("ok"):
             print("Browser-use task completed.")
@@ -7263,6 +7397,14 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
         if not line:
             continue
         if line.startswith("> "):
+            continue
+        if line.startswith("(node:") and (
+            "DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line
+        ):
+            continue
+        if line.startswith("(Use `node ") and "to show where the warning was created" in line:
+            continue
+        if line.startswith("(Use `node --") and "..." in line:
             continue
         lines.append(line)
     if not lines:
@@ -8067,6 +8209,10 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -8177,7 +8323,7 @@ def module_name_from_generated_env_path(path: Path) -> str | None:
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
-    except Exception:
+    except (Exception, SystemExit):
         return {}
 
 
@@ -8860,7 +9006,7 @@ def pid_registry_errors() -> list[str]:
             errors.append(f"Process registry entry `{key}` is malformed.")
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             errors.append(f"Process registry entry `{key}` has an invalid pid.")
             continue
@@ -8948,7 +9094,11 @@ def module_supply_chain_errors() -> list[str]:
         if not isinstance(record, dict):
             errors.append(f"Installed module `{name}` has a malformed registry record.")
             continue
-        path = Path(str(record.get("path") or "")).expanduser()
+        raw_path = str(record.get("path") or "").strip()
+        if not raw_path:
+            errors.append(f"Installed module `{name}` registry record has an empty path field.")
+            continue
+        path = Path(raw_path).expanduser()
         if not path.exists():
             errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
             continue
@@ -9795,7 +9945,10 @@ def print_access_payload(payload: dict[str, Any]) -> None:
         elif level5.get("restart_required"):
             print("Level 5 guardrails: configured, restart Spark to activate")
         else:
-            print("Level 5 guardrails: blocked until explicitly enabled")
+            print(
+                "Level 5 guardrails: blocked until explicitly enabled "
+                "with `spark access setup --level 5 --enable-high-agency`"
+            )
     print("")
     print("Available lanes:")
     for lane in payload.get("lanes", []):
@@ -10096,6 +10249,10 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     response = input("Approval phrase: ").strip().lower()
     if response != decision.confirmation_phrase:
         print("Approval not granted. Nothing changed.")
+        print(
+            f"Re-run the same command and type exactly `{decision.confirmation_phrase}` "
+            "at the prompt to proceed."
+        )
         return 2
     return None
 
@@ -10571,8 +10728,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "LLM provider")
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -10600,13 +10756,34 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = read_llm_provider_json(request, "Ollama")
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
         raise SystemExit("Ollama returned an empty doctor response.")
     return str(content)
+
+
+def read_llm_provider_json(request: urllib.request.Request, provider_label: str) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
+        suffix = f": {body[:300]}" if body else ""
+        raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
+    except urllib.error.URLError as exc:
+        reason = redact_sensitive_text(str(exc.reason))
+        raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
+    except TimeoutError as exc:
+        raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
+    return payload
 
 
 def llm_cli_creationflags() -> int:
@@ -10711,7 +10888,11 @@ def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
         return claude_cli_completion(target, prompt)
     if provider == "ollama":
         return ollama_chat_completion(target, prompt)
-    raise SystemExit(f"Spark Doctor cannot directly call provider `{provider}` yet.")
+    raise SystemExit(
+        f"Spark Doctor cannot directly call provider `{provider}` yet. "
+        f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
+        "Run `spark providers list` to see configured paths, or `spark setup` to switch."
+    )
 
 
 def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
@@ -10720,6 +10901,10 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
     path.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     return path
 
 
@@ -11338,6 +11523,7 @@ def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
     return {
+        "ok": True,
         "providers": [
             {
                 "id": "openai",
@@ -11555,14 +11741,14 @@ def cmd_providers(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
         for provider in payload["providers"]:
             auth = ", ".join(provider["auth"])
@@ -11675,7 +11861,7 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         payload = provider_recommendations_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
-            return 0
+            return 0 if payload.get("ok") else 1
         print_llm_provider_recommendations(payload)
         return 0
     raise SystemExit(f"Unknown recommend command: {args.recommend_command}. Known commands: llms, providers.")
@@ -12191,7 +12377,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
         if not isinstance(record, dict):
             return False
         try:
-            return pid_is_running(int(record.get("pid", 0)))
+            return pid_is_running(int(record.get("pid") or 0))
         except (TypeError, ValueError):
             return False
 
@@ -12548,7 +12734,7 @@ def tracked_runtime_uids() -> list[int]:
         if not isinstance(record, dict):
             continue
         try:
-            pid = int(record.get("pid", 0))
+            pid = int(record.get("pid") or 0)
         except (TypeError, ValueError):
             continue
         if not pid or not pid_is_running(pid):
@@ -12695,7 +12881,10 @@ def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
         normalized = host.strip().lower()
         host_without_port = normalized
         if normalized.startswith("[") and "]" in normalized:
-            host_without_port = normalized[1 : normalized.index("]")]
+            bracket_end = normalized.index("]")
+            host_without_port = normalized[1:bracket_end]
+            if normalized[bracket_end + 1 :]:
+                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
         elif normalized.count(":") == 1:
             host_without_port = normalized.split(":", 1)[0]
         if normalized in blocked:
@@ -13893,7 +14082,7 @@ def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
-        if isinstance(record, dict) and int(record.get("pid", 0)) == int(launched_pid):
+        if isinstance(record, dict) and int(record.get("pid") or 0) == int(launched_pid):
             record["pid"] = int(runtime_pid)
             record["launcher_pid"] = int(launched_pid)
             save_pids(pids)
@@ -13910,7 +14099,7 @@ def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tup
     running_names: list[str] = []
     for name in module_names:
         record = pids.get(name) if isinstance(pids, dict) else None
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             running_names.append(f"{name} (pid {pid})")
         else:
@@ -13961,7 +14150,7 @@ def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
     pids = load_pids()
     for process_key in tracked_process_keys_for_module(pids, "spawner-ui"):
         record = pids.get(process_key)
-        pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+        pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
         if pid and pid_is_running(pid):
             return True
     return False
@@ -14025,7 +14214,7 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         pid = 0
         if isinstance(record, dict):
             try:
-                pid = int(record.get("pid", 0))
+                pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
         statuses.append(
@@ -14264,7 +14453,7 @@ def stop_tracked_process_key(process_key: str) -> bool:
         record = pids.get(process_key)
         if not isinstance(record, dict):
             return False
-        pid = int(record.get("pid", 0))
+        pid = int(record.get("pid") or 0)
         if pid and pid_is_running(pid):
             stop_module(process_key, pid)
         pids.pop(process_key, None)
@@ -15278,11 +15467,11 @@ def cmd_config_list(_: argparse.Namespace) -> int:
 
 
 INIT_SPARK_TOML_TEMPLATE = """[module]
-name = "{name}"
+name = {name}
 version = "0.1.0"
 kind = "service"
 plane = "execution"
-description = "{description}"
+description = {description}
 license = "UNLICENSED"
 
 [runtime]
@@ -15308,13 +15497,13 @@ routes = []
 [healthcheck]
 command = "{healthcheck_command}"
 timeout_seconds = 10
-success_hint = "{name} is healthy."
+success_hint = {success_hint}
 failure_hint = "Run the healthcheck command from the module home for detail."
 
 [paths]
-home = "~/.spark/modules/{name}"
-state = "~/.spark/state/{name}"
-logs = "~/.spark/logs/{name}"
+home = {home}
+state = {state}
+logs = {logs}
 """
 
 
@@ -15382,11 +15571,15 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     else:
         raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
     return INIT_SPARK_TOML_TEMPLATE.format(
-        name=name,
-        description=description,
+        name=json.dumps(name),
+        description=json.dumps(description),
         runtime_kind=runtime_kind,
         runtime_version=runtime_version,
         healthcheck_command=healthcheck,
+        success_hint=json.dumps(f"{name} is healthy."),
+        home=json.dumps(f"~/.spark/modules/{name}"),
+        state=json.dumps(f"~/.spark/state/{name}"),
+        logs=json.dumps(f"~/.spark/logs/{name}"),
     )
 
 
@@ -15445,6 +15638,14 @@ def cmd_search(args: argparse.Namespace) -> int:
         if query and query not in name.lower() and query not in summary.lower():
             continue
         hits.append((name, summary, blessed, name in installed))
+
+    if getattr(args, "json", False):
+        results = [
+            {"name": name, "summary": summary, "blessed": blessed, "installed": installed_flag}
+            for name, summary, blessed, installed_flag in sorted(hits)
+        ]
+        print(json.dumps({"ok": True, "query": query or None, "count": len(results), "results": results}, indent=2))
+        return 0
 
     if not hits:
         print("No matching modules." if query else "Registry has no modules.")
@@ -15601,7 +15802,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         for process_key in process_keys:
             with pid_file_lock():
                 record = load_pids().get(process_key, {})
-            pid = int(record.get("pid", 0)) if isinstance(record, dict) else 0
+            pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
             if pid and pid_is_running(pid):
                 print(f"Stopping {process_key} before update so install commands can replace locked files.")
                 stopped_processes.append(process_key)
@@ -15707,6 +15908,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def onboarding_guide_payload() -> dict[str, Any]:
     return {
+        "ok": True,
         "title": "Spark starter guide",
         "goal": "Install Spark, choose how it thinks, connect Telegram, then start chatting and building with your agent.",
         "operating_systems": ["Windows PowerShell/CMD", "macOS Terminal", "Linux shell", "WSL Ubuntu shell"],
@@ -16634,6 +16836,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search the local blessed registry for modules")
     search_parser.add_argument("query", nargs="?", help="Filter by substring match against name or summary")
+    search_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     search_parser.set_defaults(func=cmd_search)
 
     config_parser = subparsers.add_parser("config", help="Read or write user config at ~/.spark/config/config.json")
