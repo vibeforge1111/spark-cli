@@ -13860,93 +13860,116 @@ def resolve_restart_modules(target: str | None, installed_modules: dict[str, Mod
 
 
 def load_pids() -> dict[str, Any]:
-    return load_json(PID_PATH, {})
+    try:
+        return load_json(PID_PATH, {})
 
 
+
+    except Exception:
+        return {}
 def save_pids(payload: dict[str, Any]) -> None:
-    save_json(PID_PATH, payload)
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        save_json(PID_PATH, payload)
 
 
+
+    except Exception:
+        return None
 @contextmanager
 def pid_file_lock(timeout_seconds: float = 15.0):
-    PID_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with PID_LOCK_PATH.open("a+b") as handle:
-        if handle.tell() == 0:
-            handle.write(b"\0")
-            handle.flush()
-        handle.seek(0)
-        deadline = time.monotonic() + timeout_seconds
-        if sys.platform == "win32":
-            import msvcrt
-
-            while True:
-                try:
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                    break
-                except OSError:
-                    if time.monotonic() >= deadline:
-                        raise SystemExit("Timed out waiting for Spark process registry lock. Try again in a moment.")
-                    time.sleep(0.05)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            while True:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise SystemExit("Timed out waiting for Spark process registry lock. Try again in a moment.")
-                    time.sleep(0.05)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def tracked_process_keys_for_module(pids: dict[str, Any], module_name: str) -> list[str]:
-    keys: list[str] = []
-    for key, record in pids.items():
-        owns_key = key == module_name or key.startswith(f"{module_name}:")
-        owns_record = isinstance(record, dict) and record.get("module") == module_name
-        if owns_key or owns_record:
-            keys.append(key)
-    return sorted(keys)
-
-
-def pid_is_running(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        try:
-            import ctypes
-
-            process_query_limited_information = 0x1000
-            still_active = 259
-            handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
-            if not handle:
-                return False
-            try:
-                exit_code = ctypes.c_ulong()
-                if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                    return False
-                return exit_code.value == still_active
-            finally:
-                ctypes.windll.kernel32.CloseHandle(handle)
-        except Exception:
-            return False
     try:
-        os.kill(pid, 0)
-    except OSError:
+        PID_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with PID_LOCK_PATH.open("a+b") as handle:
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            deadline = time.monotonic() + timeout_seconds
+            if sys.platform == "win32":
+                import msvcrt
+
+                while True:
+                    try:
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise SystemExit("Timed out waiting for Spark process registry lock. Try again in a moment.")
+                        time.sleep(0.05)
+                try:
+                    yield
+                finally:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                while True:
+                    try:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise SystemExit("Timed out waiting for Spark process registry lock. Try again in a moment.")
+                        time.sleep(0.05)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+
+    except Exception:
+        return None
+def tracked_process_keys_for_module(pids: dict[str, Any], module_name: str) -> list[str]:
+    if not isinstance(pids, str): pids = str(pids or '')
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    try:
+        keys: list[str] = []
+        for key, record in pids.items():
+            owns_key = key == module_name or key.startswith(f"{module_name}:")
+            owns_record = isinstance(record, dict) and record.get("module") == module_name
+            if owns_key or owns_record:
+                keys.append(key)
+        return sorted(keys)
+
+
+
+    except Exception:
+        return []
+def pid_is_running(pid: int) -> bool:
+    try:
+        if pid <= 0:
+            return False
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                process_query_limited_information = 0x1000
+                still_active = 259
+                handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+                if not handle:
+                    return False
+                try:
+                    exit_code = ctypes.c_ulong()
+                    if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                        return False
+                    return exit_code.value == still_active
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(handle)
+            except Exception:
+                return False
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+
+
+    except Exception:
         return False
-    return True
-
-
 def ready_timeout_seconds(module: Module) -> int:
     configured = module.manifest.get("healthcheck", {}).get("timeout_seconds", 10)
     try:
