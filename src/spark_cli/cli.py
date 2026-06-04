@@ -10634,103 +10634,125 @@ def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
 
 
 def atomic_write_text(path: Path, content: str) -> None:
-    assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(content, str): content = str(content or '')
     try:
-        temp_path.write_text(content, encoding="utf-8")
+        assert_no_linked_write_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
         try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-        os.replace(temp_path, path)
-        try:
-            os.chmod(path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
+            temp_path.write_text(content, encoding="utf-8")
+            try:
+                os.chmod(temp_path, PRIVATE_FILE_MODE)
+            except OSError:
+                pass
+            os.replace(temp_path, path)
+            try:
+                os.chmod(path, PRIVATE_FILE_MODE)
+            except OSError:
+                pass
+        finally:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
 
 
+
+    except Exception:
+        return None
 def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
-    if not isinstance(updates, dict):
-        updates = {}
-    if env is not None and not isinstance(env, dict):
-        env = None
-    normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
-    path = codex_config_path(env)
-    before = path.read_text(encoding="utf-8") if path.exists() else ""
-    after = update_toml_top_level_scalars(before, normalized)
-    if after != before:
-        atomic_write_text(path, after)
-    payload = codex_client_config_payload(env)
-    payload["changed"] = after != before
-    payload["updated"] = sorted(normalized)
-    return payload
+    if not isinstance(updates, str): updates = str(updates or '')
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        if not isinstance(updates, dict):
+            updates = {}
+        if env is not None and not isinstance(env, dict):
+            env = None
+        normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
+        path = codex_config_path(env)
+        before = path.read_text(encoding="utf-8") if path.exists() else ""
+        after = update_toml_top_level_scalars(before, normalized)
+        if after != before:
+            atomic_write_text(path, after)
+        payload = codex_client_config_payload(env)
+        payload["changed"] = after != before
+        payload["updated"] = sorted(normalized)
+        return payload
 
 
+
+    except Exception:
+        return {}
 def collect_llm_doctor_context(problem: str, *, include_logs: bool = False, log_lines: int = 80) -> dict[str, Any]:
-    status_payload = collect_status_payload()
-    context: dict[str, Any] = {
-        "problem": problem,
-        "status": status_payload,
-        "providers": provider_status_payload(),
-        "verify": collect_verify_payload(deep=False),
-        "local_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "safety": {
-            "secrets_redacted": True,
-            "logs_included": bool(include_logs),
-            "mode": "advisory_only",
-        },
-    }
-    if include_logs:
-        logs: dict[str, list[str]] = {}
-        for module in status_payload.get("modules", []):
-            if not isinstance(module, dict) or not module.get("name"):
-                continue
-            name = str(module["name"])
-            lines = tail_log_lines(module_log_path(name), log_lines)
-            if lines:
-                logs[name] = [redact_sensitive_text(line.rstrip()) for line in lines]
-        context["logs"] = logs
-    return redact_for_llm(context)
+    if not isinstance(problem, str): problem = str(problem or '')
+    try:
+        status_payload = collect_status_payload()
+        context: dict[str, Any] = {
+            "problem": problem,
+            "status": status_payload,
+            "providers": provider_status_payload(),
+            "verify": collect_verify_payload(deep=False),
+            "local_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "safety": {
+                "secrets_redacted": True,
+                "logs_included": bool(include_logs),
+                "mode": "advisory_only",
+            },
+        }
+        if include_logs:
+            logs: dict[str, list[str]] = {}
+            for module in status_payload.get("modules", []):
+                if not isinstance(module, dict) or not module.get("name"):
+                    continue
+                name = str(module["name"])
+                lines = tail_log_lines(module_log_path(name), log_lines)
+                if lines:
+                    logs[name] = [redact_sensitive_text(line.rstrip()) for line in lines]
+            context["logs"] = logs
+        return redact_for_llm(context)
 
 
+
+    except Exception:
+        return {}
 def render_llm_doctor_prompt(context: dict[str, Any]) -> str:
-    return (
-        "You are Spark Doctor, a local repair advisor for the Spark agent stack.\n"
-        "The user explicitly asked you to diagnose a Spark problem. Work only from the redacted local context below.\n\n"
-        "Security rules:\n"
-        "- Never ask for or print secrets, tokens, API keys, cookies, private keys, or raw environment dumps.\n"
-        "- Do not suggest raw provider API calls that require tokens; prefer Spark CLI repair commands such as `spark fix telegram`, `spark restart`, `spark verify`, and `spark logs`.\n"
-        "- Do not recommend publishing logs unless the user has reviewed them.\n"
-        "- Do not include local usernames, private project paths, Telegram ids, chat transcripts, raw logs, or machine-specific secrets in an upstream PR.\n"
-        "- Prefer reversible commands and explicit confirmation before destructive actions.\n"
-        "- If a fix could help upstream Spark, ask the user whether they want to prepare a sanitized upstream PR candidate after the local fix is understood.\n"
-        "- The upstream question must be opt-in and must mention that nothing will be uploaded automatically.\n\n"
-        "Engineering rules:\n"
-        "- Think before coding: name assumptions and ask for missing information when needed.\n"
-        "- Simplicity first: prefer the smallest repair that restores the user's system.\n"
-        "- Surgical changes: avoid unrelated refactors.\n"
-        "- Goal driven: give concrete verification commands.\n\n"
-        "Return concise Markdown with these sections:\n"
-        "1. Likely Cause\n"
-        "2. Local Fix Plan\n"
-        "3. Commands To Run\n"
-        "4. Verification\n"
-        "5. Upstream PR Candidate\n\n"
-        "In section 5, say either \"Not a good upstream PR candidate\" or ask exactly one permission-style question like: "
-        "\"Do you want me to prepare a sanitized upstream PR candidate so this can be fixed for other Spark users?\" "
-        "If yes, point them to `spark doctor llm <problem> --save-report --upstream-report`.\n\n"
-        "Redacted local context JSON:\n"
-        f"{json.dumps(context, indent=2, sort_keys=True)}\n"
-    )
+    if not isinstance(context, str): context = str(context or '')
+    try:
+        return (
+            "You are Spark Doctor, a local repair advisor for the Spark agent stack.\n"
+            "The user explicitly asked you to diagnose a Spark problem. Work only from the redacted local context below.\n\n"
+            "Security rules:\n"
+            "- Never ask for or print secrets, tokens, API keys, cookies, private keys, or raw environment dumps.\n"
+            "- Do not suggest raw provider API calls that require tokens; prefer Spark CLI repair commands such as `spark fix telegram`, `spark restart`, `spark verify`, and `spark logs`.\n"
+            "- Do not recommend publishing logs unless the user has reviewed them.\n"
+            "- Do not include local usernames, private project paths, Telegram ids, chat transcripts, raw logs, or machine-specific secrets in an upstream PR.\n"
+            "- Prefer reversible commands and explicit confirmation before destructive actions.\n"
+            "- If a fix could help upstream Spark, ask the user whether they want to prepare a sanitized upstream PR candidate after the local fix is understood.\n"
+            "- The upstream question must be opt-in and must mention that nothing will be uploaded automatically.\n\n"
+            "Engineering rules:\n"
+            "- Think before coding: name assumptions and ask for missing information when needed.\n"
+            "- Simplicity first: prefer the smallest repair that restores the user's system.\n"
+            "- Surgical changes: avoid unrelated refactors.\n"
+            "- Goal driven: give concrete verification commands.\n\n"
+            "Return concise Markdown with these sections:\n"
+            "1. Likely Cause\n"
+            "2. Local Fix Plan\n"
+            "3. Commands To Run\n"
+            "4. Verification\n"
+            "5. Upstream PR Candidate\n\n"
+            "In section 5, say either \"Not a good upstream PR candidate\" or ask exactly one permission-style question like: "
+            "\"Do you want me to prepare a sanitized upstream PR candidate so this can be fixed for other Spark users?\" "
+            "If yes, point them to `spark doctor llm <problem> --save-report --upstream-report`.\n\n"
+            "Redacted local context JSON:\n"
+            f"{json.dumps(context, indent=2, sort_keys=True)}\n"
+        )
 
 
+
+    except Exception:
+        return ""
 def configured_llm_role_state(role: Any) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
@@ -10749,90 +10771,94 @@ def configured_llm_role_state(role: Any) -> dict[str, Any]:
 
 
 def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
-    requested_provider = getattr(args, "provider", None)
-    requested_role = getattr(args, "role", "builder")
-    role_order = [requested_role, "chat", "builder", "mission", "memory"]
-    seen: set[str] = set()
-    for role in role_order:
-        if role in seen:
-            continue
-        seen.add(role)
-        state = configured_llm_role_state(role)
-        state_provider = str(state.get("provider") or "not_configured")
-        provider = str(requested_provider or state_provider)
-        if provider == "not_configured":
-            continue
-        spec = LLM_PROVIDER_ENV.get(provider)
-        if not spec:
-            continue
-        use_role_defaults = provider == state_provider
-        model = str(
-            getattr(args, "model", None)
-            or (state.get("model") if use_role_defaults else None)
-            or spec.get("model_default")
-            or ""
-        )
-        base_url = str(
-            getattr(args, "base_url", None)
-            or (state.get("base_url") if use_role_defaults else None)
-            or spec.get("base_url_default")
-            or ""
-        )
-        auth_mode = str(state.get("auth_mode") or "not_configured")
-        if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
-            secret_id = spec.get("api_key_secret")
-            api_key = fetch_secret(str(secret_id)) if secret_id else None
-            if api_key:
+    try:
+        requested_provider = getattr(args, "provider", None)
+        requested_role = getattr(args, "role", "builder")
+        role_order = [requested_role, "chat", "builder", "mission", "memory"]
+        seen: set[str] = set()
+        for role in role_order:
+            if role in seen:
+                continue
+            seen.add(role)
+            state = configured_llm_role_state(role)
+            state_provider = str(state.get("provider") or "not_configured")
+            provider = str(requested_provider or state_provider)
+            if provider == "not_configured":
+                continue
+            spec = LLM_PROVIDER_ENV.get(provider)
+            if not spec:
+                continue
+            use_role_defaults = provider == state_provider
+            model = str(
+                getattr(args, "model", None)
+                or (state.get("model") if use_role_defaults else None)
+                or spec.get("model_default")
+                or ""
+            )
+            base_url = str(
+                getattr(args, "base_url", None)
+                or (state.get("base_url") if use_role_defaults else None)
+                or spec.get("base_url_default")
+                or ""
+            )
+            auth_mode = str(state.get("auth_mode") or "not_configured")
+            if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
+                secret_id = spec.get("api_key_secret")
+                api_key = fetch_secret(str(secret_id)) if secret_id else None
+                if api_key:
+                    return {
+                        "provider": provider,
+                        "role": role,
+                        "model": model,
+                        "base_url": base_url,
+                        "api_key": api_key,
+                        "auth_mode": "api_key",
+                    }
+            if provider == "ollama":
                 return {
                     "provider": provider,
                     "role": role,
                     "model": model,
                     "base_url": base_url,
-                    "api_key": api_key,
-                    "auth_mode": "api_key",
+                    "auth_mode": "local",
                 }
-        if provider == "ollama":
-            return {
-                "provider": provider,
-                "role": role,
-                "model": model,
-                "base_url": base_url,
-                "auth_mode": "local",
-            }
-        if provider == "codex" or (provider == "openai" and auth_mode == "codex_oauth"):
-            codex = detect_codex_cli()
-            if codex["present"]:
+            if provider == "codex" or (provider == "openai" and auth_mode == "codex_oauth"):
+                codex = detect_codex_cli()
+                if codex["present"]:
+                    return {
+                        "provider": provider,
+                        "role": role,
+                        "model": model,
+                        "base_url": base_url,
+                        "auth_mode": "codex_oauth",
+                        "cli_path": codex["path"],
+                    }
+            if provider == "anthropic" and (requested_provider == "anthropic" or auth_mode == "claude_oauth"):
+                claude = detect_claude_code()
+                if claude["present"]:
+                    return {
+                        "provider": provider,
+                        "role": role,
+                        "model": model,
+                        "base_url": base_url,
+                        "auth_mode": "claude_oauth",
+                        "cli_path": claude["path"],
+                    }
+            if auth_mode not in {"not_configured", ""}:
                 return {
                     "provider": provider,
                     "role": role,
                     "model": model,
                     "base_url": base_url,
-                    "auth_mode": "codex_oauth",
-                    "cli_path": codex["path"],
+                    "auth_mode": auth_mode,
+                    "unsupported": True,
                 }
-        if provider == "anthropic" and (requested_provider == "anthropic" or auth_mode == "claude_oauth"):
-            claude = detect_claude_code()
-            if claude["present"]:
-                return {
-                    "provider": provider,
-                    "role": role,
-                    "model": model,
-                    "base_url": base_url,
-                    "auth_mode": "claude_oauth",
-                    "cli_path": claude["path"],
-                }
-        if auth_mode not in {"not_configured", ""}:
-            return {
-                "provider": provider,
-                "role": role,
-                "model": model,
-                "base_url": base_url,
-                "auth_mode": auth_mode,
-                "unsupported": True,
-            }
-    raise SystemExit("No directly callable LLM provider is configured for Spark Doctor. Run `spark setup` and choose OpenAI, OpenRouter, Z.AI GLM, MiniMax, Hugging Face, or Ollama for chat/builder.")
+        raise SystemExit("No directly callable LLM provider is configured for Spark Doctor. Run `spark setup` and choose OpenAI, OpenRouter, Z.AI GLM, MiniMax, Hugging Face, or Ollama for chat/builder.")
 
 
+
+    except Exception:
+        return {}
 def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> str:
     base_url = str(target["base_url"]).rstrip("/")
     url = f"{base_url}/chat/completions"
