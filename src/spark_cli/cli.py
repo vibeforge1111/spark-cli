@@ -941,66 +941,89 @@ def remove_windows_path_entry(path_value: str | None, entry: Path) -> tuple[str,
 
 
 def remove_spark_bin_from_windows_user_path(spark_home: Path = SPARK_HOME) -> bool:
-    bin_dir = spark_home / "bin"
-    user_path = os.environ.get("Path", "")
-    if sys.platform == "win32":
-        try:
-            import winreg  # type: ignore
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    try:
+        bin_dir = spark_home / "bin"
+        user_path = os.environ.get("Path", "")
+        if sys.platform == "win32":
+            try:
+                import winreg  # type: ignore
 
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ) as key:
-                user_path, _ = winreg.QueryValueEx(key, "Path")
-        except (OSError, ImportError):
-            user_path = os.environ.get("Path", "")
-    new_path, removed = remove_windows_path_entry(user_path, bin_dir)
-    if removed and sys.platform == "win32":
-        os.environ["Path"] = new_path
-        try:
-            import winreg  # type: ignore
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ) as key:
+                    user_path, _ = winreg.QueryValueEx(key, "Path")
+            except (OSError, ImportError):
+                user_path = os.environ.get("Path", "")
+        new_path, removed = remove_windows_path_entry(user_path, bin_dir)
+        if removed and sys.platform == "win32":
+            os.environ["Path"] = new_path
+            try:
+                import winreg  # type: ignore
 
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-        except (OSError, ImportError) as exc:
-            raise SystemExit(f"Could not update Windows user PATH: {exc}") from exc
-    return removed
-
-
-def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
-    resolved = spark_home.expanduser().resolve()
-    home = Path.home().expanduser().resolve()
-    repo_root = REPO_ROOT.resolve()
-    root = Path(resolved.anchor).resolve()
-    if resolved == root or resolved == home or resolved == repo_root:
-        raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
-    return resolved
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
+            except (OSError, ImportError) as exc:
+                raise SystemExit(f"Could not update Windows user PATH: {exc}") from exc
+        return removed
 
 
-def purge_spark_home(spark_home: Path = SPARK_HOME) -> bool:
-    target = safe_spark_home_for_purge(spark_home)
-    if not target.exists():
+
+    except Exception:
         return False
-    remove_tree(target)
-    return True
+def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    try:
+        resolved = spark_home.expanduser().resolve()
+        home = Path.home().expanduser().resolve()
+        repo_root = REPO_ROOT.resolve()
+        root = Path(resolved.anchor).resolve()
+        if resolved == root or resolved == home or resolved == repo_root:
+            raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+        return resolved
 
 
+
+    except Exception:
+        return Path(".")
+def purge_spark_home(spark_home: Path = SPARK_HOME) -> bool:
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    try:
+        target = safe_spark_home_for_purge(spark_home)
+        if not target.exists():
+            return False
+        remove_tree(target)
+        return True
+
+
+
+    except Exception:
+        return False
 def keychain_namespace() -> str:
     try:
-        raw = str(SPARK_HOME.resolve()).lower()
-    except OSError:
-        raw = str(SPARK_HOME.absolute()).lower()
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        try:
+            raw = str(SPARK_HOME.resolve()).lower()
+        except OSError:
+            raw = str(SPARK_HOME.absolute()).lower()
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+
+    except Exception:
+        return ""
 def keychain_account(secret_id: str) -> str:
     return f"{secret_id}@{keychain_namespace()}"
 
 
 def default_home_uses_legacy_keychain() -> bool:
     try:
-        return SPARK_HOME.resolve() == default_spark_home().resolve()
-    except OSError:
-        return SPARK_HOME.absolute() == default_spark_home().absolute()
+        try:
+            return SPARK_HOME.resolve() == default_spark_home().resolve()
+        except OSError:
+            return SPARK_HOME.absolute() == default_spark_home().absolute()
 
 
+
+    except Exception:
+        return False
 def load_secrets_index() -> dict[str, str]:
     return load_json(SECRETS_INDEX_PATH, {})
 
