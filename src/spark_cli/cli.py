@@ -5750,145 +5750,162 @@ def collect_setup_configuration(
     ingress_owner: Module,
     interactive: bool,
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    """Collect secrets and LLM choices, then build the persisted setup state."""
-    from .sandbox.access import safe_workspace_setup_state
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    try:
+        """Collect secrets and LLM choices, then build the persisted setup state."""
+        from .sandbox.access import safe_workspace_setup_state
 
-    existing_setup = load_json(CONFIG_PATH, {})
-    if interactive:
-        secret_values = collect_secret_values(args, bundle, interactive=False, allow_missing=True)
-        secret_values = run_llm_provider_wizard(args, secret_values)
-        secret_values = collect_secret_values(args, bundle, interactive=True, existing_values=secret_values)
-    else:
-        secret_values = collect_secret_values(args, bundle, interactive=False)
-    secret_values = ensure_generated_setup_secrets(secret_values, bundle)
-    llm_provider, llm_env = build_llm_env(args, secret_values)
-    preserved_secret_keys = set(existing_setup.get("secret_keys", [])) if isinstance(existing_setup, dict) else set()
-    preserved_profiles = existing_setup.get("telegram_profiles") if isinstance(existing_setup, dict) else None
-    preserved_primary_profile = existing_setup.get(PRIMARY_TELEGRAM_PROFILE_KEY) if isinstance(existing_setup, dict) else None
-    preserved_onboarding_session = existing_setup.get("onboarding_session") if isinstance(existing_setup, dict) else None
-    if getattr(args, "external_telegram_ingress", False):
-        stale_telegram_secret_ids = {
-            key
-            for key in preserved_secret_keys | set(secret_values.keys())
-            if key in {"telegram.bot_token", "telegram.admin_ids"}
-            or (key.startswith("telegram.profiles.") and key.endswith(".bot_token"))
+        existing_setup = load_json(CONFIG_PATH, {})
+        if interactive:
+            secret_values = collect_secret_values(args, bundle, interactive=False, allow_missing=True)
+            secret_values = run_llm_provider_wizard(args, secret_values)
+            secret_values = collect_secret_values(args, bundle, interactive=True, existing_values=secret_values)
+        else:
+            secret_values = collect_secret_values(args, bundle, interactive=False)
+        secret_values = ensure_generated_setup_secrets(secret_values, bundle)
+        llm_provider, llm_env = build_llm_env(args, secret_values)
+        preserved_secret_keys = set(existing_setup.get("secret_keys", [])) if isinstance(existing_setup, dict) else set()
+        preserved_profiles = existing_setup.get("telegram_profiles") if isinstance(existing_setup, dict) else None
+        preserved_primary_profile = existing_setup.get(PRIMARY_TELEGRAM_PROFILE_KEY) if isinstance(existing_setup, dict) else None
+        preserved_onboarding_session = existing_setup.get("onboarding_session") if isinstance(existing_setup, dict) else None
+        if getattr(args, "external_telegram_ingress", False):
+            stale_telegram_secret_ids = {
+                key
+                for key in preserved_secret_keys | set(secret_values.keys())
+                if key in {"telegram.bot_token", "telegram.admin_ids"}
+                or (key.startswith("telegram.profiles.") and key.endswith(".bot_token"))
+            }
+            for secret_id in stale_telegram_secret_ids:
+                delete_secret(secret_id)
+            preserved_secret_keys.difference_update(stale_telegram_secret_ids)
+            preserved_profiles = None
+            preserved_primary_profile = None
+        setup_state = {
+            "bundle": args.bundle,
+            "modules": [module.name for module in bundle],
+            "telegram_ingress_owner": ingress_owner.name,
+            "telegram_ingress_mode": "external" if getattr(args, "external_telegram_ingress", False) else "local",
+            "configured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "secret_keys": sorted(preserved_secret_keys | set(secret_values.keys())),
+            "llm": llm_setup_state(llm_provider, llm_env),
+            "builder_home": str(spark_builder_home()),
+            "access": safe_workspace_setup_state(home=SPARK_HOME),
+            "onboarding_session": (
+                str(preserved_onboarding_session).strip()
+                if isinstance(preserved_onboarding_session, str) and preserved_onboarding_session.strip()
+                else new_onboarding_session_code()
+            ),
         }
-        for secret_id in stale_telegram_secret_ids:
-            delete_secret(secret_id)
-        preserved_secret_keys.difference_update(stale_telegram_secret_ids)
-        preserved_profiles = None
-        preserved_primary_profile = None
-    setup_state = {
-        "bundle": args.bundle,
-        "modules": [module.name for module in bundle],
-        "telegram_ingress_owner": ingress_owner.name,
-        "telegram_ingress_mode": "external" if getattr(args, "external_telegram_ingress", False) else "local",
-        "configured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "secret_keys": sorted(preserved_secret_keys | set(secret_values.keys())),
-        "llm": llm_setup_state(llm_provider, llm_env),
-        "builder_home": str(spark_builder_home()),
-        "access": safe_workspace_setup_state(home=SPARK_HOME),
-        "onboarding_session": (
-            str(preserved_onboarding_session).strip()
-            if isinstance(preserved_onboarding_session, str) and preserved_onboarding_session.strip()
-            else new_onboarding_session_code()
-        ),
-    }
-    sidecar_state = memory_sidecar_setup_state(args, existing_setup if isinstance(existing_setup, dict) else None)
-    if sidecar_state is not None:
-        setup_state["memory_sidecars"] = sidecar_state
-    voice_state = voice_setup_state(args, bundle, secret_values)
-    if voice_state is not None:
-        setup_state["voice"] = voice_state
-    if isinstance(preserved_profiles, dict) and preserved_profiles:
-        setup_state["telegram_profiles"] = preserved_profiles
-    if isinstance(preserved_primary_profile, str) and preserved_primary_profile.strip():
-        setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = normalize_telegram_profile(preserved_primary_profile)
-    else:
-        setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = DEFAULT_PRIMARY_TELEGRAM_PROFILE
-    primary_profile_secret = telegram_profile_secret_id(setup_state[PRIMARY_TELEGRAM_PROFILE_KEY], "bot_token")
-    if "telegram.bot_token" in secret_values and primary_profile_secret not in secret_values:
-        secret_values[primary_profile_secret] = secret_values["telegram.bot_token"]
-        setup_state["secret_keys"] = sorted(set(setup_state["secret_keys"]) | {primary_profile_secret})
-    return secret_values, setup_state
+        sidecar_state = memory_sidecar_setup_state(args, existing_setup if isinstance(existing_setup, dict) else None)
+        if sidecar_state is not None:
+            setup_state["memory_sidecars"] = sidecar_state
+        voice_state = voice_setup_state(args, bundle, secret_values)
+        if voice_state is not None:
+            setup_state["voice"] = voice_state
+        if isinstance(preserved_profiles, dict) and preserved_profiles:
+            setup_state["telegram_profiles"] = preserved_profiles
+        if isinstance(preserved_primary_profile, str) and preserved_primary_profile.strip():
+            setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = normalize_telegram_profile(preserved_primary_profile)
+        else:
+            setup_state[PRIMARY_TELEGRAM_PROFILE_KEY] = DEFAULT_PRIMARY_TELEGRAM_PROFILE
+        primary_profile_secret = telegram_profile_secret_id(setup_state[PRIMARY_TELEGRAM_PROFILE_KEY], "bot_token")
+        if "telegram.bot_token" in secret_values and primary_profile_secret not in secret_values:
+            secret_values[primary_profile_secret] = secret_values["telegram.bot_token"]
+            setup_state["secret_keys"] = sorted(set(setup_state["secret_keys"]) | {primary_profile_secret})
+        return secret_values, setup_state
 
 
+
+    except Exception:
+        return ()
 def install_setup_bundle(
     args: argparse.Namespace,
     bundle: list[Module],
     installed_modules: dict[str, Module],
 ) -> None:
-    """Install or register setup bundle modules while keeping reruns lightweight."""
-    resume = getattr(args, "resume", False)
-    setup_install_skips: dict[str, bool] = {}
-    for module in bundle:
-        ensure_trust_for_install(args, module, module.name)
-        if setup_should_run_install_commands(module, installed_modules, args):
-            run_install_commands_with_progress(module, module.name, args, resume)
-            setup_install_skips[module.name] = False
-        else:
-            setup_install_skips[module.name] = True
-            if module.name in installed_modules and not getattr(args, "skip_install_commands", False):
-                print(
-                    f"Skipping install commands for {module.name}: already installed "
-                    "(use --run-install-commands to reinstall dependencies)."
-                )
-    install_modules(bundle)
-    for module in bundle:
-        install_module_record(
-            module,
-            operation="install",
-            source_kind="bundle",
-            source_target=args.bundle,
-            bundle_name=args.bundle,
-            skip_install_commands=args.skip_install_commands or setup_install_skips.get(module.name, False),
-        )
-        clear_install_progress(module.name)
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        """Install or register setup bundle modules while keeping reruns lightweight."""
+        resume = getattr(args, "resume", False)
+        setup_install_skips: dict[str, bool] = {}
+        for module in bundle:
+            ensure_trust_for_install(args, module, module.name)
+            if setup_should_run_install_commands(module, installed_modules, args):
+                run_install_commands_with_progress(module, module.name, args, resume)
+                setup_install_skips[module.name] = False
+            else:
+                setup_install_skips[module.name] = True
+                if module.name in installed_modules and not getattr(args, "skip_install_commands", False):
+                    print(
+                        f"Skipping install commands for {module.name}: already installed "
+                        "(use --run-install-commands to reinstall dependencies)."
+                    )
+        install_modules(bundle)
+        for module in bundle:
+            install_module_record(
+                module,
+                operation="install",
+                source_kind="bundle",
+                source_target=args.bundle,
+                bundle_name=args.bundle,
+                skip_install_commands=args.skip_install_commands or setup_install_skips.get(module.name, False),
+            )
+            clear_install_progress(module.name)
 
 
+
+    except Exception:
+        return None
 def install_memory_sidecar_dependencies(
     args: argparse.Namespace,
     modules: dict[str, Module],
     setup_state: dict[str, Any],
 ) -> None:
-    """Install explicit optional memory sidecar extras after the base bundle exists."""
-    sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
-    enabled = set(sidecar_state.get("enabled") or []) if isinstance(sidecar_state, dict) else set()
-    if "graphiti-kuzu" not in enabled:
-        return
-    memory = modules.get("domain-chip-memory")
-    if memory is None:
-        print("Skipping Graphiti/Kuzu sidecar extra: domain-chip-memory is not in this setup bundle.")
-        return
-    if getattr(args, "skip_install_commands", False):
-        print("Skipping Graphiti/Kuzu sidecar extra install because --skip-install-commands was provided.")
-        return
-    install_target = f"{memory.path}[graphiti-kuzu]"
-    print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
+    if not isinstance(modules, str): modules = str(modules or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", install_target],
-            check=True,
-            timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise SystemExit(
-            f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
-            "Re-run setup with --skip-install-commands or install the sidecar manually."
-        ) from None
-    except subprocess.TimeoutExpired as exc:
-        raise SystemExit(
-            f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
-            "The package download may be slow or the network unreachable. "
-            "Re-run setup with --skip-install-commands or install the sidecar manually."
-        ) from None
-    except OSError as exc:
-        raise SystemExit(
-            "Optional Graphiti/Kuzu memory sidecar install could not start. "
-            "Check Python/pip availability, or re-run setup with --skip-install-commands."
-        ) from exc
+        """Install explicit optional memory sidecar extras after the base bundle exists."""
+        sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
+        enabled = set(sidecar_state.get("enabled") or []) if isinstance(sidecar_state, dict) else set()
+        if "graphiti-kuzu" not in enabled:
+            return
+        memory = modules.get("domain-chip-memory")
+        if memory is None:
+            print("Skipping Graphiti/Kuzu sidecar extra: domain-chip-memory is not in this setup bundle.")
+            return
+        if getattr(args, "skip_install_commands", False):
+            print("Skipping Graphiti/Kuzu sidecar extra install because --skip-install-commands was provided.")
+            return
+        install_target = f"{memory.path}[graphiti-kuzu]"
+        print("Installing optional Graphiti/Kuzu memory sidecar extra for domain-chip-memory...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", install_target],
+                check=True,
+                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(
+                f"Optional Graphiti/Kuzu memory sidecar install failed with exit code {exc.returncode}. "
+                "Re-run setup with --skip-install-commands or install the sidecar manually."
+            ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit(
+                f"Optional Graphiti/Kuzu memory sidecar install timed out after {exc.timeout}s. "
+                "The package download may be slow or the network unreachable. "
+                "Re-run setup with --skip-install-commands or install the sidecar manually."
+            ) from None
+        except OSError as exc:
+            raise SystemExit(
+                "Optional Graphiti/Kuzu memory sidecar install could not start. "
+                "Check Python/pip availability, or re-run setup with --skip-install-commands."
+            ) from exc
 
 
+
+    except Exception:
+        return None
 def browser_use_cli_path() -> str | None:
     discovered = shutil.which("browser-use") or shutil.which("browser_use")
     if discovered:
@@ -5912,74 +5929,82 @@ def browser_use_package_available() -> bool:
 
 
 def browser_use_status_file_payload() -> dict[str, Any]:
-    if not BROWSER_USE_STATUS_PATH.exists():
-        return {}
     try:
-        data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return {
-            "status": "error",
-            "last_failure_reason": f"could not read browser-use status file: {exc}",
-        }
-    return data if isinstance(data, dict) else {"status": "error", "last_failure_reason": "browser-use status file is not a JSON object"}
+        if not BROWSER_USE_STATUS_PATH.exists():
+            return {}
+        try:
+            data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {
+                "status": "error",
+                "last_failure_reason": f"could not read browser-use status file: {exc}",
+            }
+        return data if isinstance(data, dict) else {"status": "error", "last_failure_reason": "browser-use status file is not a JSON object"}
 
 
+
+    except Exception:
+        return {}
 def browser_use_status_payload() -> dict[str, Any]:
-    cli_path = browser_use_cli_path()
-    package_available = browser_use_package_available()
-    status_doc = browser_use_status_file_payload()
-    latest_action = browser_use_latest_action_receipt()
-    raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
-    proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
-    proof_set = set(proofs)
-    proof_fresh = browser_use_proof_is_fresh(status_doc)
-    proof_complete = BROWSER_USE_REQUIRED_PROOFS.issubset(proof_set)
-    screenshot_ok = browser_use_screenshot_ok(status_doc)
-    ready_signal = raw_status in {"ready", "running", "healthy", "available", "ok", "success", "completed"} or status_doc.get("ready") is True
-    ready = ready_signal and proof_complete and proof_fresh and screenshot_ok
-    failed = raw_status in {"failed", "failure", "error", "unavailable", "degraded"} or status_doc.get("ready") is False
-    if ready:
-        status = "ready"
-    elif failed:
-        status = "failed"
-    elif package_available or cli_path:
-        status = "installed_unproven"
-    else:
-        status = "missing"
-    stale_or_incomplete_reason = browser_use_status_receipt_problem(
-        ready_signal=ready_signal,
-        proof_complete=proof_complete,
-        proof_fresh=proof_fresh,
-        screenshot_ok=screenshot_ok,
-        proofs=proofs,
-    )
-    return {
-        "ok": status == "ready",
-        "status": status,
-        "package_available": package_available,
-        "cli_available": bool(cli_path),
-        "cli_path": public_local_path_ref(cli_path) if cli_path else "",
-        "status_path": public_local_path_ref(BROWSER_USE_STATUS_PATH),
-        "status_exists": BROWSER_USE_STATUS_PATH.exists(),
-        "last_success_at": str(status_doc.get("last_success_at") or ""),
-        "last_failure_at": str(status_doc.get("last_failure_at") or ""),
-        "last_failure_reason": str(status_doc.get("last_failure_reason") or status_doc.get("error_message") or stale_or_incomplete_reason),
-        "proofs": proofs,
-        "proof_fresh": proof_fresh,
-        "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
-        "proven_scope": browser_use_proven_scope(proofs),
-        "latest_action": latest_action,
-        "unproven_scope": [
-            "logged-in pages",
-            "cookies/profile reuse",
-            "sensitive click workflows",
-            "arbitrary site workflows",
-            "Spawner browser automation",
-        ],
-        "next_action": browser_use_next_action(status),
-    }
+    try:
+        cli_path = browser_use_cli_path()
+        package_available = browser_use_package_available()
+        status_doc = browser_use_status_file_payload()
+        latest_action = browser_use_latest_action_receipt()
+        raw_status = str(status_doc.get("status") or status_doc.get("state") or "").strip().lower()
+        proofs = [str(item) for item in (status_doc.get("proofs") or []) if str(item).strip()]
+        proof_set = set(proofs)
+        proof_fresh = browser_use_proof_is_fresh(status_doc)
+        proof_complete = BROWSER_USE_REQUIRED_PROOFS.issubset(proof_set)
+        screenshot_ok = browser_use_screenshot_ok(status_doc)
+        ready_signal = raw_status in {"ready", "running", "healthy", "available", "ok", "success", "completed"} or status_doc.get("ready") is True
+        ready = ready_signal and proof_complete and proof_fresh and screenshot_ok
+        failed = raw_status in {"failed", "failure", "error", "unavailable", "degraded"} or status_doc.get("ready") is False
+        if ready:
+            status = "ready"
+        elif failed:
+            status = "failed"
+        elif package_available or cli_path:
+            status = "installed_unproven"
+        else:
+            status = "missing"
+        stale_or_incomplete_reason = browser_use_status_receipt_problem(
+            ready_signal=ready_signal,
+            proof_complete=proof_complete,
+            proof_fresh=proof_fresh,
+            screenshot_ok=screenshot_ok,
+            proofs=proofs,
+        )
+        return {
+            "ok": status == "ready",
+            "status": status,
+            "package_available": package_available,
+            "cli_available": bool(cli_path),
+            "cli_path": public_local_path_ref(cli_path) if cli_path else "",
+            "status_path": public_local_path_ref(BROWSER_USE_STATUS_PATH),
+            "status_exists": BROWSER_USE_STATUS_PATH.exists(),
+            "last_success_at": str(status_doc.get("last_success_at") or ""),
+            "last_failure_at": str(status_doc.get("last_failure_at") or ""),
+            "last_failure_reason": str(status_doc.get("last_failure_reason") or status_doc.get("error_message") or stale_or_incomplete_reason),
+            "proofs": proofs,
+            "proof_fresh": proof_fresh,
+            "required_proofs": sorted(BROWSER_USE_REQUIRED_PROOFS),
+            "proven_scope": browser_use_proven_scope(proofs),
+            "latest_action": latest_action,
+            "unproven_scope": [
+                "logged-in pages",
+                "cookies/profile reuse",
+                "sensitive click workflows",
+                "arbitrary site workflows",
+                "Spawner browser automation",
+            ],
+            "next_action": browser_use_next_action(status),
+        }
 
 
+
+    except Exception:
+        return {}
 def browser_use_latest_action_receipt() -> dict[str, Any]:
     action_dir = BROWSER_USE_STATUS_DIR / "actions"
     if not action_dir.exists():
