@@ -230,6 +230,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve git history mutation",
         )
 
+    if first == "git" and lowered[1:3] == ["lfs", "migrate"] and len(lowered) > 3 and lowered[3] in {"import", "export"}:
+        return _decision(
+            parts,
+            ctx,
+            "git_history_mutation",
+            "critical",
+            "Command can rewrite Git history while migrating LFS objects.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git history mutation",
+        )
+
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
             parts,
