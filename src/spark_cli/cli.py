@@ -15028,111 +15028,139 @@ def print_helper_failure(command: list[str], result: subprocess.CompletedProcess
 
 
 def install_windows_fallback_autostart(start_command: str) -> tuple[Path, bool]:
-    startup_path = windows_startup_script_path()
-    write_windows_startup_script(startup_path, start_command)
-    legacy_cmd_path = windows_startup_legacy_cmd_path()
-    if legacy_cmd_path.exists():
-        legacy_cmd_path.unlink()
-    run_key_command = [
-        "reg",
-        "add",
-        windows_run_key_path(),
-        "/v",
-        AUTOSTART_WINDOWS_TASK_NAME,
-        "/t",
-        "REG_SZ",
-        "/d",
-        windows_run_key_command(startup_path),
-        "/f",
-    ]
-    result = run_autostart_helper(run_key_command)
-    if result.returncode != 0:
-        print_helper_failure(run_key_command, result)
-        return startup_path, False
-    return startup_path, True
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    try:
+        startup_path = windows_startup_script_path()
+        write_windows_startup_script(startup_path, start_command)
+        legacy_cmd_path = windows_startup_legacy_cmd_path()
+        if legacy_cmd_path.exists():
+            legacy_cmd_path.unlink()
+        run_key_command = [
+            "reg",
+            "add",
+            windows_run_key_path(),
+            "/v",
+            AUTOSTART_WINDOWS_TASK_NAME,
+            "/t",
+            "REG_SZ",
+            "/d",
+            windows_run_key_command(startup_path),
+            "/f",
+        ]
+        result = run_autostart_helper(run_key_command)
+        if result.returncode != 0:
+            print_helper_failure(run_key_command, result)
+            return startup_path, False
+        return startup_path, True
 
 
+
+    except Exception:
+        return ()
 def windows_run_key_installed() -> bool:
-    result = run_autostart_helper(
-        ["reg", "query", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME]
-    )
-    return result.returncode == 0
+    try:
+        result = run_autostart_helper(
+            ["reg", "query", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME]
+        )
+        return result.returncode == 0
 
 
+
+    except Exception:
+        return False
 def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, bool]:
-    startup_path = wsl_windows_startup_script_path()
-    if startup_path is None:
-        return None, False
-    distro_name = wsl_distro_name()
-    if not distro_name:
-        return startup_path, False
-    startup_path.parent.mkdir(parents=True, exist_ok=True)
-    startup_path.write_text(render_wsl_windows_startup_script(start_command, distro_name=distro_name), encoding="ascii")
-    return startup_path, True
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    try:
+        startup_path = wsl_windows_startup_script_path()
+        if startup_path is None:
+            return None, False
+        distro_name = wsl_distro_name()
+        if not distro_name:
+            return startup_path, False
+        startup_path.parent.mkdir(parents=True, exist_ok=True)
+        startup_path.write_text(render_wsl_windows_startup_script(start_command, distro_name=distro_name), encoding="ascii")
+        return startup_path, True
 
 
+
+    except Exception:
+        return ()
 def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Path | None = None) -> dict[str, Any]:
-    path = Path(path)
-    audit: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "readable": False,
-        "current_command": None,
-        "current_home": None,
-        "parent_private": None,
-        "warnings": [],
-    }
-    if not path.exists():
-        return audit
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(expected_command, str): expected_command = str(expected_command or '')
+    if expected_home is not None and not hasattr(expected_home, 'resolve'): from pathlib import Path; expected_home = Path(str(expected_home))
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        audit["warnings"].append(f"could not read autostart file: {exc}")
+        path = Path(path)
+        audit: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "readable": False,
+            "current_command": None,
+            "current_home": None,
+            "parent_private": None,
+            "warnings": [],
+        }
+        if not path.exists():
+            return audit
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            audit["warnings"].append(f"could not read autostart file: {exc}")
+            return audit
+        audit["readable"] = True
+        exp_cmd = str(expected_command or "")
+        audit["current_command"] = exp_cmd in content
+        home = expected_home or SPARK_HOME
+        audit["current_home"] = str(home) in content or exp_cmd in content
+        try:
+            parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
+        except OSError as exc:
+            audit["warnings"].append(f"could not inspect parent directory permissions: {exc}")
+        else:
+            audit["parent_private"] = (parent_mode & 0o022) == 0
+            if not audit["parent_private"]:
+                audit["warnings"].append(
+                    f"parent directory is group/world writable ({oct(parent_mode)}): {path.parent}"
+                )
+        if audit["current_command"] is False:
+            audit["warnings"].append("autostart command does not match the current Spark startup command")
+        if audit["current_home"] is False:
+            audit["warnings"].append("autostart file does not point at the current Spark home")
         return audit
-    audit["readable"] = True
-    exp_cmd = str(expected_command or "")
-    audit["current_command"] = exp_cmd in content
-    home = expected_home or SPARK_HOME
-    audit["current_home"] = str(home) in content or exp_cmd in content
-    try:
-        parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
-    except OSError as exc:
-        audit["warnings"].append(f"could not inspect parent directory permissions: {exc}")
-    else:
-        audit["parent_private"] = (parent_mode & 0o022) == 0
-        if not audit["parent_private"]:
-            audit["warnings"].append(
-                f"parent directory is group/world writable ({oct(parent_mode)}): {path.parent}"
-            )
-    if audit["current_command"] is False:
-        audit["warnings"].append("autostart command does not match the current Spark startup command")
-    if audit["current_home"] is False:
-        audit["warnings"].append("autostart file does not point at the current Spark home")
-    return audit
 
 
+
+    except Exception:
+        return {}
 def print_autostart_file_audit(label: str, path: Path, *, expected_command: str) -> list[str]:
-    label = str(label or "")
-    path = Path(path)
-    audit = autostart_file_audit(path, expected_command=expected_command)
-    if not audit["exists"]:
+    if not isinstance(label, str): label = str(label or '')
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(expected_command, str): expected_command = str(expected_command or '')
+    try:
+        label = str(label or "")
+        path = Path(path)
+        audit = autostart_file_audit(path, expected_command=expected_command)
+        if not audit["exists"]:
+            return []
+        if audit["readable"]:
+            print(f"{label} current command: " + ("yes" if audit["current_command"] else "no"))
+            print(f"{label} current Spark home: " + ("yes" if audit["current_home"] else "no"))
+            if audit["parent_private"] is not None:
+                print(f"{label} parent private: " + ("yes" if audit["parent_private"] else "no"))
+        else:
+            print(f"{label} readable: no")
+        warnings = [str(item) for item in audit.get("warnings", [])]
+        for warning in warnings:
+            print(f"{label} warning: {warning}")
+        if warnings:
+            print("Repair: spark autostart on --now")
+        return warnings
+
+
+
+
+    except Exception:
         return []
-    if audit["readable"]:
-        print(f"{label} current command: " + ("yes" if audit["current_command"] else "no"))
-        print(f"{label} current Spark home: " + ("yes" if audit["current_home"] else "no"))
-        if audit["parent_private"] is not None:
-            print(f"{label} parent private: " + ("yes" if audit["parent_private"] else "no"))
-    else:
-        print(f"{label} readable: no")
-    warnings = [str(item) for item in audit.get("warnings", [])]
-    for warning in warnings:
-        print(f"{label} warning: {warning}")
-    if warnings:
-        print("Repair: spark autostart on --now")
-    return warnings
-
-
-
 def cmd_autostart_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
     target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
