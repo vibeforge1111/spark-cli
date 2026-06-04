@@ -1346,90 +1346,115 @@ def installer_release_pins() -> dict[str, Any]:
 
 
 def installer_release_pins_from_text(shell: str, powershell: str) -> dict[str, Any]:
-    shell_release = SHELL_INSTALLER_RELEASE_PATTERN.search(shell)
-    shell_ref = SHELL_INSTALLER_REF_PATTERN.search(shell)
-    powershell_release = POWERSHELL_INSTALLER_RELEASE_PATTERN.search(powershell)
-    powershell_ref = POWERSHELL_INSTALLER_REF_PATTERN.search(powershell)
-    return {
-        "releaseName": shell_release.group(1) if shell_release else "",
-        "ref": shell_ref.group(1).lower() if shell_ref else "",
-        "installers": {
-            "install.sh": {
-                "releaseName": shell_release.group(1) if shell_release else "",
-                "ref": shell_ref.group(1).lower() if shell_ref else "",
+    if not isinstance(shell, str): shell = str(shell or '')
+    if not isinstance(powershell, str): powershell = str(powershell or '')
+    try:
+        shell_release = SHELL_INSTALLER_RELEASE_PATTERN.search(shell)
+        shell_ref = SHELL_INSTALLER_REF_PATTERN.search(shell)
+        powershell_release = POWERSHELL_INSTALLER_RELEASE_PATTERN.search(powershell)
+        powershell_ref = POWERSHELL_INSTALLER_REF_PATTERN.search(powershell)
+        return {
+            "releaseName": shell_release.group(1) if shell_release else "",
+            "ref": shell_ref.group(1).lower() if shell_ref else "",
+            "installers": {
+                "install.sh": {
+                    "releaseName": shell_release.group(1) if shell_release else "",
+                    "ref": shell_ref.group(1).lower() if shell_ref else "",
+                },
+                "install.ps1": {
+                    "releaseName": powershell_release.group(1) if powershell_release else "",
+                    "ref": powershell_ref.group(1).lower() if powershell_ref else "",
+                },
             },
-            "install.ps1": {
-                "releaseName": powershell_release.group(1) if powershell_release else "",
-                "ref": powershell_ref.group(1).lower() if powershell_ref else "",
-            },
-        },
-    }
+        }
 
 
+
+    except Exception:
+        return {}
 def installer_pin_for_script(name: str, text: str) -> dict[str, str]:
-    release_pattern = SHELL_INSTALLER_RELEASE_PATTERN if name == "install.sh" else POWERSHELL_INSTALLER_RELEASE_PATTERN
-    ref_pattern = SHELL_INSTALLER_REF_PATTERN if name == "install.sh" else POWERSHELL_INSTALLER_REF_PATTERN
-    release = release_pattern.search(text)
-    ref = ref_pattern.search(text)
-    return {
-        "releaseName": release.group(1) if release else "",
-        "ref": ref.group(1).lower() if ref else "",
-    }
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        release_pattern = SHELL_INSTALLER_RELEASE_PATTERN if name == "install.sh" else POWERSHELL_INSTALLER_RELEASE_PATTERN
+        ref_pattern = SHELL_INSTALLER_REF_PATTERN if name == "install.sh" else POWERSHELL_INSTALLER_REF_PATTERN
+        release = release_pattern.search(text)
+        ref = ref_pattern.search(text)
+        return {
+            "releaseName": release.group(1) if release else "",
+            "ref": ref.group(1).lower() if ref else "",
+        }
 
 
+
+    except Exception:
+        return {}
 def current_git_commit() -> str:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    commit = result.stdout.strip().lower()
-    if result.returncode != 0 or not GIT_COMMIT_SHA_PATTERN.fullmatch(commit):
-        return ""
-    return commit
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        commit = result.stdout.strip().lower()
+        if result.returncode != 0 or not GIT_COMMIT_SHA_PATTERN.fullmatch(commit):
+            return ""
+        return commit
 
 
+
+    except Exception:
+        return ""
 def local_git_commit_exists(ref: str) -> bool:
-    normalized = (ref or "").strip().lower()
-    if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
-        return True
-    if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
-        return False
+    if not isinstance(ref, str): ref = str(ref or '')
     try:
-        result = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{normalized}^{{commit}}"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
+        normalized = (ref or "").strip().lower()
+        if INSTALLER_RELEASE_TAG_PATTERN.fullmatch(normalized):
+            return True
+        if not GIT_COMMIT_SHA_PATTERN.fullmatch(normalized):
+            return False
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{normalized}^{{commit}}"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0
+
+
+
+    except Exception:
         return False
-    return result.returncode == 0
-
-
 def installer_manifest_payload() -> dict[str, Any]:
-    return {
-        "schema": 1,
-        "source": {
-            "repository": "https://github.com/vibeforge1111/spark-cli",
-            **{key: value for key, value in installer_release_pins().items() if key in {"releaseName", "ref"}},
-        },
-        "installers": {
-            name: {
-                "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
-                "sha256": sha256_file(path),
-            }
-            for name, path in INSTALLER_SCRIPT_PATHS.items()
-        },
-    }
+    try:
+        return {
+            "schema": 1,
+            "source": {
+                "repository": "https://github.com/vibeforge1111/spark-cli",
+                **{key: value for key, value in installer_release_pins().items() if key in {"releaseName", "ref"}},
+            },
+            "installers": {
+                name: {
+                    "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
+                    "sha256": sha256_file(path),
+                }
+                for name, path in INSTALLER_SCRIPT_PATHS.items()
+            },
+        }
 
 
+
+    except Exception:
+        return {}
 def hosted_installer_bytes(name: str, url: str) -> bytes:
     request = urllib.request.Request(
         url,
