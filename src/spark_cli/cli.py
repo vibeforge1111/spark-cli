@@ -5981,65 +5981,79 @@ def browser_use_status_payload() -> dict[str, Any]:
 
 
 def browser_use_latest_action_receipt() -> dict[str, Any]:
-    action_dir = BROWSER_USE_STATUS_DIR / "actions"
-    if not action_dir.exists():
-        return {}
     try:
-        candidates = sorted(
-            [path for path in action_dir.glob("*.json") if path.is_file()],
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-    except OSError:
-        return {}
-    for path in candidates:
+        action_dir = BROWSER_USE_STATUS_DIR / "actions"
+        if not action_dir.exists():
+            return {}
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        return {
-            "action": str(payload.get("action") or ""),
-            "url": str(payload.get("url") or ""),
-            "status": str(payload.get("status") or ""),
-            "ok": bool(payload.get("ok")),
-            "checked_at": str(payload.get("checked_at") or ""),
-            "last_success_at": str(payload.get("last_success_at") or ""),
-            "last_failure_at": str(payload.get("last_failure_at") or ""),
-            "last_failure_reason": str(payload.get("last_failure_reason") or ""),
-            "final_url": str(payload.get("final_url") or ""),
-            "title": str(payload.get("title") or ""),
-            "receipt_path": public_local_path_ref(path),
-            "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
-        }
-    return {}
+            candidates = sorted(
+                [path for path in action_dir.glob("*.json") if path.is_file()],
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return {}
+        for path in candidates:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            return {
+                "action": str(payload.get("action") or ""),
+                "url": str(payload.get("url") or ""),
+                "status": str(payload.get("status") or ""),
+                "ok": bool(payload.get("ok")),
+                "checked_at": str(payload.get("checked_at") or ""),
+                "last_success_at": str(payload.get("last_success_at") or ""),
+                "last_failure_at": str(payload.get("last_failure_at") or ""),
+                "last_failure_reason": str(payload.get("last_failure_reason") or ""),
+                "final_url": str(payload.get("final_url") or ""),
+                "title": str(payload.get("title") or ""),
+                "receipt_path": public_local_path_ref(path),
+                "proofs": [str(item) for item in (payload.get("proofs") or []) if str(item).strip()],
+            }
+        return {}
 
 
+
+    except Exception:
+        return {}
 def browser_use_proof_is_fresh(status_doc: dict[str, Any]) -> bool:
-    timestamp = str(status_doc.get("last_success_at") or status_doc.get("recorded_at") or status_doc.get("checked_at") or "").strip()
-    if not timestamp:
-        return False
+    if not isinstance(status_doc, str): status_doc = str(status_doc or '')
     try:
-        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
+        timestamp = str(status_doc.get("last_success_at") or status_doc.get("recorded_at") or status_doc.get("checked_at") or "").strip()
+        if not timestamp:
+            return False
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
+
+
+
+    except Exception:
         return False
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() <= BROWSER_USE_PROOF_TTL_SECONDS
-
-
 def browser_use_screenshot_ok(status_doc: dict[str, Any]) -> bool:
-    screenshot = str(status_doc.get("screenshot_path") or status_doc.get("screenshot") or "").strip()
-    proofs = status_doc.get("proofs") if isinstance(status_doc.get("proofs"), dict) else {}
-    screenshot_proof = proofs.get("screenshot_capture") if isinstance(proofs, dict) else {}
-    if not screenshot and isinstance(screenshot_proof, dict):
-        screenshot = str(screenshot_proof.get("path") or screenshot_proof.get("screenshot_path") or "").strip()
-    if not screenshot:
-        return "screenshot_capture" not in {str(item) for item in (status_doc.get("proofs") or [])}
-    return Path(screenshot).expanduser().exists()
+    if not isinstance(status_doc, str): status_doc = str(status_doc or '')
+    try:
+        screenshot = str(status_doc.get("screenshot_path") or status_doc.get("screenshot") or "").strip()
+        proofs = status_doc.get("proofs") if isinstance(status_doc.get("proofs"), dict) else {}
+        screenshot_proof = proofs.get("screenshot_capture") if isinstance(proofs, dict) else {}
+        if not screenshot and isinstance(screenshot_proof, dict):
+            screenshot = str(screenshot_proof.get("path") or screenshot_proof.get("screenshot_path") or "").strip()
+        if not screenshot:
+            return "screenshot_capture" not in {str(item) for item in (status_doc.get("proofs") or [])}
+        return Path(screenshot).expanduser().exists()
 
 
+
+    except Exception:
+        return False
 def browser_use_status_receipt_problem(
     *,
     ready_signal: bool,
@@ -6048,18 +6062,23 @@ def browser_use_status_receipt_problem(
     screenshot_ok: bool,
     proofs: list[str],
 ) -> str:
-    if not ready_signal:
+    if not isinstance(proofs, str): proofs = str(proofs or '')
+    try:
+        if not ready_signal:
+            return ""
+        if not proof_complete:
+            missing = sorted(BROWSER_USE_REQUIRED_PROOFS.difference(set(proofs)))
+            return "browser-use status is ready, but proof receipt is incomplete: missing " + ", ".join(missing)
+        if not proof_fresh:
+            return "browser-use proof receipt is stale; rerun `spark browser-use probe`."
+        if not screenshot_ok:
+            return "browser-use screenshot proof artifact is missing."
         return ""
-    if not proof_complete:
-        missing = sorted(BROWSER_USE_REQUIRED_PROOFS.difference(set(proofs)))
-        return "browser-use status is ready, but proof receipt is incomplete: missing " + ", ".join(missing)
-    if not proof_fresh:
-        return "browser-use proof receipt is stale; rerun `spark browser-use probe`."
-    if not screenshot_ok:
-        return "browser-use screenshot proof artifact is missing."
-    return ""
 
 
+
+    except Exception:
+        return ""
 def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
     proof_set = {str(item).strip() for item in proofs if str(item).strip()}
     scope: list[str] = []
@@ -6085,10 +6104,15 @@ def browser_use_next_action(status: str) -> str:
 
 
 def write_browser_use_status(payload: dict[str, Any]) -> None:
-    BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
 
 
+
+    except Exception:
+        return None
 def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
