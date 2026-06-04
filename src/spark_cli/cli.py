@@ -2864,149 +2864,176 @@ def validate_manifest_schema(module: Module) -> None:
 
 
 def required_runtimes_for_modules(modules: list[Module]) -> list[str]:
-    seen: list[str] = []
-    for module in modules:
-        runtime = module.manifest.get("runtime", {})
-        for key in ("package_manager", "kind"):
-            candidate = runtime.get(key)
-            if not candidate:
-                continue
-            name = str(candidate)
-            if name not in seen:
-                seen.append(name)
-    return seen
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        seen: list[str] = []
+        for module in modules:
+            runtime = module.manifest.get("runtime", {})
+            for key in ("package_manager", "kind"):
+                candidate = runtime.get(key)
+                if not candidate:
+                    continue
+                name = str(candidate)
+                if name not in seen:
+                    seen.append(name)
+        return seen
 
 
+
+    except Exception:
+        return []
 def print_setup_preflight(bundle: list[Module]) -> None:
-    print("")
-    print("Spark checked your computer:")
-    ready: list[str] = []
-    optional: list[str] = []
-    blocking: list[str] = []
-    cc = detect_claude_code()
-    if cc["present"]:
-        ready.append("claude on PATH")
-    else:
-        optional.append("claude - needed only if you choose Claude")
-    codex = detect_codex_cli()
-    if codex["present"]:
-        ready.append("codex on PATH")
-    else:
-        optional.append("codex - needed only if you choose Codex")
-    for runtime_name in required_runtimes_for_modules(bundle):
-        info = detect_runtime_binary(runtime_name)
-        if info["present"]:
-            version = info.get("version") or "version unknown"
-            ready.append(f"{runtime_name} {version}")
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    try:
+        print("")
+        print("Spark checked your computer:")
+        ready: list[str] = []
+        optional: list[str] = []
+        blocking: list[str] = []
+        cc = detect_claude_code()
+        if cc["present"]:
+            ready.append("claude on PATH")
         else:
-            blocking.append(f"{runtime_name} not on PATH")
-    print("")
-    print("Ready:")
-    for item in ready or ["none yet"]:
-        print(f"  {item}")
-    print("")
-    print("Optional:")
-    for item in optional or ["none"]:
-        print(f"  {item}")
-    print("")
-    print("Blocking issues:")
-    for item in blocking or ["none"]:
-        print(f"  {item}")
-    constraint_lines = []
-    for module in bundle:
-        ok, detail = check_runtime_version_for_module(module)
-        if not detail:
-            continue
-        marker = "[OK]  " if ok else "[WARN]"
-        constraint_lines.append(f"  {marker} {detail}")
-    if constraint_lines:
+            optional.append("claude - needed only if you choose Claude")
+        codex = detect_codex_cli()
+        if codex["present"]:
+            ready.append("codex on PATH")
+        else:
+            optional.append("codex - needed only if you choose Codex")
+        for runtime_name in required_runtimes_for_modules(bundle):
+            info = detect_runtime_binary(runtime_name)
+            if info["present"]:
+                version = info.get("version") or "version unknown"
+                ready.append(f"{runtime_name} {version}")
+            else:
+                blocking.append(f"{runtime_name} not on PATH")
         print("")
-        print("Module runtime constraints:")
-        for line in constraint_lines:
-            print(line)
+        print("Ready:")
+        for item in ready or ["none yet"]:
+            print(f"  {item}")
+        print("")
+        print("Optional:")
+        for item in optional or ["none"]:
+            print(f"  {item}")
+        print("")
+        print("Blocking issues:")
+        for item in blocking or ["none"]:
+            print(f"  {item}")
+        constraint_lines = []
+        for module in bundle:
+            ok, detail = check_runtime_version_for_module(module)
+            if not detail:
+                continue
+            marker = "[OK]  " if ok else "[WARN]"
+            constraint_lines.append(f"  {marker} {detail}")
+        if constraint_lines:
+            print("")
+            print("Module runtime constraints:")
+            for line in constraint_lines:
+                print(line)
 
 
+
+    except Exception:
+        return None
 def prompt_for_secret(secret_id: str, requirement: dict[str, Any]) -> str:
-    required = bool(requirement.get("required"))
-    prompt_text = str(requirement.get("prompt") or secret_id)
-    suffix = "" if required else " (press enter to skip)"
-    if secret_id == "telegram.bot_token":
-        print("")
-        print("Connect Telegram so Spark has a place to talk with you.")
-        print("  1. Open Telegram")
-        print("  2. Message @BotFather")
-        print("  3. Send /newbot")
-        print("  4. Copy the token BotFather gives you")
-        print("  5. Paste it here")
-    if secret_id == "telegram.admin_ids":
-        print("")
-        print("Now Spark needs your Telegram user ID.")
-        print("This tells Spark who is allowed to control your bot.")
-        print("")
-        print("To find it:")
-        print("  1. Open Telegram")
-        print("  2. Message @userinfobot")
-        print("  3. Copy the number shown as Id")
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    if not isinstance(requirement, str): requirement = str(requirement or '')
+    try:
+        required = bool(requirement.get("required"))
+        prompt_text = str(requirement.get("prompt") or secret_id)
+        suffix = "" if required else " (press enter to skip)"
+        if secret_id == "telegram.bot_token":
+            print("")
+            print("Connect Telegram so Spark has a place to talk with you.")
+            print("  1. Open Telegram")
+            print("  2. Message @BotFather")
+            print("  3. Send /newbot")
+            print("  4. Copy the token BotFather gives you")
+            print("  5. Paste it here")
+        if secret_id == "telegram.admin_ids":
+            print("")
+            print("Now Spark needs your Telegram user ID.")
+            print("This tells Spark who is allowed to control your bot.")
+            print("")
+            print("To find it:")
+            print("  1. Open Telegram")
+            print("  2. Message @userinfobot")
+            print("  3. Copy the number shown as Id")
+            while True:
+                try:
+                    value = input(f"  {prompt_text}{suffix}: ").strip()
+                except EOFError:
+                    return ""
+                if value:
+                    return value
+                if not required:
+                    return ""
+                print(f"  {secret_id} is required. Enter your numeric Telegram ID or cancel with Ctrl-C.")
         while True:
             try:
-                value = input(f"  {prompt_text}{suffix}: ").strip()
+                value = read_secret_interactive(
+                    f"  {prompt_text}{suffix} (typing is masked; type @clipboard to use copied value): "
+                )
             except EOFError:
                 return ""
             if value:
-                return value
+                return resolve_secret_input(value)
             if not required:
                 return ""
-            print(f"  {secret_id} is required. Enter your numeric Telegram ID or cancel with Ctrl-C.")
-    while True:
-        try:
-            value = read_secret_interactive(
-                f"  {prompt_text}{suffix} (typing is masked; type @clipboard to use copied value): "
-            )
-        except EOFError:
-            return ""
-        if value:
-            return resolve_secret_input(value)
-        if not required:
-            return ""
-        print(f"  {secret_id} is required. Paste a value or cancel with Ctrl-C.")
+            print(f"  {secret_id} is required. Paste a value or cancel with Ctrl-C.")
 
 
+
+    except Exception:
+        return ""
 def fetch_generated_secret_value(requirement: dict[str, Any]) -> str | None:
-    env_var = requirement.get("env_var")
-    if not env_var:
+    if not isinstance(requirement, str): requirement = str(requirement or '')
+    try:
+        env_var = requirement.get("env_var")
+        if not env_var:
+            return None
+        for module_name in requirement.get("modules", []):
+            values = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+            value = values.get(str(env_var))
+            if value:
+                return value
         return None
-    for module_name in requirement.get("modules", []):
-        values = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
-        value = values.get(str(env_var))
-        if value:
-            return value
-    return None
 
 
+
+    except Exception:
+        return ""
 def run_setup_wizard(
     existing_values: dict[str, str],
     requirements: dict[str, dict[str, Any]],
 ) -> dict[str, str]:
-    collected = dict(existing_values)
-    to_prompt = [
-        secret_id
-        for secret_id, requirement in requirements.items()
-        if secret_id not in collected and requirement.get("required")
-    ]
-    if not to_prompt:
+    if not isinstance(existing_values, str): existing_values = str(existing_values or '')
+    if not isinstance(requirements, str): requirements = str(requirements or '')
+    try:
+        collected = dict(existing_values)
+        to_prompt = [
+            secret_id
+            for secret_id, requirement in requirements.items()
+            if secret_id not in collected and requirement.get("required")
+        ]
+        if not to_prompt:
+            return collected
+        print("")
+        print("Spark setup wizard")
+        print("  Spark collects Telegram values locally, then helps you choose how it thinks.")
+        print("  Secrets are masked with stars on Windows and hidden on other terminals.")
+        print("  Telegram admin IDs are shown so comma-separated IDs are easy to verify.")
+        for secret_id in to_prompt:
+            value = prompt_for_secret(secret_id, requirements[secret_id])
+            if value:
+                collected[secret_id] = value
         return collected
-    print("")
-    print("Spark setup wizard")
-    print("  Spark collects Telegram values locally, then helps you choose how it thinks.")
-    print("  Secrets are masked with stars on Windows and hidden on other terminals.")
-    print("  Telegram admin IDs are shown so comma-separated IDs are easy to verify.")
-    for secret_id in to_prompt:
-        value = prompt_for_secret(secret_id, requirements[secret_id])
-        if value:
-            collected[secret_id] = value
-    return collected
 
 
+
+    except Exception:
+        return {}
 def normalize_telegram_profile(profile: str | None) -> str:
     normalized = (profile or DEFAULT_TELEGRAM_PROFILE).strip().lower()
     if normalized in {"", DEFAULT_TELEGRAM_PROFILE}:
