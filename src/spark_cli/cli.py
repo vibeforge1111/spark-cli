@@ -38,6 +38,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
+SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 PRIVATE_FILE_MODE = 0o600
@@ -736,6 +738,8 @@ def is_dirty_update_failure(detail: str) -> bool:
         "working tree has local changes" in lowered
         or "commit or stash" in lowered
         or "local changes would be overwritten" in lowered
+
+    timeout=SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS,
     )
 
 
