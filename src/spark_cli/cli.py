@@ -16516,6 +16516,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
         default="telegram",
+        help="What to repair. Default: telegram. Options: telegram, secrets, spawner, providers, memory, live, update, autostart",
     )
     fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
     fix_parser.add_argument("--json", action="store_true")
