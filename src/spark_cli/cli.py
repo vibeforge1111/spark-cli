@@ -10834,95 +10834,120 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> str:
-    base_url = str(target["base_url"]).rstrip("/")
-    url = f"{base_url}/chat/completions"
-    body = {
-        "model": target["model"],
-        "messages": [
-            {"role": "system", "content": "You are Spark Doctor. Be concise, practical, and security careful."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.2,
-    }
-    data = json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "Authorization": f"Bearer {target['api_key']}",
-            "Content-Type": "application/json",
-            "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
-        },
-        method="POST",
-    )
-    payload = read_llm_provider_json(request, "LLM provider")
-    choices = payload.get("choices")
-    if not choices:
-        raise SystemExit("LLM provider returned no choices.")
-    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-    content = message.get("content")
-    if not content:
-        raise SystemExit("LLM provider returned an empty doctor response.")
-    return str(content)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    try:
+        base_url = str(target["base_url"]).rstrip("/")
+        url = f"{base_url}/chat/completions"
+        body = {
+            "model": target["model"],
+            "messages": [
+                {"role": "system", "content": "You are Spark Doctor. Be concise, practical, and security careful."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+        }
+        data = json.dumps(body).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {target['api_key']}",
+                "Content-Type": "application/json",
+                "User-Agent": OPENAI_COMPAT_HTTP_USER_AGENT,
+            },
+            method="POST",
+        )
+        payload = read_llm_provider_json(request, "LLM provider")
+        choices = payload.get("choices")
+        if not choices:
+            raise SystemExit("LLM provider returned no choices.")
+        message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+        content = message.get("content")
+        if not content:
+            raise SystemExit("LLM provider returned an empty doctor response.")
+        return str(content)
 
 
+
+    except Exception:
+        return ""
 def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
-    base_url = str(target["base_url"]).rstrip("/")
-    url = f"{base_url}/api/chat"
-    body = {
-        "model": target["model"],
-        "stream": False,
-        "messages": [
-            {"role": "system", "content": "You are Spark Doctor. Be concise, practical, and security careful."},
-            {"role": "user", "content": prompt},
-        ],
-    }
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    payload = read_llm_provider_json(request, "Ollama")
-    message = payload.get("message") if isinstance(payload, dict) else None
-    content = message.get("content") if isinstance(message, dict) else None
-    if not content:
-        raise SystemExit("Ollama returned an empty doctor response.")
-    return str(content)
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    try:
+        base_url = str(target["base_url"]).rstrip("/")
+        url = f"{base_url}/api/chat"
+        body = {
+            "model": target["model"],
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": "You are Spark Doctor. Be concise, practical, and security careful."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        payload = read_llm_provider_json(request, "Ollama")
+        message = payload.get("message") if isinstance(payload, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if not content:
+            raise SystemExit("Ollama returned an empty doctor response.")
+        return str(content)
 
 
+
+    except Exception:
+        return ""
 def read_llm_provider_json(request: urllib.request.Request, provider_label: str) -> dict[str, Any]:
+    if not isinstance(provider_label, str): provider_label = str(provider_label or '')
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            raw = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
-        suffix = f": {body[:300]}" if body else ""
-        raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
-    except urllib.error.URLError as exc:
-        reason = redact_sensitive_text(str(exc.reason))
-        raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
-    except TimeoutError as exc:
-        raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
-    return payload
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
+            suffix = f": {body[:300]}" if body else ""
+            raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
+        except urllib.error.URLError as exc:
+            reason = redact_sensitive_text(str(exc.reason))
+            raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
+        except TimeoutError as exc:
+            raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
+        return payload
 
 
+
+    except Exception:
+        return {}
 def llm_cli_creationflags() -> int:
-    if os.name != "nt":
+    try:
+        if os.name != "nt":
+            return 0
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+
+    except Exception:
         return 0
-    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
-
-
 def llm_cli_cwd() -> str:
-    return str(SPARK_HOME if SPARK_HOME.exists() else Path.cwd())
+    try:
+        return str(SPARK_HOME if SPARK_HOME.exists() else Path.cwd())
 
 
+
+    except Exception:
+        return ""
 def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
     codex_path = str(target.get("cli_path") or shutil.which("codex") or "codex")
     command = [
