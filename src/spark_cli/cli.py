@@ -494,12 +494,24 @@ def validate_commit_pin(commit: str | None) -> str | None:
 
 
 def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        git_command(*args),
-        cwd=str(cwd) if cwd else None,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command(*args),
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=GIT_HELPER_TIMEOUT_SECONDS,
+        )
+    except OSError as exc:
+        raise SystemExit(
+            f"git operation failed for {name}: could not start git. "
+            "Install Git and make sure it is on PATH."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git operation timed out for {name} after {GIT_HELPER_TIMEOUT_SECONDS}s. "
+            "Check for hung credential helpers, NFS stalls, or git index lock contention."
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git operation failed for {name}: {detail}")
@@ -507,11 +519,20 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        verify_result = subprocess.run(
+            git_command("-C", str(target), "verify-commit", commit),
+            capture_output=True,
+            text=True,
+            timeout=GIT_HELPER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        verify_result = subprocess.CompletedProcess(
+            args=git_command("-C", str(target), "verify-commit", commit),
+            returncode=-1,
+            stdout="",
+            stderr=f"git verify-commit timed out after {GIT_HELPER_TIMEOUT_SECONDS}s",
+        )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
         raise SystemExit(f"git signature verification failed for {name} at {commit}: {detail}")
