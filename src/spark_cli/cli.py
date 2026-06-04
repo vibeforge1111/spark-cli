@@ -6061,29 +6061,39 @@ def browser_use_status_receipt_problem(
 
 
 def browser_use_proven_scope(proofs: Iterable[str]) -> list[str]:
-    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
-    scope: list[str] = []
-    if "doctor" in proof_set:
-        scope.append("browser-use doctor")
-    if "public_page_open" in proof_set:
-        scope.append("public page open")
-    if "state_read" in proof_set:
-        scope.append("page state read")
-    if "screenshot_capture" in proof_set:
-        scope.append("screenshot capture")
-    return scope
+    if not isinstance(proofs, str): proofs = str(proofs or '')
+    try:
+        proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+        scope: list[str] = []
+        if "doctor" in proof_set:
+            scope.append("browser-use doctor")
+        if "public_page_open" in proof_set:
+            scope.append("public page open")
+        if "state_read" in proof_set:
+            scope.append("page state read")
+        if "screenshot_capture" in proof_set:
+            scope.append("screenshot capture")
+        return scope
 
 
+
+    except Exception:
+        return []
 def browser_use_next_action(status: str) -> str:
-    if status == "ready":
-        return "Run /probe browser in Telegram before claiming a specific browser task worked this turn."
-    if status == "installed_unproven":
-        return "Run `spark browser-use probe` to create a fresh proof receipt."
-    if status == "failed":
-        return "Run `spark browser-use probe --json` and inspect last_failure_reason."
-    return "Run `spark browser-use install`, then `spark browser-use probe`."
+    if not isinstance(status, str): status = str(status or '')
+    try:
+        if status == "ready":
+            return "Run /probe browser in Telegram before claiming a specific browser task worked this turn."
+        if status == "installed_unproven":
+            return "Run `spark browser-use probe` to create a fresh proof receipt."
+        if status == "failed":
+            return "Run `spark browser-use probe --json` and inspect last_failure_reason."
+        return "Run `spark browser-use install`, then `spark browser-use probe`."
 
 
+
+    except Exception:
+        return ""
 def write_browser_use_status(payload: dict[str, Any]) -> None:
     BROWSER_USE_STATUS_DIR.mkdir(parents=True, exist_ok=True)
     atomic_write_json(BROWSER_USE_STATUS_PATH, payload)
@@ -6346,24 +6356,34 @@ def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
 
 
 def browser_use_bounded_text(value: str, limit: int = BROWSER_USE_ACTION_TEXT_LIMIT) -> str:
-    compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
-    if len(compact) <= limit:
-        return compact
-    return compact[: max(0, limit - 20)].rstrip() + "\n[truncated]"
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        compact = re.sub(r"\s+\n", "\n", str(value or "")).strip()
+        if len(compact) <= limit:
+            return compact
+        return compact[: max(0, limit - 20)].rstrip() + "\n[truncated]"
 
 
+
+    except Exception:
+        return ""
 def browser_use_action_scope(proofs: Iterable[str]) -> list[str]:
-    proof_set = {str(item).strip() for item in proofs if str(item).strip()}
-    scope: list[str] = []
-    if "public_url_open" in proof_set:
-        scope.append("public URL open")
-    if "state_read" in proof_set:
-        scope.append("page state read")
-    if "screenshot_capture" in proof_set:
-        scope.append("screenshot capture")
-    return scope
+    if not isinstance(proofs, str): proofs = str(proofs or '')
+    try:
+        proof_set = {str(item).strip() for item in proofs if str(item).strip()}
+        scope: list[str] = []
+        if "public_url_open" in proof_set:
+            scope.append("public URL open")
+        if "state_read" in proof_set:
+            scope.append("page state read")
+        if "screenshot_capture" in proof_set:
+            scope.append("screenshot capture")
+        return scope
 
 
+
+    except Exception:
+        return []
 def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int = 25) -> dict[str, Any]:
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     cleaned_goal = str(goal or "").strip()
@@ -6602,39 +6622,44 @@ class SparkBrowserUseStructuredLLM:
 
 
 def browser_use_normalize_structured_agent_json(raw: str) -> str:
-    text = raw.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
-    if fenced:
-        text = fenced.group(1).strip()
-    elif not text.startswith("{"):
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            text = text[start:end + 1]
-
+    if not isinstance(raw, str): raw = str(raw or '')
     try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return text
-    if not isinstance(payload, dict):
-        return text
+        text = raw.strip()
+        fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.IGNORECASE | re.DOTALL)
+        if fenced:
+            text = fenced.group(1).strip()
+        elif not text.startswith("{"):
+            start = text.find("{")
+            end = text.rfind("}")
+            if start >= 0 and end > start:
+                text = text[start:end + 1]
 
-    if "done" in payload and "action" not in payload:
-        payload = {"memory": str(payload.get("memory") or "Task result ready."), "action": [{"done": payload["done"]}]}
-    actions = payload.get("action")
-    if isinstance(actions, dict):
-        payload["action"] = [actions]
-        actions = payload["action"]
-    if isinstance(actions, list):
-        for action in actions:
-            if not isinstance(action, dict):
-                continue
-            done = action.get("done")
-            if isinstance(done, dict) and "text" not in done and "answer" in done:
-                done["text"] = done.pop("answer")
-    return json.dumps(payload, ensure_ascii=False)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if not isinstance(payload, dict):
+            return text
+
+        if "done" in payload and "action" not in payload:
+            payload = {"memory": str(payload.get("memory") or "Task result ready."), "action": [{"done": payload["done"]}]}
+        actions = payload.get("action")
+        if isinstance(actions, dict):
+            payload["action"] = [actions]
+            actions = payload["action"]
+        if isinstance(actions, list):
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                done = action.get("done")
+                if isinstance(done, dict) and "text" not in done and "answer" in done:
+                    done["text"] = done.pop("answer")
+        return json.dumps(payload, ensure_ascii=False)
 
 
+
+    except Exception:
+        return ""
 def browser_use_agent_history_payload(history: Any) -> dict[str, Any]:
     def read(name: str, default: Any = None) -> Any:
         value = getattr(history, name, default)
