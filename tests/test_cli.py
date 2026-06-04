@@ -90,6 +90,8 @@ from spark_cli.cli import (
     is_dirty_update_failure,
     installer_manifest_payload,
     git_command,
+    git_current_head,
+    git_short_status,
     run_git_or_exit,
     is_git_source,
     module_is_git_managed,
@@ -4958,6 +4960,54 @@ class SparkCliTests(unittest.TestCase):
         message = str(error.exception)
         self.assertIn("could not start git", message)
         self.assertIn("PATH", message)
+
+    def test_git_short_status_returns_stripped_stdout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            fake_result = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="M src/app.ts\n", stderr="",
+            )
+            with patch("spark_cli.cli.subprocess.run", return_value=fake_result):
+                value = git_short_status(path)
+
+        self.assertEqual(value, "M src/app.ts")
+        self.assertNotIn("\n", value)
+
+    def test_git_short_status_returns_empty_on_non_zero_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            fake_result = subprocess.CompletedProcess(
+                args=[], returncode=128, stdout="", stderr="fatal: not a git repository",
+            )
+            with patch("spark_cli.cli.subprocess.run", return_value=fake_result):
+                value = git_short_status(path)
+
+        self.assertEqual(value, "")
+
+    def test_git_short_status_returns_empty_on_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            with patch(
+                "spark_cli.cli.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(["git", "status"], 10),
+            ):
+                value = git_short_status(path)
+
+        self.assertEqual(value, "")
+
+    def test_git_short_status_passes_timeout_to_subprocess(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            fake_result = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="", stderr="",
+            )
+            with patch("spark_cli.cli.subprocess.run", return_value=fake_result) as run_mock:
+                git_short_status(path)
+
+        kwargs = run_mock.call_args.kwargs
+        self.assertEqual(kwargs.get("timeout"), 10)
+        self.assertTrue(kwargs.get("capture_output"))
+        self.assertTrue(kwargs.get("text"))
 
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])

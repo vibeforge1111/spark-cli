@@ -4531,16 +4531,28 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     lines: list[str] = []
     if path.exists():
         existing = path.read_text(encoding="utf-8").splitlines()
+        final_lines: list[str] = []
+        skip_buffer: list[str] = []
         inside = False
         for line in existing:
-            if line.strip() == start:
+            stripped = line.strip()
+            if stripped == start:
                 inside = True
+                skip_buffer = []
                 continue
-            if line.strip() == end:
+            if stripped == end:
                 inside = False
+                skip_buffer = [] # Block was closed properly, discard it
                 continue
-            if not inside:
-                lines.append(line)
+            if inside:
+                skip_buffer.append(line)
+            else:
+                final_lines.append(line)
+        # If inside is True at the end, it was an orphan start tag.
+        # We must restore the skipped lines.
+        if inside:
+            final_lines.extend(skip_buffer)
+        lines = final_lines
         while lines and not lines[-1].strip():
             lines.pop()
     if lines:
@@ -9048,12 +9060,15 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
 
 
 def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            git_command("-C", str(path), "status", "--porcelain"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
