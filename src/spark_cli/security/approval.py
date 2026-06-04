@@ -99,6 +99,50 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _git_config_is_read_only(parts: list[str]) -> bool:
+    read_flags = {
+        "--get",
+        "--get-all",
+        "--get-regexp",
+        "--get-urlmatch",
+        "--list",
+        "-l",
+        "--name-only",
+        "--null",
+        "-z",
+        "--show-origin",
+        "--show-scope",
+        "--includes",
+    }
+    write_flags = {"--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section"}
+    scope_flags = {"--global", "--system", "--local", "--worktree"}
+    value_flags = {"--file", "-f", "--blob", "--type", "-t"}
+    config_args: list[str] = []
+    index = 2
+    while index < len(parts):
+        part = parts[index]
+        if part in scope_flags:
+            index += 1
+            continue
+        if part in value_flags:
+            index += 2
+            continue
+        if any(part.startswith(f"{flag}=") for flag in value_flags):
+            index += 1
+            continue
+        config_args.append(part)
+        index += 1
+    if not config_args:
+        return True
+    lowered_args = _lower_parts(config_args)
+    if any(part in write_flags for part in lowered_args):
+        return False
+    if any(part in read_flags for part in lowered_args):
+        return True
+    positional = [part for part in config_args if not part.startswith("-")]
+    return len(positional) <= 1
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -228,6 +272,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can rewrite published history or discard local work.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve git history mutation",
+        )
+
+    if first == "git" and second == "config" and not _git_config_is_read_only(parts):
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Command can change Git identity, credential, hook, or URL routing configuration.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git config mutation",
         )
 
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
