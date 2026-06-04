@@ -2211,7 +2211,17 @@ def read_clipboard_text() -> str:
                 commands.append([path])
 
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
         if result.returncode == 0:
             value = result.stdout.strip()
             if value:
