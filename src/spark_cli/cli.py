@@ -13129,346 +13129,368 @@ def linux_no_new_privileges_enabled(status_path: Path = Path("/proc/self/status"
 
 
 def linux_effective_capabilities_dropped(status_path: Path = Path("/proc/self/status")) -> bool | None:
-    fields = proc_status_fields(status_path)
-    value = fields.get("CapEff")
-    if value is None:
-        return None
+    if status_path is not None and not hasattr(status_path, 'resolve'): from pathlib import Path; status_path = Path(str(status_path))
     try:
-        return int(value.split()[0], 16) == 0
-    except ValueError:
-        return None
-
-
-def linux_root_filesystem_read_only(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> bool | None:
-    if os.name == "nt":
-        return None
-    try:
-        mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, OSError):
-        return None
-    for line in mountinfo.splitlines():
-        parts = line.split()
-        if len(parts) >= 6 and decode_mountinfo_path(parts[4]) == "/":
-            options = set(parts[5].split(","))
-            return "ro" in options
-    return None
-
-
-def hosted_spawner_base_url() -> str:
-    port = (
-        os.environ.get("SPARK_SPAWNER_PORT")
-        or os.environ.get("PORT")
-        or os.environ.get("SPARK_PORT")
-        or "3333"
-    )
-    return f"http://127.0.0.1:{str(port).strip()}"
-
-
-def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
-    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
-    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
-    if not ui_key or not bridge_key:
-        return {
-            "name": "hosted_deep_mission_smoke",
-            "ok": False,
-            "required": True,
-            "detail": "Hosted mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY.",
-            "repair": "Set hosted API keys, restart Spark Live, then rerun spark verify --hosted --deep.",
-        }
-
-    base_url = hosted_spawner_base_url().rstrip("/")
-    marker = "SPARK_HOSTED_DEEP_OK"
-    request_id = f"hosted-deep-{int(time.time())}"
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "x-spawner-ui-key": ui_key,
-        "x-api-key": bridge_key,
-    }
-    payload = {
-        "goal": f"Reply with exactly: {marker}",
-        "providers": [os.environ.get("SPARK_LLM_PROVIDER") or "codex"],
-        "promptMode": "simple",
-        "requestId": request_id,
-    }
-    try:
-        request = urllib.request.Request(
-            f"{base_url}/api/spark/run",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            start_payload = json.loads(response.read().decode("utf-8") or "{}")
-    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        return {
-            "name": "hosted_deep_mission_smoke",
-            "ok": False,
-            "required": True,
-            "detail": f"Could not start protected hosted mission smoke: {exc}",
-            "repair": "Run spark live status and spark logs spawner-ui --lines 80.",
-        }
-
-    mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
-    deadline = time.time() + timeout_seconds
-    last_detail = "Mission was accepted; waiting for board result."
-    while time.time() < deadline:
+        fields = proc_status_fields(status_path)
+        value = fields.get("CapEff")
+        if value is None:
+            return None
         try:
-            request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
-            with urllib.request.urlopen(request, timeout=10) as response:
-                board_text = response.read().decode("utf-8")
-            if marker in board_text:
-                return {
-                    "name": "hosted_deep_mission_smoke",
-                    "ok": True,
-                    "required": True,
-                    "detail": f"Protected mission path completed with {marker} ({mission_id}).",
-                    "repair": "",
-                }
-            if mission_id in board_text:
-                last_detail = f"Mission {mission_id} is visible on the board but has not emitted {marker} yet."
-        except (OSError, TimeoutError, urllib.error.URLError) as exc:
-            last_detail = f"Board poll failed while waiting for {mission_id}: {exc}"
-        time.sleep(3)
-
-    return {
-        "name": "hosted_deep_mission_smoke",
-        "ok": False,
-        "required": True,
-        "detail": last_detail,
-        "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
-    }
+            return int(value.split()[0], 16) == 0
+        except ValueError:
+            return None
 
 
-def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
-    role_providers = hosted_llm_role_providers()
-    provider_errors = hosted_headless_provider_errors()
-    local_provider_endpoint_errors = hosted_local_provider_endpoint_errors()
-    allowed_hosts = [host.strip() for host in (os.environ.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    allowed_host_errors = hosted_allowed_host_errors(allowed_hosts)
-    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
-    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
-    hosted_key_errors = hosted_api_key_strength_errors(ui_key, bridge_key)
-    secret_file_errors = hosted_secret_file_permission_errors()
-    sensitive_mount_errors = hosted_sensitive_mount_errors()
-    cloud_credential_errors = hosted_cloud_credential_env_errors()
-    spawner_host = (os.environ.get("SPARK_SPAWNER_HOST") or "").strip()
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
-    runtime_uids = tracked_runtime_uids()
-    uid = current_uid()
-    runtime_non_root_ok = all(runtime_uid != 0 for runtime_uid in runtime_uids) if runtime_uids else (uid is None or uid != 0)
-    runtime_uid_detail = (
-        f"Spark tracked runtime process uid(s): {', '.join(str(runtime_uid) for runtime_uid in sorted(set(runtime_uids)))}."
-        if runtime_uids
-        else (
-            f"Spark runtime is not root (uid={uid})."
-            if uid is not None and uid != 0
-            else "This platform does not expose a Unix uid; non-root runtime is checked inside Linux/Docker hosted environments."
-            if uid is None
-            else "Spark runtime appears to be running as root; hosted containers should drop to the spark user after volume prep."
+
+    except Exception:
+        return False
+def linux_root_filesystem_read_only(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> bool | None:
+    if mountinfo_path is not None and not hasattr(mountinfo_path, 'resolve'): from pathlib import Path; mountinfo_path = Path(str(mountinfo_path))
+    try:
+        if os.name == "nt":
+            return None
+        try:
+            mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, OSError):
+            return None
+        for line in mountinfo.splitlines():
+            parts = line.split()
+            if len(parts) >= 6 and decode_mountinfo_path(parts[4]) == "/":
+                options = set(parts[5].split(","))
+                return "ro" in options
+        return None
+
+
+
+    except Exception:
+        return False
+def hosted_spawner_base_url() -> str:
+    try:
+        port = (
+            os.environ.get("SPARK_SPAWNER_PORT")
+            or os.environ.get("PORT")
+            or os.environ.get("SPARK_PORT")
+            or "3333"
         )
-    )
-    spark_home_value = os.environ.get("SPARK_HOME", str(SPARK_HOME))
-    spark_home = Path(spark_home_value).expanduser().resolve()
-    spark_home_ref = public_local_path_ref(spark_home)
-    if spark_home_ref.startswith("<local-path>/"):
-        spark_home_ref = "<spark-home>"
-    no_new_privileges = linux_no_new_privileges_enabled()
-    capabilities_dropped = linux_effective_capabilities_dropped()
-    root_read_only = linux_root_filesystem_read_only()
-    hosted_runtime = bool(os.environ.get("SPARK_LIVE_CONTAINER") or os.environ.get("RAILWAY_ENVIRONMENT"))
-    strict_pins_required = hosted_runtime or public_bind
+        return f"http://127.0.0.1:{str(port).strip()}"
 
-    checks = [
-        {
-            "name": "non_root_runtime",
-            "ok": runtime_non_root_ok,
-            "required": True,
-            "detail": runtime_uid_detail,
-            "repair": "Use the Spark Live Docker entrypoint or run as a non-root user after chowning the state volume.",
-        },
-        {
-            "name": "no_docker_socket",
-            "ok": not docker_socket_present(),
-            "required": True,
-            "detail": (
-                "Docker socket is not mounted."
-                if not docker_socket_present()
-                else "Docker socket is visible inside the container; this is effectively host-root access."
-            ),
-            "repair": "Remove any /var/run/docker.sock mount before running hosted Spark.",
-        },
-        {
-            "name": "container_no_new_privileges",
-            "ok": no_new_privileges is not False,
-            "required": False,
-            "detail": (
-                "Linux no-new-privileges is enabled."
-                if no_new_privileges is True
-                else "Linux no-new-privileges is disabled; this weakens container escape resistance."
-                if no_new_privileges is False
-                else "This platform does not expose Linux NoNewPrivs."
-            ),
-            "repair": "Run hosted Spark with `--security-opt no-new-privileges` or the equivalent platform policy.",
-        },
-        {
-            "name": "container_capabilities",
-            "ok": capabilities_dropped is not False,
-            "required": False,
-            "detail": (
-                "Linux effective capabilities are dropped."
-                if capabilities_dropped is True
-                else "Linux effective capabilities are still present; drop all capabilities where the host allows it."
-                if capabilities_dropped is False
-                else "This platform does not expose Linux capability status."
-            ),
-            "repair": "Run hosted Spark with `--cap-drop ALL` where supported.",
-        },
-        {
-            "name": "container_read_only_root",
-            "ok": root_read_only is not False,
-            "required": False,
-            "detail": (
-                "Container root filesystem is read-only."
-                if root_read_only is True
-                else "Container root filesystem is writable; prefer a read-only root filesystem plus writable Spark state volume."
-                if root_read_only is False
-                else "This platform does not expose root filesystem mount mode."
-            ),
-            "repair": "Use Docker `--read-only` plus tmpfs for /tmp and a dedicated writable Spark state volume where supported.",
-        },
-        {
-            "name": "no_sensitive_mounts",
-            "ok": not sensitive_mount_errors,
-            "required": True,
-            "detail": (
-                "; ".join(sensitive_mount_errors)
-                if sensitive_mount_errors
-                else "No obvious SSH, browser profile, cloud credential, root, or Docker config mounts are visible."
-            ),
-            "repair": "Mount only the Spark state volume, normally /data/spark. Do not mount host homes, SSH keys, cloud config, browser profiles, or /.",
-        },
-        {
-            "name": "no_cloud_admin_credentials",
-            "ok": not cloud_credential_errors,
-            "required": True,
-            "detail": (
-                "; ".join(cloud_credential_errors)
-                if cloud_credential_errors
-                else "No cloud/admin deployment tokens are present in the hosted Spark runtime env."
-            ),
-            "repair": "Remove cloud deployment credentials from the Spark Live service env; keep only Spark/LLM/Telegram secrets needed by the agent.",
-        },
-        {
-            "name": "spark_home_boundary",
-            "ok": hosted_spark_home_is_safe(spark_home_value),
-            "required": True,
-            "detail": f"Spark home is isolated at {spark_home_ref}.",
-            "repair": "Set SPARK_HOME to an isolated volume such as /data/spark.",
-        },
-        {
-            "name": "allowed_hosts",
-            "ok": ((not public_bind) or bool(allowed_hosts)) and not allowed_host_errors,
-            "required": True,
-            "detail": (
-                "; ".join(allowed_host_errors)
-                if allowed_host_errors
-                else (
-                    f"Spawner public host allowlist: {', '.join(allowed_hosts)}."
-                    if allowed_hosts
-                    else "Spawner is not publicly bound, so SPARK_ALLOWED_HOSTS is not required for this context."
-                )
-            ),
-            "repair": "Set SPARK_ALLOWED_HOSTS to the exact hosted domain, with no scheme, path, wildcard, or loopback host.",
-        },
-        {
-            "name": "hosted_api_keys",
-            "ok": (not public_bind) or not hosted_key_errors,
-            "required": True,
-            "detail": (
-                "; ".join(hosted_key_errors)
-                if hosted_key_errors and public_bind
-                else (
-                "Hosted UI and bridge API keys are configured; Spark Live maps the bridge key to control/event routes at startup."
-                    if bool(bridge_key) and bool(ui_key)
-                    else "Spawner is not publicly bound, so hosted UI/bridge API keys are not required for this context."
-                    if not public_bind
-                    else "Hosted/public Spawner needs SPARK_UI_API_KEY plus SPARK_BRIDGE_API_KEY."
-                )
-            ),
-            "repair": "Set different random SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY platform secrets, at least 24 characters each.",
-        },
-        {
-            "name": "headless_provider",
-            "ok": not provider_errors and not local_provider_endpoint_errors,
-            "required": True,
-            "detail": (
-                "Hosted LLM roles are API/local-network compatible: "
-                + ", ".join(f"{role}={provider or 'not set'}" for role, provider in role_providers.items())
-                if not provider_errors and not local_provider_endpoint_errors
-                else "; ".join(provider_errors + local_provider_endpoint_errors)
-            ),
-            "repair": "Use API-key providers for hosted Spark: zai, kimi, openrouter, huggingface, minimax, openai, codex with OPENAI_API_KEY, anthropic with ANTHROPIC_API_KEY, or a reachable LM Studio/Ollama endpoint.",
-        },
-        {
-            "name": "strict_runtime_pins",
-            "ok": (not strict_pins_required) or runtime_guard_is_strict(),
-            "required": True,
-            "detail": (
-                "Strict runtime pins are enforced for hosted/public Spark."
-                if runtime_guard_is_strict()
-                else "Strict runtime pins are not required for this local-only context."
-                if not strict_pins_required
-                else "Hosted/public Spark should block dirty or off-pin runtime modules."
-            ),
-            "repair": "Set SPARK_STRICT_RUNTIME_PINS=1 for hosted Docker/Railway deployments.",
-        },
-        {
-            "name": "hosted_secret_file_permissions",
-            "ok": not secret_file_errors,
-            "required": True,
-            "detail": (
-                "; ".join(secret_file_errors)
-                if secret_file_errors
-                else (
-                    "Hosted secret files are private on this platform."
-                    if os.name != "nt"
-                    else "Windows hosted secret file permissions are handled by the OS/keychain path."
-                )
-            ),
-            "repair": "Run `chmod 600 <spark-home>/config/secrets.local.json` or rerun `spark setup` so Spark can harden the secret file.",
-        },
-    ]
 
-    secret_surface = collect_secret_surface_payload()
-    checks.append(
-        {
-            "name": "secret_surface",
-            "ok": bool(secret_surface.get("ok")),
-            "required": True,
-            "detail": str(secret_surface.get("detail") or ""),
-            "repair": str(secret_surface.get("repair") or "spark fix secrets"),
-            "findings": secret_surface.get("findings", []),
+
+    except Exception:
+        return ""
+def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
+    try:
+        ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+        bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        if not ui_key or not bridge_key:
+            return {
+                "name": "hosted_deep_mission_smoke",
+                "ok": False,
+                "required": True,
+                "detail": "Hosted mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY.",
+                "repair": "Set hosted API keys, restart Spark Live, then rerun spark verify --hosted --deep.",
+            }
+
+        base_url = hosted_spawner_base_url().rstrip("/")
+        marker = "SPARK_HOSTED_DEEP_OK"
+        request_id = f"hosted-deep-{int(time.time())}"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-spawner-ui-key": ui_key,
+            "x-api-key": bridge_key,
         }
-    )
+        payload = {
+            "goal": f"Reply with exactly: {marker}",
+            "providers": [os.environ.get("SPARK_LLM_PROVIDER") or "codex"],
+            "promptMode": "simple",
+            "requestId": request_id,
+        }
+        try:
+            request = urllib.request.Request(
+                f"{base_url}/api/spark/run",
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                start_payload = json.loads(response.read().decode("utf-8") or "{}")
+        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+            return {
+                "name": "hosted_deep_mission_smoke",
+                "ok": False,
+                "required": True,
+                "detail": f"Could not start protected hosted mission smoke: {exc}",
+                "repair": "Run spark live status and spark logs spawner-ui --lines 80.",
+            }
 
-    if deep:
-        checks.append(hosted_deep_mission_smoke())
+        mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
+        deadline = time.time() + timeout_seconds
+        last_detail = "Mission was accepted; waiting for board result."
+        while time.time() < deadline:
+            try:
+                request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    board_text = response.read().decode("utf-8")
+                if marker in board_text:
+                    return {
+                        "name": "hosted_deep_mission_smoke",
+                        "ok": True,
+                        "required": True,
+                        "detail": f"Protected mission path completed with {marker} ({mission_id}).",
+                        "repair": "",
+                    }
+                if mission_id in board_text:
+                    last_detail = f"Mission {mission_id} is visible on the board but has not emitted {marker} yet."
+            except (OSError, TimeoutError, urllib.error.URLError) as exc:
+                last_detail = f"Board poll failed while waiting for {mission_id}: {exc}"
+            time.sleep(3)
 
-    return {
-        "ok": all(bool(check["ok"]) for check in checks if check.get("required", True)),
-        "summary": "Spark hosted security verification",
-        "checks": checks,
-        "next_commands": [
-            "spark live status",
-            "spark verify --onboarding",
-            "spark providers test --role chat",
-            "spark verify --hosted --deep",
-            "spark logs spawner-ui --lines 80",
-        ],
-    }
+        return {
+            "name": "hosted_deep_mission_smoke",
+            "ok": False,
+            "required": True,
+            "detail": last_detail,
+            "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
+        }
 
 
+
+    except Exception:
+        return {}
+def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
+    try:
+        role_providers = hosted_llm_role_providers()
+        provider_errors = hosted_headless_provider_errors()
+        local_provider_endpoint_errors = hosted_local_provider_endpoint_errors()
+        allowed_hosts = [host.strip() for host in (os.environ.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
+        allowed_host_errors = hosted_allowed_host_errors(allowed_hosts)
+        ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+        bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        hosted_key_errors = hosted_api_key_strength_errors(ui_key, bridge_key)
+        secret_file_errors = hosted_secret_file_permission_errors()
+        sensitive_mount_errors = hosted_sensitive_mount_errors()
+        cloud_credential_errors = hosted_cloud_credential_env_errors()
+        spawner_host = (os.environ.get("SPARK_SPAWNER_HOST") or "").strip()
+        public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+        runtime_uids = tracked_runtime_uids()
+        uid = current_uid()
+        runtime_non_root_ok = all(runtime_uid != 0 for runtime_uid in runtime_uids) if runtime_uids else (uid is None or uid != 0)
+        runtime_uid_detail = (
+            f"Spark tracked runtime process uid(s): {', '.join(str(runtime_uid) for runtime_uid in sorted(set(runtime_uids)))}."
+            if runtime_uids
+            else (
+                f"Spark runtime is not root (uid={uid})."
+                if uid is not None and uid != 0
+                else "This platform does not expose a Unix uid; non-root runtime is checked inside Linux/Docker hosted environments."
+                if uid is None
+                else "Spark runtime appears to be running as root; hosted containers should drop to the spark user after volume prep."
+            )
+        )
+        spark_home_value = os.environ.get("SPARK_HOME", str(SPARK_HOME))
+        spark_home = Path(spark_home_value).expanduser().resolve()
+        spark_home_ref = public_local_path_ref(spark_home)
+        if spark_home_ref.startswith("<local-path>/"):
+            spark_home_ref = "<spark-home>"
+        no_new_privileges = linux_no_new_privileges_enabled()
+        capabilities_dropped = linux_effective_capabilities_dropped()
+        root_read_only = linux_root_filesystem_read_only()
+        hosted_runtime = bool(os.environ.get("SPARK_LIVE_CONTAINER") or os.environ.get("RAILWAY_ENVIRONMENT"))
+        strict_pins_required = hosted_runtime or public_bind
+
+        checks = [
+            {
+                "name": "non_root_runtime",
+                "ok": runtime_non_root_ok,
+                "required": True,
+                "detail": runtime_uid_detail,
+                "repair": "Use the Spark Live Docker entrypoint or run as a non-root user after chowning the state volume.",
+            },
+            {
+                "name": "no_docker_socket",
+                "ok": not docker_socket_present(),
+                "required": True,
+                "detail": (
+                    "Docker socket is not mounted."
+                    if not docker_socket_present()
+                    else "Docker socket is visible inside the container; this is effectively host-root access."
+                ),
+                "repair": "Remove any /var/run/docker.sock mount before running hosted Spark.",
+            },
+            {
+                "name": "container_no_new_privileges",
+                "ok": no_new_privileges is not False,
+                "required": False,
+                "detail": (
+                    "Linux no-new-privileges is enabled."
+                    if no_new_privileges is True
+                    else "Linux no-new-privileges is disabled; this weakens container escape resistance."
+                    if no_new_privileges is False
+                    else "This platform does not expose Linux NoNewPrivs."
+                ),
+                "repair": "Run hosted Spark with `--security-opt no-new-privileges` or the equivalent platform policy.",
+            },
+            {
+                "name": "container_capabilities",
+                "ok": capabilities_dropped is not False,
+                "required": False,
+                "detail": (
+                    "Linux effective capabilities are dropped."
+                    if capabilities_dropped is True
+                    else "Linux effective capabilities are still present; drop all capabilities where the host allows it."
+                    if capabilities_dropped is False
+                    else "This platform does not expose Linux capability status."
+                ),
+                "repair": "Run hosted Spark with `--cap-drop ALL` where supported.",
+            },
+            {
+                "name": "container_read_only_root",
+                "ok": root_read_only is not False,
+                "required": False,
+                "detail": (
+                    "Container root filesystem is read-only."
+                    if root_read_only is True
+                    else "Container root filesystem is writable; prefer a read-only root filesystem plus writable Spark state volume."
+                    if root_read_only is False
+                    else "This platform does not expose root filesystem mount mode."
+                ),
+                "repair": "Use Docker `--read-only` plus tmpfs for /tmp and a dedicated writable Spark state volume where supported.",
+            },
+            {
+                "name": "no_sensitive_mounts",
+                "ok": not sensitive_mount_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(sensitive_mount_errors)
+                    if sensitive_mount_errors
+                    else "No obvious SSH, browser profile, cloud credential, root, or Docker config mounts are visible."
+                ),
+                "repair": "Mount only the Spark state volume, normally /data/spark. Do not mount host homes, SSH keys, cloud config, browser profiles, or /.",
+            },
+            {
+                "name": "no_cloud_admin_credentials",
+                "ok": not cloud_credential_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(cloud_credential_errors)
+                    if cloud_credential_errors
+                    else "No cloud/admin deployment tokens are present in the hosted Spark runtime env."
+                ),
+                "repair": "Remove cloud deployment credentials from the Spark Live service env; keep only Spark/LLM/Telegram secrets needed by the agent.",
+            },
+            {
+                "name": "spark_home_boundary",
+                "ok": hosted_spark_home_is_safe(spark_home_value),
+                "required": True,
+                "detail": f"Spark home is isolated at {spark_home_ref}.",
+                "repair": "Set SPARK_HOME to an isolated volume such as /data/spark.",
+            },
+            {
+                "name": "allowed_hosts",
+                "ok": ((not public_bind) or bool(allowed_hosts)) and not allowed_host_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(allowed_host_errors)
+                    if allowed_host_errors
+                    else (
+                        f"Spawner public host allowlist: {', '.join(allowed_hosts)}."
+                        if allowed_hosts
+                        else "Spawner is not publicly bound, so SPARK_ALLOWED_HOSTS is not required for this context."
+                    )
+                ),
+                "repair": "Set SPARK_ALLOWED_HOSTS to the exact hosted domain, with no scheme, path, wildcard, or loopback host.",
+            },
+            {
+                "name": "hosted_api_keys",
+                "ok": (not public_bind) or not hosted_key_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(hosted_key_errors)
+                    if hosted_key_errors and public_bind
+                    else (
+                    "Hosted UI and bridge API keys are configured; Spark Live maps the bridge key to control/event routes at startup."
+                        if bool(bridge_key) and bool(ui_key)
+                        else "Spawner is not publicly bound, so hosted UI/bridge API keys are not required for this context."
+                        if not public_bind
+                        else "Hosted/public Spawner needs SPARK_UI_API_KEY plus SPARK_BRIDGE_API_KEY."
+                    )
+                ),
+                "repair": "Set different random SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY platform secrets, at least 24 characters each.",
+            },
+            {
+                "name": "headless_provider",
+                "ok": not provider_errors and not local_provider_endpoint_errors,
+                "required": True,
+                "detail": (
+                    "Hosted LLM roles are API/local-network compatible: "
+                    + ", ".join(f"{role}={provider or 'not set'}" for role, provider in role_providers.items())
+                    if not provider_errors and not local_provider_endpoint_errors
+                    else "; ".join(provider_errors + local_provider_endpoint_errors)
+                ),
+                "repair": "Use API-key providers for hosted Spark: zai, kimi, openrouter, huggingface, minimax, openai, codex with OPENAI_API_KEY, anthropic with ANTHROPIC_API_KEY, or a reachable LM Studio/Ollama endpoint.",
+            },
+            {
+                "name": "strict_runtime_pins",
+                "ok": (not strict_pins_required) or runtime_guard_is_strict(),
+                "required": True,
+                "detail": (
+                    "Strict runtime pins are enforced for hosted/public Spark."
+                    if runtime_guard_is_strict()
+                    else "Strict runtime pins are not required for this local-only context."
+                    if not strict_pins_required
+                    else "Hosted/public Spark should block dirty or off-pin runtime modules."
+                ),
+                "repair": "Set SPARK_STRICT_RUNTIME_PINS=1 for hosted Docker/Railway deployments.",
+            },
+            {
+                "name": "hosted_secret_file_permissions",
+                "ok": not secret_file_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(secret_file_errors)
+                    if secret_file_errors
+                    else (
+                        "Hosted secret files are private on this platform."
+                        if os.name != "nt"
+                        else "Windows hosted secret file permissions are handled by the OS/keychain path."
+                    )
+                ),
+                "repair": "Run `chmod 600 <spark-home>/config/secrets.local.json` or rerun `spark setup` so Spark can harden the secret file.",
+            },
+        ]
+
+        secret_surface = collect_secret_surface_payload()
+        checks.append(
+            {
+                "name": "secret_surface",
+                "ok": bool(secret_surface.get("ok")),
+                "required": True,
+                "detail": str(secret_surface.get("detail") or ""),
+                "repair": str(secret_surface.get("repair") or "spark fix secrets"),
+                "findings": secret_surface.get("findings", []),
+            }
+        )
+
+        if deep:
+            checks.append(hosted_deep_mission_smoke())
+
+        return {
+            "ok": all(bool(check["ok"]) for check in checks if check.get("required", True)),
+            "summary": "Spark hosted security verification",
+            "checks": checks,
+            "next_commands": [
+                "spark live status",
+                "spark verify --onboarding",
+                "spark providers test --role chat",
+                "spark verify --hosted --deep",
+                "spark logs spawner-ui --lines 80",
+            ],
+        }
+
+
+
+    except Exception:
+        return {}
 def onboarding_checklist() -> list[str]:
     return [
         "Open your Spark bot in Telegram.",
