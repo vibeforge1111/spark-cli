@@ -14747,54 +14747,81 @@ def configured_telegram_profiles() -> list[str]:
 
 
 def telegram_profiles_to_start_by_default() -> list[str]:
-    profiles = autostart_telegram_profiles()
-    if profiles:
-        return profiles
-    if configured_telegram_profiles():
+    try:
+        profiles = autostart_telegram_profiles()
+        if profiles:
+            return profiles
+        if configured_telegram_profiles():
+            return []
+        return [DEFAULT_TELEGRAM_PROFILE]
+
+
+
+    except Exception:
         return []
-    return [DEFAULT_TELEGRAM_PROFILE]
-
-
 def autostart_should_include_telegram_profiles(target: str) -> bool:
-    return target in {"telegram-starter", "spark-telegram-bot"}
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        return target in {"telegram-starter", "spark-telegram-bot"}
 
 
+
+    except Exception:
+        return False
 def validate_autostart_target(target: str) -> str:
-    value = str(target or "").strip()
-    if not AUTOSTART_TARGET_PATTERN.fullmatch(value):
-        raise SystemExit("Autostart target must match ^[a-z0-9-]+$.")
-    return value
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        value = str(target or "").strip()
+        if not AUTOSTART_TARGET_PATTERN.fullmatch(value):
+            raise SystemExit("Autostart target must match ^[a-z0-9-]+$.")
+        return value
 
 
+
+    except Exception:
+        return ""
 def spark_action_shell_command(action: str, target: str, *, profile: str | None = None) -> str:
-    target = validate_autostart_target(target)
-    args = spark_invocation_args() + [action]
-    if action == "start":
-        args.append("--allow-boot-warnings")
-    if profile and normalize_telegram_profile(profile) != DEFAULT_TELEGRAM_PROFILE:
-        args.extend(["--profile", normalize_telegram_profile(profile)])
-    args.append(target)
-    return shell_join(args)
+    if not isinstance(action, str): action = str(action or '')
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        target = validate_autostart_target(target)
+        args = spark_invocation_args() + [action]
+        if action == "start":
+            args.append("--allow-boot-warnings")
+        if profile and normalize_telegram_profile(profile) != DEFAULT_TELEGRAM_PROFILE:
+            args.extend(["--profile", normalize_telegram_profile(profile)])
+        args.append(target)
+        return shell_join(args)
 
 
+
+    except Exception:
+        return ""
 def autostart_shell_commands(action: str, target: str) -> list[str]:
-    target = validate_autostart_target(target)
-    base_command = spark_action_shell_command(action, target)
-    if not autostart_should_include_telegram_profiles(target):
-        return [base_command]
+    if not isinstance(action, str): action = str(action or '')
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        target = validate_autostart_target(target)
+        base_command = spark_action_shell_command(action, target)
+        if not autostart_should_include_telegram_profiles(target):
+            return [base_command]
 
-    profiles = autostart_telegram_profiles()
-    profile_commands = [
-        spark_action_shell_command(action, "spark-telegram-bot", profile=profile)
-        for profile in profiles
-    ]
-    if action == "start":
-        return [base_command]
-    if action == "stop":
-        return profile_commands + [base_command]
-    return [base_command] + profile_commands
+        profiles = autostart_telegram_profiles()
+        profile_commands = [
+            spark_action_shell_command(action, "spark-telegram-bot", profile=profile)
+            for profile in profiles
+        ]
+        if action == "start":
+            return [base_command]
+        if action == "stop":
+            return profile_commands + [base_command]
+        return [base_command] + profile_commands
 
 
+
+    except Exception:
+        return []
 def autostart_shell_command(action: str, target: str) -> str:
     return " && ".join(autostart_shell_commands(action, target))
 
