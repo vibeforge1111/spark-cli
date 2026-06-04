@@ -7737,11 +7737,15 @@ def _safe_list(value: Any) -> list[Any]:
 
 def _safe_int(value: Any) -> int:
     try:
-        return int(value or 0)
-    except (TypeError, ValueError):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+
+
+    except Exception:
         return 0
-
-
 def cmd_os_trace(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
@@ -8135,17 +8139,24 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
-    module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
-    if not module:
-        return f"- {label}: not installed"
-    healthy = module.get("healthy")
-    state = "ready" if healthy else "not checked" if healthy is None else "needs attention"
-    detail = str(module.get("detail") or "").strip()
-    if detail:
-        return f"- {label}: {state} - {detail}"
-    return f"- {label}: {state}"
+    if not isinstance(modules, list): modules = list(modules or [])
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(label, str): label = str(label or '')
+    try:
+        module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
+        if not module:
+            return f"- {label}: not installed"
+        healthy = module.get("healthy")
+        state = "ready" if healthy else "not checked" if healthy is None else "needs attention"
+        detail = str(module.get("detail") or "").strip()
+        if detail:
+            return f"- {label}: {state} - {detail}"
+        return f"- {label}: {state}"
 
 
+
+    except Exception:
+        return ""
 def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("Spark doctor")
     setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
@@ -8363,14 +8374,23 @@ REVOKE_ALL_PAUSABLE_MISSION_EVENTS = {
 
 
 def revoke_all_error_detail(error: BaseException) -> str:
-    return redact_shareable_text(redact_sensitive_text(f"{error.__class__.__name__}: {error}"))
+    try:
+        return redact_shareable_text(redact_sensitive_text(f"{error.__class__.__name__}: {error}"))
 
 
+
+    except Exception:
+        return ""
 def revoke_all_token_value(key: str) -> str:
-    prefix = key.lower().replace("_", "-")
-    return f"spark-{prefix}-{py_secrets.token_urlsafe(32)}"
+    if not isinstance(key, str): key = str(key or '')
+    try:
+        prefix = key.lower().replace("_", "-")
+        return f"spark-{prefix}-{py_secrets.token_urlsafe(32)}"
 
 
+
+    except Exception:
+        return ""
 def capture_revoke_all_step(label: str, callback: Callable[[], int], *, dry_run: bool = False) -> dict[str, Any]:
     if dry_run:
         return {"ok": True, "label": label, "planned": True, "exit_code": None, "output": ""}
@@ -8406,14 +8426,18 @@ def generated_env_files_for_revoke_all() -> list[Path]:
 
 
 def module_name_from_generated_env_path(path: Any) -> str | None:
-    if not path or not hasattr(path, "stem"):
-        return None
-    stem = path.stem
-    if "." in stem:
-        return None
-    return stem
+    try:
+        if not path or not hasattr(path, "stem"):
+            return None
+        stem = path.stem
+        if "." in stem:
+            return None
+        return stem
 
 
+
+    except Exception:
+        return ""
 def resolve_installed_modules_best_effort() -> dict[str, Module]:
     try:
         return resolve_installed_modules()
