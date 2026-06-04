@@ -3911,37 +3911,47 @@ def llm_setup_state(provider: str, env: dict[str, str]) -> dict[str, Any]:
 
 
 def telegram_profile_webhook_urls(setup_state: dict[str, Any] | None = None) -> list[str]:
-    setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
-    profiles = setup.get("telegram_profiles") if isinstance(setup, dict) else None
-    urls: list[str] = []
-    if isinstance(profiles, dict):
-        for profile_state in profiles.values():
-            if not isinstance(profile_state, dict):
-                continue
-            webhook_url = profile_state.get("webhook_url")
-            if isinstance(webhook_url, str) and webhook_url.strip():
-                url = webhook_url.strip()
-            else:
-                try:
-                    relay_port = int(profile_state.get("relay_port", 0))
-                except (TypeError, ValueError):
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+        profiles = setup.get("telegram_profiles") if isinstance(setup, dict) else None
+        urls: list[str] = []
+        if isinstance(profiles, dict):
+            for profile_state in profiles.values():
+                if not isinstance(profile_state, dict):
                     continue
-                if relay_port <= 0 or relay_port > 65535:
-                    continue
-                url = f"http://127.0.0.1:{relay_port}/spawner-events"
-            if url not in urls:
-                urls.append(url)
-    return urls
+                webhook_url = profile_state.get("webhook_url")
+                if isinstance(webhook_url, str) and webhook_url.strip():
+                    url = webhook_url.strip()
+                else:
+                    try:
+                        relay_port = int(profile_state.get("relay_port", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if relay_port <= 0 or relay_port > 65535:
+                        continue
+                    url = f"http://127.0.0.1:{relay_port}/spawner-events"
+                if url not in urls:
+                    urls.append(url)
+        return urls
 
 
+
+    except Exception:
+        return []
 def default_telegram_webhook_url(spawner_ui_url: str | None) -> str:
-    relay_base = spawner_ui_url or "http://127.0.0.1:3333"
-    parsed = urllib.parse.urlparse(relay_base)
-    scheme = parsed.scheme or "http"
-    host = parsed.hostname or "127.0.0.1"
-    return f"{scheme}://{host}:8788/spawner-events"
+    if not isinstance(spawner_ui_url, str): spawner_ui_url = str(spawner_ui_url or '')
+    try:
+        relay_base = spawner_ui_url or "http://127.0.0.1:3333"
+        parsed = urllib.parse.urlparse(relay_base)
+        scheme = parsed.scheme or "http"
+        host = parsed.hostname or "127.0.0.1"
+        return f"{scheme}://{host}:8788/spawner-events"
 
 
+
+    except Exception:
+        return ""
 HOSTED_SPAWNER_PARENT_ENV_KEYS = (
     "SPARK_HOSTED_PRIVATE_PREVIEW",
     "SPARK_WORKSPACE_ID",
@@ -3952,118 +3962,135 @@ HOSTED_SPAWNER_PARENT_ENV_KEYS = (
 
 
 def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str]) -> dict[str, dict[str, str]]:
-    gateway = modules_by_name["spark-telegram-bot"]
-    spawner = modules_by_name["spawner-ui"]
-    builder = modules_by_name["spark-intelligence-builder"]
-    researcher = modules_by_name.get("spark-researcher")
-    character = modules_by_name.get("spark-character")
-    memory = modules_by_name.get("domain-chip-memory")
-    builder_home = spark_builder_home()
-    _, llm_env = build_llm_env(args, secret_values)
-    relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
-    workspace_root = str(SPARK_HOME / "workspaces")
-    setup_state = load_json(CONFIG_PATH, {})
-    primary_profile = primary_telegram_profile(setup_state)
-    primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
+    if not isinstance(modules_by_name, str): modules_by_name = str(modules_by_name or '')
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        gateway = modules_by_name["spark-telegram-bot"]
+        spawner = modules_by_name["spawner-ui"]
+        builder = modules_by_name["spark-intelligence-builder"]
+        researcher = modules_by_name.get("spark-researcher")
+        character = modules_by_name.get("spark-character")
+        memory = modules_by_name.get("domain-chip-memory")
+        builder_home = spark_builder_home()
+        _, llm_env = build_llm_env(args, secret_values)
+        relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
+        workspace_root = str(SPARK_HOME / "workspaces")
+        setup_state = load_json(CONFIG_PATH, {})
+        primary_profile = primary_telegram_profile(setup_state)
+        primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
 
-    gateway_env = {
-        "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
-        "ADMIN_TELEGRAM_IDS": secret_values.get("telegram.admin_ids", ""),
-        "SPARK_BUILDER_REPO": str(builder.path),
-        "SPARK_BUILDER_HOME": str(builder_home),
-        "SPARK_BUILDER_PYTHON": str(Path(sys.executable)),
-        "SPARK_BUILDER_BRIDGE_MODE": "required",
-        "SPAWNER_UI_URL": args.spawner_ui_url or "http://127.0.0.1:3333",
-        "TELEGRAM_GATEWAY_MODE": "polling",
-        "TELEGRAM_RELAY_PORT": str(primary_relay_port),
-        "SPARK_TELEGRAM_PROFILE": primary_profile,
-        "TELEGRAM_RELAY_SECRET": relay_secret,
-        "SPARK_ONBOARDING_SESSION": str(getattr(args, "onboarding_session", "") or ""),
-        "SPARK_ONBOARDING_EVENT_PATH": str(TELEGRAM_FIRST_MESSAGE_EVENTS_PATH),
-        "SPARK_WORKSPACE_ROOT": workspace_root,
-        "SPARK_ACCESS_LEVEL_DEFAULT": "4",
-        "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
-    }
-    if character is not None:
-        gateway_env["SPARK_CHARACTER_ROOT"] = str(character.path)
-    gateway_env.update(
-        telegram_specialization_runtime_env_refs_from_installed(installed_records_from_modules(modules_by_name))
-    )
-    gateway_env.update(llm_env)
+        gateway_env = {
+            "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
+            "ADMIN_TELEGRAM_IDS": secret_values.get("telegram.admin_ids", ""),
+            "SPARK_BUILDER_REPO": str(builder.path),
+            "SPARK_BUILDER_HOME": str(builder_home),
+            "SPARK_BUILDER_PYTHON": str(Path(sys.executable)),
+            "SPARK_BUILDER_BRIDGE_MODE": "required",
+            "SPAWNER_UI_URL": args.spawner_ui_url or "http://127.0.0.1:3333",
+            "TELEGRAM_GATEWAY_MODE": "polling",
+            "TELEGRAM_RELAY_PORT": str(primary_relay_port),
+            "SPARK_TELEGRAM_PROFILE": primary_profile,
+            "TELEGRAM_RELAY_SECRET": relay_secret,
+            "SPARK_ONBOARDING_SESSION": str(getattr(args, "onboarding_session", "") or ""),
+            "SPARK_ONBOARDING_EVENT_PATH": str(TELEGRAM_FIRST_MESSAGE_EVENTS_PATH),
+            "SPARK_WORKSPACE_ROOT": workspace_root,
+            "SPARK_ACCESS_LEVEL_DEFAULT": "4",
+            "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
+        }
+        if character is not None:
+            gateway_env["SPARK_CHARACTER_ROOT"] = str(character.path)
+        gateway_env.update(
+            telegram_specialization_runtime_env_refs_from_installed(installed_records_from_modules(modules_by_name))
+        )
+        gateway_env.update(llm_env)
 
-    webhook_urls = telegram_profile_webhook_urls() or [default_telegram_webhook_url(args.spawner_ui_url)]
-    spawner_env = {
-        "MISSION_CONTROL_WEBHOOK_URLS": ",".join(webhook_urls),
-        "SPARK_WORKSPACE_ROOT": workspace_root,
-        "SPAWNER_WORKSPACE_ROOT": workspace_root,
-        "SPAWNER_STATE_DIR": str(STATE_DIR / "spawner-ui"),
-        "SPARK_ACCESS_LEVEL_DEFAULT": "4",
-        "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
-        "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
-        "SPARK_CODEX_SANDBOX": "workspace-write",
-    }
-    for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
-        value = os.environ.get(key)
-        if value:
-            spawner_env[key] = value
-    llm_metadata_env = spark_prefixed_metadata_env(llm_env)
-    spawner_env.update(llm_metadata_env)
-    mission_provider = llm_env.get("SPARK_MISSION_LLM_BOT_PROVIDER") or llm_env.get("BOT_DEFAULT_PROVIDER")
-    if mission_provider:
-        spawner_env["DEFAULT_MISSION_PROVIDER"] = mission_provider
-    if mission_provider == "codex":
-        spawner_env["SPAWNER_PRD_AUTO_PROVIDER"] = "codex"
-        if llm_env.get("CODEX_PATH"):
-            spawner_env["CODEX_PATH"] = llm_env["CODEX_PATH"]
-    spawner_env["TELEGRAM_RELAY_SECRET"] = relay_secret
+        webhook_urls = telegram_profile_webhook_urls() or [default_telegram_webhook_url(args.spawner_ui_url)]
+        spawner_env = {
+            "MISSION_CONTROL_WEBHOOK_URLS": ",".join(webhook_urls),
+            "SPARK_WORKSPACE_ROOT": workspace_root,
+            "SPAWNER_WORKSPACE_ROOT": workspace_root,
+            "SPAWNER_STATE_DIR": str(STATE_DIR / "spawner-ui"),
+            "SPARK_ACCESS_LEVEL_DEFAULT": "4",
+            "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
+            "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
+            "SPARK_CODEX_SANDBOX": "workspace-write",
+        }
+        for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
+            value = os.environ.get(key)
+            if value:
+                spawner_env[key] = value
+        llm_metadata_env = spark_prefixed_metadata_env(llm_env)
+        spawner_env.update(llm_metadata_env)
+        mission_provider = llm_env.get("SPARK_MISSION_LLM_BOT_PROVIDER") or llm_env.get("BOT_DEFAULT_PROVIDER")
+        if mission_provider:
+            spawner_env["DEFAULT_MISSION_PROVIDER"] = mission_provider
+        if mission_provider == "codex":
+            spawner_env["SPAWNER_PRD_AUTO_PROVIDER"] = "codex"
+            if llm_env.get("CODEX_PATH"):
+                spawner_env["CODEX_PATH"] = llm_env["CODEX_PATH"]
+        spawner_env["TELEGRAM_RELAY_SECRET"] = relay_secret
 
-    builder_env = {
-        "SPARK_INTELLIGENCE_HOME": str(builder_home),
-        "SPARK_WORKSPACE_ROOT": workspace_root,
-        "SPARK_ACCESS_LEVEL_DEFAULT": "4",
-        "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
-        **llm_metadata_env,
-    }
-    if researcher is not None:
-        builder_env["SPARK_RESEARCHER_ROOT"] = str(researcher.path)
-    if character is not None:
-        builder_env["SPARK_CHARACTER_ROOT"] = str(character.path)
-    if memory is not None:
-        builder_env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory.path)
-    voice = modules_by_name.get(VOICE_MODULE_NAME)
-    if voice is not None:
-        builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
-        if secret_values.get("voice.elevenlabs.api_key"):
-            builder_env["ELEVENLABS_API_KEY"] = secret_values["voice.elevenlabs.api_key"]
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+        builder_env = {
+            "SPARK_INTELLIGENCE_HOME": str(builder_home),
+            "SPARK_WORKSPACE_ROOT": workspace_root,
+            "SPARK_ACCESS_LEVEL_DEFAULT": "4",
+            "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
+            **llm_metadata_env,
+        }
+        if researcher is not None:
+            builder_env["SPARK_RESEARCHER_ROOT"] = str(researcher.path)
+        if character is not None:
+            builder_env["SPARK_CHARACTER_ROOT"] = str(character.path)
+        if memory is not None:
+            builder_env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory.path)
+        voice = modules_by_name.get(VOICE_MODULE_NAME)
+        if voice is not None:
+            builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
+            if secret_values.get("voice.elevenlabs.api_key"):
+                builder_env["ELEVENLABS_API_KEY"] = secret_values["voice.elevenlabs.api_key"]
+                builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
+                builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
+                builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
-    return {
-        gateway.name: gateway_env,
-        spawner.name: spawner_env,
-        builder.name: builder_env,
-    }
+        return {
+            gateway.name: gateway_env,
+            spawner.name: spawner_env,
+            builder.name: builder_env,
+        }
 
 
+
+    except Exception:
+        return {}
 def should_preserve_level5_guardrails(module_name: str) -> bool:
-    if module_name not in {"spawner-ui", "spark-telegram-bot"}:
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    try:
+        if module_name not in {"spawner-ui", "spark-telegram-bot"}:
+            return False
+        from .sandbox.access import LEVEL5_ENV, level5_guardrails_configured_by_audit
+
+        existing = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+        already_enabled = all(existing.get(key) == value for key, value in LEVEL5_ENV.items())
+        return already_enabled or level5_guardrails_configured_by_audit(home=SPARK_HOME)
+
+
+
+    except Exception:
         return False
-    from .sandbox.access import LEVEL5_ENV, level5_guardrails_configured_by_audit
-
-    existing = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
-    already_enabled = all(existing.get(key) == value for key, value in LEVEL5_ENV.items())
-    return already_enabled or level5_guardrails_configured_by_audit(home=SPARK_HOME)
-
-
 def preserve_level5_guardrails(module_name: str, env_values: dict[str, str]) -> dict[str, str]:
-    if not should_preserve_level5_guardrails(module_name):
-        return env_values
-    from .sandbox.access import LEVEL5_ENV
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    if not isinstance(env_values, str): env_values = str(env_values or '')
+    try:
+        if not should_preserve_level5_guardrails(module_name):
+            return env_values
+        from .sandbox.access import LEVEL5_ENV
 
-    return {**env_values, **LEVEL5_ENV}
+        return {**env_values, **LEVEL5_ENV}
 
 
+
+    except Exception:
+        return {}
 def split_telegram_admin_ids(raw_admin_ids: str | None) -> list[str]:
     if not raw_admin_ids:
         return []
