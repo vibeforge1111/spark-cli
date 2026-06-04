@@ -1406,7 +1406,7 @@ def safe_short_string(value: str, limit: int = 240) -> str:
 
 
 def sensitive_identifier(value: str) -> bool:
-    lowered = value.lower()
+    lowered = str(value or "").lower()
     return bool(
         re.search(r"(human|telegram|user|chat):", lowered)
         or re.search(r"\d{7,}", lowered)
@@ -1415,11 +1415,14 @@ def sensitive_identifier(value: str) -> bool:
 
 
 def redacted_identifier(column: str, value: str) -> str:
-    digest = hashlib.sha256(value.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    column = str(column or "")
+    value_str = str(value or "")
+    digest = hashlib.sha256(value_str.encode("utf-8", errors="ignore")).hexdigest()[:12]
     return f"{column}:redacted:{digest}"
 
 
 def safe_builder_event_value(column: str, value: Any) -> Any:
+    column = str(column or "")
     if value is None:
         return None
     if isinstance(value, (int, float, bool)):
@@ -1431,11 +1434,12 @@ def safe_builder_event_value(column: str, value: Any) -> Any:
 
 
 def key_has_raw_memory_hint(key: Any) -> bool:
-    lowered = str(key).lower()
+    lowered = str(key or "").lower()
     return any(hint in lowered for hint in RAW_MEMORY_KEY_HINTS)
 
 
 def safe_memory_status_value(value: Any, *, depth: int = 0) -> Any:
+    depth = int(depth or 0)
     if depth > 4:
         return "[depth-limit]"
     if value is None or isinstance(value, (bool, int, float)):
