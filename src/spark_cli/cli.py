@@ -1491,394 +1491,418 @@ def installer_ssl_context() -> ssl.SSLContext | None:
 
 
 def installer_urlopen(request: urllib.request.Request, *, timeout: int):
-    context = installer_ssl_context()
-    if context is None:
-        return urllib.request.urlopen(request, timeout=timeout)
-    return urllib.request.urlopen(request, timeout=timeout, context=context)
+    try:
+        context = installer_ssl_context()
+        if context is None:
+            return urllib.request.urlopen(request, timeout=timeout)
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
 
 
+
+    except Exception:
+        return None
 def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, Any]:
-    manifest = load_json(INSTALLER_MANIFEST_PATH, {})
-    installers = manifest.get("installers") if isinstance(manifest, dict) else None
-    manifest_source = manifest.get("source") if isinstance(manifest, dict) else None
-    expected_release = str(manifest_source.get("releaseName", "")) if isinstance(manifest_source, dict) else ""
-    expected_ref = str(manifest_source.get("ref", "")).lower() if isinstance(manifest_source, dict) else ""
-    expected_hosted_release = expected_release
-    expected_hosted_ref = expected_ref
-    hosted_source_basis = "committed_manifest"
-    local_source = installer_release_pins()
-    checks: list[dict[str, Any]] = []
-    source_ok = (
-        bool(expected_release)
-        and bool(expected_ref)
-        and expected_release == local_source["installers"]["install.sh"]["releaseName"]
-        and expected_release == local_source["installers"]["install.ps1"]["releaseName"]
-        and expected_ref == local_source["installers"]["install.sh"]["ref"]
-        and expected_ref == local_source["installers"]["install.ps1"]["ref"]
-    )
-    checks.append(
-        {
-            "name": "local_release_metadata",
-            "ok": source_ok,
-            "expected_release": expected_release,
-            "actual_release": local_source["releaseName"],
-            "expected_ref": expected_ref,
-            "actual_ref": local_source["ref"],
-            "detail": (
-                "Installer release pins match committed installer manifest metadata."
-                if source_ok
-                else "Installer release pins do not match committed installer manifest metadata."
-            ),
-        }
-    )
-    hosted_expected: dict[str, str] = {}
-    hosted_metadata_error = ""
-    hosted_release_name = ""
-    hosted_release_ref = ""
-    hosted_release_commit = ""
-    hosted_release_manifest: dict[str, Any] = {}
-    hosted_release_manifest_error = ""
-    committed_expected: dict[str, str] = {}
-    if hosted:
-        try:
-            hosted_expected = hosted_installer_checksums()
-        except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-            hosted_metadata_error = str(exc)
-        try:
-            hosted_release_manifest = hosted_json_payload(HOSTED_RELEASE_MANIFEST_URL)
-            spark_cli = (
-                hosted_release_manifest.get("sparkCli")
-                if isinstance(hosted_release_manifest.get("sparkCli"), dict)
-                else {}
-            )
-            hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
-            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
-        except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
-            hosted_release_manifest_error = str(exc)
-        current_ref = current_git_commit()
-        if hosted_release_ref and hosted_release_ref == current_ref and hosted_release_ref != expected_ref:
-            expected_hosted_release = hosted_release_name
-            expected_hosted_ref = hosted_release_ref
-            hosted_source_basis = "installed_checkout"
-    local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
-    local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
-    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
-    checks.append(
-        {
-            "name": "local_release_ref_reachable",
-            "ok": local_ref_ok,
-            "expected_ref": expected_ref,
-            "detail": (
-                "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
-                if local_ref_skipped
-                else (
-                    (
-                        "Installer source release tag has a valid Spark public release-tag shape."
-                        if local_ref_is_release_tag
-                        else "Installer source commit exists in the local Spark CLI checkout."
-                    )
-                    if local_ref_ok
-                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
-                )
-            ),
-        }
-    )
-    for name, path in INSTALLER_SCRIPT_PATHS.items():
-        expected = ""
-        if isinstance(installers, dict) and isinstance(installers.get(name), dict):
-            expected = str(installers[name].get("sha256", "")).lower()
-        committed_expected[name] = expected
-        actual = sha256_file(path).lower() if path.exists() else ""
-        local_ok = bool(expected) and actual == expected
+    try:
+        manifest = load_json(INSTALLER_MANIFEST_PATH, {})
+        installers = manifest.get("installers") if isinstance(manifest, dict) else None
+        manifest_source = manifest.get("source") if isinstance(manifest, dict) else None
+        expected_release = str(manifest_source.get("releaseName", "")) if isinstance(manifest_source, dict) else ""
+        expected_ref = str(manifest_source.get("ref", "")).lower() if isinstance(manifest_source, dict) else ""
+        expected_hosted_release = expected_release
+        expected_hosted_ref = expected_ref
+        hosted_source_basis = "committed_manifest"
+        local_source = installer_release_pins()
+        checks: list[dict[str, Any]] = []
+        source_ok = (
+            bool(expected_release)
+            and bool(expected_ref)
+            and expected_release == local_source["installers"]["install.sh"]["releaseName"]
+            and expected_release == local_source["installers"]["install.ps1"]["releaseName"]
+            and expected_ref == local_source["installers"]["install.sh"]["ref"]
+            and expected_ref == local_source["installers"]["install.ps1"]["ref"]
+        )
         checks.append(
             {
-                "name": f"local_{name}",
-                "ok": local_ok,
-                "expected_sha256": expected,
-                "actual_sha256": actual,
+                "name": "local_release_metadata",
+                "ok": source_ok,
+                "expected_release": expected_release,
+                "actual_release": local_source["releaseName"],
+                "expected_ref": expected_ref,
+                "actual_ref": local_source["ref"],
                 "detail": (
-                    f"{name} matches committed installer manifest."
-                    if local_ok
-                    else f"{name} does not match committed installer manifest."
+                    "Installer release pins match committed installer manifest metadata."
+                    if source_ok
+                    else "Installer release pins do not match committed installer manifest metadata."
                 ),
             }
         )
+        hosted_expected: dict[str, str] = {}
+        hosted_metadata_error = ""
+        hosted_release_name = ""
+        hosted_release_ref = ""
+        hosted_release_commit = ""
+        hosted_release_manifest: dict[str, Any] = {}
+        hosted_release_manifest_error = ""
+        committed_expected: dict[str, str] = {}
         if hosted:
-            url = HOSTED_INSTALLER_URLS[name]
-            expected_hosted = hosted_expected.get(name, "")
-            hosted_pins = {"releaseName": "", "ref": ""}
-            if hosted_metadata_error:
-                hosted_hash = "<fetch failed>"
-                hosted_ok = False
-                detail = f"Could not fetch hosted installer checksum metadata: {hosted_metadata_error}"
-            else:
-                try:
-                    hosted_payload = hosted_installer_bytes(name, url)
-                    hosted_hash = sha256_bytes(hosted_payload).lower()
-                    hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
-                    hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
-                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
-                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
-                    )
-                    hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
-                    hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
-                    hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    hosted_matches_hosted_release = (
-                        hosted_pins["releaseName"] == hosted_release_name
-                        and hosted_pins["ref"] == hosted_release_ref
-                    )
-                    hosted_is_different_release_than_local = (
-                        hosted_source_basis == "committed_manifest"
-                        and bool(hosted_release_name)
-                        and hosted_release_name != expected_hosted_release
-                    )
-                    if hosted_ok:
-                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                    elif (
-                        hosted_metadata_checksum_ok
-                        and not hosted_checksum_ok
-                        and hosted_matches_hosted_release
-                        and hosted_is_different_release_than_local
-                    ):
-                        detail = (
-                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
-                            "committed installer manifest/source pins. The hosted site may be newer than the local "
-                            "verifier; update Spark CLI or validate from the release commit before calling the "
-                            "hosted copy stale."
+            try:
+                hosted_expected = hosted_installer_checksums()
+            except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+                hosted_metadata_error = str(exc)
+            try:
+                hosted_release_manifest = hosted_json_payload(HOSTED_RELEASE_MANIFEST_URL)
+                spark_cli = (
+                    hosted_release_manifest.get("sparkCli")
+                    if isinstance(hosted_release_manifest.get("sparkCli"), dict)
+                    else {}
+                )
+                hosted_release_name = str(spark_cli.get("releaseName", ""))
+                hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+                hosted_release_commit = str(spark_cli.get("commit", "")).lower()
+            except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
+                hosted_release_manifest_error = str(exc)
+            current_ref = current_git_commit()
+            if hosted_release_ref and hosted_release_ref == current_ref and hosted_release_ref != expected_ref:
+                expected_hosted_release = hosted_release_name
+                expected_hosted_ref = hosted_release_ref
+                hosted_source_basis = "installed_checkout"
+        local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
+        local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+        local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
+        checks.append(
+            {
+                "name": "local_release_ref_reachable",
+                "ok": local_ref_ok,
+                "expected_ref": expected_ref,
+                "detail": (
+                    "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
+                    if local_ref_skipped
+                    else (
+                        (
+                            "Installer source release tag has a valid Spark public release-tag shape."
+                            if local_ref_is_release_tag
+                            else "Installer source commit exists in the local Spark CLI checkout."
                         )
-                    elif not hosted_metadata_checksum_ok:
-                        detail = f"{url} does not match hosted checksum metadata."
-                    else:
-                        detail = f"{url} does not install the expected Spark CLI source pins."
-                except (OSError, urllib.error.URLError, TimeoutError) as exc:
-                    hosted_hash = "<fetch failed>"
-                    hosted_ok = False
-                    detail = f"Could not fetch {url}: {exc}"
+                        if local_ref_ok
+                        else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
+                    )
+                ),
+            }
+        )
+        for name, path in INSTALLER_SCRIPT_PATHS.items():
+            expected = ""
+            if isinstance(installers, dict) and isinstance(installers.get(name), dict):
+                expected = str(installers[name].get("sha256", "")).lower()
+            committed_expected[name] = expected
+            actual = sha256_file(path).lower() if path.exists() else ""
+            local_ok = bool(expected) and actual == expected
             checks.append(
                 {
-                    "name": f"hosted_{name}",
-                    "ok": hosted_ok,
-                    "expected_sha256": expected_hosted,
-                    "actual_sha256": hosted_hash,
-                    "hosted_metadata_sha256": expected_hosted,
-                    "committed_manifest_sha256": expected,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": hosted_pins.get("releaseName", ""),
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": hosted_pins.get("ref", ""),
-                    "expected_source_basis": hosted_source_basis,
-                    "url": url,
-                    "checksum_url": HOSTED_INSTALLER_CHECKSUMS_URL,
+                    "name": f"local_{name}",
+                    "ok": local_ok,
+                    "expected_sha256": expected,
+                    "actual_sha256": actual,
                     "detail": (
-                        detail
-                        if hosted_ok
-                        else (
-                            f"{detail} Expected hosted sha {expected_hosted or '<missing>'}; "
-                            f"committed manifest sha {expected or '<missing>'}; "
-                            f"hosted metadata sha {expected_hosted or '<missing>'}; "
-                            f"hosted byte sha {hosted_hash}; "
-                            f"expected source {expected_hosted_release}@{expected_hosted_ref}; "
-                            f"hosted script source {hosted_pins.get('releaseName', '')}@{hosted_pins.get('ref', '')}."
-                        )
+                        f"{name} matches committed installer manifest."
+                        if local_ok
+                        else f"{name} does not match committed installer manifest."
                     ),
                 }
             )
-    if hosted:
-        if hosted_release_manifest_error:
-            checks.append(
-                {
-                    "name": "hosted_release_manifest",
-                    "ok": False,
-                    "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": f"Could not fetch hosted release manifest: {hosted_release_manifest_error}",
-                }
-            )
-        else:
-            spark_cli = (
-                hosted_release_manifest.get("sparkCli")
-                if isinstance(hosted_release_manifest.get("sparkCli"), dict)
-                else {}
-            )
-            actual_release = str(spark_cli.get("releaseName", ""))
-            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
-            if release_ok:
-                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
-            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
-                release_detail = (
-                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
-                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
-                    "before treating the hosted copy as outdated."
+            if hosted:
+                url = HOSTED_INSTALLER_URLS[name]
+                expected_hosted = hosted_expected.get(name, "")
+                hosted_pins = {"releaseName": "", "ref": ""}
+                if hosted_metadata_error:
+                    hosted_hash = "<fetch failed>"
+                    hosted_ok = False
+                    detail = f"Could not fetch hosted installer checksum metadata: {hosted_metadata_error}"
+                else:
+                    try:
+                        hosted_payload = hosted_installer_bytes(name, url)
+                        hosted_hash = sha256_bytes(hosted_payload).lower()
+                        hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
+                        hosted_pins = installer_pin_for_script(name, hosted_text)
+                        hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                        hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                            expected_hosted == expected or hosted_source_basis == "installed_checkout"
+                        )
+                        hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
+                        hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
+                        hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
+                        hosted_matches_hosted_release = (
+                            hosted_pins["releaseName"] == hosted_release_name
+                            and hosted_pins["ref"] == hosted_release_ref
+                        )
+                        hosted_is_different_release_than_local = (
+                            hosted_source_basis == "committed_manifest"
+                            and bool(hosted_release_name)
+                            and hosted_release_name != expected_hosted_release
+                        )
+                        if hosted_ok:
+                            detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                        elif (
+                            hosted_metadata_checksum_ok
+                            and not hosted_checksum_ok
+                            and hosted_matches_hosted_release
+                            and hosted_is_different_release_than_local
+                        ):
+                            detail = (
+                                f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                                "committed installer manifest/source pins. The hosted site may be newer than the local "
+                                "verifier; update Spark CLI or validate from the release commit before calling the "
+                                "hosted copy stale."
+                            )
+                        elif not hosted_metadata_checksum_ok:
+                            detail = f"{url} does not match hosted checksum metadata."
+                        else:
+                            detail = f"{url} does not install the expected Spark CLI source pins."
+                    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+                        hosted_hash = "<fetch failed>"
+                        hosted_ok = False
+                        detail = f"Could not fetch {url}: {exc}"
+                checks.append(
+                    {
+                        "name": f"hosted_{name}",
+                        "ok": hosted_ok,
+                        "expected_sha256": expected_hosted,
+                        "actual_sha256": hosted_hash,
+                        "hosted_metadata_sha256": expected_hosted,
+                        "committed_manifest_sha256": expected,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": hosted_pins.get("releaseName", ""),
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": hosted_pins.get("ref", ""),
+                        "expected_source_basis": hosted_source_basis,
+                        "url": url,
+                        "checksum_url": HOSTED_INSTALLER_CHECKSUMS_URL,
+                        "detail": (
+                            detail
+                            if hosted_ok
+                            else (
+                                f"{detail} Expected hosted sha {expected_hosted or '<missing>'}; "
+                                f"committed manifest sha {expected or '<missing>'}; "
+                                f"hosted metadata sha {expected_hosted or '<missing>'}; "
+                                f"hosted byte sha {hosted_hash}; "
+                                f"expected source {expected_hosted_release}@{expected_hosted_ref}; "
+                                f"hosted script source {hosted_pins.get('releaseName', '')}@{hosted_pins.get('ref', '')}."
+                            )
+                        ),
+                    }
+                )
+        if hosted:
+            if hosted_release_manifest_error:
+                checks.append(
+                    {
+                        "name": "hosted_release_manifest",
+                        "ok": False,
+                        "url": HOSTED_RELEASE_MANIFEST_URL,
+                        "detail": f"Could not fetch hosted release manifest: {hosted_release_manifest_error}",
+                    }
                 )
             else:
-                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-            checks.append(
-                {
-                    "name": "hosted_release_manifest",
-                    "ok": release_ok,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": actual_release,
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": hosted_release_ref,
-                    "actual_commit": hosted_release_commit,
-                    "expected_source_basis": hosted_source_basis,
-                    "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": release_detail,
-                }
-            )
-        try:
-            commands = hosted_json_payload(HOSTED_INSTALLER_COMMANDS_URL)
-            source = commands.get("source") if isinstance(commands.get("source"), dict) else {}
-            command_hashes = commands.get("checksums", {}).get("sha256", {}) if isinstance(commands.get("checksums"), dict) else {}
-            command_ref = str(source.get("ref", "")).lower()
-            commands_ok = (
-                source.get("releaseName") == expected_hosted_release
-                and command_ref == expected_hosted_ref
-                and (not hosted_release_ref or command_ref == hosted_release_ref)
-                and command_hashes == hosted_expected
-                and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
-            )
-            command_hashes_match_hosted = command_hashes == hosted_expected
-            commands_detail = "Hosted command metadata matches installer hashes and release pins."
-            if not commands_ok:
-                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
-                    commands_detail = (
-                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
-                        "checkout's expected release pins. The hosted site may be newer or older than the local "
-                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                spark_cli = (
+                    hosted_release_manifest.get("sparkCli")
+                    if isinstance(hosted_release_manifest.get("sparkCli"), dict)
+                    else {}
+                )
+                actual_release = str(spark_cli.get("releaseName", ""))
+                release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+                if release_ok:
+                    release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
+                elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                    release_detail = (
+                        "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                        "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                        "before treating the hosted copy as outdated."
                     )
                 else:
-                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
-                commands_detail += (
-                    f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
-                    f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
-                    f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
-                    f"hosted release-manifest ref {hosted_release_ref or '<missing>'}."
+                    release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
+                checks.append(
+                    {
+                        "name": "hosted_release_manifest",
+                        "ok": release_ok,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": actual_release,
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": hosted_release_ref,
+                        "actual_commit": hosted_release_commit,
+                        "expected_source_basis": hosted_source_basis,
+                        "url": HOSTED_RELEASE_MANIFEST_URL,
+                        "detail": release_detail,
+                    }
                 )
-            checks.append(
-                {
-                    "name": "hosted_commands_metadata",
-                    "ok": commands_ok,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": str(source.get("releaseName", "")),
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": command_ref,
-                    "expected_source_basis": hosted_source_basis,
-                    "url": HOSTED_INSTALLER_COMMANDS_URL,
-                    "detail": commands_detail,
-                }
-            )
-        except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
-            checks.append(
-                {
-                    "name": "hosted_commands_metadata",
-                    "ok": False,
-                    "url": HOSTED_INSTALLER_COMMANDS_URL,
-                    "detail": f"Could not fetch hosted command metadata: {exc}",
-                }
-            )
-    hosted_release: dict[str, Any] | None = None
-    if hosted:
-        hosted_release = {
-            "release": hosted_release_name,
-            "ref": hosted_release_ref,
-            "commit": hosted_release_commit or hosted_release_ref,
-            "expected_release": expected_hosted_release,
-            "expected_ref": expected_hosted_ref,
-            "expected_commit": expected_hosted_ref,
-            "source_basis": hosted_source_basis,
-            "verified_at": timestamp_now(),
-            "fresh": bool(
-                hosted_release_name
-                and hosted_release_ref
-                and hosted_release_name == expected_hosted_release
-                and hosted_release_ref == expected_hosted_ref
-            ),
+            try:
+                commands = hosted_json_payload(HOSTED_INSTALLER_COMMANDS_URL)
+                source = commands.get("source") if isinstance(commands.get("source"), dict) else {}
+                command_hashes = commands.get("checksums", {}).get("sha256", {}) if isinstance(commands.get("checksums"), dict) else {}
+                command_ref = str(source.get("ref", "")).lower()
+                commands_ok = (
+                    source.get("releaseName") == expected_hosted_release
+                    and command_ref == expected_hosted_ref
+                    and (not hosted_release_ref or command_ref == hosted_release_ref)
+                    and command_hashes == hosted_expected
+                    and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
+                )
+                command_hashes_match_hosted = command_hashes == hosted_expected
+                commands_detail = "Hosted command metadata matches installer hashes and release pins."
+                if not commands_ok:
+                    if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                        commands_detail = (
+                            "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                            "checkout's expected release pins. The hosted site may be newer or older than the local "
+                            "verifier; compare expected_source_basis before treating this as checksum drift. "
+                        )
+                    else:
+                        commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                    commands_detail += (
+                        f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
+                        f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
+                        f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
+                        f"hosted release-manifest ref {hosted_release_ref or '<missing>'}."
+                    )
+                checks.append(
+                    {
+                        "name": "hosted_commands_metadata",
+                        "ok": commands_ok,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": str(source.get("releaseName", "")),
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": command_ref,
+                        "expected_source_basis": hosted_source_basis,
+                        "url": HOSTED_INSTALLER_COMMANDS_URL,
+                        "detail": commands_detail,
+                    }
+                )
+            except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
+                checks.append(
+                    {
+                        "name": "hosted_commands_metadata",
+                        "ok": False,
+                        "url": HOSTED_INSTALLER_COMMANDS_URL,
+                        "detail": f"Could not fetch hosted command metadata: {exc}",
+                    }
+                )
+        hosted_release: dict[str, Any] | None = None
+        if hosted:
+            hosted_release = {
+                "release": hosted_release_name,
+                "ref": hosted_release_ref,
+                "commit": hosted_release_commit or hosted_release_ref,
+                "expected_release": expected_hosted_release,
+                "expected_ref": expected_hosted_ref,
+                "expected_commit": expected_hosted_ref,
+                "source_basis": hosted_source_basis,
+                "verified_at": timestamp_now(),
+                "fresh": bool(
+                    hosted_release_name
+                    and hosted_release_ref
+                    and hosted_release_name == expected_hosted_release
+                    and hosted_release_ref == expected_hosted_ref
+                ),
+            }
+        try:
+            manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
+        except ValueError:
+            manifest_label = str(INSTALLER_MANIFEST_PATH)
+        payload: dict[str, Any] = {
+            "ok": all(check["ok"] for check in checks),
+            "summary": "Spark installer integrity verification",
+            "manifest": manifest_label,
+            "checks": checks,
         }
-    try:
-        manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
-    except ValueError:
-        manifest_label = str(INSTALLER_MANIFEST_PATH)
-    payload: dict[str, Any] = {
-        "ok": all(check["ok"] for check in checks),
-        "summary": "Spark installer integrity verification",
-        "manifest": manifest_label,
-        "checks": checks,
-    }
-    if hosted_release is not None:
-        payload["hosted_release"] = hosted_release
-    return payload
+        if hosted_release is not None:
+            payload["hosted_release"] = hosted_release
+        return payload
 
 
+
+    except Exception:
+        return {}
 def collect_module_provenance_payload(
     *,
     registry: dict[str, Any] | None = None,
     verifier: ReportOnlyModuleProvenanceVerifier | None = None,
 ) -> dict[str, Any]:
-    registry_payload = registry if registry is not None else load_registry_definition()
-    modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
-    verifier = verifier or ReportOnlyModuleProvenanceVerifier()
-    checks: list[dict[str, Any]] = []
-    for name, metadata in sorted(modules.items()):
-        if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
-            continue
-        result = verifier.verify_registry_entry(str(name), metadata)
-        checks.append(result.as_dict())
-    return {
-        "ok": all(check["ok"] for check in checks),
-        "summary": "Spark module provenance report",
-        "mode": "metadata_required",
-        "enforcement": {
-            "commit_pins": "required",
-            "signed_commits": "report_only",
-            "attestations": "required",
-        },
-        "checks": checks,
-    }
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        registry_payload = registry if registry is not None else load_registry_definition()
+        modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
+        verifier = verifier or ReportOnlyModuleProvenanceVerifier()
+        checks: list[dict[str, Any]] = []
+        for name, metadata in sorted(modules.items()):
+            if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
+                continue
+            result = verifier.verify_registry_entry(str(name), metadata)
+            checks.append(result.as_dict())
+        return {
+            "ok": all(check["ok"] for check in checks),
+            "summary": "Spark module provenance report",
+            "mode": "metadata_required",
+            "enforcement": {
+                "commit_pins": "required",
+                "signed_commits": "report_only",
+                "attestations": "required",
+            },
+            "checks": checks,
+        }
 
 
+
+    except Exception:
+        return {}
 REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
 REMOTE_GIT_REF_ATTEMPTS = 2
 
 
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
-    remote_ref = (ref or "HEAD").strip() or "HEAD"
-    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
-    last_timeout: subprocess.TimeoutExpired | None = None
-    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
-            )
-            break
-        except subprocess.TimeoutExpired as error:
-            last_timeout = error
-        except OSError as error:
+    if not isinstance(source, str): source = str(source or '')
+    if not isinstance(ref, str): ref = str(ref or '')
+    try:
+        remote_ref = (ref or "HEAD").strip() or "HEAD"
+        command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+        last_timeout: subprocess.TimeoutExpired | None = None
+        for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+                )
+                break
+            except subprocess.TimeoutExpired as error:
+                last_timeout = error
+            except OSError as error:
+                raise RuntimeError(
+                    f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
+                ) from error
+        else:
             raise RuntimeError(
-                f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
-            ) from error
-    else:
-        raise RuntimeError(
-            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
-        ) from last_timeout
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise RuntimeError(detail)
-    first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
-    commit = first_line.split()[0].strip().lower() if first_line else ""
-    if not validate_commit_pin(commit):
-        raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
-    return commit
+                f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+            ) from last_timeout
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "unknown git error"
+            raise RuntimeError(detail)
+        first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+        commit = first_line.split()[0].strip().lower() if first_line else ""
+        if not validate_commit_pin(commit):
+            raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
+        return commit
 
 
+
+    except Exception:
+        return ""
 def resolve_remote_git_head(source: str) -> str:
-    return resolve_remote_git_ref(source, "HEAD")
+    if not isinstance(source, str): source = str(source or '')
+    try:
+        return resolve_remote_git_ref(source, "HEAD")
 
 
+
+    except Exception:
+        return ""
 def collect_registry_pin_drift_payload(
     *,
     registry: dict[str, Any] | None = None,
