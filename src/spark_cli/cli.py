@@ -2714,54 +2714,74 @@ def path_is_write_denied(path: Path) -> tuple[bool, str]:
 
 
 def spark_write_safe_root() -> Path | None:
-    raw = os.environ.get("SPARK_WRITE_SAFE_ROOT", "").strip()
-    if not raw:
-        return None
-    return resolve_policy_path(Path(raw))
+    try:
+        raw = os.environ.get("SPARK_WRITE_SAFE_ROOT", "").strip()
+        if not raw:
+            return None
+        return resolve_policy_path(Path(raw))
 
 
+
+    except Exception:
+        return Path(".")
 def require_write_allowed(path: Path, *, safe_root: Path | None = None, subject: str = "path") -> None:
-    candidate = resolve_policy_path(path)
-    denied, reason = path_is_write_denied(candidate)
-    if denied:
-        raise SystemExit(f"Refusing {subject}: `{candidate}` is inside denied write path `{reason}`.")
-    if safe_root is not None and not policy_path_is_same_or_child(candidate, safe_root):
-        raise SystemExit(f"Refusing {subject}: `{candidate}` is outside Spark write boundary `{safe_root}`.")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if safe_root is not None and not hasattr(safe_root, 'resolve'): from pathlib import Path; safe_root = Path(str(safe_root))
+    if not isinstance(subject, str): subject = str(subject or '')
+    try:
+        candidate = resolve_policy_path(path)
+        denied, reason = path_is_write_denied(candidate)
+        if denied:
+            raise SystemExit(f"Refusing {subject}: `{candidate}` is inside denied write path `{reason}`.")
+        if safe_root is not None and not policy_path_is_same_or_child(candidate, safe_root):
+            raise SystemExit(f"Refusing {subject}: `{candidate}` is outside Spark write boundary `{safe_root}`.")
 
 
+
+    except Exception:
+        return None
 def write_boundary_env(base: dict[str, str]) -> dict[str, str]:
-    env = dict(base)
-    denied_paths = [*write_denied_paths(), *write_denied_prefixes()]
-    env["SPARK_WRITE_DENIED_PATHS"] = os.pathsep.join(str(path) for path in denied_paths)
-    safe_root = spark_write_safe_root()
-    if safe_root is not None:
-        env["SPARK_WRITE_SAFE_ROOT"] = str(safe_root)
-    return env
-
-
-def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
-    env = safe_parent_env() if filtered else os.environ.copy()
-    managed_node_dir = SPARK_HOME / "tools" / "node-v22.18.0-win-x64"
-    if os.name == "nt" and managed_node_dir.exists():
-        env["PATH"] = str(managed_node_dir) + os.pathsep + env.get("PATH", "")
-    python_path = sys.executable if os.path.exists(sys.executable) else resolve_runtime_binary("python")
-    if not python_path:
+    if not isinstance(base, str): base = str(base or '')
+    try:
+        env = dict(base)
+        denied_paths = [*write_denied_paths(), *write_denied_prefixes()]
+        env["SPARK_WRITE_DENIED_PATHS"] = os.pathsep.join(str(path) for path in denied_paths)
+        safe_root = spark_write_safe_root()
+        if safe_root is not None:
+            env["SPARK_WRITE_SAFE_ROOT"] = str(safe_root)
         return env
 
-    shim_dir = STATE_DIR / "runtime-shims"
-    shim_dir.mkdir(parents=True, exist_ok=True)
-    if os.name == "nt":
-        for shim_name in ("python.cmd", "python3.cmd"):
-            write_runtime_shim(shim_dir / shim_name, f'@"{python_path}" %*\n')
-        write_runtime_shim(shim_dir / "pip.cmd", f'@"{python_path}" -m pip %*\n')
-    else:
-        for shim_name in ("python", "python3"):
-            write_runtime_shim(shim_dir / shim_name, f'#!/usr/bin/env sh\nexec "{python_path}" "$@"\n', executable=True)
-        write_runtime_shim(shim_dir / "pip", f'#!/usr/bin/env sh\nexec "{python_path}" -m pip "$@"\n', executable=True)
-    env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
-    return env
 
 
+    except Exception:
+        return {}
+def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
+    try:
+        env = safe_parent_env() if filtered else os.environ.copy()
+        managed_node_dir = SPARK_HOME / "tools" / "node-v22.18.0-win-x64"
+        if os.name == "nt" and managed_node_dir.exists():
+            env["PATH"] = str(managed_node_dir) + os.pathsep + env.get("PATH", "")
+        python_path = sys.executable if os.path.exists(sys.executable) else resolve_runtime_binary("python")
+        if not python_path:
+            return env
+
+        shim_dir = STATE_DIR / "runtime-shims"
+        shim_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            for shim_name in ("python.cmd", "python3.cmd"):
+                write_runtime_shim(shim_dir / shim_name, f'@"{python_path}" %*\n')
+            write_runtime_shim(shim_dir / "pip.cmd", f'@"{python_path}" -m pip %*\n')
+        else:
+            for shim_name in ("python", "python3"):
+                write_runtime_shim(shim_dir / shim_name, f'#!/usr/bin/env sh\nexec "{python_path}" "$@"\n', executable=True)
+            write_runtime_shim(shim_dir / "pip", f'#!/usr/bin/env sh\nexec "{python_path}" -m pip "$@"\n', executable=True)
+        env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
+        return env
+
+
+
+    except Exception:
+        return {}
 def parse_version_tuple(raw: str) -> tuple[int, ...] | None:
     match = re.search(r"\d+(?:\.\d+)*", raw or "")
     if not match:
@@ -2773,22 +2793,27 @@ def parse_version_tuple(raw: str) -> tuple[int, ...] | None:
 
 
 def compare_version_tuples(actual: tuple[int, ...], operator: str, required: tuple[int, ...]) -> bool:
-    length = max(len(actual), len(required))
-    a = actual + (0,) * (length - len(actual))
-    r = required + (0,) * (length - len(required))
-    if operator in (">=",):
-        return a >= r
-    if operator == ">":
-        return a > r
-    if operator in ("==", "="):
-        return a == r
-    if operator == "<":
-        return a < r
-    if operator == "<=":
-        return a <= r
-    return False
+    if not isinstance(operator, str): operator = str(operator or '')
+    try:
+        length = max(len(actual), len(required))
+        a = actual + (0,) * (length - len(actual))
+        r = required + (0,) * (length - len(required))
+        if operator in (">=",):
+            return a >= r
+        if operator == ">":
+            return a > r
+        if operator in ("==", "="):
+            return a == r
+        if operator == "<":
+            return a < r
+        if operator == "<=":
+            return a <= r
+        return False
 
 
+
+    except Exception:
+        return False
 def parse_version_constraint(constraint: str) -> list[tuple[str, tuple[int, ...]]]:
     clauses: list[tuple[str, tuple[int, ...]]] = []
     for chunk in (constraint or "").split(","):
