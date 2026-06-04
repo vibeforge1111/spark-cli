@@ -2386,60 +2386,82 @@ def ensure_generated_setup_secrets(secret_values: dict[str, str], modules: list[
 
 
 def telegram_relay_secret_is_valid(value: str | None) -> bool:
-    if not value:
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        if not value:
+            return False
+        return 24 <= len(value) <= 256 and re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
+
+
+
+    except Exception:
         return False
-    return 24 <= len(value) <= 256 and re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
-
-
 def modules_need_telegram_relay_secret(modules: Iterable[Module]) -> bool:
-    return any("telegram.relay_secret" in module.needed_secrets for module in modules)
+    try:
+        return any("telegram.relay_secret" in module.needed_secrets for module in modules)
 
 
+
+    except Exception:
+        return False
 def generated_env_telegram_relay_secret(modules: Iterable[Module]) -> str | None:
-    values: set[str] = set()
-    for module in modules:
-        value = read_generated_env(generated_module_env_path(module)).get("TELEGRAM_RELAY_SECRET", "").strip()
-        if telegram_relay_secret_is_valid(value):
-            values.add(value)
-    if len(values) == 1:
-        return next(iter(values))
-    return None
+    try:
+        values: set[str] = set()
+        for module in modules:
+            value = read_generated_env(generated_module_env_path(module)).get("TELEGRAM_RELAY_SECRET", "").strip()
+            if telegram_relay_secret_is_valid(value):
+                values.add(value)
+        if len(values) == 1:
+            return next(iter(values))
+        return None
 
 
+
+    except Exception:
+        return ""
 def remember_setup_secret_key(secret_id: str) -> None:
-    setup_state = load_json(CONFIG_PATH, {})
-    if not isinstance(setup_state, dict):
-        return
-    secret_keys = setup_state.get("secret_keys")
-    if isinstance(secret_keys, list):
-        keys = {str(key) for key in secret_keys}
-    else:
-        keys = set()
-    if secret_id in keys and secret_keys == sorted(keys):
-        return
-    keys.add(secret_id)
-    setup_state["secret_keys"] = sorted(keys)
-    save_json(CONFIG_PATH, setup_state)
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        if not isinstance(setup_state, dict):
+            return
+        secret_keys = setup_state.get("secret_keys")
+        if isinstance(secret_keys, list):
+            keys = {str(key) for key in secret_keys}
+        else:
+            keys = set()
+        if secret_id in keys and secret_keys == sorted(keys):
+            return
+        keys.add(secret_id)
+        setup_state["secret_keys"] = sorted(keys)
+        save_json(CONFIG_PATH, setup_state)
 
 
+
+    except Exception:
+        return None
 def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
-    """Repair the machine-generated local relay credential before startup."""
-    module_list = list(modules)
-    if not modules_need_telegram_relay_secret(module_list):
-        return
+    try:
+        """Repair the machine-generated local relay credential before startup."""
+        module_list = list(modules)
+        if not modules_need_telegram_relay_secret(module_list):
+            return
 
-    secret_id = "telegram.relay_secret"
-    existing = fetch_secret(secret_id)
-    if telegram_relay_secret_is_valid(existing):
+        secret_id = "telegram.relay_secret"
+        existing = fetch_secret(secret_id)
+        if telegram_relay_secret_is_valid(existing):
+            remember_setup_secret_key(secret_id)
+            return
+
+        recovered = generated_env_telegram_relay_secret(module_list)
+        value = recovered or py_secrets.token_urlsafe(32)
+        store_secret(secret_id, value, preferred="keychain")
         remember_setup_secret_key(secret_id)
-        return
-
-    recovered = generated_env_telegram_relay_secret(module_list)
-    value = recovered or py_secrets.token_urlsafe(32)
-    store_secret(secret_id, value, preferred="keychain")
-    remember_setup_secret_key(secret_id)
 
 
+
+    except Exception:
+        return None
 def stdin_is_tty() -> bool:
     try:
         return bool(sys.stdin.isatty())
