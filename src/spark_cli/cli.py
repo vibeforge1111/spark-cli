@@ -14796,79 +14796,108 @@ def autostart_shell_commands(action: str, target: str) -> list[str]:
 
 
 def autostart_shell_command(action: str, target: str) -> str:
-    return " && ".join(autostart_shell_commands(action, target))
+    if not isinstance(action, str): action = str(action or '')
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        return " && ".join(autostart_shell_commands(action, target))
 
 
+
+    except Exception:
+        return ""
 def render_systemd_autostart_unit(*, target: str, start_command: str, stop_command: str) -> str:
-    return f"""[Unit]
-Description=Spark Telegram agent
-After=default.target network-online.target
-Wants=network-online.target
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    if not isinstance(stop_command, str): stop_command = str(stop_command or '')
+    try:
+        return f"""[Unit]
+    Description=Spark Telegram agent
+    After=default.target network-online.target
+    Wants=network-online.target
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory={SPARK_HOME}
-Environment=SPARK_HOME={SPARK_HOME}
-ExecStart=/bin/sh -lc {shlex.quote(start_command)}
-ExecStop=/bin/sh -lc {shlex.quote(stop_command)}
-TimeoutStartSec=180
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    WorkingDirectory={SPARK_HOME}
+    Environment=SPARK_HOME={SPARK_HOME}
+    ExecStart=/bin/sh -lc {shlex.quote(start_command)}
+    ExecStop=/bin/sh -lc {shlex.quote(stop_command)}
+    TimeoutStartSec=180
 
-[Install]
-WantedBy=default.target
-"""
+    [Install]
+    WantedBy=default.target
+    """
 
 
+
+    except Exception:
+        return ""
 def render_linux_xdg_autostart_entry(*, start_command: str) -> str:
-    return f"""[Desktop Entry]
-Type=Application
-Name=Spark Telegram Agent
-Comment=Start Spark when this desktop session logs in
-Exec=/bin/sh -lc {shlex.quote(start_command)}
-Terminal=false
-X-GNOME-Autostart-enabled=true
-"""
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    try:
+        return f"""[Desktop Entry]
+    Type=Application
+    Name=Spark Telegram Agent
+    Comment=Start Spark when this desktop session logs in
+    Exec=/bin/sh -lc {shlex.quote(start_command)}
+    Terminal=false
+    X-GNOME-Autostart-enabled=true
+    """
 
 
+
+    except Exception:
+        return ""
 def render_launch_agent_plist(*, target: str, start_command: str, stop_command: str) -> str:
-    stdout_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.out.log"
-    stderr_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.err.log"
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>{xml_escape(AUTOSTART_LAUNCHD_LABEL)}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/sh</string>
-    <string>-lc</string>
-    <string>{xml_escape(start_command)}</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>SPARK_HOME</key>
-    <string>{xml_escape(str(SPARK_HOME))}</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>{xml_escape(str(stdout_path))}</string>
-  <key>StandardErrorPath</key>
-  <string>{xml_escape(str(stderr_path))}</string>
-  <key>AbandonProcessGroup</key>
-  <true/>
-</dict>
-</plist>
-"""
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    if not isinstance(stop_command, str): stop_command = str(stop_command or '')
+    try:
+        stdout_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.out.log"
+        stderr_path = LOG_DIR / AUTOSTART_SERVICE_NAME / "launchd.err.log"
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>Label</key>
+      <string>{xml_escape(AUTOSTART_LAUNCHD_LABEL)}</string>
+      <key>ProgramArguments</key>
+      <array>
+        <string>/bin/sh</string>
+        <string>-lc</string>
+        <string>{xml_escape(start_command)}</string>
+      </array>
+      <key>EnvironmentVariables</key>
+      <dict>
+        <key>SPARK_HOME</key>
+        <string>{xml_escape(str(SPARK_HOME))}</string>
+      </dict>
+      <key>RunAtLoad</key>
+      <true/>
+      <key>StandardOutPath</key>
+      <string>{xml_escape(str(stdout_path))}</string>
+      <key>StandardErrorPath</key>
+      <string>{xml_escape(str(stderr_path))}</string>
+      <key>AbandonProcessGroup</key>
+      <true/>
+    </dict>
+    </plist>
+    """
 
 
+
+    except Exception:
+        return ""
 def linux_autostart_scope() -> str:
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return "system"
-    return "user"
+    try:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return "system"
+        return "user"
 
 
+
+    except Exception:
+        return ""
 def linux_autostart_path(scope: str | None = None) -> Path:
     resolved_scope = scope or linux_autostart_scope()
     if resolved_scope == "system":
