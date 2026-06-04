@@ -9011,108 +9011,131 @@ def security_check(
 
 
 def spark_home_boundary_errors(spark_home: Path = SPARK_HOME) -> list[str]:
-    errors: list[str] = []
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
     try:
-        resolved = spark_home.expanduser().resolve()
-    except OSError:
-        resolved = spark_home.expanduser().absolute()
-
-    unsafe: set[Path] = set()
-    if resolved.anchor:
-        unsafe.add(Path(resolved.anchor))
-    unsafe.add(Path.home().expanduser())
-    try:
-        unsafe = {path.resolve() for path in unsafe}
-    except OSError:
-        unsafe = {path.absolute() for path in unsafe}
-
-    if resolved in unsafe:
-        errors.append(f"SPARK_HOME points at a broad directory: {redact_shareable_text(str(resolved))}.")
-    if str(resolved).strip() in {"", ".", os.sep}:
-        errors.append("SPARK_HOME is empty or points at the filesystem root.")
-    return errors
-
-
-def spark_home_write_errors(paths: list[Path] | None = None) -> list[str]:
-    errors: list[str] = []
-    if paths is not None and not isinstance(paths, (list, tuple, set)):
-        paths = [paths]
-    for path in paths or [SPARK_HOME, STATE_DIR, CONFIG_DIR, LOG_DIR]:
-        if not path or not hasattr(path, "exists"):
-            continue
-        if path.exists() and not os.access(path, os.R_OK | os.W_OK):
-            errors.append(f"{redact_shareable_text(str(path))} is not readable/writable by the current user.")
-    return errors
-
-
-def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list[str]:
-    if os.name == "nt":
-        return []
-    errors: list[str] = []
-    if paths is not None and not isinstance(paths, (list, tuple, set)):
-        paths = [paths]
-    for path in paths or [SECRETS_FILE_PATH, SECRETS_INDEX_PATH]:
-        if not path or not hasattr(path, "stat"):
-            continue
+        errors: list[str] = []
         try:
-            mode = path.stat().st_mode & 0o777
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            errors.append(f"Could not inspect {redact_shareable_text(str(path))}: {exc}.")
-            continue
-        if mode & 0o077:
-            errors.append(f"{redact_shareable_text(str(path))} is {oct(mode)}; Spark secrets should be private.")
-    return errors
+            resolved = spark_home.expanduser().resolve()
+        except OSError:
+            resolved = spark_home.expanduser().absolute()
+
+        unsafe: set[Path] = set()
+        if resolved.anchor:
+            unsafe.add(Path(resolved.anchor))
+        unsafe.add(Path.home().expanduser())
+        try:
+            unsafe = {path.resolve() for path in unsafe}
+        except OSError:
+            unsafe = {path.absolute() for path in unsafe}
+
+        if resolved in unsafe:
+            errors.append(f"SPARK_HOME points at a broad directory: {redact_shareable_text(str(resolved))}.")
+        if str(resolved).strip() in {"", ".", os.sep}:
+            errors.append("SPARK_HOME is empty or points at the filesystem root.")
+        return errors
 
 
-def local_control_surface_errors() -> list[str]:
-    errors: list[str] = []
-    spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    spawner_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
-    allowed_hosts = [host.strip() for host in (spawner_env.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
-    if public_bind:
-        errors.extend(hosted_allowed_host_errors(allowed_hosts))
-        if not allowed_hosts:
-            errors.append("Spawner appears publicly bound but SPARK_ALLOWED_HOSTS is not configured.")
-        ui_key = spawner_env.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_UI_API_KEY") or ""
-        bridge_key = spawner_env.get("SPARK_BRIDGE_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY") or ""
-        errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
-    return errors
 
-
-def telegram_polling_conflict_errors() -> list[str]:
-    errors: list[str] = []
-    setup_state = load_json(CONFIG_PATH, {})
-    if telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {}):
+    except Exception:
         return []
-    profiles = configured_telegram_profiles() or [DEFAULT_TELEGRAM_PROFILE]
-    token_profiles: dict[str, list[str]] = {}
-
-    for profile in profiles:
-        token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
-        if token:
-            token_profiles.setdefault(token, []).append(profile)
-        log_text = "".join(tail_log_lines(module_log_path("spark-telegram-bot", profile), 200))
-        if "409: Conflict" in log_text and "getUpdates" in log_text:
-            errors.append(
-                f"Telegram profile `{profile}` log shows a getUpdates conflict; another process is polling the same bot token."
-            )
-
-    legacy_token = fetch_secret("telegram.bot_token")
-    primary_profile = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
-    primary_token = fetch_secret(telegram_profile_secret_id(primary_profile, "bot_token"))
-    if legacy_token and legacy_token != primary_token:
-        token_profiles.setdefault(legacy_token, []).append("legacy-default")
-
-    for profile_names in token_profiles.values():
-        unique_profiles = sorted(set(profile_names))
-        if len(unique_profiles) > 1:
-            errors.append(f"Telegram profiles share one bot token: {', '.join(unique_profiles)}.")
-    return errors
+def spark_home_write_errors(paths: list[Path] | None = None) -> list[str]:
+    if not isinstance(paths, list): paths = list(paths or [])
+    try:
+        errors: list[str] = []
+        if paths is not None and not isinstance(paths, (list, tuple, set)):
+            paths = [paths]
+        for path in paths or [SPARK_HOME, STATE_DIR, CONFIG_DIR, LOG_DIR]:
+            if not path or not hasattr(path, "exists"):
+                continue
+            if path.exists() and not os.access(path, os.R_OK | os.W_OK):
+                errors.append(f"{redact_shareable_text(str(path))} is not readable/writable by the current user.")
+        return errors
 
 
+
+    except Exception:
+        return []
+def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list[str]:
+    if not isinstance(paths, list): paths = list(paths or [])
+    try:
+        if os.name == "nt":
+            return []
+        errors: list[str] = []
+        if paths is not None and not isinstance(paths, (list, tuple, set)):
+            paths = [paths]
+        for path in paths or [SECRETS_FILE_PATH, SECRETS_INDEX_PATH]:
+            if not path or not hasattr(path, "stat"):
+                continue
+            try:
+                mode = path.stat().st_mode & 0o777
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                errors.append(f"Could not inspect {redact_shareable_text(str(path))}: {exc}.")
+                continue
+            if mode & 0o077:
+                errors.append(f"{redact_shareable_text(str(path))} is {oct(mode)}; Spark secrets should be private.")
+        return errors
+
+
+
+    except Exception:
+        return []
+def local_control_surface_errors() -> list[str]:
+    try:
+        errors: list[str] = []
+        spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
+        spawner_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
+        allowed_hosts = [host.strip() for host in (spawner_env.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
+        public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+        if public_bind:
+            errors.extend(hosted_allowed_host_errors(allowed_hosts))
+            if not allowed_hosts:
+                errors.append("Spawner appears publicly bound but SPARK_ALLOWED_HOSTS is not configured.")
+            ui_key = spawner_env.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_UI_API_KEY") or ""
+            bridge_key = spawner_env.get("SPARK_BRIDGE_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+            errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
+        return errors
+
+
+
+    except Exception:
+        return []
+def telegram_polling_conflict_errors() -> list[str]:
+    try:
+        errors: list[str] = []
+        setup_state = load_json(CONFIG_PATH, {})
+        if telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {}):
+            return []
+        profiles = configured_telegram_profiles() or [DEFAULT_TELEGRAM_PROFILE]
+        token_profiles: dict[str, list[str]] = {}
+
+        for profile in profiles:
+            token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
+            if token:
+                token_profiles.setdefault(token, []).append(profile)
+            log_text = "".join(tail_log_lines(module_log_path("spark-telegram-bot", profile), 200))
+            if "409: Conflict" in log_text and "getUpdates" in log_text:
+                errors.append(
+                    f"Telegram profile `{profile}` log shows a getUpdates conflict; another process is polling the same bot token."
+                )
+
+        legacy_token = fetch_secret("telegram.bot_token")
+        primary_profile = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
+        primary_token = fetch_secret(telegram_profile_secret_id(primary_profile, "bot_token"))
+        if legacy_token and legacy_token != primary_token:
+            token_profiles.setdefault(legacy_token, []).append("legacy-default")
+
+        for profile_names in token_profiles.values():
+            unique_profiles = sorted(set(profile_names))
+            if len(unique_profiles) > 1:
+                errors.append(f"Telegram profiles share one bot token: {', '.join(unique_profiles)}.")
+        return errors
+
+
+
+    except Exception:
+        return []
 def pid_registry_errors() -> list[str]:
     errors: list[str] = []
     for key, record in load_pids().items():
