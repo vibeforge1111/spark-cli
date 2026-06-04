@@ -1082,75 +1082,92 @@ def allow_insecure_file_secrets() -> bool:
 
 
 def harden_secret_file(path: Path) -> None:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
-    if os.name != "nt" or not path.exists():
-        return
-    try:
-        subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        pass
-
-
-def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
-    """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
-    ensure_state_dirs()
-    index = load_secrets_index()
-    if preferred == "keychain" and keychain_available():
         try:
-            _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
-            index[secret_id] = "keychain"
-            save_secrets_index(index)
-            return "keychain"
-        except Exception as _store_exc:
-            # Surface the fall-back so the operator notices that the value
-            # landed on disk instead of in the system store. Log only the
-            # exception class name -- the message can echo the value, which
-            # we never want in a log line. The file path it falls back to is
-            # already chmod 0o600 by harden_secret_file below.
-            sys.stderr.write(
-                f"spark-cli: system store write failed "
-                f"(error type: {type(_store_exc).__name__}); "
-                f"falling back to file storage.\n"
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if os.name != "nt" or not path.exists():
+            return
+        try:
+            subprocess.run(
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+                check=False,
+                capture_output=True,
+                text=True,
             )
-    file_secrets = load_json(SECRETS_FILE_PATH, {})
+        except OSError:
+            pass
+
+
+
+    except Exception:
+        return None
+def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    if not isinstance(value, str): value = str(value or '')
+    if not isinstance(preferred, str): preferred = str(preferred or '')
     try:
-        file_secrets[secret_id] = dpapi_protect(value)
-    except RuntimeError as error:
-        raise SystemExit(str(error)) from error
-    save_json(SECRETS_FILE_PATH, file_secrets)
-    harden_secret_file(SECRETS_FILE_PATH)
-    index[secret_id] = "file"
-    save_secrets_index(index)
-    return "file"
-
-
-def fetch_secret(secret_id: str) -> str | None:
-    index = load_secrets_index()
-    backend = index.get(secret_id)
-    if backend == "keychain" and HAS_KEYRING:
+        """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
+        ensure_state_dirs()
+        index = load_secrets_index()
+        if preferred == "keychain" and keychain_available():
+            try:
+                _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
+                index[secret_id] = "keychain"
+                save_secrets_index(index)
+                return "keychain"
+            except Exception as _store_exc:
+                # Surface the fall-back so the operator notices that the value
+                # landed on disk instead of in the system store. Log only the
+                # exception class name -- the message can echo the value, which
+                # we never want in a log line. The file path it falls back to is
+                # already chmod 0o600 by harden_secret_file below.
+                sys.stderr.write(
+                    f"spark-cli: system store write failed "
+                    f"(error type: {type(_store_exc).__name__}); "
+                    f"falling back to file storage.\n"
+                )
+        file_secrets = load_json(SECRETS_FILE_PATH, {})
         try:
-            value = _keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
-            if value is not None:
-                return value
-            if default_home_uses_legacy_keychain():
-                return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
-            return None
-        except Exception:
-            return None
-    if backend == "file":
-        value = load_json(SECRETS_FILE_PATH, {}).get(secret_id)
-        return dpapi_unprotect(value) if isinstance(value, str) else None
-    return None
+            file_secrets[secret_id] = dpapi_protect(value)
+        except RuntimeError as error:
+            raise SystemExit(str(error)) from error
+        save_json(SECRETS_FILE_PATH, file_secrets)
+        harden_secret_file(SECRETS_FILE_PATH)
+        index[secret_id] = "file"
+        save_secrets_index(index)
+        return "file"
 
 
+
+    except Exception:
+        return ""
+def fetch_secret(secret_id: str) -> str | None:
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        index = load_secrets_index()
+        backend = index.get(secret_id)
+        if backend == "keychain" and HAS_KEYRING:
+            try:
+                value = _keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
+                if value is not None:
+                    return value
+                if default_home_uses_legacy_keychain():
+                    return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
+                return None
+            except Exception:
+                return None
+        if backend == "file":
+            value = load_json(SECRETS_FILE_PATH, {}).get(secret_id)
+            return dpapi_unprotect(value) if isinstance(value, str) else None
+        return None
+
+
+
+    except Exception:
+        return ""
 def is_telegram_bot_token_secret(secret_id: str) -> bool:
     return secret_id == "telegram.bot_token" or (
         secret_id.startswith("telegram.profiles.") and secret_id.endswith(".bot_token")
@@ -1163,59 +1180,70 @@ def telegram_token_validation_error_detail(error: BaseException) -> str:
 
 
 def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_token") -> dict[str, Any]:
-    """Validate a Telegram bot token with getMe before persisting it."""
-    token = extract_telegram_bot_token(token)
-    quoted_token = urllib.parse.quote(token, safe=":")
-    url = f"https://api.telegram.org/bot{quoted_token}/getMe"
-    repair_command = telegram_token_repair_command(secret_id)
+    if not isinstance(token, str): token = str(token or '')
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
     try:
-        with urllib.request.urlopen(url, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        if error.code in {401, 404}:
-            raise SystemExit(
-                f"Telegram rejected the bot token for {secret_id}. Nothing was changed. "
-                f"Open @BotFather, copy only the new token, then rerun `{repair_command}` and paste it when Spark asks. "
-                "Use --skip-telegram-token-check only for offline development."
-            )
-        raise SystemExit(
-            f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
-            "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
-        )
-    except (OSError, TimeoutError, json.JSONDecodeError, urllib.error.URLError) as error:
-        safe_detail = telegram_token_validation_error_detail(error)
-        raise SystemExit(
-            f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}"
-            + (f" ({safe_detail})" if safe_detail else "")
-            + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
-        )
-    if not payload.get("ok"):
-        description = str(payload.get("description") or "token rejected")
-        raise SystemExit(
-            f"Telegram rejected the bot token for {secret_id}: {description}. Nothing was changed. "
-            f"Open @BotFather, copy only the new token, then rerun `{repair_command}` and paste it when Spark asks."
-        )
-    result = payload.get("result")
-    return result if isinstance(result, dict) else {}
-
-
-def validate_new_telegram_bot_tokens(args: argparse.Namespace, secret_values: dict[str, str]) -> None:
-    if getattr(args, "skip_telegram_token_check", False):
-        return
-    validated_values: set[str] = set()
-    for secret_id, token in sorted(secret_values.items()):
-        if not token or not is_telegram_bot_token_secret(secret_id):
-            continue
+        """Validate a Telegram bot token with getMe before persisting it."""
         token = extract_telegram_bot_token(token)
-        secret_values[secret_id] = token
-        if fetch_secret(secret_id) == token:
-            continue
-        if token in validated_values:
-            continue
-        validate_telegram_bot_token(token, secret_id=secret_id)
-        validated_values.add(token)
+        quoted_token = urllib.parse.quote(token, safe=":")
+        url = f"https://api.telegram.org/bot{quoted_token}/getMe"
+        repair_command = telegram_token_repair_command(secret_id)
+        try:
+            with urllib.request.urlopen(url, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code in {401, 404}:
+                raise SystemExit(
+                    f"Telegram rejected the bot token for {secret_id}. Nothing was changed. "
+                    f"Open @BotFather, copy only the new token, then rerun `{repair_command}` and paste it when Spark asks. "
+                    "Use --skip-telegram-token-check only for offline development."
+                )
+            raise SystemExit(
+                f"Telegram token validation failed for {secret_id}: HTTP {error.code}. "
+                "Nothing was changed. Try again, or use --skip-telegram-token-check only for offline development."
+            )
+        except (OSError, TimeoutError, json.JSONDecodeError, urllib.error.URLError) as error:
+            safe_detail = telegram_token_validation_error_detail(error)
+            raise SystemExit(
+                f"Telegram token validation could not reach Telegram for {secret_id}: {error.__class__.__name__}"
+                + (f" ({safe_detail})" if safe_detail else "")
+                + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
+            )
+        if not payload.get("ok"):
+            description = str(payload.get("description") or "token rejected")
+            raise SystemExit(
+                f"Telegram rejected the bot token for {secret_id}: {description}. Nothing was changed. "
+                f"Open @BotFather, copy only the new token, then rerun `{repair_command}` and paste it when Spark asks."
+            )
+        result = payload.get("result")
+        return result if isinstance(result, dict) else {}
 
 
+
+    except Exception:
+        return {}
+def validate_new_telegram_bot_tokens(args: argparse.Namespace, secret_values: dict[str, str]) -> None:
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        if getattr(args, "skip_telegram_token_check", False):
+            return
+        validated_values: set[str] = set()
+        for secret_id, token in sorted(secret_values.items()):
+            if not token or not is_telegram_bot_token_secret(secret_id):
+                continue
+            token = extract_telegram_bot_token(token)
+            secret_values[secret_id] = token
+            if fetch_secret(secret_id) == token:
+                continue
+            if token in validated_values:
+                continue
+            validate_telegram_bot_token(token, secret_id=secret_id)
+            validated_values.add(token)
+
+
+
+    except Exception:
+        return None
 def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
     backend = index.pop(secret_id, None)
