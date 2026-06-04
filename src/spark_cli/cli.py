@@ -16236,6 +16236,7 @@ def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+    parser.add_argument("--version", action="version", version="spark-cli 0.1.0")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
