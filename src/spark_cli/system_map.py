@@ -993,6 +993,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
 
 
 def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "source": "spawner_prd_auto_trace",
         "path": str(path),
@@ -1067,6 +1068,8 @@ def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
 
 
 def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    path = Path(path)
+    builder_home = Path(builder_home)
     out: dict[str, Any] = {
         "schema_version": REVIEW_CANDIDATES_SCHEMA,
         "source": "spawner_prd_auto_trace",
@@ -1361,6 +1364,7 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
 
 
 def inspect_json_shape(path: Path) -> dict[str, Any]:
+    path = Path(path)
     data, error = read_json(path)
     out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
     if error and error != "missing":
@@ -1379,6 +1383,7 @@ def inspect_json_shape(path: Path) -> dict[str, Any]:
 
 
 def inspect_file_metadata(path: Path) -> dict[str, Any]:
+    path = Path(path)
     out: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -1399,7 +1404,8 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
+    limit = int(limit or 240)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
@@ -1684,6 +1690,7 @@ def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
 
 
 def labs_creator_proof_sources(repo_path: Path) -> dict[str, Any]:
+    repo_path = Path(repo_path)
     gate_path = repo_path / LABS_CREATOR_SURFACE_FILES["release_gate"]
     benchmark_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["benchmark_manifest"])
     loop_policy_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["loop_policy"])
@@ -1741,6 +1748,11 @@ def swarm_specialization_proof_sources(
     promotion_packet_count: int,
     evidence_ledger_count: int,
 ) -> dict[str, Any]:
+    repo_path = Path(repo_path)
+    benchmark_adapter_counts = benchmark_adapter_counts if isinstance(benchmark_adapter_counts, dict) else {}
+    rollback_policy_counts = rollback_policy_counts if isinstance(rollback_policy_counts, dict) else {}
+    promotion_packet_count = int(promotion_packet_count or 0)
+    evidence_ledger_count = int(evidence_ledger_count or 0)
     proof_sources = {
         "benchmark": (
             proof_verdict(domain="benchmark", status="present_unverified", source_kind="benchmark_adapter_config")
@@ -1773,8 +1785,8 @@ def swarm_specialization_proof_sources(
                 status="present_unverified",
                 source_kind="collective_packet_or_ledger",
                 detail_counts={
-                    "promotion_packet_count": int(promotion_packet_count or 0),
-                    "evidence_ledger_count": int(evidence_ledger_count or 0),
+                    "promotion_packet_count": promotion_packet_count,
+                    "evidence_ledger_count": evidence_ledger_count,
                 },
             )
             if promotion_packet_count or evidence_ledger_count
@@ -1788,6 +1800,8 @@ def capability_proof_summary(
     proof_verdicts: dict[str, Any],
     required_labels: dict[str, str],
 ) -> dict[str, Any]:
+    proof_verdicts = proof_verdicts if isinstance(proof_verdicts, dict) else {}
+    required_labels = required_labels if isinstance(required_labels, dict) else {}
     counts: Counter[str] = Counter()
     passed: list[str] = []
     blocked: list[str] = []
@@ -1827,6 +1841,7 @@ def capability_proof_summary(
 
 
 def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
+    repo_path = Path(repo_path)
     schema_dir = repo_path / "docs" / "creator_system" / "schemas"
     if not schema_dir.exists() and repo_path.name != "spark-domain-chip-labs":
         return None
@@ -1847,7 +1862,7 @@ def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
             pass
 
     return {
-        "repo": repo_path.name,
+        "repo": str(repo_path.name or ""),
         "schema_inventory": count_schema_files(schema_dir),
         "review_and_release_sources": {
             label: {"path": str(repo_path / rel_path), "exists": (repo_path / rel_path).exists()}
@@ -1866,6 +1881,7 @@ def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
 
 
 def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | None:
+    repo_path = Path(repo_path)
     config_path = repo_path / "config" / "specialization-paths.json"
     schemas_dir = repo_path / "schemas"
     has_specialization_schema = False
@@ -1883,7 +1899,8 @@ def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | No
         return None
 
     config, error = read_json(config_path)
-    path_rows = as_list(as_dict(config).get("paths")) if isinstance(config, dict) else []
+    config_dict = as_dict(config)
+    path_rows = as_list(config_dict.get("paths"))
     categories: Counter[str] = Counter()
     loop_kinds: Counter[str] = Counter()
     benchmark_adapters: Counter[str] = Counter()
@@ -1913,7 +1930,7 @@ def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | No
             evidence_ledger_count = 0
 
     return {
-        "repo": repo_path.name,
+        "repo": str(repo_path.name or ""),
         "config": {
             "path": str(config_path),
             "exists": config_path.exists(),
@@ -2628,6 +2645,12 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
         limit 25
         """
     ).fetchall()
+
+    def get_val(r, key, idx):
+        if isinstance(r, sqlite3.Row) or (hasattr(r, "keys") and key in r.keys()):
+            return r[key]
+        return r[idx]
+
     out.update(
         {
             "status": "present" if trace_ref_present_count else "missing_trace_refs",
@@ -2641,11 +2664,11 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
             "request_id_coverage_ratio": round(request_id_present_count / row_count, 4) if row_count else 0.0,
             "lane_status_counts": [
                 {
-                    "artifact_lane": str(row["artifact_lane"]),
-                    "status": str(row["status"]),
-                    "row_count": int(row["row_count"] or 0),
-                    "request_id_present_count": int(row["request_id_present_count"] or 0),
-                    "trace_ref_present_count": int(row["trace_ref_present_count"] or 0),
+                    "artifact_lane": str(get_val(row, "artifact_lane", 0)),
+                    "status": str(get_val(row, "status", 1)),
+                    "row_count": int(get_val(row, "row_count", 2) or 0),
+                    "request_id_present_count": int(get_val(row, "request_id_present_count", 3) or 0),
+                    "trace_ref_present_count": int(get_val(row, "trace_ref_present_count", 4) or 0),
                 }
                 for row in lane_rows
             ],
@@ -3500,6 +3523,9 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def read_text_or_none(path: Path) -> str | None:
+    if not path:
+        return None
+    path = Path(path)
     if not path.exists():
         return None
     try:
@@ -3509,21 +3535,23 @@ def read_text_or_none(path: Path) -> str | None:
 
 
 def literal_assignment(text: str | None, name: str) -> Any:
-    if not text:
+    text_str = str(text or "")
+    if not text_str:
         return None
+    name_str = str(name or "")
     try:
-        tree = ast.parse(text)
+        tree = ast.parse(text_str)
     except SyntaxError:
         return None
     for node in tree.body:
         if not isinstance(node, ast.Assign):
-            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name_str:
                 try:
                     return ast.literal_eval(node.value)
                 except Exception:
                     return None
             continue
-        if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+        if any(isinstance(target, ast.Name) and target.id == name_str for target in node.targets):
             try:
                 return ast.literal_eval(node.value)
             except Exception:
@@ -3532,43 +3560,54 @@ def literal_assignment(text: str | None, name: str) -> Any:
 
 
 def regex_int(text: str | None, pattern: str) -> int | None:
-    if not text:
+    text_str = str(text or "")
+    pattern_str = str(pattern or "")
+    if not text_str or not pattern_str:
         return None
-    match = re.search(pattern, text)
+    match = re.search(pattern_str, text_str)
     if not match:
         return None
     try:
         return int(match.group(1))
-    except ValueError:
+    except (ValueError, IndexError):
         return None
 
 
 def regex_string(text: str | None, pattern: str) -> str | None:
-    if not text:
+    text_str = str(text or "")
+    pattern_str = str(pattern or "")
+    if not text_str or not pattern_str:
         return None
-    match = re.search(pattern, text)
+    match = re.search(pattern_str, text_str)
     if not match:
         return None
-    value = match.group(1).strip()
-    return value or None
+    try:
+        value = match.group(1).strip()
+        return value or None
+    except IndexError:
+        return None
 
 
 def parse_ts_union(text: str | None, type_name: str) -> list[str]:
-    if not text:
+    text_str = str(text or "")
+    type_name_str = str(type_name or "")
+    if not text_str or not type_name_str:
         return []
-    match = re.search(rf"export\s+type\s+{re.escape(type_name)}\s*=\s*([^;]+);", text, re.S)
+    match = re.search(rf"export\s+type\s+{re.escape(type_name_str)}\s*=\s*([^;]+);", text_str, re.S)
     if not match:
         return []
     return re.findall(r"'([^']+)'|\"([^\"]+)\"", match.group(1))
 
 
 def clean_ts_union(values: list[tuple[str, str]] | list[str]) -> list[str]:
+    if not isinstance(values, (list, tuple, set)):
+        return []
     cleaned: list[str] = []
     for value in values:
-        if isinstance(value, tuple):
-            item = next((part for part in value if part), "")
+        if isinstance(value, (tuple, list, set)):
+            item = next((str(part) for part in value if part), "")
         else:
-            item = value
+            item = str(value or "")
         if item and item not in cleaned:
             cleaned.append(item)
     return cleaned
@@ -3579,25 +3618,28 @@ def parse_ts_union_values(text: str | None, type_name: str) -> list[str]:
 
 
 def ts_function_body(text: str | None, function_name: str) -> str:
-    if not text:
+    text_str = str(text or "")
+    function_name_str = str(function_name or "")
+    if not text_str or not function_name_str:
         return ""
     match = re.search(
-        rf"export\s+function\s+{re.escape(function_name)}\s*\([^)]*\)[^{{]*{{(?P<body>.*?)\n}}",
-        text,
+        rf"export\s+function\s+{re.escape(function_name_str)}\s*\([^)]*\)[^{{]*{{(?P<body>.*?)\n}}",
+        text_str,
         re.S,
     )
     return match.group("body") if match else ""
 
 
 def ts_allowed_profiles(text: str | None, function_name: str, profiles: list[str]) -> list[str]:
+    profiles_list = list(profiles) if isinstance(profiles, (list, tuple, set)) else []
     body = ts_function_body(text, function_name)
     if not body:
         return []
     denied = set(re.findall(r"profile\s*!==\s*'([^']+)'", body))
     if denied:
-        return [profile for profile in profiles if profile not in denied]
+        return [profile for profile in profiles_list if profile not in denied]
     allowed = re.findall(r"profile\s*===\s*'([^']+)'", body)
-    return [profile for profile in profiles if profile in set(allowed)]
+    return [profile for profile in profiles_list if profile in set(allowed)]
 
 
 def parse_ts_access_levels(text: str | None) -> dict[str, int]:
@@ -3613,6 +3655,7 @@ def parse_ts_access_levels(text: str | None) -> dict[str, int]:
 
 
 def inspect_cli_access_source(path: Path) -> dict[str, Any]:
+    path = Path(path)
     text = read_text_or_none(path)
     lower_profiles = literal_assignment(text, "LOWER_ACCESS_PROFILES")
     profiles = []
@@ -3646,6 +3689,7 @@ def inspect_cli_access_source(path: Path) -> dict[str, Any]:
 
 
 def inspect_cli_capability_source(path: Path) -> dict[str, Any]:
+    path = Path(path)
     text = read_text_or_none(path)
     toxic_pairs = literal_assignment(text, "TOXIC_CAPABILITY_PAIRS")
     dimensions = []
@@ -3668,6 +3712,7 @@ def inspect_cli_capability_source(path: Path) -> dict[str, Any]:
 
 
 def inspect_telegram_access_source(path: Path) -> dict[str, Any]:
+    path = Path(path)
     text = read_text_or_none(path)
     profiles = parse_ts_union_values(text, "SparkAccessProfile")
     requirements = parse_ts_union_values(text, "SparkAccessRequirement")
@@ -3692,19 +3737,21 @@ def inspect_telegram_access_source(path: Path) -> dict[str, Any]:
 
 
 def extract_js_object_block(text: str | None, marker: str) -> str:
-    if not text:
+    text_str = str(text or "")
+    marker_str = str(marker or "")
+    if not text_str or not marker_str:
         return ""
-    marker_index = text.find(marker)
+    marker_index = text_str.find(marker_str)
     if marker_index < 0:
         return ""
-    start = text.find("{", marker_index)
+    start = text_str.find("{", marker_index)
     if start < 0:
         return ""
     depth = 0
     quote: str | None = None
     escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
+    for index in range(start, len(text_str)):
+        char = text_str[index]
         if quote:
             if escaped:
                 escaped = False
@@ -3723,11 +3770,12 @@ def extract_js_object_block(text: str | None, marker: str) -> str:
         elif char == "}":
             depth -= 1
             if depth == 0:
-                return text[start + 1 : index]
+                return text_str[start + 1 : index]
     return ""
 
 
 def inspect_spawner_access_sources(root: Path) -> dict[str, Any]:
+    root = Path(root)
     lanes_path = root / "src" / "lib" / "server" / "access-execution-lanes.ts"
     actions_path = root / "src" / "lib" / "server" / "access-execution-actions.ts"
     high_agency_path = root / "src" / "lib" / "server" / "high-agency-workers.ts"
@@ -3776,15 +3824,18 @@ def inspect_spawner_access_sources(root: Path) -> dict[str, Any]:
 
 
 def js_const_object_values(text: str | None, object_name: str) -> dict[str, str]:
-    if not text:
+    text_str = str(text or "")
+    object_name_str = str(object_name or "")
+    if not text_str or not object_name_str:
         return {}
-    match = re.search(rf"export\s+const\s+{re.escape(object_name)}\s*=\s*{{(?P<body>.*?)\n}};", text, re.S)
+    match = re.search(rf"export\s+const\s+{re.escape(object_name_str)}\s*=\s*{{(?P<body>.*?)\n}};", text_str, re.S)
     if not match:
         return {}
     return {key: value for key, value in re.findall(r"(\w+):\s*['\"]([^'\"]+)['\"]", match.group("body"))}
 
 
 def inspect_browser_authority(root: Path) -> dict[str, Any]:
+    root = Path(root)
     constants_path = root / "src" / "protocol" / "constants.js"
     policy_path = root / "src" / "protocol" / "policy.js"
     contract_path = root / "docs" / "BROWSER_HOOK_CONTRACT_V1.md"
@@ -3814,6 +3865,7 @@ def inspect_browser_authority(root: Path) -> dict[str, Any]:
 
 
 def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
+    desktop = Path(desktop)
     swarm_root = desktop / "spark-swarm"
     labs_root = desktop / "spark-domain-chip-labs"
     sync_validation_path = swarm_root / "apps" / "api" / "src" / "collective" / "sync-validation.ts"
@@ -3850,6 +3902,9 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
 
 def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
+    desktop = Path(desktop)
+    setup_summary = setup_summary if isinstance(setup_summary, dict) else {}
+    spark_home = Path(spark_home) if spark_home is not None else None
     module_sources = spark_home / "modules" if spark_home is not None else None
     spark_cli_package_root = Path(__file__).resolve().parent
     spark_cli_repo_root = spark_cli_package_root.parent.parent
@@ -3917,7 +3972,10 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
     return {
         "schema_version": AUTHORITY_VIEW_SCHEMA,
         "generated_at": utc_now(),
-        "authority": "observability_non_authoritative",
+        "redaction": (
+            "policy constants, safe command labels, source existence, and aggregate gate counts only; "
+            "env files, profile preference files, token values, chat ids, raw mission text, and browser content are not read"
+        ),
         "observed_sources": observed_sources,
         "default_access_level_hint": cli_access.get("default_access_level"),
         "telegram_profile_count": access_profile_count,
@@ -3939,10 +3997,6 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
             ),
             "publication_checks_required": len(as_list(public_output_authority.get("required_publication_checks"))),
         },
-        "redaction": (
-            "policy constants, safe command labels, source existence, and aggregate gate counts only; "
-            "env files, profile preference files, token values, chat ids, raw mission text, and browser content are not read"
-        ),
         "next_required_bridges": [
             "Promote this compiled AuthorityViewV1 into Builder AOC as evidence, not policy authority.",
             "Point Telegram access/status replies at this view for compact drilldowns without raw ids.",
@@ -3959,14 +4013,16 @@ def trace_repair_id(*parts: Any) -> str:
 
 
 def trace_repair_owner(component: str) -> dict[str, str]:
-    return as_dict(TRACE_REPAIR_COMPONENT_OWNERS.get(component)) or {
+    comp = str(component or "")
+    return as_dict(TRACE_REPAIR_COMPONENT_OWNERS.get(comp)) or {
         "owner_repo": "spark-intelligence-builder",
-        "source_module": f"{component} event emission",
+        "source_module": f"{comp} event emission",
     }
 
 
 def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
-    trace_health = as_dict(trace_index.get("builder_trace_health"))
+    trace_idx = trace_index if isinstance(trace_index, dict) else {}
+    trace_health = as_dict(trace_idx.get("builder_trace_health"))
     recent_windows = [as_dict(row) for row in as_list(trace_health.get("recent_windows"))]
     total_missing = int(trace_health.get("missing_trace_ref_count") or 0)
     current_window = next(
@@ -4024,13 +4080,14 @@ def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]]:
+    trace_idx = trace_index if isinstance(trace_index, dict) else {}
     queue: list[dict[str, Any]] = []
-    trace_health = as_dict(trace_index.get("builder_trace_health"))
-    current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
+    trace_health = as_dict(trace_idx.get("builder_trace_health"))
+    current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
     historical_scope = str(current_health.get("repair_scope") or "") == "historical_backlog"
-    telegram_gate = as_dict(trace_index.get("telegram_final_answer_gate_samples"))
+    telegram_gate = as_dict(trace_idx.get("telegram_final_answer_gate_samples"))
     telegram_join = as_dict(telegram_gate.get("trace_join"))
-    spawner = as_dict(trace_index.get("spawner_prd_auto_trace_samples"))
+    spawner = as_dict(trace_idx.get("spawner_prd_auto_trace_samples"))
     spawner_join = as_dict(spawner.get("join_keys"))
     spawner_request_overlap = as_dict(spawner.get("builder_request_overlap"))
     spawner_trace_overlap = as_dict(spawner.get("builder_trace_ref_overlap"))
@@ -4147,9 +4204,10 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
 
 
 def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, Any]:
-    trace_health = as_dict(trace_index.get("builder_trace_health"))
-    current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
-    repair_queue = [as_dict(item) for item in as_list(trace_index.get("trace_repair_queue"))]
+    trace_idx = trace_index if isinstance(trace_index, dict) else {}
+    trace_health = as_dict(trace_idx.get("builder_trace_health"))
+    current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
+    repair_queue = [as_dict(item) for item in as_list(trace_idx.get("trace_repair_queue"))]
     cards: list[dict[str, Any]] = []
 
     for item in repair_queue:
@@ -4290,6 +4348,8 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
 
 
 def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
+    spark_home = Path(spark_home)
+    builder_home = Path(builder_home)
     spawner_state = spark_home / "state" / "spawner-ui"
     telegram_state = spark_home / "state" / "spark-telegram-bot"
     trace_index = {
@@ -4333,6 +4393,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
 
 
 def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
+    builder_home = Path(builder_home)
     builder_memory_tables = inspect_builder_memory_tables(builder_home)
     trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
     trace_bridge_instruction = (
@@ -4364,13 +4425,14 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
 
 
 def build_gaps(system_map: dict[str, Any]) -> list[dict[str, str]]:
-    registry_modules = set(as_dict(system_map.get("registry", {}).get("modules")).keys())
-    installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
-    repos = as_list(system_map.get("discovered_repos"))
+    sys_map = system_map if isinstance(system_map, dict) else {}
+    registry_modules = set(as_dict(sys_map.get("registry", {}).get("modules")).keys())
+    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
+    repos = as_list(sys_map.get("discovered_repos"))
     raw_gaps: list[dict[str, str]] = []
 
     def add_gap(severity: str, area: str, item: str, message: str) -> None:
-        raw_gaps.append({"severity": severity, "area": area, "item": item, "message": message})
+        raw_gaps.append({"severity": str(severity), "area": str(area), "item": str(item), "message": str(message)})
 
     for module_id in sorted(registry_modules - installed_modules):
         add_gap("info", "install", module_id, "Registry module is not installed in the current local Spark home.")
@@ -4400,7 +4462,7 @@ def build_gaps(system_map: dict[str, Any]) -> list[dict[str, str]]:
                 "Repo declares spark-chip.json but is not in installed state or starter registry.",
             )
 
-    for module in as_list(system_map.get("modules")):
+    for module in as_list(sys_map.get("modules")):
         installed = as_dict(module.get("installed"))
         if installed and installed.get("path") and not Path(str(installed.get("path"))).exists():
             add_gap("warning", "install", str(module.get("id")), "Installed module path does not exist.")
@@ -4420,45 +4482,50 @@ def build_gaps(system_map: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def repo_owner_surface(name: str) -> str:
-    if name in OWNER_SURFACES:
-        return OWNER_SURFACES[name]
-    if name.startswith("domain-chip-"):
+    name_str = str(name or "")
+    if name_str in OWNER_SURFACES:
+        return OWNER_SURFACES[name_str]
+    if name_str.startswith("domain-chip-"):
         return "domain chip candidate"
-    if name.startswith("specialization-path-"):
+    if name_str.startswith("specialization-path-"):
         return "specialization path candidate"
-    if "telegram" in name:
+    if "telegram" in name_str:
         return "Telegram-adjacent surface"
-    if "swarm" in name:
+    if "swarm" in name_str:
         return "Swarm-adjacent surface"
-    if "spark" in name:
+    if "spark" in name_str:
         return "Spark-adjacent repo"
     return "unclassified"
 
 
 def repo_manifest_presence(repo: dict[str, Any]) -> dict[str, bool]:
-    contract_files = set(as_list(repo.get("contract_files")))
+    repo_dict = repo if isinstance(repo, dict) else {}
+    contract_files = set(as_list(repo_dict.get("contract_files")))
     return {
-        "spark_toml": bool(as_dict(repo.get("spark_toml"))),
-        "spark_chip": bool(as_dict(repo.get("spark_chip"))),
-        "skill_manifest": bool(as_dict(repo.get("skill_manifest"))),
+        "spark_toml": bool(as_dict(repo_dict.get("spark_toml"))),
+        "spark_chip": bool(as_dict(repo_dict.get("spark_chip"))),
+        "skill_manifest": bool(as_dict(repo_dict.get("skill_manifest"))),
         "agents_md": "AGENTS.md" in contract_files,
         "contract_file_count": bool(contract_files),
     }
 
 
 def repo_release_status(name: str, git: dict[str, Any], manifest: dict[str, bool], registry_present: bool) -> tuple[str, str | None, str]:
-    dirty = int(git.get("dirty_tracked_count") or 0)
-    untracked = int(git.get("untracked_count") or 0)
-    behind = int(git.get("behind") or 0)
-    if not git.get("available"):
+    git_dict = git if isinstance(git, dict) else {}
+    manifest_dict = manifest if isinstance(manifest, dict) else {}
+    name_str = str(name or "")
+    dirty = int(git_dict.get("dirty_tracked_count") or 0)
+    untracked = int(git_dict.get("untracked_count") or 0)
+    behind = int(git_dict.get("behind") or 0)
+    if not git_dict.get("available"):
         return "not_release_candidate", "not a git repo", "inspect or ignore before product work"
     if dirty or untracked:
         return "blocked", "dirty worktree", "curate local changes before merge or release"
     if behind:
         return "blocked", "behind upstream", "pull or merge upstream before release"
-    if name in CORE_REPOS and not any(manifest.values()):
+    if name_str in CORE_REPOS and not any(manifest_dict.values()):
         return "blocked", "core repo missing Spark manifest", "add or confirm owner manifest before release"
-    if name == "spark-cli" and any(manifest.values()):
+    if name_str == "spark-cli" and any(manifest_dict.values()):
         return "eligible", None, "installer and Spark OS compiler source truth is manifest-declared"
     if registry_present:
         return "eligible", None, "safe to consider for the next verified workstream"
@@ -4466,19 +4533,23 @@ def repo_release_status(name: str, git: dict[str, Any], manifest: dict[str, bool
 
 
 def repo_risk_class(name: str, release_eligibility: str) -> str:
-    if name in {"spark-cli", "spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"}:
+    name_str = str(name or "")
+    eligibility = str(release_eligibility or "")
+    if name_str in {"spark-cli", "spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"}:
         return "critical"
-    if release_eligibility == "blocked":
+    if eligibility == "blocked":
         return "high"
-    if name in CORE_REPOS:
+    if name_str in CORE_REPOS:
         return "medium"
     return "low"
 
 
 def repo_by_name(system_map: dict[str, Any], name: str) -> dict[str, Any]:
-    for repo in as_list(system_map.get("discovered_repos")):
+    sys_map = system_map if isinstance(system_map, dict) else {}
+    name_str = str(name or "")
+    for repo in as_list(sys_map.get("discovered_repos")):
         repo = as_dict(repo)
-        if repo.get("name") == name:
+        if repo.get("name") == name_str:
             return repo
     return {}
 
@@ -4500,18 +4571,18 @@ def duplicate_truth_item(
     evidence_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     item = {
-        "id": item_id,
-        "fact": fact,
-        "classification": classification,
-        "severity": severity,
-        "owner_repo": owner_repo,
-        "canonical_path": canonical_path,
-        "duplicate_path": duplicate_path,
-        "evidence": evidence,
-        "risk": risk,
-        "next_safe_action": next_safe_action,
-        "verification_command": verification_command,
-        "rollback": rollback,
+        "id": str(item_id or ""),
+        "fact": str(fact or ""),
+        "classification": str(classification or ""),
+        "severity": str(severity or "warning"),
+        "owner_repo": str(owner_repo or ""),
+        "canonical_path": str(canonical_path or ""),
+        "duplicate_path": str(duplicate_path or ""),
+        "evidence": str(evidence or ""),
+        "risk": str(risk or ""),
+        "next_safe_action": str(next_safe_action or ""),
+        "verification_command": str(verification_command or ""),
+        "rollback": str(rollback or ""),
     }
     if evidence_details is not None:
         item["evidence_details"] = evidence_details
@@ -4529,7 +4600,7 @@ BUILDER_AOC_COMMAND_MARKERS = {
 
 
 def dirty_family_for_path(path_value: str) -> str:
-    normalized = path_value.replace("\\", "/").strip()
+    normalized = str(path_value or "").replace("\\", "/").strip()
     if " -> " in normalized:
         normalized = normalized.split(" -> ", 1)[1].strip()
     parts = [part for part in normalized.split("/") if part]
@@ -4543,6 +4614,7 @@ def dirty_family_for_path(path_value: str) -> str:
 
 
 def git_dirty_family_counts(path: Path) -> dict[str, int]:
+    path = Path(path)
     if not (path / ".git").exists():
         return {}
     code, status = run_git(path, ["status", "--porcelain"])
@@ -4557,6 +4629,7 @@ def git_dirty_family_counts(path: Path) -> dict[str, int]:
 
 
 def builder_source_audit(path: Path) -> dict[str, Any]:
+    path = Path(path)
     git = git_board_status(path)
     cli_path = path / "src" / "spark_intelligence" / "cli.py"
     command_markers: dict[str, bool] = {name: False for name in BUILDER_AOC_COMMAND_MARKERS}
@@ -4589,6 +4662,7 @@ def builder_source_audit(path: Path) -> dict[str, Any]:
 
 
 def spawner_state_source_audit(path: Path) -> dict[str, Any]:
+    path = Path(path)
     reference_needles = (".spawner", "SPAWNER_STATE_DIR", "spawnerStateDir", "spawner-state")
     family_counts: Counter[str] = Counter()
     file_count = 0
@@ -4641,12 +4715,13 @@ def spawner_state_source_audit(path: Path) -> dict[str, Any]:
 
 
 def git_dirty_from_repo(repo: dict[str, Any]) -> tuple[int, int]:
-    git = as_dict(repo.get("git"))
+    repo_dict = repo if isinstance(repo, dict) else {}
+    git = as_dict(repo_dict.get("git"))
     dirty = int(git.get("dirty_tracked_count") or 0)
     untracked = int(git.get("untracked_count") or 0)
     if dirty or untracked:
         return dirty, untracked
-    path = repo.get("path")
+    path = repo_dict.get("path")
     if isinstance(path, str) and path.strip():
         status = git_board_status(Path(path))
         return int(status.get("dirty_tracked_count") or 0), int(status.get("untracked_count") or 0)
@@ -4675,11 +4750,12 @@ def installed_runtime_clean_summary(installed_modules: dict[str, Any], module_id
 
 
 def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
-    source_roots = as_dict(system_map.get("source_roots"))
+    sys_map = system_map if isinstance(system_map, dict) else {}
+    source_roots = as_dict(sys_map.get("source_roots"))
     spark_home = Path(str(source_roots.get("spark_home") or "")).expanduser()
     desktop = Path(str(source_roots.get("desktop") or "")).expanduser()
-    installed_modules = as_dict(system_map.get("installed_modules"))
-    registry_modules = as_dict(as_dict(system_map.get("registry")).get("modules"))
+    installed_modules = as_dict(sys_map.get("installed_modules"))
+    registry_modules = as_dict(as_dict(sys_map.get("registry")).get("modules"))
     items: list[dict[str, Any]] = []
 
     builder_installed = as_dict(installed_modules.get("spark-intelligence-builder"))
@@ -4813,7 +4889,7 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
         ("domain-chip-memory", "Memory substrate owner repo curation state", "domain-chip-memory", "owner_repo_dirty"),
         ("spark-memory-quality-dashboard", "Memory dashboard projection state", "spark-memory-quality-dashboard", "projection_dirty"),
     ]:
-        repo = repo_by_name(system_map, repo_name)
+        repo = repo_by_name(sys_map, repo_name)
         if not repo:
             continue
         dirty, untracked = git_dirty_from_repo(repo)
@@ -4950,7 +5026,7 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                         )
                     )
 
-    browser_extension = repo_by_name(system_map, "spark-browser-extension")
+    browser_extension = repo_by_name(sys_map, "spark-browser-extension")
     if browser_extension:
         items.append(
             duplicate_truth_item(
@@ -5004,11 +5080,12 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
-    registry_modules = set(as_dict(system_map.get("registry", {}).get("modules")).keys())
-    installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
+    sys_map = system_map if isinstance(system_map, dict) else {}
+    registry_modules = set(as_dict(as_dict(sys_map.get("registry")).get("modules")).keys())
+    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
     rows: list[dict[str, Any]] = []
 
-    for repo in as_list(system_map.get("discovered_repos")):
+    for repo in as_list(sys_map.get("discovered_repos")):
         repo = as_dict(repo)
         name = str(repo.get("name") or "")
         ids = repo_ids(repo)
@@ -5048,7 +5125,7 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         "blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
         "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
     }
-    duplicate_truths = build_duplicate_truths(system_map)
+    duplicate_truths = build_duplicate_truths(sys_map)
     summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
     summary["critical_duplicate_truth_count"] = as_dict(
         as_dict(duplicate_truths.get("summary")).get("severity_counts")
@@ -5082,17 +5159,18 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
-    repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
+    sys_map = system_map if isinstance(system_map, dict) else {}
+    repos = [as_dict(repo) for repo in as_list(sys_map.get("discovered_repos"))]
     repo_names = {str(repo.get("name")) for repo in repos}
     repo_paths = {
         str(repo.get("name")): Path(str(repo.get("path"))).expanduser()
         for repo in repos
         if isinstance(repo.get("path"), str) and str(repo.get("path")).strip()
     }
-    installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
+    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
     available = "spark-voice-comms" in repo_names
     installed = "spark-voice-comms" in installed_modules
-    source_roots = as_dict(system_map.get("source_roots"))
+    source_roots = as_dict(sys_map.get("source_roots"))
 
     runtime_state_error = "spark_home_missing"
     runtime_state: dict[str, Any] = {}
@@ -5103,21 +5181,23 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         if isinstance(runtime_state_raw, dict):
             runtime_state = runtime_state_raw
 
-    runtime_state_export_present = runtime_state.get("schema_version") == "spark.voice_runtime_state.v1"
+    runtime_state_export_present = as_dict(runtime_state).get("schema_version") == "spark.voice_runtime_state.v1"
     if runtime_state and not runtime_state_export_present:
         runtime_state_error = "invalid_schema"
 
-    runtime_stt = as_dict(runtime_state.get("stt")) if runtime_state_export_present else {}
-    runtime_tts = as_dict(runtime_state.get("tts")) if runtime_state_export_present else {}
-    runtime_delivery = as_dict(runtime_state.get("telegram_delivery")) if runtime_state_export_present else {}
-    runtime_claims = as_dict(runtime_state.get("claim_levels")) if runtime_state_export_present else {}
-    runtime_sources = [str(item) for item in as_list(runtime_state.get("source_ledger"))] if runtime_state_export_present else []
+    runtime_stt = as_dict(as_dict(runtime_state).get("stt")) if runtime_state_export_present else {}
+    runtime_tts = as_dict(as_dict(runtime_state).get("tts")) if runtime_state_export_present else {}
+    runtime_delivery = as_dict(as_dict(runtime_state).get("telegram_delivery")) if runtime_state_export_present else {}
+    runtime_claims = as_dict(as_dict(runtime_state).get("claim_levels")) if runtime_state_export_present else {}
+    runtime_sources = [str(item) for item in as_list(as_dict(runtime_state).get("source_ledger"))] if runtime_state_export_present else []
     stt_ready = runtime_stt.get("ready") is True
     tts_ready = runtime_tts.get("ready") is True
     delivery_ready = runtime_delivery.get("ready") is True
     configured = runtime_claims.get("configured") is True or stt_ready or tts_ready
 
     def source_file_contains(repo_name: str, relative: str, *needles: str) -> bool:
+        repo_name = str(repo_name or "")
+        relative = str(relative or "")
         root = repo_paths.get(repo_name)
         if root is None:
             return False
@@ -5128,7 +5208,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return False
-        return all(needle in text for needle in needles)
+        return all(str(needle) in text for needle in needles)
 
     voice_hook_has_transcribe = source_file_contains(
         "spark-voice-comms",
@@ -5290,6 +5370,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
+    compiled = compiled if isinstance(compiled, dict) else {}
     system_map = as_dict(compiled.get("system_map"))
     repo_board = as_dict(compiled.get("repo_board"))
     trace_index = as_dict(compiled.get("trace_index"))
@@ -5369,6 +5450,9 @@ def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
 
 
 def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> dict[str, Any]:
+    desktop = Path(desktop)
+    spark_home = Path(spark_home)
+    registry_path = Path(registry_path)
     state_dir = spark_home / "state"
     registry, registry_error = read_json(registry_path)
     installed, installed_error = read_json(state_dir / "installed.json")
@@ -5423,11 +5507,14 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
 
 def write_json(path: Path, payload: Any) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
+    path = Path(path)
+    system_map = system_map if isinstance(system_map, dict) else {}
     lines = [
         "# Spark System Map Gaps",
         "",
@@ -5439,18 +5526,20 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         "",
         f"- modules compiled: {len(as_list(system_map.get('modules')))}",
         f"- discovered repos: {len(as_list(system_map.get('discovered_repos')))}",
-        f"- gaps: {len(gaps)}",
+        f"- gaps: {len(as_list(gaps))}",
         "",
         "## Gaps",
         "",
     ]
-    if not gaps:
+    gaps_list = as_list(gaps)
+    if not gaps_list:
         lines.append("- No gaps detected by this compiler pass.")
     else:
-        for gap in gaps:
-            count = int(gap.get("count", "1"))
+        for gap in gaps_list:
+            gap_dict = as_dict(gap)
+            count = int(gap_dict.get("count", "1"))
             suffix = f" Observed {count} times." if count > 1 else ""
-            lines.append(f"- [{gap['severity']}] {gap['area']} / {gap['item']}: {gap['message']}{suffix}")
+            lines.append(f"- [{gap_dict.get('severity')}] {gap_dict.get('area')} / {gap_dict.get('item')}: {gap_dict.get('message')}{suffix}")
     lines.extend(
         [
             "",
@@ -5468,7 +5557,9 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
 
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
-    system_map = as_dict(compiled["system_map"])
+    out_dir = Path(out_dir)
+    compiled = compiled if isinstance(compiled, dict) else {}
+    system_map = as_dict(compiled.get("system_map"))
     paths = {
         "system_map": out_dir / "system-map.json",
         "authority_view": out_dir / "authority-view.json",
@@ -5481,22 +5572,24 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
         "gaps": out_dir / "gaps.md",
     }
     write_json(paths["system_map"], system_map)
-    write_json(paths["authority_view"], compiled["authority_view"])
-    write_json(paths["capability_catalog"], compiled["capability_catalog"])
-    write_json(paths["trace_index"], compiled["trace_index"])
-    write_json(paths["memory_movement_index"], compiled["memory_movement_index"])
-    write_json(paths["repo_board"], compiled["repo_board"])
-    write_json(paths["voice_surface_view"], compiled["voice_surface_view"])
-    write_json(paths["operating_cockpit"], compiled["operating_cockpit"])
+    write_json(paths["authority_view"], compiled.get("authority_view"))
+    write_json(paths["capability_catalog"], compiled.get("capability_catalog"))
+    write_json(paths["trace_index"], compiled.get("trace_index"))
+    write_json(paths["memory_movement_index"], compiled.get("memory_movement_index"))
+    write_json(paths["repo_board"], compiled.get("repo_board"))
+    write_json(paths["voice_surface_view"], compiled.get("voice_surface_view"))
+    write_json(paths["operating_cockpit"], compiled.get("operating_cockpit"))
     write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map)
     return {key: str(path) for key, path in paths.items()}
 
 
 def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = None) -> dict[str, Any]:
-    system_map = as_dict(compiled["system_map"])
-    capability_catalog = as_dict(compiled["capability_catalog"])
-    trace_index = as_dict(compiled["trace_index"])
-    memory_index = as_dict(compiled["memory_movement_index"])
+    compiled = compiled if isinstance(compiled, dict) else {}
+    written = written if isinstance(written, dict) else {}
+    system_map = as_dict(compiled.get("system_map"))
+    capability_catalog = as_dict(compiled.get("capability_catalog"))
+    trace_index = as_dict(compiled.get("trace_index"))
+    memory_index = as_dict(compiled.get("memory_movement_index"))
     repo_board = as_dict(compiled.get("repo_board"))
     voice_surface = as_dict(compiled.get("voice_surface_view"))
     duplicate_truths = as_dict(repo_board.get("duplicate_truths"))
@@ -5521,7 +5614,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
         "authority_sources": {
             key: as_dict(value).get("exists")
-            for key, value in as_dict(as_dict(compiled["authority_view"]).get("observed_sources")).items()
+            for key, value in as_dict(as_dict(compiled.get("authority_view")).get("observed_sources")).items()
         },
         "builder_event_rows": builder_events.get("row_count"),
         "builder_event_samples": builder_event_samples.get("sample_count"),
