@@ -14096,38 +14096,74 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
 
 
 def user_safe_startup_detail(detail: str) -> str:
-    if "TELEGRAM_RELAY_SECRET" in detail or "telegram.relay_secret" in detail:
-        return "Spark could not finish connecting Telegram. Run `spark setup telegram-starter --resume`, then `spark start telegram-starter`."
-    return detail
+    if not isinstance(detail, str): detail = str(detail or '')
+    try:
+        if "TELEGRAM_RELAY_SECRET" in detail or "telegram.relay_secret" in detail:
+            return "Spark could not finish connecting Telegram. Run `spark setup telegram-starter --resume`, then `spark start telegram-starter`."
+        return detail
 
 
+
+    except Exception:
+        return ""
 def format_start_warning(module: Module, detail: str, process: subprocess.Popen[Any], profile: str | None = None) -> str:
-    detail = user_safe_startup_detail(detail)
-    normalized = normalize_telegram_profile(profile)
-    profile_hint = f" --profile {normalized}" if module.name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE else ""
-    log_hint = f"Run `spark logs {module.name}{profile_hint} --lines 80` for startup logs."
-    exit_code = process.poll()
-    if exit_code is not None:
-        if "process exited with code" in detail.lower():
-            return f"{detail}. {log_hint}"
-        return f"{detail}. The process exited with code {exit_code}. {log_hint}"
-    return f"{detail}. The process is still running and may still be booting. {log_hint}"
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        detail = user_safe_startup_detail(detail)
+        normalized = normalize_telegram_profile(profile)
+        profile_hint = f" --profile {normalized}" if module.name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE else ""
+        log_hint = f"Run `spark logs {module.name}{profile_hint} --lines 80` for startup logs."
+        exit_code = process.poll()
+        if exit_code is not None:
+            if "process exited with code" in detail.lower():
+                return f"{detail}. {log_hint}"
+            return f"{detail}. The process exited with code {exit_code}. {log_hint}"
+        return f"{detail}. The process is still running and may still be booting. {log_hint}"
 
 
+
+    except Exception:
+        return ""
 def windows_service_creationflags() -> int:
-    return (
-        int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        | int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        | int(getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
-        | int(getattr(subprocess, "DETACHED_PROCESS", 0))
-    )
+    try:
+        return (
+            int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+            | int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            | int(getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
+            | int(getattr(subprocess, "DETACHED_PROCESS", 0))
+        )
 
 
+
+    except Exception:
+        return 0
 def listening_pid_for_tcp_port(port: int) -> int | None:
-    if os.name != "nt":
+    try:
+        if os.name != "nt":
+            try:
+                result = subprocess.run(
+                    ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except FileNotFoundError:
+                return None
+            if result.returncode != 0:
+                return None
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return int(line)
+                except ValueError:
+                    continue
+            return None
         try:
             result = subprocess.run(
-                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                ["netstat", "-ano", "-p", "tcp"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -14136,64 +14172,52 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             return None
         if result.returncode != 0:
             return None
+        suffix = f":{port}"
         for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
+            parts = line.split()
+            if len(parts) < 5 or parts[0].upper() != "TCP":
                 continue
-            try:
-                return int(line)
-            except ValueError:
-                continue
+            local_address = parts[1]
+            state = parts[-2].upper()
+            pid_text = parts[-1]
+            if state == "LISTENING" and local_address.endswith(suffix):
+                try:
+                    return int(pid_text)
+                except ValueError:
+                    return None
         return None
-    try:
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return None
-    if result.returncode != 0:
-        return None
-    suffix = f":{port}"
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or parts[0].upper() != "TCP":
-            continue
-        local_address = parts[1]
-        state = parts[-2].upper()
-        pid_text = parts[-1]
-        if state == "LISTENING" and local_address.endswith(suffix):
-            try:
-                return int(pid_text)
-            except ValueError:
-                return None
-    return None
 
 
+
+    except Exception:
+        return 0
 def module_runtime_listener_ports(module: Module, profile: str | None = None) -> list[int]:
-    if module.name == "spark-telegram-bot":
-        raw_port = module_runtime_env(module, profile).get("TELEGRAM_RELAY_PORT", "8788")
-        try:
-            return [int(raw_port)]
-        except (TypeError, ValueError):
-            return [8788]
-    if module.name == "spawner-ui":
-        raw_port = module_runtime_env(module, profile).get("SPARK_SPAWNER_PORT")
-        if raw_port:
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        if module.name == "spark-telegram-bot":
+            raw_port = module_runtime_env(module, profile).get("TELEGRAM_RELAY_PORT", "8788")
             try:
                 return [int(raw_port)]
             except (TypeError, ValueError):
-                return []
-    ready_check = module.ready_check or ""
-    if ready_check.startswith(("http://", "https://")):
-        parsed = urllib.parse.urlparse(ready_check)
-        if parsed.port:
-            return [int(parsed.port)]
-    return []
+                return [8788]
+        if module.name == "spawner-ui":
+            raw_port = module_runtime_env(module, profile).get("SPARK_SPAWNER_PORT")
+            if raw_port:
+                try:
+                    return [int(raw_port)]
+                except (TypeError, ValueError):
+                    return []
+        ready_check = module.ready_check or ""
+        if ready_check.startswith(("http://", "https://")):
+            parsed = urllib.parse.urlparse(ready_check)
+            if parsed.port:
+                return [int(parsed.port)]
+        return []
 
 
+
+    except Exception:
+        return []
 def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int:
     for port in module_runtime_listener_ports(module, profile):
         pid = listening_pid_for_tcp_port(port)
