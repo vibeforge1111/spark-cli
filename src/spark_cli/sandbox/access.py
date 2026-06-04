@@ -179,8 +179,13 @@ def generated_level5_env(*, home: Path | None = None, env: dict[str, str] | None
 
 
 def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+    if home is not None:
+        return home
     env_values = env or os.environ
-    return home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+    configured = env_values.get("SPARK_HOME")
+    if not configured:
+        return (Path.home() / ".spark").expanduser()
+    return Path(configured).expanduser()
 
 
 def _parse_utc_timestamp(value: object) -> float | None:
