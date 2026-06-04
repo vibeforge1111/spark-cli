@@ -489,8 +489,8 @@ def validate_registry_definition(registry: dict[str, Any]) -> None:
             raise SystemExit(f"Blessed git registry entry `{name}` must include a full commit pin.")
 
 
-def is_git_source(source: str) -> bool:
-    value = (source or "").strip()
+def is_git_source(source: Any) -> bool:
+    value = str(source or "").strip()
     if not value:
         return False
     if value.startswith(("http://", "https://", "git://", "ssh://", "git@")):
@@ -502,7 +502,7 @@ def is_git_source(source: str) -> bool:
     return False
 
 
-def is_hosted_git_shorthand(value: str) -> bool:
+def is_hosted_git_shorthand(value: Any) -> bool:
     parts = value.strip().split("/")
     return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
 
@@ -4358,7 +4358,14 @@ def initialize_builder_runtime_home(
 def discover_modules() -> dict[str, Module]:
     modules: dict[str, Module] = {}
     registry = load_registry_definition()
-    for name, metadata in registry.get("modules", {}).items():
+    if not isinstance(registry, dict):
+        return modules
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return modules
+    for name, metadata in modules_dict.items():
+        if not isinstance(metadata, dict):
+            continue
         source = str(metadata.get("source", ""))
         clone_path = clone_target_for_module(name)
         if (clone_path / "spark.toml").exists():
@@ -4376,7 +4383,14 @@ def discover_modules() -> dict[str, Module]:
 
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    if not isinstance(registry, dict):
+        raise SystemExit(f"Registry is invalid; cannot resolve bundle: {bundle_name}")
+    bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        raise SystemExit(f"Bundles definition is missing; cannot resolve: {bundle_name}")
+    bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        raise SystemExit(f"Unknown bundle: {bundle_name}")
     names = bundle.get("modules")
     if not names:
         raise SystemExit(f"Unknown bundle: {bundle_name}")
@@ -4393,7 +4407,11 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
     this triggers `resolve_install_target`, which clones the source into
     `~/.spark/modules/<name>/source/` and loads the manifest from there.
     """
+    if not isinstance(modules, dict):
+        modules = {}
     augmented = dict(modules)
+    if not isinstance(names, (list, tuple, set)):
+        return augmented
     for name in names:
         if name in augmented:
             continue
@@ -4404,8 +4422,14 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return []
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return []
     bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        return []
     names = bundle.get("modules")
     if not names:
         known = sorted(name for name, item in bundles.items() if item.get("modules"))
@@ -4416,17 +4440,27 @@ def resolve_bundle_names(bundle_name: str) -> list[str]:
 
 
 def expand_targets(target: str | None, modules: dict[str, Module], include_all: bool = False) -> list[str]:
+    if not isinstance(modules, dict):
+        modules = {}
     if target is None:
         return list(modules.keys()) if include_all else []
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return [target]
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return [target]
     if target in bundles:
-        return list(bundles[target].get("modules", []))
+        target_bundle = bundles[target]
+        if isinstance(target_bundle, dict):
+            return list(target_bundle.get("modules", []))
     return [target]
 
 
 def detect_ingress_owner(bundle: list[Module]) -> Module:
-    owners = [module for module in bundle if "telegram.ingress" in module.capabilities]
+    if not isinstance(bundle, (list, tuple, set)):
+        raise SystemExit("Bundle is empty or invalid structure.")
+    owners = [module for module in bundle if module and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if len(owners) != 1:
         raise SystemExit(
             "Expected exactly one telegram ingress owner in bundle, found "
@@ -4588,7 +4622,7 @@ def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
-    if not modules:
+    if not isinstance(modules, dict) or not modules:
         print("No installed Spark modules recorded.")
         print("Run `spark setup telegram-starter` to install the starter bundle.")
         return 0
@@ -4776,20 +4810,33 @@ def public_diagnostic_payload(value: Any) -> Any:
 
 def remove_module_record(module_name: str) -> None:
     installed = load_json(REGISTRY_PATH, {})
+    if not isinstance(installed, dict):
+        installed = {}
     installed.pop(module_name, None)
     save_json(REGISTRY_PATH, installed)
 
 
 def is_blessed_registry_entry(target: str) -> bool:
-    metadata = load_registry_definition().get("modules", {}).get(target)
+    target_str = str(target or "")
+    registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return False
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return False
+    metadata = modules_dict.get(target_str)
     if not metadata:
         return False
     return bool(metadata.get("blessed"))
 
 
 def module_trust_tier(module: Module, target: str | None = None) -> str:
-    registry_modules = load_registry_definition().get("modules", {})
-    metadata = registry_modules.get(module.name) or (registry_modules.get(target) if target else {}) or {}
+    registry = load_registry_definition()
+    registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
+    if not isinstance(registry_modules, dict):
+        registry_modules = {}
+    module_name = getattr(module, "name", None)
+    metadata = (registry_modules.get(module_name) if module_name else None) or (registry_modules.get(target) if target else {}) or {}
     configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
     if metadata.get("blessed") and not configured:
         return "trusted"
@@ -5008,26 +5055,35 @@ def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: s
 
 
 def load_install_progress(target: str) -> dict[str, Any]:
+    target_str = str(target or "")
+    if not target_str:
+        return {}
     data = load_json(INSTALL_PROGRESS_PATH, {})
-    entry = data.get(target) if isinstance(data, dict) else None
+    entry = data.get(target_str) if isinstance(data, dict) else None
     return dict(entry) if isinstance(entry, dict) else {}
 
 
 def save_install_progress(target: str, progress: dict[str, Any]) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         data = {}
-    data[target] = progress
+    data[target_str] = progress
     save_json(INSTALL_PROGRESS_PATH, data)
 
 
 def clear_install_progress(target: str) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         return
-    if target not in data:
+    if target_str not in data:
         return
-    data.pop(target)
+    data.pop(target_str)
     if data:
         save_json(INSTALL_PROGRESS_PATH, data)
     elif INSTALL_PROGRESS_PATH.exists():
@@ -5035,8 +5091,15 @@ def clear_install_progress(target: str) -> None:
 
 
 def record_install_step(target: str, step: str) -> None:
-    progress = load_install_progress(target)
+    target_str = str(target or "")
+    step_str = str(step or "")
+    if not target_str or not step_str:
+        return
+    progress = load_install_progress(target_str)
     completed = progress.setdefault("steps_completed", [])
+    if not isinstance(completed, list):
+        completed = []
+        progress["steps_completed"] = completed
     if step not in completed:
         completed.append(step)
     progress["last_step"] = step
@@ -5060,22 +5123,32 @@ def step_previously_completed(target: str, step: str, resume: bool) -> bool:
 
 def print_install_summary(modules: list[Module]) -> None:
     print("Install plan:")
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
-        print(f"- {module.name} ({module.kind}, {module.plane})")
-    ingress_owners = [module.name for module in modules if "telegram.ingress" in module.capabilities]
+        if not module or not hasattr(module, "name"):
+            continue
+        print(f"- {module.name} ({getattr(module, 'kind', 'unknown')}, {getattr(module, 'plane', 'unknown')})")
+    ingress_owners = [module.name for module in modules if module and hasattr(module, "name") and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if ingress_owners:
         print(f"Telegram ingress owner: {', '.join(ingress_owners)}")
 
 
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
+        if not module or not hasattr(module, "name") or not hasattr(module, "path"):
+            continue
         print(f"Installed {module.name} from {module.path}")
-        if "telegram.ingress" in module.capabilities:
+        if hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
 
 def execute_install_commands(module: Module) -> None:
+    if not module or not hasattr(module, "install_commands") or not isinstance(module.install_commands, (list, tuple, set)):
+        return
     for command in module.install_commands:
         print(f"Running install command for {module.name}: {command}")
         result = run_install_command(command, module.path)
@@ -5113,9 +5186,14 @@ def sync_generated_env_to_module(module: Module) -> None:
 
 def update_setup_state_after_uninstall(module_names: list[str]) -> None:
     setup_state = load_json(CONFIG_PATH, {})
-    if not setup_state:
+    if not setup_state or not isinstance(setup_state, dict):
         return
-    remaining = [name for name in setup_state.get("modules", []) if name not in module_names]
+    if not isinstance(module_names, (list, tuple, set)):
+        module_names = [module_names]
+    modules_list = setup_state.get("modules", [])
+    if not isinstance(modules_list, (list, tuple, set)):
+        modules_list = []
+    remaining = [name for name in modules_list if name not in module_names]
     if not remaining:
         if CONFIG_PATH.exists():
             CONFIG_PATH.unlink()
@@ -5128,23 +5206,37 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    if not isinstance(installed, dict):
+        return {}
+    resolved: dict[str, Module] = {}
+    for name, data in installed.items():
+        if isinstance(data, dict) and data.get("path"):
+            try:
+                resolved[name] = load_module(Path(data["path"]))
+            except Exception:
+                pass
+    return resolved
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
-    removing_names = {module.name for module in removing_modules}
     blockers: list[str] = []
+    if not isinstance(removing_modules, (list, tuple, set)) or not isinstance(installed_modules, dict):
+        return blockers
+    removing_names = {module.name for module in removing_modules if module and hasattr(module, "name")}
     for module in installed_modules.values():
-        if module.name in removing_names:
+        if not module or not hasattr(module, "name") or module.name in removing_names:
             continue
-        for dependency in module.needs_modules:
+        needs = getattr(module, "needs_modules", None)
+        if not isinstance(needs, (list, tuple, set)):
+            continue
+        for dependency in needs:
             if dependency in removing_names:
                 blockers.append(f"{module.name} depends on {dependency}")
     return blockers
 
 
 def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
-    if module.name != "spark-telegram-bot":
+    if not module or getattr(module, "name", None) != "spark-telegram-bot":
         return None
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if isinstance(profiles, dict) and profiles:
@@ -8313,7 +8405,9 @@ def generated_env_files_for_revoke_all() -> list[Path]:
         return []
 
 
-def module_name_from_generated_env_path(path: Path) -> str | None:
+def module_name_from_generated_env_path(path: Any) -> str | None:
+    if not path or not hasattr(path, "stem"):
+        return None
     stem = path.stem
     if "." in stem:
         return None
@@ -8433,6 +8527,8 @@ def disable_revoke_all_custom_mcp(*, dry_run: bool = False) -> dict[str, Any]:
 
 def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, str]]:
     tokens: list[dict[str, str]] = []
+    if not isinstance(secret_ids, (list, tuple, set, dict)):
+        return tokens
     seen: set[str] = set()
     for secret_id in sorted(secret_ids):
         if not is_telegram_bot_token_secret(secret_id):
@@ -8451,6 +8547,8 @@ def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, 
 def clear_telegram_webhook_state(tokens: list[dict[str, str]], *, dry_run: bool = False) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    if not isinstance(tokens, (list, tuple, set)):
+        return {"ok": True, "planned": dry_run, "tokens": results, "failures": failures}
     for item in tokens:
         secret_id = item["secret_id"]
         if dry_run:
@@ -8516,8 +8614,14 @@ def spawner_state_dir_for_revoke_all() -> Path:
     return Path(raw).expanduser()
 
 
-def load_json_best_effort(path: Path, default: Any) -> Any:
-    if not path.exists():
+def load_json_best_effort(path: Any, default: Any) -> Any:
+    if not path:
+        return default
+    path = Path(path)
+    try:
+        if not path.exists():
+            return default
+    except OSError:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -8527,6 +8631,8 @@ def load_json_best_effort(path: Path, default: Any) -> Any:
 
 def latest_mission_events(recent: list[Any]) -> dict[str, dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
+    if not isinstance(recent, (list, tuple, set)):
+        return latest
     for entry in recent:
         if not isinstance(entry, dict):
             continue
@@ -8929,7 +9035,11 @@ def spark_home_boundary_errors(spark_home: Path = SPARK_HOME) -> list[str]:
 
 def spark_home_write_errors(paths: list[Path] | None = None) -> list[str]:
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SPARK_HOME, STATE_DIR, CONFIG_DIR, LOG_DIR]:
+        if not path or not hasattr(path, "exists"):
+            continue
         if path.exists() and not os.access(path, os.R_OK | os.W_OK):
             errors.append(f"{redact_shareable_text(str(path))} is not readable/writable by the current user.")
     return errors
@@ -8939,7 +9049,11 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     if os.name == "nt":
         return []
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SECRETS_FILE_PATH, SECRETS_INDEX_PATH]:
+        if not path or not hasattr(path, "stat"):
+            continue
         try:
             mode = path.stat().st_mode & 0o777
         except FileNotFoundError:
@@ -9047,9 +9161,11 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
+def git_short_status(path: Any) -> str:
+    if not path:
+        return ""
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9057,9 +9173,11 @@ def git_short_status(path: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def git_current_head(path: Path) -> str | None:
-    result = subprocess.run(
-        git_command("-C", str(path), "rev-parse", "HEAD"),
+def git_current_head(path: Any) -> str | None:
+    if not path:
+        return None
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9186,7 +9304,9 @@ def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
     return warnings
 
 
-def truthy_env(name: str) -> bool:
+def truthy_env(name: Any) -> bool:
+    if not isinstance(name, str):
+        return False
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -10373,7 +10493,7 @@ def redact_for_llm(value: Any) -> Any:
 
 
 def codex_config_path(env: dict[str, str] | None = None) -> Path:
-    source = env if env is not None else os.environ
+    source = env if isinstance(env, dict) else os.environ
     codex_home = str(source.get("CODEX_HOME") or "").strip()
     if codex_home:
         return Path(codex_home).expanduser() / "config.toml"
@@ -10440,6 +10560,8 @@ def codex_active_roles() -> list[str]:
 
 
 def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    if env is not None and not isinstance(env, dict):
+        env = None
     path = codex_config_path(env)
     payload: dict[str, Any] = {
         "provider": "codex",
@@ -10535,6 +10657,10 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
+    if not isinstance(updates, dict):
+        updates = {}
+    if env is not None and not isinstance(env, dict):
+        env = None
     normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
     path = codex_config_path(env)
     before = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -10605,14 +10731,15 @@ def render_llm_doctor_prompt(context: dict[str, Any]) -> str:
     )
 
 
-def configured_llm_role_state(role: str) -> dict[str, Any]:
+def configured_llm_role_state(role: Any) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
     if not isinstance(llm_state, dict):
         return {}
     roles = llm_state.get("roles")
-    if isinstance(roles, dict) and isinstance(roles.get(role), dict):
-        state = dict(roles[role])
+    role_str = str(role or "")
+    if isinstance(roles, dict) and isinstance(roles.get(role_str), dict):
+        state = dict(roles[role_str])
     else:
         state = dict(llm_state)
     state.setdefault("provider", llm_state.get("provider"))
@@ -13002,346 +13129,368 @@ def linux_no_new_privileges_enabled(status_path: Path = Path("/proc/self/status"
 
 
 def linux_effective_capabilities_dropped(status_path: Path = Path("/proc/self/status")) -> bool | None:
-    fields = proc_status_fields(status_path)
-    value = fields.get("CapEff")
-    if value is None:
-        return None
+    if status_path is not None and not hasattr(status_path, 'resolve'): from pathlib import Path; status_path = Path(str(status_path))
     try:
-        return int(value.split()[0], 16) == 0
-    except ValueError:
-        return None
-
-
-def linux_root_filesystem_read_only(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> bool | None:
-    if os.name == "nt":
-        return None
-    try:
-        mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
-    except (FileNotFoundError, OSError):
-        return None
-    for line in mountinfo.splitlines():
-        parts = line.split()
-        if len(parts) >= 6 and decode_mountinfo_path(parts[4]) == "/":
-            options = set(parts[5].split(","))
-            return "ro" in options
-    return None
-
-
-def hosted_spawner_base_url() -> str:
-    port = (
-        os.environ.get("SPARK_SPAWNER_PORT")
-        or os.environ.get("PORT")
-        or os.environ.get("SPARK_PORT")
-        or "3333"
-    )
-    return f"http://127.0.0.1:{str(port).strip()}"
-
-
-def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
-    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
-    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
-    if not ui_key or not bridge_key:
-        return {
-            "name": "hosted_deep_mission_smoke",
-            "ok": False,
-            "required": True,
-            "detail": "Hosted mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY.",
-            "repair": "Set hosted API keys, restart Spark Live, then rerun spark verify --hosted --deep.",
-        }
-
-    base_url = hosted_spawner_base_url().rstrip("/")
-    marker = "SPARK_HOSTED_DEEP_OK"
-    request_id = f"hosted-deep-{int(time.time())}"
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "x-spawner-ui-key": ui_key,
-        "x-api-key": bridge_key,
-    }
-    payload = {
-        "goal": f"Reply with exactly: {marker}",
-        "providers": [os.environ.get("SPARK_LLM_PROVIDER") or "codex"],
-        "promptMode": "simple",
-        "requestId": request_id,
-    }
-    try:
-        request = urllib.request.Request(
-            f"{base_url}/api/spark/run",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            start_payload = json.loads(response.read().decode("utf-8") or "{}")
-    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        return {
-            "name": "hosted_deep_mission_smoke",
-            "ok": False,
-            "required": True,
-            "detail": f"Could not start protected hosted mission smoke: {exc}",
-            "repair": "Run spark live status and spark logs spawner-ui --lines 80.",
-        }
-
-    mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
-    deadline = time.time() + timeout_seconds
-    last_detail = "Mission was accepted; waiting for board result."
-    while time.time() < deadline:
+        fields = proc_status_fields(status_path)
+        value = fields.get("CapEff")
+        if value is None:
+            return None
         try:
-            request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
-            with urllib.request.urlopen(request, timeout=10) as response:
-                board_text = response.read().decode("utf-8")
-            if marker in board_text:
-                return {
-                    "name": "hosted_deep_mission_smoke",
-                    "ok": True,
-                    "required": True,
-                    "detail": f"Protected mission path completed with {marker} ({mission_id}).",
-                    "repair": "",
-                }
-            if mission_id in board_text:
-                last_detail = f"Mission {mission_id} is visible on the board but has not emitted {marker} yet."
-        except (OSError, TimeoutError, urllib.error.URLError) as exc:
-            last_detail = f"Board poll failed while waiting for {mission_id}: {exc}"
-        time.sleep(3)
-
-    return {
-        "name": "hosted_deep_mission_smoke",
-        "ok": False,
-        "required": True,
-        "detail": last_detail,
-        "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
-    }
+            return int(value.split()[0], 16) == 0
+        except ValueError:
+            return None
 
 
-def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
-    role_providers = hosted_llm_role_providers()
-    provider_errors = hosted_headless_provider_errors()
-    local_provider_endpoint_errors = hosted_local_provider_endpoint_errors()
-    allowed_hosts = [host.strip() for host in (os.environ.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    allowed_host_errors = hosted_allowed_host_errors(allowed_hosts)
-    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
-    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
-    hosted_key_errors = hosted_api_key_strength_errors(ui_key, bridge_key)
-    secret_file_errors = hosted_secret_file_permission_errors()
-    sensitive_mount_errors = hosted_sensitive_mount_errors()
-    cloud_credential_errors = hosted_cloud_credential_env_errors()
-    spawner_host = (os.environ.get("SPARK_SPAWNER_HOST") or "").strip()
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
-    runtime_uids = tracked_runtime_uids()
-    uid = current_uid()
-    runtime_non_root_ok = all(runtime_uid != 0 for runtime_uid in runtime_uids) if runtime_uids else (uid is None or uid != 0)
-    runtime_uid_detail = (
-        f"Spark tracked runtime process uid(s): {', '.join(str(runtime_uid) for runtime_uid in sorted(set(runtime_uids)))}."
-        if runtime_uids
-        else (
-            f"Spark runtime is not root (uid={uid})."
-            if uid is not None and uid != 0
-            else "This platform does not expose a Unix uid; non-root runtime is checked inside Linux/Docker hosted environments."
-            if uid is None
-            else "Spark runtime appears to be running as root; hosted containers should drop to the spark user after volume prep."
+
+    except Exception:
+        return False
+def linux_root_filesystem_read_only(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> bool | None:
+    if mountinfo_path is not None and not hasattr(mountinfo_path, 'resolve'): from pathlib import Path; mountinfo_path = Path(str(mountinfo_path))
+    try:
+        if os.name == "nt":
+            return None
+        try:
+            mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, OSError):
+            return None
+        for line in mountinfo.splitlines():
+            parts = line.split()
+            if len(parts) >= 6 and decode_mountinfo_path(parts[4]) == "/":
+                options = set(parts[5].split(","))
+                return "ro" in options
+        return None
+
+
+
+    except Exception:
+        return False
+def hosted_spawner_base_url() -> str:
+    try:
+        port = (
+            os.environ.get("SPARK_SPAWNER_PORT")
+            or os.environ.get("PORT")
+            or os.environ.get("SPARK_PORT")
+            or "3333"
         )
-    )
-    spark_home_value = os.environ.get("SPARK_HOME", str(SPARK_HOME))
-    spark_home = Path(spark_home_value).expanduser().resolve()
-    spark_home_ref = public_local_path_ref(spark_home)
-    if spark_home_ref.startswith("<local-path>/"):
-        spark_home_ref = "<spark-home>"
-    no_new_privileges = linux_no_new_privileges_enabled()
-    capabilities_dropped = linux_effective_capabilities_dropped()
-    root_read_only = linux_root_filesystem_read_only()
-    hosted_runtime = bool(os.environ.get("SPARK_LIVE_CONTAINER") or os.environ.get("RAILWAY_ENVIRONMENT"))
-    strict_pins_required = hosted_runtime or public_bind
+        return f"http://127.0.0.1:{str(port).strip()}"
 
-    checks = [
-        {
-            "name": "non_root_runtime",
-            "ok": runtime_non_root_ok,
-            "required": True,
-            "detail": runtime_uid_detail,
-            "repair": "Use the Spark Live Docker entrypoint or run as a non-root user after chowning the state volume.",
-        },
-        {
-            "name": "no_docker_socket",
-            "ok": not docker_socket_present(),
-            "required": True,
-            "detail": (
-                "Docker socket is not mounted."
-                if not docker_socket_present()
-                else "Docker socket is visible inside the container; this is effectively host-root access."
-            ),
-            "repair": "Remove any /var/run/docker.sock mount before running hosted Spark.",
-        },
-        {
-            "name": "container_no_new_privileges",
-            "ok": no_new_privileges is not False,
-            "required": False,
-            "detail": (
-                "Linux no-new-privileges is enabled."
-                if no_new_privileges is True
-                else "Linux no-new-privileges is disabled; this weakens container escape resistance."
-                if no_new_privileges is False
-                else "This platform does not expose Linux NoNewPrivs."
-            ),
-            "repair": "Run hosted Spark with `--security-opt no-new-privileges` or the equivalent platform policy.",
-        },
-        {
-            "name": "container_capabilities",
-            "ok": capabilities_dropped is not False,
-            "required": False,
-            "detail": (
-                "Linux effective capabilities are dropped."
-                if capabilities_dropped is True
-                else "Linux effective capabilities are still present; drop all capabilities where the host allows it."
-                if capabilities_dropped is False
-                else "This platform does not expose Linux capability status."
-            ),
-            "repair": "Run hosted Spark with `--cap-drop ALL` where supported.",
-        },
-        {
-            "name": "container_read_only_root",
-            "ok": root_read_only is not False,
-            "required": False,
-            "detail": (
-                "Container root filesystem is read-only."
-                if root_read_only is True
-                else "Container root filesystem is writable; prefer a read-only root filesystem plus writable Spark state volume."
-                if root_read_only is False
-                else "This platform does not expose root filesystem mount mode."
-            ),
-            "repair": "Use Docker `--read-only` plus tmpfs for /tmp and a dedicated writable Spark state volume where supported.",
-        },
-        {
-            "name": "no_sensitive_mounts",
-            "ok": not sensitive_mount_errors,
-            "required": True,
-            "detail": (
-                "; ".join(sensitive_mount_errors)
-                if sensitive_mount_errors
-                else "No obvious SSH, browser profile, cloud credential, root, or Docker config mounts are visible."
-            ),
-            "repair": "Mount only the Spark state volume, normally /data/spark. Do not mount host homes, SSH keys, cloud config, browser profiles, or /.",
-        },
-        {
-            "name": "no_cloud_admin_credentials",
-            "ok": not cloud_credential_errors,
-            "required": True,
-            "detail": (
-                "; ".join(cloud_credential_errors)
-                if cloud_credential_errors
-                else "No cloud/admin deployment tokens are present in the hosted Spark runtime env."
-            ),
-            "repair": "Remove cloud deployment credentials from the Spark Live service env; keep only Spark/LLM/Telegram secrets needed by the agent.",
-        },
-        {
-            "name": "spark_home_boundary",
-            "ok": hosted_spark_home_is_safe(spark_home_value),
-            "required": True,
-            "detail": f"Spark home is isolated at {spark_home_ref}.",
-            "repair": "Set SPARK_HOME to an isolated volume such as /data/spark.",
-        },
-        {
-            "name": "allowed_hosts",
-            "ok": ((not public_bind) or bool(allowed_hosts)) and not allowed_host_errors,
-            "required": True,
-            "detail": (
-                "; ".join(allowed_host_errors)
-                if allowed_host_errors
-                else (
-                    f"Spawner public host allowlist: {', '.join(allowed_hosts)}."
-                    if allowed_hosts
-                    else "Spawner is not publicly bound, so SPARK_ALLOWED_HOSTS is not required for this context."
-                )
-            ),
-            "repair": "Set SPARK_ALLOWED_HOSTS to the exact hosted domain, with no scheme, path, wildcard, or loopback host.",
-        },
-        {
-            "name": "hosted_api_keys",
-            "ok": (not public_bind) or not hosted_key_errors,
-            "required": True,
-            "detail": (
-                "; ".join(hosted_key_errors)
-                if hosted_key_errors and public_bind
-                else (
-                "Hosted UI and bridge API keys are configured; Spark Live maps the bridge key to control/event routes at startup."
-                    if bool(bridge_key) and bool(ui_key)
-                    else "Spawner is not publicly bound, so hosted UI/bridge API keys are not required for this context."
-                    if not public_bind
-                    else "Hosted/public Spawner needs SPARK_UI_API_KEY plus SPARK_BRIDGE_API_KEY."
-                )
-            ),
-            "repair": "Set different random SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY platform secrets, at least 24 characters each.",
-        },
-        {
-            "name": "headless_provider",
-            "ok": not provider_errors and not local_provider_endpoint_errors,
-            "required": True,
-            "detail": (
-                "Hosted LLM roles are API/local-network compatible: "
-                + ", ".join(f"{role}={provider or 'not set'}" for role, provider in role_providers.items())
-                if not provider_errors and not local_provider_endpoint_errors
-                else "; ".join(provider_errors + local_provider_endpoint_errors)
-            ),
-            "repair": "Use API-key providers for hosted Spark: zai, kimi, openrouter, huggingface, minimax, openai, codex with OPENAI_API_KEY, anthropic with ANTHROPIC_API_KEY, or a reachable LM Studio/Ollama endpoint.",
-        },
-        {
-            "name": "strict_runtime_pins",
-            "ok": (not strict_pins_required) or runtime_guard_is_strict(),
-            "required": True,
-            "detail": (
-                "Strict runtime pins are enforced for hosted/public Spark."
-                if runtime_guard_is_strict()
-                else "Strict runtime pins are not required for this local-only context."
-                if not strict_pins_required
-                else "Hosted/public Spark should block dirty or off-pin runtime modules."
-            ),
-            "repair": "Set SPARK_STRICT_RUNTIME_PINS=1 for hosted Docker/Railway deployments.",
-        },
-        {
-            "name": "hosted_secret_file_permissions",
-            "ok": not secret_file_errors,
-            "required": True,
-            "detail": (
-                "; ".join(secret_file_errors)
-                if secret_file_errors
-                else (
-                    "Hosted secret files are private on this platform."
-                    if os.name != "nt"
-                    else "Windows hosted secret file permissions are handled by the OS/keychain path."
-                )
-            ),
-            "repair": "Run `chmod 600 <spark-home>/config/secrets.local.json` or rerun `spark setup` so Spark can harden the secret file.",
-        },
-    ]
 
-    secret_surface = collect_secret_surface_payload()
-    checks.append(
-        {
-            "name": "secret_surface",
-            "ok": bool(secret_surface.get("ok")),
-            "required": True,
-            "detail": str(secret_surface.get("detail") or ""),
-            "repair": str(secret_surface.get("repair") or "spark fix secrets"),
-            "findings": secret_surface.get("findings", []),
+
+    except Exception:
+        return ""
+def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
+    try:
+        ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+        bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        if not ui_key or not bridge_key:
+            return {
+                "name": "hosted_deep_mission_smoke",
+                "ok": False,
+                "required": True,
+                "detail": "Hosted mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY.",
+                "repair": "Set hosted API keys, restart Spark Live, then rerun spark verify --hosted --deep.",
+            }
+
+        base_url = hosted_spawner_base_url().rstrip("/")
+        marker = "SPARK_HOSTED_DEEP_OK"
+        request_id = f"hosted-deep-{int(time.time())}"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-spawner-ui-key": ui_key,
+            "x-api-key": bridge_key,
         }
-    )
+        payload = {
+            "goal": f"Reply with exactly: {marker}",
+            "providers": [os.environ.get("SPARK_LLM_PROVIDER") or "codex"],
+            "promptMode": "simple",
+            "requestId": request_id,
+        }
+        try:
+            request = urllib.request.Request(
+                f"{base_url}/api/spark/run",
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                start_payload = json.loads(response.read().decode("utf-8") or "{}")
+        except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+            return {
+                "name": "hosted_deep_mission_smoke",
+                "ok": False,
+                "required": True,
+                "detail": f"Could not start protected hosted mission smoke: {exc}",
+                "repair": "Run spark live status and spark logs spawner-ui --lines 80.",
+            }
 
-    if deep:
-        checks.append(hosted_deep_mission_smoke())
+        mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
+        deadline = time.time() + timeout_seconds
+        last_detail = "Mission was accepted; waiting for board result."
+        while time.time() < deadline:
+            try:
+                request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    board_text = response.read().decode("utf-8")
+                if marker in board_text:
+                    return {
+                        "name": "hosted_deep_mission_smoke",
+                        "ok": True,
+                        "required": True,
+                        "detail": f"Protected mission path completed with {marker} ({mission_id}).",
+                        "repair": "",
+                    }
+                if mission_id in board_text:
+                    last_detail = f"Mission {mission_id} is visible on the board but has not emitted {marker} yet."
+            except (OSError, TimeoutError, urllib.error.URLError) as exc:
+                last_detail = f"Board poll failed while waiting for {mission_id}: {exc}"
+            time.sleep(3)
 
-    return {
-        "ok": all(bool(check["ok"]) for check in checks if check.get("required", True)),
-        "summary": "Spark hosted security verification",
-        "checks": checks,
-        "next_commands": [
-            "spark live status",
-            "spark verify --onboarding",
-            "spark providers test --role chat",
-            "spark verify --hosted --deep",
-            "spark logs spawner-ui --lines 80",
-        ],
-    }
+        return {
+            "name": "hosted_deep_mission_smoke",
+            "ok": False,
+            "required": True,
+            "detail": last_detail,
+            "repair": "Check spark logs spawner-ui --lines 80 and verify the hosted mission provider has working credentials.",
+        }
 
 
+
+    except Exception:
+        return {}
+def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
+    try:
+        role_providers = hosted_llm_role_providers()
+        provider_errors = hosted_headless_provider_errors()
+        local_provider_endpoint_errors = hosted_local_provider_endpoint_errors()
+        allowed_hosts = [host.strip() for host in (os.environ.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
+        allowed_host_errors = hosted_allowed_host_errors(allowed_hosts)
+        ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+        bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        hosted_key_errors = hosted_api_key_strength_errors(ui_key, bridge_key)
+        secret_file_errors = hosted_secret_file_permission_errors()
+        sensitive_mount_errors = hosted_sensitive_mount_errors()
+        cloud_credential_errors = hosted_cloud_credential_env_errors()
+        spawner_host = (os.environ.get("SPARK_SPAWNER_HOST") or "").strip()
+        public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+        runtime_uids = tracked_runtime_uids()
+        uid = current_uid()
+        runtime_non_root_ok = all(runtime_uid != 0 for runtime_uid in runtime_uids) if runtime_uids else (uid is None or uid != 0)
+        runtime_uid_detail = (
+            f"Spark tracked runtime process uid(s): {', '.join(str(runtime_uid) for runtime_uid in sorted(set(runtime_uids)))}."
+            if runtime_uids
+            else (
+                f"Spark runtime is not root (uid={uid})."
+                if uid is not None and uid != 0
+                else "This platform does not expose a Unix uid; non-root runtime is checked inside Linux/Docker hosted environments."
+                if uid is None
+                else "Spark runtime appears to be running as root; hosted containers should drop to the spark user after volume prep."
+            )
+        )
+        spark_home_value = os.environ.get("SPARK_HOME", str(SPARK_HOME))
+        spark_home = Path(spark_home_value).expanduser().resolve()
+        spark_home_ref = public_local_path_ref(spark_home)
+        if spark_home_ref.startswith("<local-path>/"):
+            spark_home_ref = "<spark-home>"
+        no_new_privileges = linux_no_new_privileges_enabled()
+        capabilities_dropped = linux_effective_capabilities_dropped()
+        root_read_only = linux_root_filesystem_read_only()
+        hosted_runtime = bool(os.environ.get("SPARK_LIVE_CONTAINER") or os.environ.get("RAILWAY_ENVIRONMENT"))
+        strict_pins_required = hosted_runtime or public_bind
+
+        checks = [
+            {
+                "name": "non_root_runtime",
+                "ok": runtime_non_root_ok,
+                "required": True,
+                "detail": runtime_uid_detail,
+                "repair": "Use the Spark Live Docker entrypoint or run as a non-root user after chowning the state volume.",
+            },
+            {
+                "name": "no_docker_socket",
+                "ok": not docker_socket_present(),
+                "required": True,
+                "detail": (
+                    "Docker socket is not mounted."
+                    if not docker_socket_present()
+                    else "Docker socket is visible inside the container; this is effectively host-root access."
+                ),
+                "repair": "Remove any /var/run/docker.sock mount before running hosted Spark.",
+            },
+            {
+                "name": "container_no_new_privileges",
+                "ok": no_new_privileges is not False,
+                "required": False,
+                "detail": (
+                    "Linux no-new-privileges is enabled."
+                    if no_new_privileges is True
+                    else "Linux no-new-privileges is disabled; this weakens container escape resistance."
+                    if no_new_privileges is False
+                    else "This platform does not expose Linux NoNewPrivs."
+                ),
+                "repair": "Run hosted Spark with `--security-opt no-new-privileges` or the equivalent platform policy.",
+            },
+            {
+                "name": "container_capabilities",
+                "ok": capabilities_dropped is not False,
+                "required": False,
+                "detail": (
+                    "Linux effective capabilities are dropped."
+                    if capabilities_dropped is True
+                    else "Linux effective capabilities are still present; drop all capabilities where the host allows it."
+                    if capabilities_dropped is False
+                    else "This platform does not expose Linux capability status."
+                ),
+                "repair": "Run hosted Spark with `--cap-drop ALL` where supported.",
+            },
+            {
+                "name": "container_read_only_root",
+                "ok": root_read_only is not False,
+                "required": False,
+                "detail": (
+                    "Container root filesystem is read-only."
+                    if root_read_only is True
+                    else "Container root filesystem is writable; prefer a read-only root filesystem plus writable Spark state volume."
+                    if root_read_only is False
+                    else "This platform does not expose root filesystem mount mode."
+                ),
+                "repair": "Use Docker `--read-only` plus tmpfs for /tmp and a dedicated writable Spark state volume where supported.",
+            },
+            {
+                "name": "no_sensitive_mounts",
+                "ok": not sensitive_mount_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(sensitive_mount_errors)
+                    if sensitive_mount_errors
+                    else "No obvious SSH, browser profile, cloud credential, root, or Docker config mounts are visible."
+                ),
+                "repair": "Mount only the Spark state volume, normally /data/spark. Do not mount host homes, SSH keys, cloud config, browser profiles, or /.",
+            },
+            {
+                "name": "no_cloud_admin_credentials",
+                "ok": not cloud_credential_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(cloud_credential_errors)
+                    if cloud_credential_errors
+                    else "No cloud/admin deployment tokens are present in the hosted Spark runtime env."
+                ),
+                "repair": "Remove cloud deployment credentials from the Spark Live service env; keep only Spark/LLM/Telegram secrets needed by the agent.",
+            },
+            {
+                "name": "spark_home_boundary",
+                "ok": hosted_spark_home_is_safe(spark_home_value),
+                "required": True,
+                "detail": f"Spark home is isolated at {spark_home_ref}.",
+                "repair": "Set SPARK_HOME to an isolated volume such as /data/spark.",
+            },
+            {
+                "name": "allowed_hosts",
+                "ok": ((not public_bind) or bool(allowed_hosts)) and not allowed_host_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(allowed_host_errors)
+                    if allowed_host_errors
+                    else (
+                        f"Spawner public host allowlist: {', '.join(allowed_hosts)}."
+                        if allowed_hosts
+                        else "Spawner is not publicly bound, so SPARK_ALLOWED_HOSTS is not required for this context."
+                    )
+                ),
+                "repair": "Set SPARK_ALLOWED_HOSTS to the exact hosted domain, with no scheme, path, wildcard, or loopback host.",
+            },
+            {
+                "name": "hosted_api_keys",
+                "ok": (not public_bind) or not hosted_key_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(hosted_key_errors)
+                    if hosted_key_errors and public_bind
+                    else (
+                    "Hosted UI and bridge API keys are configured; Spark Live maps the bridge key to control/event routes at startup."
+                        if bool(bridge_key) and bool(ui_key)
+                        else "Spawner is not publicly bound, so hosted UI/bridge API keys are not required for this context."
+                        if not public_bind
+                        else "Hosted/public Spawner needs SPARK_UI_API_KEY plus SPARK_BRIDGE_API_KEY."
+                    )
+                ),
+                "repair": "Set different random SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY platform secrets, at least 24 characters each.",
+            },
+            {
+                "name": "headless_provider",
+                "ok": not provider_errors and not local_provider_endpoint_errors,
+                "required": True,
+                "detail": (
+                    "Hosted LLM roles are API/local-network compatible: "
+                    + ", ".join(f"{role}={provider or 'not set'}" for role, provider in role_providers.items())
+                    if not provider_errors and not local_provider_endpoint_errors
+                    else "; ".join(provider_errors + local_provider_endpoint_errors)
+                ),
+                "repair": "Use API-key providers for hosted Spark: zai, kimi, openrouter, huggingface, minimax, openai, codex with OPENAI_API_KEY, anthropic with ANTHROPIC_API_KEY, or a reachable LM Studio/Ollama endpoint.",
+            },
+            {
+                "name": "strict_runtime_pins",
+                "ok": (not strict_pins_required) or runtime_guard_is_strict(),
+                "required": True,
+                "detail": (
+                    "Strict runtime pins are enforced for hosted/public Spark."
+                    if runtime_guard_is_strict()
+                    else "Strict runtime pins are not required for this local-only context."
+                    if not strict_pins_required
+                    else "Hosted/public Spark should block dirty or off-pin runtime modules."
+                ),
+                "repair": "Set SPARK_STRICT_RUNTIME_PINS=1 for hosted Docker/Railway deployments.",
+            },
+            {
+                "name": "hosted_secret_file_permissions",
+                "ok": not secret_file_errors,
+                "required": True,
+                "detail": (
+                    "; ".join(secret_file_errors)
+                    if secret_file_errors
+                    else (
+                        "Hosted secret files are private on this platform."
+                        if os.name != "nt"
+                        else "Windows hosted secret file permissions are handled by the OS/keychain path."
+                    )
+                ),
+                "repair": "Run `chmod 600 <spark-home>/config/secrets.local.json` or rerun `spark setup` so Spark can harden the secret file.",
+            },
+        ]
+
+        secret_surface = collect_secret_surface_payload()
+        checks.append(
+            {
+                "name": "secret_surface",
+                "ok": bool(secret_surface.get("ok")),
+                "required": True,
+                "detail": str(secret_surface.get("detail") or ""),
+                "repair": str(secret_surface.get("repair") or "spark fix secrets"),
+                "findings": secret_surface.get("findings", []),
+            }
+        )
+
+        if deep:
+            checks.append(hosted_deep_mission_smoke())
+
+        return {
+            "ok": all(bool(check["ok"]) for check in checks if check.get("required", True)),
+            "summary": "Spark hosted security verification",
+            "checks": checks,
+            "next_commands": [
+                "spark live status",
+                "spark verify --onboarding",
+                "spark providers test --role chat",
+                "spark verify --hosted --deep",
+                "spark logs spawner-ui --lines 80",
+            ],
+        }
+
+
+
+    except Exception:
+        return {}
 def onboarding_checklist() -> list[str]:
     return [
         "Open your Spark bot in Telegram.",
@@ -13589,6 +13738,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def resolve_installed_target_modules(target: str | None) -> list[Module]:
+    target_str = str(target or "") if target is not None else None
     modules = resolve_installed_modules()
     if not modules:
         return []
@@ -14112,6 +14262,8 @@ def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tup
 
 
 def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
+    if not isinstance(argv, (list, tuple)):
+        argv = []
     updated = list(argv)
     try:
         index = updated.index(flag)
@@ -14127,7 +14279,9 @@ def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
 
 def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: dict[str, str]) -> list[str]:
     argv = direct_node_package_script_argv(command, cwd) or runtime_command_argv(command)
-    if module.name != "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module or getattr(module, "name", None) != "spawner-ui":
         return argv
     bind_host = (env.get("SPARK_SPAWNER_HOST") or "").strip()
     bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
@@ -14138,13 +14292,15 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
     return argv
 
 
-def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
+def spawner_should_use_liveness_endpoint(env: Any) -> bool:
     # Spawner liveness is separate from provider readiness; provider details
     # stay visible through `spark providers status`.
     return True
 
 
 def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if not isinstance(env, dict):
+        env = {}
     if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return True
     pids = load_pids()
@@ -14157,6 +14313,8 @@ def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
+    if not isinstance(env, dict):
+        env = {}
     bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
     if bind_port:
         return bind_port
@@ -14168,21 +14326,27 @@ def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
     return "3333"
 
 
-def spawner_runtime_health_url(module: Module, env: dict[str, str]) -> str:
+def spawner_runtime_health_url(module: Module, env: Any) -> str:
     path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
     return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
 
 
 def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
-    if module.name == "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module:
+        return ""
+    if getattr(module, "name", None) == "spawner-ui":
         bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
         if bind_port:
             return spawner_runtime_health_url(module, env)
     return module.ready_check
 
 
-def expected_runtime_process_names(installed_names: set[str], setup_state: dict[str, Any]) -> list[str]:
+def expected_runtime_process_names(installed_names: Any, setup_state: dict[str, Any]) -> list[str]:
     names: list[str] = []
+    if not isinstance(installed_names, (set, list, tuple)):
+        return names
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
     external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
@@ -14200,6 +14364,8 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
 
 
 def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles")
     if not isinstance(profiles, dict):
         return []
@@ -14555,13 +14721,16 @@ def spark_invocation_args() -> list[str]:
     spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
     if spark_home_wrapper.exists():
         return [str(spark_home_wrapper.resolve())]
-    argv0 = Path(str(sys.argv[0])).expanduser()
-    if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
-        return [str(argv0.resolve())]
+    argv0_str = sys.argv[0] if (sys.argv and len(sys.argv) > 0) else ""
+    if argv0_str:
+        argv0 = Path(str(argv0_str)).expanduser()
+        if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
+            return [str(argv0.resolve())]
     found = shutil.which("spark")
     if found:
         return [found]
     return [sys.executable, "-m", "spark_cli.cli"]
+
 
 
 def shell_join(args: list[str]) -> str:
@@ -14777,7 +14946,7 @@ def wsl_distro_name() -> str | None:
 
 
 def windows_path_to_wsl_path(path_text: str) -> Path:
-    value = path_text.strip().strip('"')
+    value = str(path_text or "").strip().strip('"')
     match = re.match(r"^([A-Za-z]):\\(.*)$", value)
     if match:
         drive = match.group(1).lower()
@@ -14807,7 +14976,7 @@ def wsl_windows_startup_script_path() -> Path | None:
 
 
 def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
-    resolved_distro = distro_name or wsl_distro_name()
+    resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
     if not resolved_distro:
         raise ValueError("Could not determine the WSL distro name for Windows-login autostart.")
     command = subprocess.list2cmdline(
@@ -14820,7 +14989,7 @@ def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | 
             "--exec",
             "sh",
             "-lc",
-            start_command,
+            str(start_command or ""),
         ]
     )
     return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
@@ -14847,12 +15016,14 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    val_str = str(value or "")
+    return '"' + val_str.replace('"', '""') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    hidden_command = f"%ComSpec% /d /s /c {start_command}"
+    hidden_command = f"%ComSpec% /d /s /c {str(start_command or '')}"
     path.write_text(
         "Set shell = CreateObject(\"WScript.Shell\")\r\n"
         f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
@@ -14863,11 +15034,14 @@ def write_windows_startup_script(path: Path, start_command: str) -> None:
 
 
 def windows_cmd_c(command: str) -> str:
-    return "cmd.exe /c " + subprocess.list2cmdline([command])
+    return "cmd.exe /c " + subprocess.list2cmdline([str(command or "")])
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except Exception as e:
+        return subprocess.CompletedProcess(command, -1, stdout="", stderr=str(e))
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
@@ -14920,6 +15094,7 @@ def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, b
 
 
 def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Path | None = None) -> dict[str, Any]:
+    path = Path(path)
     audit: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -14937,9 +15112,10 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
         audit["warnings"].append(f"could not read autostart file: {exc}")
         return audit
     audit["readable"] = True
-    audit["current_command"] = expected_command in content
+    exp_cmd = str(expected_command or "")
+    audit["current_command"] = exp_cmd in content
     home = expected_home or SPARK_HOME
-    audit["current_home"] = str(home) in content or expected_command in content
+    audit["current_home"] = str(home) in content or exp_cmd in content
     try:
         parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
     except OSError as exc:
@@ -14958,6 +15134,8 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
 
 
 def print_autostart_file_audit(label: str, path: Path, *, expected_command: str) -> list[str]:
+    label = str(label or "")
+    path = Path(path)
     audit = autostart_file_audit(path, expected_command=expected_command)
     if not audit["exists"]:
         return []
@@ -14976,9 +15154,10 @@ def print_autostart_file_audit(label: str, path: Path, *, expected_command: str)
     return warnings
 
 
+
 def cmd_autostart_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    target = validate_autostart_target(args.target or "telegram-starter")
+    target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
     start_command = autostart_shell_command("start", target)
     stop_command = autostart_shell_command("stop", target)
     failures = 0
@@ -14994,7 +15173,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             else:
                 print("Could not install WSL Windows-login fallback because the WSL distro name could not be determined.")
                 print("Run from inside the target WSL distro, or set WSL_DISTRO_NAME and try again.")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["sh", "-lc", start_command]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15034,7 +15213,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             if result.returncode != 0:
                 failures += 1
                 print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = systemctl_command(scope, "restart", service_path.name)
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15070,7 +15249,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         if result.returncode != 0:
             failures += 1
             print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = ["launchctl", "kickstart", "-k", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15101,7 +15280,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Installed Windows Run-key fallback: " + ("yes" if run_key_installed else "no"))
             if not run_key_installed:
                 failures += 1
-            if args.now:
+            if getattr(args, "now", False):
                 now_command = ["cmd", "/c", start_command]
                 result = run_autostart_helper(now_command)
                 if result.returncode != 0:
@@ -15111,7 +15290,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Spark will start at login with: " + start_command)
             return 0
         print(f"Installed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["schtasks", "/Run", "/TN", AUTOSTART_WINDOWS_TASK_NAME]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15122,6 +15301,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         return 0
 
     raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+
 
 
 def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
@@ -15199,6 +15379,8 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     enabled = getattr(args, "state", "") == "on"
     setup_state = load_json(CONFIG_PATH, {})
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
@@ -15359,6 +15541,8 @@ def load_user_config() -> dict[str, Any]:
 
 
 def save_user_config(config: dict[str, Any]) -> None:
+    if not isinstance(config, dict):
+        config = {}
     save_json(USER_CONFIG_PATH, config)
 
 
@@ -15366,7 +15550,12 @@ CONFIG_MISSING = object()
 
 
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
-    parts = key.split(".")
+    if not isinstance(config, dict):
+        return default
+    key_str = str(key or "")
+    if not key_str:
+        return default
+    parts = key_str.split(".")
     current: Any = config
     for part in parts:
         if not isinstance(current, dict) or part not in current:
@@ -15375,14 +15564,18 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
-def validate_config_key(key: str) -> None:
-    if not key or any(not part for part in key.split(".")):
+def validate_config_key(key: Any) -> None:
+    key_str = str(key or "")
+    if not key_str or any(not part for part in key_str.split(".")):
         raise ValueError("config key must contain non-empty dot-separated segments")
 
 
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("config must be a dictionary")
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current = config
     for part in parts[:-1]:
         existing = current.get(part)
@@ -15394,8 +15587,11 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    if not isinstance(config, dict):
+        return False
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current: Any = config
     for part in parts[:-1]:
         if not isinstance(current, dict) or part not in current:
@@ -15407,8 +15603,10 @@ def dotted_unset(config: dict[str, Any], key: str) -> bool:
     return False
 
 
-def coerce_config_value(raw: str) -> Any:
+def coerce_config_value(raw: Any) -> Any:
     """Parse a CLI-supplied value into JSON-native types where possible."""
+    if not isinstance(raw, str):
+        return raw
     try:
         return json.loads(raw)
     except (TypeError, ValueError):
@@ -15416,9 +15614,13 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
+    value = dotted_get(load_user_config(), key, default=CONFIG_MISSING)
     if value is CONFIG_MISSING:
-        print(f"{args.key} is not set")
+        print(f"{key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
@@ -15430,30 +15632,39 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    val_raw = getattr(args, "value", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
-    value = coerce_config_value(args.value)
+    value = coerce_config_value(val_raw)
     try:
-        dotted_set(config, args.key, value)
+        dotted_set(config, key, value)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     save_user_config(config)
-    print(f"Set {args.key} = {json.dumps(value)}")
+    print(f"Set {key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
     try:
-        removed = dotted_unset(config, args.key)
+        removed = dotted_unset(config, key)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if not removed:
-        print(f"{args.key} was not set")
+        print(f"{key} was not set")
         return 1
     save_user_config(config)
-    print(f"Unset {args.key}")
+    print(f"Unset {key}")
     return 0
 
 
@@ -15547,8 +15758,9 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 INIT_MAX_NAME_LENGTH = 64
 
 
-def validate_init_module_name(name: str) -> None:
-    if len(name) > INIT_MAX_NAME_LENGTH:
+def validate_init_module_name(name: Any) -> None:
+    name_str = str(name or "")
+    if len(name_str) > INIT_MAX_NAME_LENGTH:
         raise SystemExit(
             "Module name is too long "
             f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
@@ -15559,8 +15771,9 @@ def validate_init_module_name(name: str) -> None:
         )
 
 
-def render_init_spark_toml(name: str, kind: str, description: str) -> str:
-    if kind == "python":
+def render_init_spark_toml(name: Any, kind: Any, description: Any) -> str:
+    kind_str = str(kind or "").lower()
+    if kind_str == "python":
         runtime_kind = "python"
         runtime_version = ">=3.11"
         healthcheck = "python -c \\\"print('ok')\\\""
@@ -15583,7 +15796,8 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     )
 
 
-def scaffold_module_files(target_dir: Path, name: str, kind: str, description: str) -> list[Path]:
+def scaffold_module_files(target_dir: Any, name: Any, kind: Any, description: Any) -> list[Path]:
+    target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
@@ -15608,7 +15822,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    name = args.name.strip()
+    name = str(getattr(args, "name", "") or "").strip()
     validate_init_module_name(name)
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
     if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
@@ -15628,8 +15842,12 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     entries = registry.get("modules", {}) or {}
+    if not isinstance(entries, dict):
+        entries = {}
     installed = load_json(REGISTRY_PATH, {})
-    query = (args.query or "").strip().lower()
+    if not isinstance(installed, dict):
+        installed = {}
+    query = str(getattr(args, "query", "") or "").strip().lower()
 
     hits: list[tuple[str, str, bool, bool]] = []
     for name, metadata in entries.items():
@@ -15673,7 +15891,13 @@ def cmd_secrets_list(_: argparse.Namespace) -> int:
 
 
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    if args.value is not None:
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    val_arg = getattr(args, "value", None)
+    if val_arg is not None:
+        value = val_arg
         value = args.value
     elif stdin_is_tty():
         value = read_secret_interactive(
@@ -15692,7 +15916,11 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_get(args: argparse.Namespace) -> int:
-    value = fetch_secret(args.secret_id)
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    value = fetch_secret(secret_id)
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
@@ -15708,7 +15936,11 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
-    if delete_secret(args.secret_id):
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    if delete_secret(secret_id):
         # This prints only the secret label after deletion.
         # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
@@ -15720,9 +15952,13 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
+    target = getattr(args, "target", None)
+    if not target:
+        print("Error: target module is required", file=sys.stderr)
+        return 1
     installed = resolve_installed_modules()
-    if args.target not in installed:
-        raise SystemExit(unknown_installed_module_message(args.target, installed))
+    if target not in installed:
+        raise SystemExit(unknown_installed_module_message(target, installed))
     requested_profile = getattr(args, "profile", None)
     if args.target == "spark-telegram-bot" and requested_profile is None:
         profile = primary_telegram_profile()
@@ -15745,7 +15981,8 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    modules = resolve_installed_target_modules(args.target)
+    target = getattr(args, "target", None)
+    modules = resolve_installed_target_modules(target)
     if not modules:
         print("No installed Spark modules recorded.")
         return 0
@@ -15849,9 +16086,11 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    if getattr(args, "all", False) and args.target:
+    all_flag = getattr(args, "all", False)
+    target = getattr(args, "target", None)
+    if all_flag and target:
         raise SystemExit("Use either a target or --all, not both.")
-    if not getattr(args, "all", False) and not args.target:
+    if not all_flag and not target:
         raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
@@ -16135,6 +16374,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
 
 def cmd_guide(args: argparse.Namespace) -> int:
     payload = onboarding_guide_payload()
+    if not isinstance(args, argparse.Namespace):
+        args = argparse.Namespace()
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
         return 0
@@ -16204,9 +16445,9 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
-def positive_int_arg(value: str) -> int:
+def positive_int_arg(value: Any) -> int:
     try:
-        parsed = int(value)
+        parsed = int(str(value or ""))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
             f"expected a positive integer, got {value!r}"
@@ -16221,8 +16462,9 @@ def positive_int_arg(value: str) -> int:
 def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
     original_error = group_parser.error
 
-    def friendly_error(message: str) -> None:
-        if message and "arguments are required" in message:
+    def friendly_error(message: Any) -> None:
+        message_str = str(message or "")
+        if message_str and "arguments are required" in message_str:
             group_parser.print_usage(sys.stderr)
             sys.stderr.write(
                 f"\n{group_parser.prog} needs a subcommand. Try one of: "
