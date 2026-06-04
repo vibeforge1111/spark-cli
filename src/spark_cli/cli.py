@@ -490,36 +490,54 @@ def validate_registry_definition(registry: dict[str, Any]) -> None:
 
 
 def is_git_source(source: Any) -> bool:
-    value = str(source or "").strip()
-    if not value:
+    try:
+        value = str(source or "").strip()
+        if not value:
+            return False
+        if value.startswith(("http://", "https://", "git://", "ssh://", "git@")):
+            return True
+        if value.endswith(".git"):
+            return True
+        if is_hosted_git_shorthand(value):
+            return True
         return False
-    if value.startswith(("http://", "https://", "git://", "ssh://", "git@")):
-        return True
-    if value.endswith(".git"):
-        return True
-    if is_hosted_git_shorthand(value):
-        return True
-    return False
 
 
+
+    except Exception:
+        return False
 def is_hosted_git_shorthand(value: Any) -> bool:
-    parts = value.strip().split("/")
-    return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
+    try:
+        parts = value.strip().split("/")
+        return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
 
 
+
+    except Exception:
+        return False
 def normalize_git_url(source: str) -> str:
-    value = source.strip()
-    if is_hosted_git_shorthand(value):
-        return f"https://{value}"
-    return value
+    if not isinstance(source, str): source = str(source or '')
+    try:
+        value = source.strip()
+        if is_hosted_git_shorthand(value):
+            return f"https://{value}"
+        return value
 
 
+
+    except Exception:
+        return ""
 def infer_module_name_from_url(url: str) -> str:
-    cleaned = url.strip().removesuffix(".git").rstrip("/")
-    last = cleaned.split("/")[-1]
-    return last or "module"
+    if not isinstance(url, str): url = str(url or '')
+    try:
+        cleaned = url.strip().removesuffix(".git").rstrip("/")
+        last = cleaned.split("/")[-1]
+        return last or "module"
 
 
+
+    except Exception:
+        return ""
 def clone_target_for_module(name: str) -> Path:
     return SPARK_HOME / "modules" / name / "source"
 
@@ -781,14 +799,19 @@ def update_module_source(module: Module) -> tuple[bool, str]:
 
 
 def is_dirty_update_failure(detail: str) -> bool:
-    lowered = str(detail or "").lower()
-    return (
-        "working tree has local changes" in lowered
-        or "commit or stash" in lowered
-        or "local changes would be overwritten" in lowered
-    )
+    if not isinstance(detail, str): detail = str(detail or '')
+    try:
+        lowered = str(detail or "").lower()
+        return (
+            "working tree has local changes" in lowered
+            or "commit or stash" in lowered
+            or "local changes would be overwritten" in lowered
+        )
 
 
+
+    except Exception:
+        return False
 def module_git_status(module: Module) -> tuple[bool, str]:
     result = subprocess.run(
         git_command("-C", str(module.path), "status", "--porcelain"),
