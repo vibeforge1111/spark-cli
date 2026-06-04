@@ -1002,25 +1002,42 @@ def default_home_uses_legacy_keychain() -> bool:
 
 
 def load_secrets_index() -> dict[str, str]:
-    return load_json(SECRETS_INDEX_PATH, {})
+    try:
+        return load_json(SECRETS_INDEX_PATH, {})
 
 
+
+    except Exception:
+        return {}
 def save_secrets_index(index: dict[str, str]) -> None:
-    save_json(SECRETS_INDEX_PATH, index)
+    if not isinstance(index, str): index = str(index or '')
+    try:
+        save_json(SECRETS_INDEX_PATH, index)
 
 
+
+    except Exception:
+        return None
 class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", ctypes.c_ulong), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
 
 
 def _crypt32() -> Any:
-    return ctypes.windll.crypt32
+    try:
+        return ctypes.windll.crypt32
 
 
+
+    except Exception:
+        return None
 def _kernel32() -> Any:
-    return ctypes.windll.kernel32
+    try:
+        return ctypes.windll.kernel32
 
 
+
+    except Exception:
+        return None
 def dpapi_protect(value: str) -> str:
     if os.name != "nt":
         if not allow_insecure_file_secrets():
@@ -1077,10 +1094,14 @@ def dpapi_unprotect(value: str) -> str:
 
 
 def allow_insecure_file_secrets() -> bool:
-    value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
-    return value in {"1", "true", "yes"}
+    try:
+        value = os.environ.get(ALLOW_INSECURE_FILE_SECRETS_ENV, "").strip().lower()
+        return value in {"1", "true", "yes"}
 
 
+
+    except Exception:
+        return False
 def harden_secret_file(path: Path) -> None:
     try:
         os.chmod(path, 0o600)
