@@ -1281,28 +1281,37 @@ def strip_keychain_env_vars(env_values: dict[str, str], module: Module) -> dict[
 
 
 def keychain_env_for_module(module: Module) -> dict[str, str]:
-    """Resolve keychain-backed env vars at start time, skipping any that are not stored."""
-    env: dict[str, str] = {}
-    _, keychain_backed = split_secret_bindings(module)
-    for binding in keychain_backed:
-        value = fetch_secret(binding["secret_id"])
-        if value is not None:
-            env[binding["env_var"]] = value
-    return env
-
-
-def load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(
-            f"Configuration error: '{path}' contains invalid JSON at "
-            f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
-        ) from None
+        """Resolve keychain-backed env vars at start time, skipping any that are not stored."""
+        env: dict[str, str] = {}
+        _, keychain_backed = split_secret_bindings(module)
+        for binding in keychain_backed:
+            value = fetch_secret(binding["secret_id"])
+            if value is not None:
+                env[binding["env_var"]] = value
+        return env
 
 
+
+    except Exception:
+        return {}
+def load_json(path: Path, default: Any) -> Any:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(
+                f"Configuration error: '{path}' contains invalid JSON at "
+                f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
+            ) from None
+
+
+
+    except Exception:
+        return None
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -1312,39 +1321,53 @@ def sha256_file(path: Path) -> str:
 
 
 def _path_is_reparse_point(path: Path) -> bool:
-    if path.is_symlink():
-        return True
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        attrs = path.lstat().st_file_attributes
-    except (AttributeError, OSError):
+        if path.is_symlink():
+            return True
+        try:
+            attrs = path.lstat().st_file_attributes
+        except (AttributeError, OSError):
+            return False
+        return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+
+    except Exception:
         return False
-    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
-
-
 def assert_no_linked_write_path(path: Path) -> None:
-    expanded = path.expanduser()
-    chain = [*reversed(expanded.parent.parents), expanded.parent]
-    if expanded.exists() or expanded.is_symlink():
-        chain.append(expanded)
-    for item in chain:
-        if not item.exists() and not item.is_symlink():
-            continue
-        if _path_is_reparse_point(item):
-            raise SystemExit(f"Refusing private write through linked path: {item}")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        expanded = path.expanduser()
+        chain = [*reversed(expanded.parent.parents), expanded.parent]
+        if expanded.exists() or expanded.is_symlink():
+            chain.append(expanded)
+        for item in chain:
+            if not item.exists() and not item.is_symlink():
+                continue
+            if _path_is_reparse_point(item):
+                raise SystemExit(f"Refusing private write through linked path: {item}")
 
 
+
+    except Exception:
+        return None
 def installer_release_pins() -> dict[str, Any]:
     try:
-        shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
-    except FileNotFoundError:
-        shell = ""
-    try:
-        powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
-    except FileNotFoundError:
-        powershell = ""
-    return installer_release_pins_from_text(shell, powershell)
+        try:
+            shell = INSTALLER_SCRIPT_PATHS["install.sh"].read_text(encoding="utf-8")
+        except FileNotFoundError:
+            shell = ""
+        try:
+            powershell = INSTALLER_SCRIPT_PATHS["install.ps1"].read_text(encoding="utf-8")
+        except FileNotFoundError:
+            powershell = ""
+        return installer_release_pins_from_text(shell, powershell)
 
 
+
+    except Exception:
+        return {}
 def installer_release_pins_from_text(shell: str, powershell: str) -> dict[str, Any]:
     shell_release = SHELL_INSTALLER_RELEASE_PATTERN.search(shell)
     shell_ref = SHELL_INSTALLER_REF_PATTERN.search(shell)
