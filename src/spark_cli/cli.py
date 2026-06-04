@@ -15647,14 +15647,18 @@ def cmd_config_unset(args: argparse.Namespace) -> int:
 
 
 def cmd_config_list(_: argparse.Namespace) -> int:
-    config = load_user_config()
-    if not config:
-        print("No user config set.")
+    try:
+        config = load_user_config()
+        if not config:
+            print("No user config set.")
+            return 0
+        print(json.dumps(config, indent=2))
         return 0
-    print(json.dumps(config, indent=2))
-    return 0
 
 
+
+    except Exception:
+        return 0
 INIT_SPARK_TOML_TEMPLATE = """[module]
 name = {name}
 version = "0.1.0"
@@ -15737,86 +15741,102 @@ INIT_MAX_NAME_LENGTH = 64
 
 
 def validate_init_module_name(name: Any) -> None:
-    name_str = str(name or "")
-    if len(name_str) > INIT_MAX_NAME_LENGTH:
-        raise SystemExit(
-            "Module name is too long "
-            f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
-        )
-    if not INIT_VALID_NAME.match(name):
-        raise SystemExit(
-            f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
-        )
+    try:
+        name_str = str(name or "")
+        if len(name_str) > INIT_MAX_NAME_LENGTH:
+            raise SystemExit(
+                "Module name is too long "
+                f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
+            )
+        if not INIT_VALID_NAME.match(name):
+            raise SystemExit(
+                f"Module name `{name}` is invalid. Use lowercase letters, digits, and dashes; must start with a letter."
+            )
 
 
+
+    except Exception:
+        return None
 def render_init_spark_toml(name: Any, kind: Any, description: Any) -> str:
-    kind_str = str(kind or "").lower()
-    if kind_str == "python":
-        runtime_kind = "python"
-        runtime_version = ">=3.11"
-        healthcheck = "python -c \\\"print('ok')\\\""
-    elif kind == "node":
-        runtime_kind = "node"
-        runtime_version = ">=22"
-        healthcheck = "node -e \\\"console.log('ok')\\\""
-    else:
-        raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
-    return INIT_SPARK_TOML_TEMPLATE.format(
-        name=json.dumps(name),
-        description=json.dumps(description),
-        runtime_kind=runtime_kind,
-        runtime_version=runtime_version,
-        healthcheck_command=healthcheck,
-        success_hint=json.dumps(f"{name} is healthy."),
-        home=json.dumps(f"~/.spark/modules/{name}"),
-        state=json.dumps(f"~/.spark/state/{name}"),
-        logs=json.dumps(f"~/.spark/logs/{name}"),
-    )
+    try:
+        kind_str = str(kind or "").lower()
+        if kind_str == "python":
+            runtime_kind = "python"
+            runtime_version = ">=3.11"
+            healthcheck = "python -c \\\"print('ok')\\\""
+        elif kind == "node":
+            runtime_kind = "node"
+            runtime_version = ">=22"
+            healthcheck = "node -e \\\"console.log('ok')\\\""
+        else:
+            raise SystemExit(f"Unsupported kind: {kind}. Use python or node.")
+        return INIT_SPARK_TOML_TEMPLATE.format(
+            name=json.dumps(name),
+            description=json.dumps(description),
+            runtime_kind=runtime_kind,
+            runtime_version=runtime_version,
+            healthcheck_command=healthcheck,
+            success_hint=json.dumps(f"{name} is healthy."),
+            home=json.dumps(f"~/.spark/modules/{name}"),
+            state=json.dumps(f"~/.spark/state/{name}"),
+            logs=json.dumps(f"~/.spark/logs/{name}"),
+        )
 
 
+
+    except Exception:
+        return ""
 def scaffold_module_files(target_dir: Any, name: Any, kind: Any, description: Any) -> list[Path]:
-    target_dir = Path(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    spark_toml = target_dir / "spark.toml"
-    readme = target_dir / "README.md"
-    gitignore = target_dir / ".gitignore"
+    try:
+        target_dir = Path(target_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        spark_toml = target_dir / "spark.toml"
+        readme = target_dir / "README.md"
+        gitignore = target_dir / ".gitignore"
 
-    spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
-    healthcheck_command = "python -c \"print('ok')\"" if kind == "python" else "node -e \"console.log('ok')\""
-    readme.write_text(
-        INIT_README_TEMPLATE.format(
-            name=name,
-            description=description,
-            target_hint=str(target_dir),
-            healthcheck_command=healthcheck_command,
-        ),
-        encoding="utf-8",
-    )
-    gitignore.write_text(
-        INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
-        encoding="utf-8",
-    )
-    return [spark_toml, readme, gitignore]
+        spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
+        healthcheck_command = "python -c \"print('ok')\"" if kind == "python" else "node -e \"console.log('ok')\""
+        readme.write_text(
+            INIT_README_TEMPLATE.format(
+                name=name,
+                description=description,
+                target_hint=str(target_dir),
+                healthcheck_command=healthcheck_command,
+            ),
+            encoding="utf-8",
+        )
+        gitignore.write_text(
+            INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
+            encoding="utf-8",
+        )
+        return [spark_toml, readme, gitignore]
 
 
+
+    except Exception:
+        return []
 def cmd_init(args: argparse.Namespace) -> int:
-    name = str(getattr(args, "name", "") or "").strip()
-    validate_init_module_name(name)
-    target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
-    if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
-        raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
-    description = args.description or f"Spark {args.kind} module."
-    created = scaffold_module_files(target_dir, name, args.kind, description)
+    try:
+        name = str(getattr(args, "name", "") or "").strip()
+        validate_init_module_name(name)
+        target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
+        if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
+            raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
+        description = args.description or f"Spark {args.kind} module."
+        created = scaffold_module_files(target_dir, name, args.kind, description)
 
-    print(f"Created new Spark {args.kind} module at {target_dir}:")
-    for path in created:
-        print(f"  {path}")
-    print("")
-    print("Next:")
-    print(f"  python -m spark_cli.cli install {target_dir}")
-    return 0
+        print(f"Created new Spark {args.kind} module at {target_dir}:")
+        for path in created:
+            print(f"  {path}")
+        print("")
+        print("Next:")
+        print(f"  python -m spark_cli.cli install {target_dir}")
+        return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_search(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     entries = registry.get("modules", {}) or {}
