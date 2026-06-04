@@ -1463,6 +1463,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_pip_config_credentials(self) -> None:
+        blocked_commands = (
+            ["pip", "config", "get", "global.index-url"],
+            ["pip", "config", "set", "global.index-url", "https://user:pass@example.test/simple"],
+            ["pip", "config", "unset", "global.index-url"],
+            ["pip", "config", "list"],
+            ["python", "-m", "pip", "config", "get", "global.index-url"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve pip config access")
+
+        allowed_commands = (
+            ["pip", "config", "get", "global.timeout"],
+            ["pip", "config", "set", "global.timeout", "30"],
+            ["pip", "index", "versions", "requests"],
+        )
+        for command in allowed_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
