@@ -250,6 +250,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve secret change",
         )
+
+    if first == "git" and second == "credential" and len(lowered) > 2 and lowered[2] in {"approve", "fill", "reject"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical" if lowered[2] == "fill" else "high",
+            "Command can read, store, or remove Git helper-managed credentials.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve git credential access",
+        )
+
     if first == "spark" and lowered[1:3] == ["security", "revoke-all"]:
         if "--dry-run" in lowered:
             return _decision(parts, ctx, "none", "none", "`spark security revoke-all --dry-run` is report-only.")
