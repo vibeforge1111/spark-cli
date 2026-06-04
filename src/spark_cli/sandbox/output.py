@@ -16,6 +16,7 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)\b(?:X-Api-Key|X-Auth-Token|Cookie|Set-Cookie)\s*[:=]\s*([^\r\n;]+)"),
     re.compile(r"(?i)Authorization\s*[:=]\s*Basic\s+([A-Za-z0-9._\-+=/]+)"),
     re.compile(r"(?i)Authorization\s*[:=]\s*Bearer\s+([A-Za-z0-9._\-+=]+)"),
+    re.compile(r"(?i)Authorization\s*[:=]\s*(?:Token|ApiKey|Api-Key|OAuth)\s+([^\r\n;]+)"),
     re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@"),
     re.compile(r"(?i)([?&](?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|sig|signature)=)([^&#\s]+)"),
     re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._\-+=]{18,})\b"),
