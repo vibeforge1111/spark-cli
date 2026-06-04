@@ -3008,59 +3008,84 @@ def run_setup_wizard(
 
 
 def normalize_telegram_profile(profile: str | None) -> str:
-    normalized = (profile or DEFAULT_TELEGRAM_PROFILE).strip().lower()
-    if normalized in {"", DEFAULT_TELEGRAM_PROFILE}:
-        return DEFAULT_TELEGRAM_PROFILE
-    if not TELEGRAM_PROFILE_PATTERN.match(normalized):
-        raise SystemExit(
-            "Invalid Telegram profile name. Use 2-40 lowercase letters, numbers, and dashes; "
-            "start with a letter and end with a letter or number."
-        )
-    return normalized
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = (profile or DEFAULT_TELEGRAM_PROFILE).strip().lower()
+        if normalized in {"", DEFAULT_TELEGRAM_PROFILE}:
+            return DEFAULT_TELEGRAM_PROFILE
+        if not TELEGRAM_PROFILE_PATTERN.match(normalized):
+            raise SystemExit(
+                "Invalid Telegram profile name. Use 2-40 lowercase letters, numbers, and dashes; "
+                "start with a letter and end with a letter or number."
+            )
+        return normalized
 
 
+
+    except Exception:
+        return ""
 def telegram_profile_is_default(profile: str | None) -> bool:
-    return normalize_telegram_profile(profile) == DEFAULT_TELEGRAM_PROFILE
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        return normalize_telegram_profile(profile) == DEFAULT_TELEGRAM_PROFILE
 
 
+
+    except Exception:
+        return False
 def telegram_profile_should_autostart(profile_state: Any) -> bool:
-    return not (isinstance(profile_state, dict) and profile_state.get("autostart") is False)
+    try:
+        return not (isinstance(profile_state, dict) and profile_state.get("autostart") is False)
 
 
+
+    except Exception:
+        return False
 def primary_telegram_profile(setup_state: dict[str, Any] | None = None) -> str:
-    state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
-    if not isinstance(state, dict):
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+        if not isinstance(state, dict):
+            return DEFAULT_PRIMARY_TELEGRAM_PROFILE
+        configured = state.get(PRIMARY_TELEGRAM_PROFILE_KEY)
+        if isinstance(configured, str) and configured.strip():
+            return normalize_telegram_profile(configured)
+        profiles = state.get("telegram_profiles")
+        if isinstance(profiles, dict) and profiles:
+            for profile in sorted(profiles):
+                if isinstance(profiles.get(profile), dict):
+                    return normalize_telegram_profile(str(profile))
         return DEFAULT_PRIMARY_TELEGRAM_PROFILE
-    configured = state.get(PRIMARY_TELEGRAM_PROFILE_KEY)
-    if isinstance(configured, str) and configured.strip():
-        return normalize_telegram_profile(configured)
-    profiles = state.get("telegram_profiles")
-    if isinstance(profiles, dict) and profiles:
-        for profile in sorted(profiles):
-            if isinstance(profiles.get(profile), dict):
-                return normalize_telegram_profile(str(profile))
-    return DEFAULT_PRIMARY_TELEGRAM_PROFILE
 
 
+
+    except Exception:
+        return ""
 def telegram_profile_relay_port(
     setup_state: dict[str, Any] | None,
     profile: str | None,
     default: int = 8788,
 ) -> int:
-    normalized = normalize_telegram_profile(profile)
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if isinstance(profiles, dict):
-        profile_state = profiles.get(normalized)
-        if isinstance(profile_state, dict):
-            try:
-                relay_port = int(profile_state.get("relay_port", 0))
-            except (TypeError, ValueError):
-                relay_port = 0
-            if 0 < relay_port <= 65535:
-                return relay_port
-    return default
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        normalized = normalize_telegram_profile(profile)
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if isinstance(profiles, dict):
+            profile_state = profiles.get(normalized)
+            if isinstance(profile_state, dict):
+                try:
+                    relay_port = int(profile_state.get("relay_port", 0))
+                except (TypeError, ValueError):
+                    relay_port = 0
+                if 0 < relay_port <= 65535:
+                    return relay_port
+        return default
 
 
+
+    except Exception:
+        return 0
 def module_process_key(module_name: str, profile: str | None = None) -> str:
     normalized = normalize_telegram_profile(profile)
     if module_name == "spark-telegram-bot" and normalized != DEFAULT_TELEGRAM_PROFILE:
