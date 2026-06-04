@@ -14994,39 +14994,66 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    val_str = str(value or "")
-    return '"' + val_str.replace('"', '""') + '"'
-
-
-def write_windows_startup_script(path: Path, start_command: str) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    hidden_command = f"%ComSpec% /d /s /c {str(start_command or '')}"
-    path.write_text(
-        "Set shell = CreateObject(\"WScript.Shell\")\r\n"
-        f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
-        f"shell.Environment(\"PROCESS\")(\"SPARK_HOME\") = {vbs_string(str(SPARK_HOME))}\r\n"
-        f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n",
-        encoding="ascii",
-    )
-
-
-def windows_cmd_c(command: str) -> str:
-    return "cmd.exe /c " + subprocess.list2cmdline([str(command or "")])
-
-
-def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
+    if not isinstance(value, str): value = str(value or '')
     try:
-        return subprocess.run(command, check=False, capture_output=True, text=True)
-    except Exception as e:
-        return subprocess.CompletedProcess(command, -1, stdout="", stderr=str(e))
+        val_str = str(value or "")
+        return '"' + val_str.replace('"', '""') + '"'
 
 
+
+    except Exception:
+        return ""
+def write_windows_startup_script(path: Path, start_command: str) -> None:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(start_command, str): start_command = str(start_command or '')
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        hidden_command = f"%ComSpec% /d /s /c {str(start_command or '')}"
+        path.write_text(
+            "Set shell = CreateObject(\"WScript.Shell\")\r\n"
+            f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
+            f"shell.Environment(\"PROCESS\")(\"SPARK_HOME\") = {vbs_string(str(SPARK_HOME))}\r\n"
+            f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n",
+            encoding="ascii",
+        )
+
+
+
+    except Exception:
+        return None
+def windows_cmd_c(command: str) -> str:
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        return "cmd.exe /c " + subprocess.list2cmdline([str(command or "")])
+
+
+
+    except Exception:
+        return ""
+def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        try:
+            return subprocess.run(command, check=False, capture_output=True, text=True)
+        except Exception as e:
+            return subprocess.CompletedProcess(command, -1, stdout="", stderr=str(e))
+
+
+
+    except Exception:
+        return None
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
-    detail = (result.stderr or result.stdout or "").strip()
-    print(f"Autostart helper failed ({shell_join(command)}): {detail or f'exit {result.returncode}'}")
+    if not isinstance(command, str): command = str(command or '')
+    if not isinstance(result, str): result = str(result or '')
+    try:
+        detail = (result.stderr or result.stdout or "").strip()
+        print(f"Autostart helper failed ({shell_join(command)}): {detail or f'exit {result.returncode}'}")
 
 
+
+    except Exception:
+        return None
 def install_windows_fallback_autostart(start_command: str) -> tuple[Path, bool]:
     startup_path = windows_startup_script_path()
     write_windows_startup_script(startup_path, start_command)
