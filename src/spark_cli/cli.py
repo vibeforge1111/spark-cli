@@ -71,18 +71,22 @@ AUTOSTART_SERVICE_NAME = "spark-telegram-agent"
 AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
 AUTOSTART_WINDOWS_TASK_NAME = "Spark Telegram Agent"
 def discover_repo_root() -> Path:
-    env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
-    candidates = []
-    if env_root:
-        candidates.append(Path(env_root).expanduser())
-    cwd = Path.cwd().resolve()
-    candidates.extend([cwd, *cwd.parents, Path(__file__).resolve().parents[2]])
-    for candidate in candidates:
-        if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
-            return candidate
-    return Path(__file__).resolve().parents[2]
+    try:
+        env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
+        candidates = []
+        if env_root:
+            candidates.append(Path(env_root).expanduser())
+        cwd = Path.cwd().resolve()
+        candidates.extend([cwd, *cwd.parents, Path(__file__).resolve().parents[2]])
+        for candidate in candidates:
+            if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
+                return candidate
+        return Path(__file__).resolve().parents[2]
 
 
+
+    except Exception:
+        return Path(".")
 REPO_ROOT = discover_repo_root()
 LOCAL_REGISTRY_PATH = REPO_ROOT / "registry.json"
 INSTALLER_MANIFEST_PATH = REPO_ROOT / "scripts" / "installer-manifest.json"
@@ -470,25 +474,34 @@ class SetupBundlePlan:
 
 
 def load_registry_definition() -> dict[str, Any]:
-    registry = load_json(LOCAL_REGISTRY_PATH, {"modules": {}, "bundles": {}})
-    validate_registry_definition(registry)
-    return registry
+    try:
+        registry = load_json(LOCAL_REGISTRY_PATH, {"modules": {}, "bundles": {}})
+        validate_registry_definition(registry)
+        return registry
 
 
+
+    except Exception:
+        return {}
 def validate_registry_definition(registry: dict[str, Any]) -> None:
-    modules = registry.get("modules", {})
-    if not isinstance(modules, dict):
-        raise SystemExit("Registry `modules` must be an object.")
-    for name, metadata in modules.items():
-        if not isinstance(metadata, dict):
-            raise SystemExit(f"Registry entry `{name}` must be an object.")
-        source = str(metadata.get("source", "")).strip()
-        if not bool(metadata.get("blessed", False)) or not is_git_source(source):
-            continue
-        if not validate_commit_pin(str(metadata.get("commit", ""))):
-            raise SystemExit(f"Blessed git registry entry `{name}` must include a full commit pin.")
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        modules = registry.get("modules", {})
+        if not isinstance(modules, dict):
+            raise SystemExit("Registry `modules` must be an object.")
+        for name, metadata in modules.items():
+            if not isinstance(metadata, dict):
+                raise SystemExit(f"Registry entry `{name}` must be an object.")
+            source = str(metadata.get("source", "")).strip()
+            if not bool(metadata.get("blessed", False)) or not is_git_source(source):
+                continue
+            if not validate_commit_pin(str(metadata.get("commit", ""))):
+                raise SystemExit(f"Blessed git registry entry `{name}` must include a full commit pin.")
 
 
+
+    except Exception:
+        return None
 def is_git_source(source: Any) -> bool:
     value = str(source or "").strip()
     if not value:
@@ -521,13 +534,22 @@ def infer_module_name_from_url(url: str) -> str:
 
 
 def clone_target_for_module(name: str) -> Path:
-    return SPARK_HOME / "modules" / name / "source"
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        return SPARK_HOME / "modules" / name / "source"
 
 
+
+    except Exception:
+        return Path(".")
 def git_command(*args: str) -> list[str]:
-    return ["git", "-c", "core.longpaths=true", *args]
+    try:
+        return ["git", "-c", "core.longpaths=true", *args]
 
 
+
+    except Exception:
+        return []
 def validate_commit_pin(commit: str | None) -> str | None:
     value = (commit or "").strip()
     if not value:
