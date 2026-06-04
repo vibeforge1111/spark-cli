@@ -64,6 +64,14 @@ def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
+def _git_ref_deletion_requested(lowered: list[str], second: str) -> bool:
+    if second == "branch":
+        return _contains_any(lowered[2:], {"-d", "--delete"})
+    if second == "tag":
+        return _contains_any(lowered[2:], {"-d", "--delete"})
+    return False
+
+
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
         if part.lower() in command_names and index + 1 < len(parts):
@@ -219,6 +227,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "--force-with-lease" in lowered
         or "-f" in lowered and second in {"push", "tag"}
         or second in {"rebase", "reset"}
+        or _git_ref_deletion_requested(lowered, second)
     ):
         return _decision(
             parts,
