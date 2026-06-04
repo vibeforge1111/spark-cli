@@ -4950,6 +4950,45 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("could not start git", message)
         self.assertIn("PATH", message)
 
+    def test_run_git_or_exit_reports_timeout_without_traceback(self) -> None:
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["git", "status"], 60),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                run_git_or_exit("domain-chip-memory", ["status"])
+
+        message = str(error.exception)
+        self.assertIn("git operation timed out for domain-chip-memory", message)
+        self.assertIn("timed out", message)
+        self.assertIn("Check network connectivity", message)
+
+    def test_pull_module_source_reports_timeout(self) -> None:
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["git", "pull"], 60),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                ok, detail = pull_module_source(Path(tmp))
+
+        self.assertFalse(ok)
+        self.assertIn("timed out", detail.lower())
+
+    def test_update_module_source_reports_timeout_during_fetch(self) -> None:
+        module = Module(
+            name="domain-chip-memory",
+            path=Path("/tmp/fake"),
+            manifest={"module": {"name": "domain-chip-memory", "source": "https://example.com/repo.git", "commit": "abc123"}},
+        )
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["git", "fetch"], 60),
+        ):
+            ok, detail = update_module_source(module)
+
+        self.assertFalse(ok)
+        self.assertIn("timed out", detail.lower())
+
     def test_resolve_remote_git_ref_reports_missing_git_without_traceback(self) -> None:
         with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
             with self.assertRaises(RuntimeError) as error:
