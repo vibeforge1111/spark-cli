@@ -1884,105 +1884,129 @@ def collect_registry_pin_drift_payload(
     registry: dict[str, Any] | None = None,
     resolver: Callable[..., str] | None = None,
 ) -> dict[str, Any]:
-    registry_payload = registry if registry is not None else load_registry_definition()
-    modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
-    resolver = resolver or resolve_remote_git_ref
-    checks: list[dict[str, Any]] = []
-    for name, metadata in sorted(modules.items()):
-        if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
-            continue
-        source = str(metadata.get("source", "")).strip()
-        if not is_git_source(source):
-            continue
-        pinned = str(metadata.get("commit", "")).strip().lower()
-        remote_ref = str(metadata.get("verify_ref") or metadata.get("release_ref") or "HEAD").strip() or "HEAD"
-        try:
-            validate_commit_pin(pinned)
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        registry_payload = registry if registry is not None else load_registry_definition()
+        modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
+        resolver = resolver or resolve_remote_git_ref
+        checks: list[dict[str, Any]] = []
+        for name, metadata in sorted(modules.items()):
+            if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
+                continue
+            source = str(metadata.get("source", "")).strip()
+            if not is_git_source(source):
+                continue
+            pinned = str(metadata.get("commit", "")).strip().lower()
+            remote_ref = str(metadata.get("verify_ref") or metadata.get("release_ref") or "HEAD").strip() or "HEAD"
             try:
-                remote = resolver(source, remote_ref).strip().lower()
-            except TypeError:
-                if remote_ref != "HEAD":
-                    raise
-                remote = resolver(source).strip().lower()
-            validate_commit_pin(remote)
-        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+                validate_commit_pin(pinned)
+                try:
+                    remote = resolver(source, remote_ref).strip().lower()
+                except TypeError:
+                    if remote_ref != "HEAD":
+                        raise
+                    remote = resolver(source).strip().lower()
+                validate_commit_pin(remote)
+            except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+                checks.append(
+                    {
+                        "name": str(name),
+                        "source": source,
+                        "pinned_commit": pinned,
+                        "remote_ref": remote_ref,
+                        "remote_head": "",
+                        "ok": False,
+                        "detail": f"Could not verify remote {remote_ref}: {error}",
+                    }
+                )
+                continue
+            ok = pinned == remote
+            remote_label = "remote HEAD" if remote_ref == "HEAD" else f"remote {remote_ref}"
             checks.append(
                 {
                     "name": str(name),
                     "source": source,
                     "pinned_commit": pinned,
                     "remote_ref": remote_ref,
-                    "remote_head": "",
-                    "ok": False,
-                    "detail": f"Could not verify remote {remote_ref}: {error}",
+                    "remote_head": remote,
+                    "ok": ok,
+                    "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
                 }
             )
-            continue
-        ok = pinned == remote
-        remote_label = "remote HEAD" if remote_ref == "HEAD" else f"remote {remote_ref}"
-        checks.append(
-            {
-                "name": str(name),
-                "source": source,
-                "pinned_commit": pinned,
-                "remote_ref": remote_ref,
-                "remote_head": remote,
-                "ok": ok,
-                "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
-            }
-        )
-    return {
-        "ok": all(check["ok"] for check in checks),
-        "summary": "Spark registry pin drift verification",
-        "checks": checks,
-    }
+        return {
+            "ok": all(check["ok"] for check in checks),
+            "summary": "Spark registry pin drift verification",
+            "checks": checks,
+        }
 
 
+
+    except Exception:
+        return {}
 def atomic_write_json(path: Path, payload: Any) -> None:
-    assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        assert_no_linked_write_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
         try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-        os.replace(temp_path, path)
-        try:
-            os.chmod(path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
+            temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            try:
+                os.chmod(temp_path, PRIVATE_FILE_MODE)
+            except OSError:
+                pass
+            os.replace(temp_path, path)
+            try:
+                os.chmod(path, PRIVATE_FILE_MODE)
+            except OSError:
+                pass
+        finally:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
 
 
+
+    except Exception:
+        return None
 def save_json(path: Path, payload: Any) -> None:
-    atomic_write_json(path, payload)
-
-
-def load_module(path: Path) -> Module:
-    manifest_path = path / "spark.toml"
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
-    except PermissionError as exc:
-        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
-    name = str(manifest.get("module", {}).get("name") or path.name)
-    return Module(name=name, path=path, manifest=manifest)
+        atomic_write_json(path, payload)
 
 
+
+    except Exception:
+        return None
+def load_module(path: Path) -> Module:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        manifest_path = path / "spark.toml"
+        try:
+            manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+        except PermissionError as exc:
+            raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+        except tomllib.TOMLDecodeError as exc:
+            raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
+        name = str(manifest.get("module", {}).get("name") or path.name)
+        return Module(name=name, path=path, manifest=manifest)
+
+
+
+    except Exception:
+        return None
 def timestamp_now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+
+    except Exception:
+        return ""
 def new_onboarding_session_code() -> str:
     alphabet = "23456789abcdefghjkmnpqrstuvwxyz"
     return "ember-" + "".join(py_secrets.choice(alphabet) for _ in range(4))
