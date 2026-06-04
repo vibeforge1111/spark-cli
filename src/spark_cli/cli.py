@@ -4440,23 +4440,29 @@ def resolve_bundle_names(bundle_name: str) -> list[str]:
 
 
 def expand_targets(target: str | None, modules: dict[str, Module], include_all: bool = False) -> list[str]:
-    if not isinstance(modules, dict):
-        modules = {}
-    if target is None:
-        return list(modules.keys()) if include_all else []
-    registry = load_registry_definition()
-    if not isinstance(registry, dict):
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        if not isinstance(modules, dict):
+            modules = {}
+        if target is None:
+            return list(modules.keys()) if include_all else []
+        registry = load_registry_definition()
+        if not isinstance(registry, dict):
+            return [target]
+        bundles = registry.get("bundles", {})
+        if not isinstance(bundles, dict):
+            return [target]
+        if target in bundles:
+            target_bundle = bundles[target]
+            if isinstance(target_bundle, dict):
+                return list(target_bundle.get("modules", []))
         return [target]
-    bundles = registry.get("bundles", {})
-    if not isinstance(bundles, dict):
-        return [target]
-    if target in bundles:
-        target_bundle = bundles[target]
-        if isinstance(target_bundle, dict):
-            return list(target_bundle.get("modules", []))
-    return [target]
 
 
+
+    except Exception:
+        return []
 def detect_ingress_owner(bundle: list[Module]) -> Module:
     if not isinstance(bundle, (list, tuple, set)):
         raise SystemExit("Bundle is empty or invalid structure.")
@@ -4470,13 +4476,23 @@ def detect_ingress_owner(bundle: list[Module]) -> Module:
 
 
 def needs_capabilities(module: Module) -> list[str]:
-    return [str(item) for item in module.manifest.get("needs", {}).get("capabilities", [])]
+    try:
+        return [str(item) for item in module.manifest.get("needs", {}).get("capabilities", [])]
 
 
+
+    except Exception:
+        return []
 def capability_providers(capability: str, modules: dict[str, Module]) -> list[str]:
-    return sorted(name for name, module in modules.items() if capability in module.capabilities)
+    if not isinstance(capability, str): capability = str(capability or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        return sorted(name for name, module in modules.items() if capability in module.capabilities)
 
 
+
+    except Exception:
+        return []
 def validate_capability_needs_for_install(
     candidates: list[Module],
     installed_modules: dict[str, Module],
@@ -4550,13 +4566,17 @@ def detect_capability_conflicts(candidate_modules: list[Module], installed_modul
 
 
 def module_env_path(module: Module) -> Path | None:
-    config = module.manifest.get("config", {})
-    output = config.get("output")
-    if not output:
-        return None
-    return module.path / str(output)
+    try:
+        config = module.manifest.get("config", {})
+        output = config.get("output")
+        if not output:
+            return None
+        return module.path / str(output)
 
 
+
+    except Exception:
+        return Path(".")
 def update_env_file(path: Path, values: dict[str, str]) -> None:
     assert_no_linked_write_path(path)
     require_write_allowed(path, safe_root=spark_write_safe_root(), subject="module env write")
@@ -4637,38 +4657,44 @@ def cmd_list(_: argparse.Namespace) -> int:
 
 
 def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
-    if target in modules:
-        return modules[target]
-    registry = load_registry_definition()
-    registry_metadata = registry.get("modules", {}).get(target)
-    if registry_metadata:
-        source = str(registry_metadata.get("source", ""))
-        if is_git_source(source):
-            clone_path = clone_module_source(
-                target,
-                source,
-                commit=str(registry_metadata.get("commit", "")),
-                require_signed_commit=bool(registry_metadata.get("require_signed_commit", False)),
-            )
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        if target in modules:
+            return modules[target]
+        registry = load_registry_definition()
+        registry_metadata = registry.get("modules", {}).get(target)
+        if registry_metadata:
+            source = str(registry_metadata.get("source", ""))
+            if is_git_source(source):
+                clone_path = clone_module_source(
+                    target,
+                    source,
+                    commit=str(registry_metadata.get("commit", "")),
+                    require_signed_commit=bool(registry_metadata.get("require_signed_commit", False)),
+                )
+                return load_module(clone_path)
+            if source and Path(source).exists():
+                manifest_path = Path(source) / "spark.toml"
+                if manifest_path.exists():
+                    return load_module(Path(source))
+                raise SystemExit(f"Registry entry {target} points at {source} but no spark.toml is there.")
+        if is_git_source(target):
+            name = infer_module_name_from_url(target)
+            clone_path = clone_module_source(name, target)
             return load_module(clone_path)
-        if source and Path(source).exists():
-            manifest_path = Path(source) / "spark.toml"
-            if manifest_path.exists():
-                return load_module(Path(source))
-            raise SystemExit(f"Registry entry {target} points at {source} but no spark.toml is there.")
-    if is_git_source(target):
-        name = infer_module_name_from_url(target)
-        clone_path = clone_module_source(name, target)
-        return load_module(clone_path)
-    candidate = Path(target)
-    if candidate.exists():
-        manifest_path = candidate / "spark.toml"
-        if not manifest_path.exists():
-            raise SystemExit(f"{candidate} does not contain spark.toml")
-        return load_module(candidate)
-    raise SystemExit(unknown_install_target_message(target, modules, registry))
+        candidate = Path(target)
+        if candidate.exists():
+            manifest_path = candidate / "spark.toml"
+            if not manifest_path.exists():
+                raise SystemExit(f"{candidate} does not contain spark.toml")
+            return load_module(candidate)
+        raise SystemExit(unknown_install_target_message(target, modules, registry))
 
 
+
+    except Exception:
+        return None
 def unknown_install_target_message(target: str, modules: dict[str, Module], registry: dict[str, Any]) -> str:
     installed_names = sorted(modules)
     registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
