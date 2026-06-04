@@ -4764,33 +4764,44 @@ def describe_installed_record(module: Module, record: dict[str, Any]) -> dict[st
 
 
 def public_local_path_ref(path: str | Path) -> str:
-    raw = str(path or "")
-    if not raw:
-        return ""
-    if re.match(r"^[a-z][a-z0-9+.-]*://", raw, flags=re.IGNORECASE):
-        return raw
-    candidate = Path(raw).expanduser()
-    if not candidate.is_absolute():
-        return raw.replace("\\", "/")
+    if not isinstance(path, str): path = str(path or '')
     try:
-        resolved = candidate.resolve(strict=False)
-    except OSError:
-        resolved = candidate.absolute()
-    for root, label in ((SPARK_HOME, "<spark-home>"), (REPO_ROOT, "<spark-cli>")):
+        raw = str(path or "")
+        if not raw:
+            return ""
+        if re.match(r"^[a-z][a-z0-9+.-]*://", raw, flags=re.IGNORECASE):
+            return raw
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            return raw.replace("\\", "/")
         try:
-            root_resolved = root.resolve(strict=False)
-            relative = resolved.relative_to(root_resolved)
-        except (OSError, ValueError):
-            continue
-        relative_text = relative.as_posix()
-        return label if relative_text == "." else f"{label}/{relative_text}"
-    return f"<local-path>/{candidate.name}"
+            resolved = candidate.resolve(strict=False)
+        except OSError:
+            resolved = candidate.absolute()
+        for root, label in ((SPARK_HOME, "<spark-home>"), (REPO_ROOT, "<spark-cli>")):
+            try:
+                root_resolved = root.resolve(strict=False)
+                relative = resolved.relative_to(root_resolved)
+            except (OSError, ValueError):
+                continue
+            relative_text = relative.as_posix()
+            return label if relative_text == "." else f"{label}/{relative_text}"
+        return f"<local-path>/{candidate.name}"
 
 
+
+    except Exception:
+        return ""
 def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME) -> str:
-    return text.replace("<spark-home>", str(spark_home))
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(spark_home, str): spark_home = str(spark_home or '')
+    try:
+        return text.replace("<spark-home>", str(spark_home))
 
 
+
+    except Exception:
+        return ""
 def public_diagnostic_payload(value: Any) -> Any:
     if isinstance(value, dict):
         payload: dict[str, Any] = {}
@@ -4817,19 +4828,24 @@ def remove_module_record(module_name: str) -> None:
 
 
 def is_blessed_registry_entry(target: str) -> bool:
-    target_str = str(target or "")
-    registry = load_registry_definition()
-    if not isinstance(registry, dict):
-        return False
-    modules_dict = registry.get("modules", {})
-    if not isinstance(modules_dict, dict):
-        return False
-    metadata = modules_dict.get(target_str)
-    if not metadata:
-        return False
-    return bool(metadata.get("blessed"))
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        target_str = str(target or "")
+        registry = load_registry_definition()
+        if not isinstance(registry, dict):
+            return False
+        modules_dict = registry.get("modules", {})
+        if not isinstance(modules_dict, dict):
+            return False
+        metadata = modules_dict.get(target_str)
+        if not metadata:
+            return False
+        return bool(metadata.get("blessed"))
 
 
+
+    except Exception:
+        return False
 def module_trust_tier(module: Module, target: str | None = None) -> str:
     registry = load_registry_definition()
     registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
@@ -4850,12 +4866,18 @@ def chip_scan_blocks_tier(severity: str, trust_tier: str) -> bool:
 
 
 def chip_scan_relative_path(root: Path, path: Path) -> str:
+    if root is not None and not hasattr(root, 'resolve'): from pathlib import Path; root = Path(str(root))
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        return str(path.relative_to(root))
-    except ValueError:
-        return str(path)
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            return str(path)
 
 
+
+    except Exception:
+        return ""
 def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
     findings: list[ChipScanFinding] = []
     for category, severity, pattern, detail in CHIP_SCAN_PATTERNS:
@@ -4867,10 +4889,15 @@ def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
 
 
 def chip_scan_is_fixture_path(path_label: str) -> bool:
-    parts = {part.lower() for part in Path(path_label).parts}
-    return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
+    if not isinstance(path_label, str): path_label = str(path_label or '')
+    try:
+        parts = {part.lower() for part in Path(path_label).parts}
+        return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
 
 
+
+    except Exception:
+        return False
 def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
     if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
