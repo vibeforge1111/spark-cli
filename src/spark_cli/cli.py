@@ -14322,189 +14322,215 @@ def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
 
 
 def expected_runtime_process_names(installed_names: Any, setup_state: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    if not isinstance(installed_names, (set, list, tuple)):
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        names: list[str] = []
+        if not isinstance(installed_names, (set, list, tuple)):
+            return names
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        has_profiles = isinstance(profiles, dict) and bool(profiles)
+        external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
+        if "spark-telegram-bot" in installed_names and not has_profiles and not external_telegram:
+            names.append("spark-telegram-bot")
+        if "spawner-ui" in installed_names:
+            names.append("spawner-ui")
+        if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
+            for profile, profile_state in sorted(profiles.items()):
+                if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
+                    process_key = module_process_key("spark-telegram-bot", str(profile))
+                    if process_key not in names:
+                        names.append(process_key)
         return names
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    has_profiles = isinstance(profiles, dict) and bool(profiles)
-    external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
-    if "spark-telegram-bot" in installed_names and not has_profiles and not external_telegram:
-        names.append("spark-telegram-bot")
-    if "spawner-ui" in installed_names:
-        names.append("spawner-ui")
-    if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
-        for profile, profile_state in sorted(profiles.items()):
-            if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
-                process_key = module_process_key("spark-telegram-bot", str(profile))
-                if process_key not in names:
-                    names.append(process_key)
-    return names
 
 
-def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
-    if not isinstance(setup_state, dict):
-        setup_state = {}
-    profiles = setup_state.get("telegram_profiles")
-    if not isinstance(profiles, dict):
+
+    except Exception:
         return []
-    statuses: list[dict[str, Any]] = []
-    primary_profile = primary_telegram_profile(setup_state)
-    for profile, profile_state in sorted(profiles.items()):
-        if not isinstance(profile_state, dict):
-            continue
-        normalized = normalize_telegram_profile(str(profile))
-        process_key = module_process_key("spark-telegram-bot", normalized)
-        record = pids.get(process_key) if isinstance(pids, dict) else None
-        pid = 0
-        if isinstance(record, dict):
-            try:
-                pid = int(record.get("pid") or 0)
-            except (TypeError, ValueError):
-                pid = 0
-        statuses.append(
-            {
-                "profile": normalized,
-                "process_key": process_key,
-                "pid": pid or None,
-                "running": bool(pid and pid_is_running(pid)),
-                "relay_port": profile_state.get("relay_port"),
-                "primary": normalized == primary_profile,
-                "autostart": telegram_profile_should_autostart(profile_state),
-                "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
-            }
-        )
-    return statuses
+def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    if not isinstance(pids, str): pids = str(pids or '')
+    try:
+        if not isinstance(setup_state, dict):
+            setup_state = {}
+        profiles = setup_state.get("telegram_profiles")
+        if not isinstance(profiles, dict):
+            return []
+        statuses: list[dict[str, Any]] = []
+        primary_profile = primary_telegram_profile(setup_state)
+        for profile, profile_state in sorted(profiles.items()):
+            if not isinstance(profile_state, dict):
+                continue
+            normalized = normalize_telegram_profile(str(profile))
+            process_key = module_process_key("spark-telegram-bot", normalized)
+            record = pids.get(process_key) if isinstance(pids, dict) else None
+            pid = 0
+            if isinstance(record, dict):
+                try:
+                    pid = int(record.get("pid") or 0)
+                except (TypeError, ValueError):
+                    pid = 0
+            statuses.append(
+                {
+                    "profile": normalized,
+                    "process_key": process_key,
+                    "pid": pid or None,
+                    "running": bool(pid and pid_is_running(pid)),
+                    "relay_port": profile_state.get("relay_port"),
+                    "primary": normalized == primary_profile,
+                    "autostart": telegram_profile_should_autostart(profile_state),
+                    "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
+                }
+            )
+        return statuses
 
 
+
+    except Exception:
+        return []
 def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None:
-    if port <= 0:
-        return None
-    listener_pid = listening_pid_for_tcp_port(port)
-    if not listener_pid or not pid_is_running(listener_pid):
-        return None
-    listener_uid = proc_uid_for_pid(listener_pid)
-    if listener_uid is not None and listener_uid != os.getuid():
-        return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
+    if not isinstance(label, str): label = str(label or '')
     try:
-        os.kill(listener_pid, signal.SIGTERM)
-    except OSError as exc:
-        return f"{label} port {port} is already held by pid {listener_pid}, and Spark could not stop it: {exc}"
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if not pid_is_running(listener_pid):
-            return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
-        time.sleep(0.1)
-    try:
-        os.kill(listener_pid, signal.SIGKILL)
-    except OSError:
-        pass
-    active_listener = listening_pid_for_tcp_port(port)
-    if active_listener and active_listener == listener_pid:
-        return f"{label} port {port} is still held by stale pid {listener_pid}."
-    return f"Force-stopped stale {label} listener on port {port} (pid {listener_pid})."
+        if port <= 0:
+            return None
+        listener_pid = listening_pid_for_tcp_port(port)
+        if not listener_pid or not pid_is_running(listener_pid):
+            return None
+        listener_uid = proc_uid_for_pid(listener_pid)
+        if listener_uid is not None and listener_uid != os.getuid():
+            return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
+        try:
+            os.kill(listener_pid, signal.SIGTERM)
+        except OSError as exc:
+            return f"{label} port {port} is already held by pid {listener_pid}, and Spark could not stop it: {exc}"
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not pid_is_running(listener_pid):
+                return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
+            time.sleep(0.1)
+        try:
+            os.kill(listener_pid, signal.SIGKILL)
+        except OSError:
+            pass
+        active_listener = listening_pid_for_tcp_port(port)
+        if active_listener and active_listener == listener_pid:
+            return f"{label} port {port} is still held by stale pid {listener_pid}."
+        return f"Force-stopped stale {label} listener on port {port} (pid {listener_pid})."
 
 
+
+    except Exception:
+        return ""
 def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: str | None = None) -> bool:
-    command = module.run_command
-    if not command:
-        return True
-    enforce_module_trust_scan(module, module.name)
-    require_write_allowed(module.path, safe_root=spark_write_safe_root(), subject=f"{module.name} module root")
-    if module.name == "spark-telegram-bot":
-        validate_telegram_profile_token_identity(profile)
-
-    process_key = module_process_key(module.name, profile)
-    display_name = process_key
-    log_path = module_log_path(module.name, profile)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    append_process_log(
-        module.name,
-        f"starting command={command!r} cwd={module.path} ready_check={module.ready_check!r}",
-        profile=profile,
-    )
-
-    subprocess_env = module_runtime_env(module, profile)
-    argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
-    ready_check = module_runtime_ready_check(module, subprocess_env)
-    relay_port = 0
-    if module.name == "spark-telegram-bot":
-        relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
-        try:
-            relay_port = int(relay_port_raw or "0")
-        except ValueError:
-            relay_port = 0
-    popen_kwargs: dict[str, Any] = {
-        "cwd": str(module.path),
-        "shell": False,
-        "stdin": subprocess.DEVNULL,
-        "stderr": subprocess.STDOUT,
-        "env": subprocess_env,
-    }
-    if os.name == "nt":
-        popen_kwargs["creationflags"] = windows_service_creationflags()
-    else:
-        popen_kwargs["start_new_session"] = True
-
-    with pid_file_lock():
-        pids = load_pids()
-        existing = pids.get(process_key)
-        if existing:
-            existing_pid = int(existing.get("pid", 0))
-            if pid_is_running(existing_pid):
-                print(f"Skipping {display_name}: already running (pid {existing_pid})")
-                return True
-            pids.pop(process_key, None)
-        if module.name == "spark-telegram-bot" and relay_port:
-            stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
-            if stale_listener_note:
-                print(stale_listener_note)
-                append_process_log(module.name, stale_listener_note, profile=profile)
-
-        log_handle = log_path.open("a", encoding="utf-8")
-        popen_kwargs["stdout"] = log_handle
-        try:
-            process = subprocess.Popen(argv, **popen_kwargs)
-        finally:
-            log_handle.close()
-        pids[process_key] = {
-            "pid": process.pid,
-            "module": module.name,
-            "profile": normalize_telegram_profile(profile),
-            "command": command,
-            "path": str(module.path),
-            "started_at": timestamp_now(),
-            "log_path": str(log_path),
-            "ready_check": ready_check,
-        }
-        save_pids(pids)
-    print(f"Started {display_name} (pid {process.pid})")
-    ready, detail = wait_for_ready_check(module, process=process, profile=profile, ready_check_override=ready_check)
-    if ready:
-        runtime_pid = discover_runtime_pid(module, process, profile)
-        update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
-        pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
-        print(f"Ready {display_name}: {detail}")
-        append_process_log(module.name, f"ready{pid_detail} detail={detail}", profile=profile)
-    else:
-        warning = format_start_warning(module, detail, process, profile=profile)
-        print(f"Start warning for {display_name}: {warning}")
-        append_process_log(module.name, f"start warning pid={process.pid} detail={warning}", profile=profile)
-        if process.poll() is not None:
-            with pid_file_lock():
-                latest_pids = load_pids()
-                latest_record = latest_pids.get(process_key, {})
-                if int(latest_record.get("pid", 0)) == int(process.pid):
-                    latest_pids.pop(process_key, None)
-                    save_pids(latest_pids)
-        if allow_boot_warnings and process.poll() is None:
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        command = module.run_command
+        if not command:
             return True
-    return ready
+        enforce_module_trust_scan(module, module.name)
+        require_write_allowed(module.path, safe_root=spark_write_safe_root(), subject=f"{module.name} module root")
+        if module.name == "spark-telegram-bot":
+            validate_telegram_profile_token_identity(profile)
+
+        process_key = module_process_key(module.name, profile)
+        display_name = process_key
+        log_path = module_log_path(module.name, profile)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        append_process_log(
+            module.name,
+            f"starting command={command!r} cwd={module.path} ready_check={module.ready_check!r}",
+            profile=profile,
+        )
+
+        subprocess_env = module_runtime_env(module, profile)
+        argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
+        ready_check = module_runtime_ready_check(module, subprocess_env)
+        relay_port = 0
+        if module.name == "spark-telegram-bot":
+            relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
+            try:
+                relay_port = int(relay_port_raw or "0")
+            except ValueError:
+                relay_port = 0
+        popen_kwargs: dict[str, Any] = {
+            "cwd": str(module.path),
+            "shell": False,
+            "stdin": subprocess.DEVNULL,
+            "stderr": subprocess.STDOUT,
+            "env": subprocess_env,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = windows_service_creationflags()
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        with pid_file_lock():
+            pids = load_pids()
+            existing = pids.get(process_key)
+            if existing:
+                existing_pid = int(existing.get("pid", 0))
+                if pid_is_running(existing_pid):
+                    print(f"Skipping {display_name}: already running (pid {existing_pid})")
+                    return True
+                pids.pop(process_key, None)
+            if module.name == "spark-telegram-bot" and relay_port:
+                stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
+                if stale_listener_note:
+                    print(stale_listener_note)
+                    append_process_log(module.name, stale_listener_note, profile=profile)
+
+            log_handle = log_path.open("a", encoding="utf-8")
+            popen_kwargs["stdout"] = log_handle
+            try:
+                process = subprocess.Popen(argv, **popen_kwargs)
+            finally:
+                log_handle.close()
+            pids[process_key] = {
+                "pid": process.pid,
+                "module": module.name,
+                "profile": normalize_telegram_profile(profile),
+                "command": command,
+                "path": str(module.path),
+                "started_at": timestamp_now(),
+                "log_path": str(log_path),
+                "ready_check": ready_check,
+            }
+            save_pids(pids)
+        print(f"Started {display_name} (pid {process.pid})")
+        ready, detail = wait_for_ready_check(module, process=process, profile=profile, ready_check_override=ready_check)
+        if ready:
+            runtime_pid = discover_runtime_pid(module, process, profile)
+            update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
+            pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
+            print(f"Ready {display_name}: {detail}")
+            append_process_log(module.name, f"ready{pid_detail} detail={detail}", profile=profile)
+        else:
+            warning = format_start_warning(module, detail, process, profile=profile)
+            print(f"Start warning for {display_name}: {warning}")
+            append_process_log(module.name, f"start warning pid={process.pid} detail={warning}", profile=profile)
+            if process.poll() is not None:
+                with pid_file_lock():
+                    latest_pids = load_pids()
+                    latest_record = latest_pids.get(process_key, {})
+                    if int(latest_record.get("pid", 0)) == int(process.pid):
+                        latest_pids.pop(process_key, None)
+                        save_pids(latest_pids)
+            if allow_boot_warnings and process.poll() is None:
+                return True
+        return ready
 
 
+
+    except Exception:
+        return False
 def command_json_messages(output: str) -> list[str]:
-    return [line.strip() for line in output.splitlines() if line.strip()]
+    if not isinstance(output, str): output = str(output or '')
+    try:
+        return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+
+    except Exception:
+        return []
 def emit_process_command_json(command: str, args: argparse.Namespace, exit_code: int, output: str) -> int:
     payload: dict[str, Any] = {
         "ok": exit_code == 0,
