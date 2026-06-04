@@ -10390,43 +10390,52 @@ def redact_sensitive_text(value: str) -> str:
 
 
 def redact_shareable_text(value: str) -> str:
-    redacted = redact_sensitive_text(value)
-    spark_home = str(SPARK_HOME)
-    if spark_home:
-        redacted = redacted.replace(spark_home, "<spark-home>")
-        redacted = redacted.replace(spark_home.replace("\\", "/"), "<spark-home>")
-    home = str(Path.home())
-    if home:
-        redacted = redacted.replace(home, "~")
-        redacted = redacted.replace(home.replace("\\", "/"), "~")
-    redacted = redacted.replace("~/.spark", "<spark-home>")
-    redacted = redacted.replace("~\\.spark", "<spark-home>")
-    redacted = re.sub(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s]+", "%USERPROFILE%", redacted)
-    redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
-    redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
-    redacted = re.sub(
-        r"(?i)\b(Telegram(?:\s+admin)?\s+ID|Admin\s+ID|ALLOWED_TELEGRAM_IDS)(\s*[:=]\s*)(\d{5,16})\b",
-        lambda match: f"{match.group(1)}{match.group(2)}[TELEGRAM_ID_REDACTED]",
-        redacted,
-    )
-    redacted = re.sub(
-        r"\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b",
-        "[PRIVATE_IP_REDACTED]",
-        redacted,
-    )
-    return redacted
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        redacted = redact_sensitive_text(value)
+        spark_home = str(SPARK_HOME)
+        if spark_home:
+            redacted = redacted.replace(spark_home, "<spark-home>")
+            redacted = redacted.replace(spark_home.replace("\\", "/"), "<spark-home>")
+        home = str(Path.home())
+        if home:
+            redacted = redacted.replace(home, "~")
+            redacted = redacted.replace(home.replace("\\", "/"), "~")
+        redacted = redacted.replace("~/.spark", "<spark-home>")
+        redacted = redacted.replace("~\\.spark", "<spark-home>")
+        redacted = re.sub(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s]+", "%USERPROFILE%", redacted)
+        redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
+        redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
+        redacted = re.sub(
+            r"(?i)\b(Telegram(?:\s+admin)?\s+ID|Admin\s+ID|ALLOWED_TELEGRAM_IDS)(\s*[:=]\s*)(\d{5,16})\b",
+            lambda match: f"{match.group(1)}{match.group(2)}[TELEGRAM_ID_REDACTED]",
+            redacted,
+        )
+        redacted = re.sub(
+            r"\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b",
+            "[PRIVATE_IP_REDACTED]",
+            redacted,
+        )
+        return redacted
 
 
+
+    except Exception:
+        return ""
 def redact_shareable_payload(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): redact_shareable_payload(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [redact_shareable_payload(item) for item in value]
-    if isinstance(value, str):
-        return redact_shareable_text(value)
-    return value
+    try:
+        if isinstance(value, dict):
+            return {str(key): redact_shareable_payload(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [redact_shareable_payload(item) for item in value]
+        if isinstance(value, str):
+            return redact_shareable_text(value)
+        return value
 
 
+
+    except Exception:
+        return None
 SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("token_like_value", re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b")),
     ("api_key_like_value", re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b")),
@@ -10439,59 +10448,72 @@ SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def collect_share_safety_findings(value: Any) -> list[dict[str, str]]:
-    text = json.dumps(value, sort_keys=True, default=str) if not isinstance(value, str) else value
-    findings: list[dict[str, str]] = []
-    for name, pattern in SHARE_SAFETY_REMAINING_RISK_PATTERNS:
-        if pattern.search(text):
-            findings.append({"kind": name, "action": "review_or_redact_before_sharing"})
-    return findings
+    try:
+        text = json.dumps(value, sort_keys=True, default=str) if not isinstance(value, str) else value
+        findings: list[dict[str, str]] = []
+        for name, pattern in SHARE_SAFETY_REMAINING_RISK_PATTERNS:
+            if pattern.search(text):
+                findings.append({"kind": name, "action": "review_or_redact_before_sharing"})
+        return findings
 
 
+
+    except Exception:
+        return []
 def build_share_safety_manifest(value: Any, *, include_logs: bool, purpose: str) -> dict[str, Any]:
-    return {
-        "purpose": purpose,
-        "uploaded": False,
-        "review_required": True,
-        "logs_included": bool(include_logs),
-        "raw_logs_allowed": False,
-        "redactions_applied": [
-            "api_keys_tokens_and_authorization_headers",
-            "telegram_bot_tokens",
-            "home_and_spark_paths",
-            "telegram_admin_id_context",
-            "private_network_addresses",
-        ],
-        "remaining_risk_findings": collect_share_safety_findings(value),
-        "safe_sharing_rules": [
-            "Share only after reading the generated file locally.",
-            "Do not include raw logs, chat transcripts, local project names, screenshots with secrets, or environment dumps.",
-            "For upstream fixes, summarize the general bug and attach a focused code/test diff instead of a machine-specific report.",
-        ],
-    }
+    if not isinstance(purpose, str): purpose = str(purpose or '')
+    try:
+        return {
+            "purpose": purpose,
+            "uploaded": False,
+            "review_required": True,
+            "logs_included": bool(include_logs),
+            "raw_logs_allowed": False,
+            "redactions_applied": [
+                "api_keys_tokens_and_authorization_headers",
+                "telegram_bot_tokens",
+                "home_and_spark_paths",
+                "telegram_admin_id_context",
+                "private_network_addresses",
+            ],
+            "remaining_risk_findings": collect_share_safety_findings(value),
+            "safe_sharing_rules": [
+                "Share only after reading the generated file locally.",
+                "Do not include raw logs, chat transcripts, local project names, screenshots with secrets, or environment dumps.",
+                "For upstream fixes, summarize the general bug and attach a focused code/test diff instead of a machine-specific report.",
+            ],
+        }
 
 
+
+    except Exception:
+        return {}
 def redact_for_llm(value: Any) -> Any:
-    if isinstance(value, dict):
-        result: dict[str, Any] = {}
-        for key, item in value.items():
-            key_text = str(key)
-            if re.search(r"(?i)(api[_-]?key|token|secret|password|authorization)", key_text):
-                if isinstance(item, bool):
-                    result[key_text] = item
-                elif item in (None, "", [], {}):
-                    result[key_text] = item
+    try:
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for key, item in value.items():
+                key_text = str(key)
+                if re.search(r"(?i)(api[_-]?key|token|secret|password|authorization)", key_text):
+                    if isinstance(item, bool):
+                        result[key_text] = item
+                    elif item in (None, "", [], {}):
+                        result[key_text] = item
+                    else:
+                        result[key_text] = "[REDACTED]"
                 else:
-                    result[key_text] = "[REDACTED]"
-            else:
-                result[key_text] = redact_for_llm(item)
-        return result
-    if isinstance(value, list):
-        return [redact_for_llm(item) for item in value]
-    if isinstance(value, str):
-        return redact_sensitive_text(value)
-    return value
+                    result[key_text] = redact_for_llm(item)
+            return result
+        if isinstance(value, list):
+            return [redact_for_llm(item) for item in value]
+        if isinstance(value, str):
+            return redact_sensitive_text(value)
+        return value
 
 
+
+    except Exception:
+        return None
 def codex_config_path(env: dict[str, str] | None = None) -> Path:
     source = env if isinstance(env, dict) else os.environ
     codex_home = str(source.get("CODEX_HOME") or "").strip()
