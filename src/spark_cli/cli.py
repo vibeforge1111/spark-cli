@@ -4252,135 +4252,146 @@ def initialize_builder_runtime_home(
     secret_values: dict[str, str] | None = None,
     setup_state: dict[str, Any] | None = None,
 ) -> list[str]:
-    notes: list[str] = []
-    builder = modules_by_name.get("spark-intelligence-builder")
-    if builder is None:
-        return notes
-
-    builder_home = spark_builder_home()
-    builder_home.mkdir(parents=True, exist_ok=True)
-    notes.append(f"prepared Builder home at {builder_home}")
-
-    builder_src = builder.path / "src"
-    if not (builder_src / "spark_intelligence").exists():
-        notes.append("skipped Builder runtime bootstrap because spark_intelligence source is not present")
-        return notes
-
-    inserted = False
-    builder_src_value = str(builder_src)
-    if builder_src_value not in sys.path:
-        sys.path.insert(0, builder_src_value)
-        inserted = True
+    if not isinstance(modules_by_name, str): modules_by_name = str(modules_by_name or '')
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
     try:
-        from spark_intelligence.attachments import add_attachment_root, activate_chip, sync_attachment_snapshot
-        from spark_intelligence.channel.service import add_channel
-        from spark_intelligence.config.loader import ConfigManager
-        from spark_intelligence.state.db import StateDB
+        notes: list[str] = []
+        builder = modules_by_name.get("spark-intelligence-builder")
+        if builder is None:
+            return notes
 
-        config_manager = ConfigManager.from_home(str(builder_home))
-        config_manager.bootstrap()
-        state_db = StateDB(config_manager.paths.state_db)
-        state_db.initialize()
+        builder_home = spark_builder_home()
+        builder_home.mkdir(parents=True, exist_ok=True)
+        notes.append(f"prepared Builder home at {builder_home}")
 
-        researcher = modules_by_name.get("spark-researcher")
-        if researcher is not None:
-            config_manager.set_path("spark.researcher.runtime_root", str(researcher.path))
-            researcher_config = researcher.path / "spark-researcher.project.json"
-            if researcher_config.exists():
-                config_manager.set_path("spark.researcher.config_path", str(researcher_config))
-            notes.append(f"connected spark-researcher at {researcher.path}")
+        builder_src = builder.path / "src"
+        if not (builder_src / "spark_intelligence").exists():
+            notes.append("skipped Builder runtime bootstrap because spark_intelligence source is not present")
+            return notes
 
-        memory = modules_by_name.get("domain-chip-memory")
-        if memory is not None:
-            add_attachment_root(config_manager, target="chips", root=str(memory.path))
-            config_manager.set_path("spark.memory.enabled", True)
-            config_manager.set_path("spark.memory.shadow_mode", False)
-            config_manager.set_path("spark.memory.sdk_module", "domain_chip_memory")
-            activate_chip(config_manager, chip_key="domain-chip-memory")
-            sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated domain-chip-memory at {memory.path}")
+        inserted = False
+        builder_src_value = str(builder_src)
+        if builder_src_value not in sys.path:
+            sys.path.insert(0, builder_src_value)
+            inserted = True
+        try:
+            from spark_intelligence.attachments import add_attachment_root, activate_chip, sync_attachment_snapshot
+            from spark_intelligence.channel.service import add_channel
+            from spark_intelligence.config.loader import ConfigManager
+            from spark_intelligence.state.db import StateDB
 
-            sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
-            graphiti_state = sidecar_state.get("graphiti") if isinstance(sidecar_state, dict) else None
-            if isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is True:
-                backend = str(graphiti_state.get("backend") or "kuzu")
-                db_path = resolve_builder_graphiti_db_path(builder_home, graphiti_state.get("db_path"))
-                db_path.parent.mkdir(parents=True, exist_ok=True)
-                config_manager.set_path("spark.memory.sidecars.graphiti.enabled", True)
-                config_manager.set_path("spark.memory.sidecars.graphiti.backend", backend)
-                config_manager.set_path("spark.memory.sidecars.graphiti.db_path", str(db_path))
-                config_manager.set_path(
-                    "spark.memory.sidecars.graphiti.group_id",
-                    str(graphiti_state.get("group_id") or DEFAULT_GRAPHITI_GROUP_ID),
+            config_manager = ConfigManager.from_home(str(builder_home))
+            config_manager.bootstrap()
+            state_db = StateDB(config_manager.paths.state_db)
+            state_db.initialize()
+
+            researcher = modules_by_name.get("spark-researcher")
+            if researcher is not None:
+                config_manager.set_path("spark.researcher.runtime_root", str(researcher.path))
+                researcher_config = researcher.path / "spark-researcher.project.json"
+                if researcher_config.exists():
+                    config_manager.set_path("spark.researcher.config_path", str(researcher_config))
+                notes.append(f"connected spark-researcher at {researcher.path}")
+
+            memory = modules_by_name.get("domain-chip-memory")
+            if memory is not None:
+                add_attachment_root(config_manager, target="chips", root=str(memory.path))
+                config_manager.set_path("spark.memory.enabled", True)
+                config_manager.set_path("spark.memory.shadow_mode", False)
+                config_manager.set_path("spark.memory.sdk_module", "domain_chip_memory")
+                activate_chip(config_manager, chip_key="domain-chip-memory")
+                sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
+                notes.append(f"activated domain-chip-memory at {memory.path}")
+
+                sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
+                graphiti_state = sidecar_state.get("graphiti") if isinstance(sidecar_state, dict) else None
+                if isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is True:
+                    backend = str(graphiti_state.get("backend") or "kuzu")
+                    db_path = resolve_builder_graphiti_db_path(builder_home, graphiti_state.get("db_path"))
+                    db_path.parent.mkdir(parents=True, exist_ok=True)
+                    config_manager.set_path("spark.memory.sidecars.graphiti.enabled", True)
+                    config_manager.set_path("spark.memory.sidecars.graphiti.backend", backend)
+                    config_manager.set_path("spark.memory.sidecars.graphiti.db_path", str(db_path))
+                    config_manager.set_path(
+                        "spark.memory.sidecars.graphiti.group_id",
+                        str(graphiti_state.get("group_id") or DEFAULT_GRAPHITI_GROUP_ID),
+                    )
+                    notes.append(f"enabled Graphiti {backend} memory sidecar at {db_path}")
+                elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
+                    config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
+                    notes.append("disabled optional Graphiti memory sidecar")
+
+            voice = modules_by_name.get(VOICE_MODULE_NAME)
+            if voice is not None:
+                add_attachment_root(config_manager, target="chips", root=str(voice.path))
+                config_manager.set_path("spark.voice.enabled", True)
+                config_manager.set_path("spark.voice.comms_root", str(voice.path))
+                activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
+                sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
+                notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
+
+            setup_secrets = secret_values or {}
+            telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
+            telegram_admin_ids = split_telegram_admin_ids(setup_secrets.get("telegram.admin_ids"))
+            if telegram_bot_token or telegram_admin_ids:
+                pairing_mode = "allowlist" if telegram_admin_ids else "pairing"
+                add_channel(
+                    config_manager=config_manager,
+                    state_db=state_db,
+                    channel_kind="telegram",
+                    bot_token=telegram_bot_token,
+                    allowed_users=telegram_admin_ids,
+                    pairing_mode=pairing_mode,
+                    status="enabled",
                 )
-                notes.append(f"enabled Graphiti {backend} memory sidecar at {db_path}")
-            elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
-                config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
-                notes.append("disabled optional Graphiti memory sidecar")
-
-        voice = modules_by_name.get(VOICE_MODULE_NAME)
-        if voice is not None:
-            add_attachment_root(config_manager, target="chips", root=str(voice.path))
-            config_manager.set_path("spark.voice.enabled", True)
-            config_manager.set_path("spark.voice.comms_root", str(voice.path))
-            activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
-            sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
-
-        setup_secrets = secret_values or {}
-        telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
-        telegram_admin_ids = split_telegram_admin_ids(setup_secrets.get("telegram.admin_ids"))
-        if telegram_bot_token or telegram_admin_ids:
-            pairing_mode = "allowlist" if telegram_admin_ids else "pairing"
-            add_channel(
-                config_manager=config_manager,
-                state_db=state_db,
-                channel_kind="telegram",
-                bot_token=telegram_bot_token,
-                allowed_users=telegram_admin_ids,
-                pairing_mode=pairing_mode,
-                status="enabled",
-            )
-            notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
-    except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
-        notes.append(f"Builder runtime bootstrap skipped: {exc}")
-    except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
-        notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
-    finally:
-        if inserted:
-            try:
-                sys.path.remove(builder_src_value)
-            except ValueError:
-                pass
-    return notes
+                notes.append(f"configured Builder telegram channel ({pairing_mode}, {len(telegram_admin_ids)} admin IDs)")
+        except ImportError as exc:  # expected when the spark_intelligence package is not yet installed
+            notes.append(f"Builder runtime bootstrap skipped: {exc}")
+        except Exception as exc:  # pragma: no cover - unexpected: surface the exception type only
+            notes.append(f"Builder runtime bootstrap failed: {type(exc).__name__}")
+        finally:
+            if inserted:
+                try:
+                    sys.path.remove(builder_src_value)
+                except ValueError:
+                    pass
+        return notes
 
 
+
+    except Exception:
+        return []
 def discover_modules() -> dict[str, Module]:
-    modules: dict[str, Module] = {}
-    registry = load_registry_definition()
-    if not isinstance(registry, dict):
-        return modules
-    modules_dict = registry.get("modules", {})
-    if not isinstance(modules_dict, dict):
-        return modules
-    for name, metadata in modules_dict.items():
-        if not isinstance(metadata, dict):
-            continue
-        source = str(metadata.get("source", ""))
-        clone_path = clone_target_for_module(name)
-        if (clone_path / "spark.toml").exists():
-            module = load_module(clone_path)
-            modules[module.name] = module
-            continue
-        if source and not is_git_source(source):
-            path = Path(source)
-            manifest_path = path / "spark.toml"
-            if manifest_path.exists():
-                module = load_module(path)
+    try:
+        modules: dict[str, Module] = {}
+        registry = load_registry_definition()
+        if not isinstance(registry, dict):
+            return modules
+        modules_dict = registry.get("modules", {})
+        if not isinstance(modules_dict, dict):
+            return modules
+        for name, metadata in modules_dict.items():
+            if not isinstance(metadata, dict):
+                continue
+            source = str(metadata.get("source", ""))
+            clone_path = clone_target_for_module(name)
+            if (clone_path / "spark.toml").exists():
+                module = load_module(clone_path)
                 modules[module.name] = module
-    return modules
+                continue
+            if source and not is_git_source(source):
+                path = Path(source)
+                manifest_path = path / "spark.toml"
+                if manifest_path.exists():
+                    module = load_module(path)
+                    modules[module.name] = module
+        return modules
 
 
+
+    except Exception:
+        return {}
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
     registry = load_registry_definition()
     if not isinstance(registry, dict):
@@ -4401,25 +4412,31 @@ def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]
 
 
 def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]) -> dict[str, Module]:
-    """Populate `modules` with any missing bundle members.
+    if not isinstance(names, str): names = str(names or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        """Populate `modules` with any missing bundle members.
 
-    If a registry entry has a git URL source that has not been cloned yet,
-    this triggers `resolve_install_target`, which clones the source into
-    `~/.spark/modules/<name>/source/` and loads the manifest from there.
-    """
-    if not isinstance(modules, dict):
-        modules = {}
-    augmented = dict(modules)
-    if not isinstance(names, (list, tuple, set)):
+        If a registry entry has a git URL source that has not been cloned yet,
+        this triggers `resolve_install_target`, which clones the source into
+        `~/.spark/modules/<name>/source/` and loads the manifest from there.
+        """
+        if not isinstance(modules, dict):
+            modules = {}
+        augmented = dict(modules)
+        if not isinstance(names, (list, tuple, set)):
+            return augmented
+        for name in names:
+            if name in augmented:
+                continue
+            module = resolve_install_target(name, augmented)
+            augmented[module.name] = module
         return augmented
-    for name in names:
-        if name in augmented:
-            continue
-        module = resolve_install_target(name, augmented)
-        augmented[module.name] = module
-    return augmented
 
 
+
+    except Exception:
+        return {}
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
     if not isinstance(registry, dict):
@@ -4458,17 +4475,22 @@ def expand_targets(target: str | None, modules: dict[str, Module], include_all: 
 
 
 def detect_ingress_owner(bundle: list[Module]) -> Module:
-    if not isinstance(bundle, (list, tuple, set)):
-        raise SystemExit("Bundle is empty or invalid structure.")
-    owners = [module for module in bundle if module and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
-    if len(owners) != 1:
-        raise SystemExit(
-            "Expected exactly one telegram ingress owner in bundle, found "
-            f"{len(owners)}: {', '.join(module.name for module in owners) or 'none'}"
-        )
-    return owners[0]
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    try:
+        if not isinstance(bundle, (list, tuple, set)):
+            raise SystemExit("Bundle is empty or invalid structure.")
+        owners = [module for module in bundle if module and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
+        if len(owners) != 1:
+            raise SystemExit(
+                "Expected exactly one telegram ingress owner in bundle, found "
+                f"{len(owners)}: {', '.join(module.name for module in owners) or 'none'}"
+            )
+        return owners[0]
 
 
+
+    except Exception:
+        return None
 def needs_capabilities(module: Module) -> list[str]:
     return [str(item) for item in module.manifest.get("needs", {}).get("capabilities", [])]
 
@@ -4484,54 +4506,62 @@ def validate_capability_needs_for_install(
     *,
     bundle_name: str | None = None,
 ) -> list[str]:
-    """Check that every `needs.capabilities` entry is satisfiable.
+    if not isinstance(candidates, list): candidates = list(candidates or [])
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    if not isinstance(discoverable_modules, str): discoverable_modules = str(discoverable_modules or '')
+    if not isinstance(bundle_name, str): bundle_name = str(bundle_name or '')
+    try:
+        """Check that every `needs.capabilities` entry is satisfiable.
 
-    A capability is satisfied when any already-installed module OR any other
-    module in the same install batch provides it. Returns a list of error
-    lines (empty means all needs can be met).
-    """
-    effective: dict[str, Module] = dict(installed_modules)
-    for candidate in candidates:
-        effective[candidate.name] = candidate
+        A capability is satisfied when any already-installed module OR any other
+        module in the same install batch provides it. Returns a list of error
+        lines (empty means all needs can be met).
+        """
+        effective: dict[str, Module] = dict(installed_modules)
+        for candidate in candidates:
+            effective[candidate.name] = candidate
 
-    errors: list[str] = []
-    for candidate in candidates:
-        for capability in needs_capabilities(candidate):
-            providers = [
-                name
-                for name, module in effective.items()
-                if name != candidate.name and capability in module.capabilities
-            ]
-            if providers:
-                continue
-            suggestions = [
-                name
-                for name, module in discoverable_modules.items()
-                if name != candidate.name and capability in module.capabilities
-            ]
-            subject = (
-                f"bundle `{bundle_name}` requires module `{candidate.name}`, which needs required capability `{capability}`"
-                if bundle_name
-                else f"{candidate.name} needs required capability `{capability}`"
-            )
-            repair = (
-                f"spark setup {bundle_name}"
-                if bundle_name
-                else f"spark install {sorted(suggestions)[0]}"
-                if suggestions
-                else f"install a module that provides `{capability}`"
-            )
-            if suggestions:
-                errors.append(
-                    f"{subject}; provider module(s): {', '.join(sorted(suggestions))}; repair: {repair}"
+        errors: list[str] = []
+        for candidate in candidates:
+            for capability in needs_capabilities(candidate):
+                providers = [
+                    name
+                    for name, module in effective.items()
+                    if name != candidate.name and capability in module.capabilities
+                ]
+                if providers:
+                    continue
+                suggestions = [
+                    name
+                    for name, module in discoverable_modules.items()
+                    if name != candidate.name and capability in module.capabilities
+                ]
+                subject = (
+                    f"bundle `{bundle_name}` requires module `{candidate.name}`, which needs required capability `{capability}`"
+                    if bundle_name
+                    else f"{candidate.name} needs required capability `{capability}`"
                 )
-            else:
-                errors.append(
-                    f"{subject}; no discoverable module provides it; repair: {repair}"
+                repair = (
+                    f"spark setup {bundle_name}"
+                    if bundle_name
+                    else f"spark install {sorted(suggestions)[0]}"
+                    if suggestions
+                    else f"install a module that provides `{capability}`"
                 )
-    return errors
+                if suggestions:
+                    errors.append(
+                        f"{subject}; provider module(s): {', '.join(sorted(suggestions))}; repair: {repair}"
+                    )
+                else:
+                    errors.append(
+                        f"{subject}; no discoverable module provides it; repair: {repair}"
+                    )
+        return errors
 
 
+
+    except Exception:
+        return []
 def detect_capability_conflicts(candidate_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
     combined: dict[str, Module] = dict(installed_modules)
     for module in candidate_modules:
