@@ -4065,16 +4065,21 @@ def preserve_level5_guardrails(module_name: str, env_values: dict[str, str]) -> 
 
 
 def split_telegram_admin_ids(raw_admin_ids: str | None) -> list[str]:
-    if not raw_admin_ids:
+    if not isinstance(raw_admin_ids, str): raw_admin_ids = str(raw_admin_ids or '')
+    try:
+        if not raw_admin_ids:
+            return []
+        admin_ids: list[str] = []
+        for item in raw_admin_ids.split(","):
+            admin_id = item.strip()
+            if admin_id and admin_id not in admin_ids:
+                admin_ids.append(admin_id)
+        return admin_ids
+
+
+
+    except Exception:
         return []
-    admin_ids: list[str] = []
-    for item in raw_admin_ids.split(","):
-        admin_id = item.strip()
-        if admin_id and admin_id not in admin_ids:
-            admin_ids.append(admin_id)
-    return admin_ids
-
-
 def next_telegram_profile_relay_port(setup_state: dict[str, Any]) -> int:
     used_ports = {8788}
     profiles = setup_state.get("telegram_profiles")
@@ -4109,20 +4114,24 @@ def append_spawner_webhook_url(spawner: Module, webhook_url: str) -> None:
 
 
 def normalize_telegram_admin_ids(*values: str | None) -> str:
-    ids: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        if not value:
-            continue
-        for raw in re.split(r"[\s,;]+", str(value)):
-            item = raw.strip()
-            if not item or item in seen:
+    try:
+        ids: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            if not value:
                 continue
-            ids.append(item)
-            seen.add(item)
-    return ",".join(ids)
+            for raw in re.split(r"[\s,;]+", str(value)):
+                item = raw.strip()
+                if not item or item in seen:
+                    continue
+                ids.append(item)
+                seen.add(item)
+        return ",".join(ids)
 
 
+
+    except Exception:
+        return ""
 def existing_telegram_admin_ids(base_env: dict[str, str], setup_state: dict[str, Any] | None = None) -> str:
     values = [base_env.get("ADMIN_TELEGRAM_IDS")]
     for path in telegram_generated_env_paths(setup_state):
@@ -7361,23 +7370,28 @@ def command_with_managed_python(command: str) -> str:
 
 
 def parse_memory_sidecars(value: str) -> list[str]:
-    """Parse explicit optional memory sidecars for setup."""
-    raw_parts = [part.strip().lower() for part in str(value or "").split(",")]
-    parts = [part for part in raw_parts if part]
-    if not parts:
-        return []
-    disabled = [part for part in parts if part in MEMORY_SIDECAR_DISABLE_CHOICES]
-    if disabled:
-        if len(parts) > 1:
-            raise argparse.ArgumentTypeError("Use either 'none' or memory sidecar names, not both.")
-        return []
-    unknown = [part for part in parts if part not in MEMORY_SIDECAR_CHOICES]
-    if unknown:
-        choices = ", ".join(sorted(MEMORY_SIDECAR_CHOICES | MEMORY_SIDECAR_DISABLE_CHOICES))
-        raise argparse.ArgumentTypeError(f"Unsupported memory sidecar {unknown[0]!r}. Choose one of: {choices}.")
-    return sorted(set(parts))
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        """Parse explicit optional memory sidecars for setup."""
+        raw_parts = [part.strip().lower() for part in str(value or "").split(",")]
+        parts = [part for part in raw_parts if part]
+        if not parts:
+            return []
+        disabled = [part for part in parts if part in MEMORY_SIDECAR_DISABLE_CHOICES]
+        if disabled:
+            if len(parts) > 1:
+                raise argparse.ArgumentTypeError("Use either 'none' or memory sidecar names, not both.")
+            return []
+        unknown = [part for part in parts if part not in MEMORY_SIDECAR_CHOICES]
+        if unknown:
+            choices = ", ".join(sorted(MEMORY_SIDECAR_CHOICES | MEMORY_SIDECAR_DISABLE_CHOICES))
+            raise argparse.ArgumentTypeError(f"Unsupported memory sidecar {unknown[0]!r}. Choose one of: {choices}.")
+        return sorted(set(parts))
 
 
+
+    except Exception:
+        return []
 def memory_sidecar_setup_state(
     args: argparse.Namespace,
     existing_setup: dict[str, Any] | None = None,
@@ -7728,13 +7742,21 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
 
 
 def _safe_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    try:
+        return value if isinstance(value, dict) else {}
 
 
+
+    except Exception:
+        return {}
 def _safe_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    try:
+        return value if isinstance(value, list) else []
 
 
+
+    except Exception:
+        return []
 def _safe_int(value: Any) -> int:
     try:
         return int(value or 0)
