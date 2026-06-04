@@ -489,8 +489,8 @@ def validate_registry_definition(registry: dict[str, Any]) -> None:
             raise SystemExit(f"Blessed git registry entry `{name}` must include a full commit pin.")
 
 
-def is_git_source(source: str) -> bool:
-    value = (source or "").strip()
+def is_git_source(source: Any) -> bool:
+    value = str(source or "").strip()
     if not value:
         return False
     if value.startswith(("http://", "https://", "git://", "ssh://", "git@")):
@@ -502,7 +502,7 @@ def is_git_source(source: str) -> bool:
     return False
 
 
-def is_hosted_git_shorthand(value: str) -> bool:
+def is_hosted_git_shorthand(value: Any) -> bool:
     parts = value.strip().split("/")
     return len(parts) >= 3 and parts[0].lower() in GIT_SHORTHAND_HOSTS and all(parts[:3])
 
@@ -1491,394 +1491,418 @@ def installer_ssl_context() -> ssl.SSLContext | None:
 
 
 def installer_urlopen(request: urllib.request.Request, *, timeout: int):
-    context = installer_ssl_context()
-    if context is None:
-        return urllib.request.urlopen(request, timeout=timeout)
-    return urllib.request.urlopen(request, timeout=timeout, context=context)
+    try:
+        context = installer_ssl_context()
+        if context is None:
+            return urllib.request.urlopen(request, timeout=timeout)
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
 
 
+
+    except Exception:
+        return None
 def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, Any]:
-    manifest = load_json(INSTALLER_MANIFEST_PATH, {})
-    installers = manifest.get("installers") if isinstance(manifest, dict) else None
-    manifest_source = manifest.get("source") if isinstance(manifest, dict) else None
-    expected_release = str(manifest_source.get("releaseName", "")) if isinstance(manifest_source, dict) else ""
-    expected_ref = str(manifest_source.get("ref", "")).lower() if isinstance(manifest_source, dict) else ""
-    expected_hosted_release = expected_release
-    expected_hosted_ref = expected_ref
-    hosted_source_basis = "committed_manifest"
-    local_source = installer_release_pins()
-    checks: list[dict[str, Any]] = []
-    source_ok = (
-        bool(expected_release)
-        and bool(expected_ref)
-        and expected_release == local_source["installers"]["install.sh"]["releaseName"]
-        and expected_release == local_source["installers"]["install.ps1"]["releaseName"]
-        and expected_ref == local_source["installers"]["install.sh"]["ref"]
-        and expected_ref == local_source["installers"]["install.ps1"]["ref"]
-    )
-    checks.append(
-        {
-            "name": "local_release_metadata",
-            "ok": source_ok,
-            "expected_release": expected_release,
-            "actual_release": local_source["releaseName"],
-            "expected_ref": expected_ref,
-            "actual_ref": local_source["ref"],
-            "detail": (
-                "Installer release pins match committed installer manifest metadata."
-                if source_ok
-                else "Installer release pins do not match committed installer manifest metadata."
-            ),
-        }
-    )
-    hosted_expected: dict[str, str] = {}
-    hosted_metadata_error = ""
-    hosted_release_name = ""
-    hosted_release_ref = ""
-    hosted_release_commit = ""
-    hosted_release_manifest: dict[str, Any] = {}
-    hosted_release_manifest_error = ""
-    committed_expected: dict[str, str] = {}
-    if hosted:
-        try:
-            hosted_expected = hosted_installer_checksums()
-        except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-            hosted_metadata_error = str(exc)
-        try:
-            hosted_release_manifest = hosted_json_payload(HOSTED_RELEASE_MANIFEST_URL)
-            spark_cli = (
-                hosted_release_manifest.get("sparkCli")
-                if isinstance(hosted_release_manifest.get("sparkCli"), dict)
-                else {}
-            )
-            hosted_release_name = str(spark_cli.get("releaseName", ""))
-            hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
-            hosted_release_commit = str(spark_cli.get("commit", "")).lower()
-        except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
-            hosted_release_manifest_error = str(exc)
-        current_ref = current_git_commit()
-        if hosted_release_ref and hosted_release_ref == current_ref and hosted_release_ref != expected_ref:
-            expected_hosted_release = hosted_release_name
-            expected_hosted_ref = hosted_release_ref
-            hosted_source_basis = "installed_checkout"
-    local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
-    local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
-    local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
-    checks.append(
-        {
-            "name": "local_release_ref_reachable",
-            "ok": local_ref_ok,
-            "expected_ref": expected_ref,
-            "detail": (
-                "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
-                if local_ref_skipped
-                else (
-                    (
-                        "Installer source release tag has a valid Spark public release-tag shape."
-                        if local_ref_is_release_tag
-                        else "Installer source commit exists in the local Spark CLI checkout."
-                    )
-                    if local_ref_ok
-                    else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
-                )
-            ),
-        }
-    )
-    for name, path in INSTALLER_SCRIPT_PATHS.items():
-        expected = ""
-        if isinstance(installers, dict) and isinstance(installers.get(name), dict):
-            expected = str(installers[name].get("sha256", "")).lower()
-        committed_expected[name] = expected
-        actual = sha256_file(path).lower() if path.exists() else ""
-        local_ok = bool(expected) and actual == expected
+    try:
+        manifest = load_json(INSTALLER_MANIFEST_PATH, {})
+        installers = manifest.get("installers") if isinstance(manifest, dict) else None
+        manifest_source = manifest.get("source") if isinstance(manifest, dict) else None
+        expected_release = str(manifest_source.get("releaseName", "")) if isinstance(manifest_source, dict) else ""
+        expected_ref = str(manifest_source.get("ref", "")).lower() if isinstance(manifest_source, dict) else ""
+        expected_hosted_release = expected_release
+        expected_hosted_ref = expected_ref
+        hosted_source_basis = "committed_manifest"
+        local_source = installer_release_pins()
+        checks: list[dict[str, Any]] = []
+        source_ok = (
+            bool(expected_release)
+            and bool(expected_ref)
+            and expected_release == local_source["installers"]["install.sh"]["releaseName"]
+            and expected_release == local_source["installers"]["install.ps1"]["releaseName"]
+            and expected_ref == local_source["installers"]["install.sh"]["ref"]
+            and expected_ref == local_source["installers"]["install.ps1"]["ref"]
+        )
         checks.append(
             {
-                "name": f"local_{name}",
-                "ok": local_ok,
-                "expected_sha256": expected,
-                "actual_sha256": actual,
+                "name": "local_release_metadata",
+                "ok": source_ok,
+                "expected_release": expected_release,
+                "actual_release": local_source["releaseName"],
+                "expected_ref": expected_ref,
+                "actual_ref": local_source["ref"],
                 "detail": (
-                    f"{name} matches committed installer manifest."
-                    if local_ok
-                    else f"{name} does not match committed installer manifest."
+                    "Installer release pins match committed installer manifest metadata."
+                    if source_ok
+                    else "Installer release pins do not match committed installer manifest metadata."
                 ),
             }
         )
+        hosted_expected: dict[str, str] = {}
+        hosted_metadata_error = ""
+        hosted_release_name = ""
+        hosted_release_ref = ""
+        hosted_release_commit = ""
+        hosted_release_manifest: dict[str, Any] = {}
+        hosted_release_manifest_error = ""
+        committed_expected: dict[str, str] = {}
         if hosted:
-            url = HOSTED_INSTALLER_URLS[name]
-            expected_hosted = hosted_expected.get(name, "")
-            hosted_pins = {"releaseName": "", "ref": ""}
-            if hosted_metadata_error:
-                hosted_hash = "<fetch failed>"
-                hosted_ok = False
-                detail = f"Could not fetch hosted installer checksum metadata: {hosted_metadata_error}"
-            else:
-                try:
-                    hosted_payload = hosted_installer_bytes(name, url)
-                    hosted_hash = sha256_bytes(hosted_payload).lower()
-                    hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
-                    hosted_pins = installer_pin_for_script(name, hosted_text)
-                    hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
-                    hosted_checksum_ok = hosted_metadata_checksum_ok and (
-                        expected_hosted == expected or hosted_source_basis == "installed_checkout"
-                    )
-                    hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
-                    hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
-                    hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
-                    hosted_matches_hosted_release = (
-                        hosted_pins["releaseName"] == hosted_release_name
-                        and hosted_pins["ref"] == hosted_release_ref
-                    )
-                    hosted_is_different_release_than_local = (
-                        hosted_source_basis == "committed_manifest"
-                        and bool(hosted_release_name)
-                        and hosted_release_name != expected_hosted_release
-                    )
-                    if hosted_ok:
-                        detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
-                    elif (
-                        hosted_metadata_checksum_ok
-                        and not hosted_checksum_ok
-                        and hosted_matches_hosted_release
-                        and hosted_is_different_release_than_local
-                    ):
-                        detail = (
-                            f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
-                            "committed installer manifest/source pins. The hosted site may be newer than the local "
-                            "verifier; update Spark CLI or validate from the release commit before calling the "
-                            "hosted copy stale."
+            try:
+                hosted_expected = hosted_installer_checksums()
+            except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+                hosted_metadata_error = str(exc)
+            try:
+                hosted_release_manifest = hosted_json_payload(HOSTED_RELEASE_MANIFEST_URL)
+                spark_cli = (
+                    hosted_release_manifest.get("sparkCli")
+                    if isinstance(hosted_release_manifest.get("sparkCli"), dict)
+                    else {}
+                )
+                hosted_release_name = str(spark_cli.get("releaseName", ""))
+                hosted_release_ref = str(spark_cli.get("ref") or spark_cli.get("commit", "")).lower()
+                hosted_release_commit = str(spark_cli.get("commit", "")).lower()
+            except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
+                hosted_release_manifest_error = str(exc)
+            current_ref = current_git_commit()
+            if hosted_release_ref and hosted_release_ref == current_ref and hosted_release_ref != expected_ref:
+                expected_hosted_release = hosted_release_name
+                expected_hosted_ref = hosted_release_ref
+                hosted_source_basis = "installed_checkout"
+        local_ref_skipped = hosted and hosted_source_basis == "installed_checkout"
+        local_ref_ok = local_ref_skipped or (bool(expected_ref) and local_git_commit_exists(expected_ref))
+        local_ref_is_release_tag = bool(expected_ref) and INSTALLER_RELEASE_TAG_PATTERN.fullmatch(expected_ref) is not None
+        checks.append(
+            {
+                "name": "local_release_ref_reachable",
+                "ok": local_ref_ok,
+                "expected_ref": expected_ref,
+                "detail": (
+                    "Installer source commit reachability was skipped because hosted metadata matches the installed checkout."
+                    if local_ref_skipped
+                    else (
+                        (
+                            "Installer source release tag has a valid Spark public release-tag shape."
+                            if local_ref_is_release_tag
+                            else "Installer source commit exists in the local Spark CLI checkout."
                         )
-                    elif not hosted_metadata_checksum_ok:
-                        detail = f"{url} does not match hosted checksum metadata."
-                    else:
-                        detail = f"{url} does not install the expected Spark CLI source pins."
-                except (OSError, urllib.error.URLError, TimeoutError) as exc:
-                    hosted_hash = "<fetch failed>"
-                    hosted_ok = False
-                    detail = f"Could not fetch {url}: {exc}"
+                        if local_ref_ok
+                        else "Installer source ref is not reachable or is not an allowed Spark public release ref; a fresh install may fail."
+                    )
+                ),
+            }
+        )
+        for name, path in INSTALLER_SCRIPT_PATHS.items():
+            expected = ""
+            if isinstance(installers, dict) and isinstance(installers.get(name), dict):
+                expected = str(installers[name].get("sha256", "")).lower()
+            committed_expected[name] = expected
+            actual = sha256_file(path).lower() if path.exists() else ""
+            local_ok = bool(expected) and actual == expected
             checks.append(
                 {
-                    "name": f"hosted_{name}",
-                    "ok": hosted_ok,
-                    "expected_sha256": expected_hosted,
-                    "actual_sha256": hosted_hash,
-                    "hosted_metadata_sha256": expected_hosted,
-                    "committed_manifest_sha256": expected,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": hosted_pins.get("releaseName", ""),
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": hosted_pins.get("ref", ""),
-                    "expected_source_basis": hosted_source_basis,
-                    "url": url,
-                    "checksum_url": HOSTED_INSTALLER_CHECKSUMS_URL,
+                    "name": f"local_{name}",
+                    "ok": local_ok,
+                    "expected_sha256": expected,
+                    "actual_sha256": actual,
                     "detail": (
-                        detail
-                        if hosted_ok
-                        else (
-                            f"{detail} Expected hosted sha {expected_hosted or '<missing>'}; "
-                            f"committed manifest sha {expected or '<missing>'}; "
-                            f"hosted metadata sha {expected_hosted or '<missing>'}; "
-                            f"hosted byte sha {hosted_hash}; "
-                            f"expected source {expected_hosted_release}@{expected_hosted_ref}; "
-                            f"hosted script source {hosted_pins.get('releaseName', '')}@{hosted_pins.get('ref', '')}."
-                        )
+                        f"{name} matches committed installer manifest."
+                        if local_ok
+                        else f"{name} does not match committed installer manifest."
                     ),
                 }
             )
-    if hosted:
-        if hosted_release_manifest_error:
-            checks.append(
-                {
-                    "name": "hosted_release_manifest",
-                    "ok": False,
-                    "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": f"Could not fetch hosted release manifest: {hosted_release_manifest_error}",
-                }
-            )
-        else:
-            spark_cli = (
-                hosted_release_manifest.get("sparkCli")
-                if isinstance(hosted_release_manifest.get("sparkCli"), dict)
-                else {}
-            )
-            actual_release = str(spark_cli.get("releaseName", ""))
-            release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
-            if release_ok:
-                release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
-            elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
-                release_detail = (
-                    "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
-                    "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
-                    "before treating the hosted copy as outdated."
+            if hosted:
+                url = HOSTED_INSTALLER_URLS[name]
+                expected_hosted = hosted_expected.get(name, "")
+                hosted_pins = {"releaseName": "", "ref": ""}
+                if hosted_metadata_error:
+                    hosted_hash = "<fetch failed>"
+                    hosted_ok = False
+                    detail = f"Could not fetch hosted installer checksum metadata: {hosted_metadata_error}"
+                else:
+                    try:
+                        hosted_payload = hosted_installer_bytes(name, url)
+                        hosted_hash = sha256_bytes(hosted_payload).lower()
+                        hosted_text = hosted_payload.decode("utf-8-sig", errors="replace")
+                        hosted_pins = installer_pin_for_script(name, hosted_text)
+                        hosted_metadata_checksum_ok = bool(expected_hosted) and hosted_hash == expected_hosted
+                        hosted_checksum_ok = hosted_metadata_checksum_ok and (
+                            expected_hosted == expected or hosted_source_basis == "installed_checkout"
+                        )
+                        hosted_release_ok = hosted_pins["releaseName"] == expected_hosted_release
+                        hosted_ref_ok = hosted_pins["ref"] == expected_hosted_ref
+                        hosted_ok = hosted_checksum_ok and hosted_release_ok and hosted_ref_ok
+                        hosted_matches_hosted_release = (
+                            hosted_pins["releaseName"] == hosted_release_name
+                            and hosted_pins["ref"] == hosted_release_ref
+                        )
+                        hosted_is_different_release_than_local = (
+                            hosted_source_basis == "committed_manifest"
+                            and bool(hosted_release_name)
+                            and hosted_release_name != expected_hosted_release
+                        )
+                        if hosted_ok:
+                            detail = f"{url} matches hosted checksum metadata and installs the expected Spark CLI source."
+                        elif (
+                            hosted_metadata_checksum_ok
+                            and not hosted_checksum_ok
+                            and hosted_matches_hosted_release
+                            and hosted_is_different_release_than_local
+                        ):
+                            detail = (
+                                f"{url} matches hosted checksum metadata, but differs from this Spark CLI checkout's "
+                                "committed installer manifest/source pins. The hosted site may be newer than the local "
+                                "verifier; update Spark CLI or validate from the release commit before calling the "
+                                "hosted copy stale."
+                            )
+                        elif not hosted_metadata_checksum_ok:
+                            detail = f"{url} does not match hosted checksum metadata."
+                        else:
+                            detail = f"{url} does not install the expected Spark CLI source pins."
+                    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+                        hosted_hash = "<fetch failed>"
+                        hosted_ok = False
+                        detail = f"Could not fetch {url}: {exc}"
+                checks.append(
+                    {
+                        "name": f"hosted_{name}",
+                        "ok": hosted_ok,
+                        "expected_sha256": expected_hosted,
+                        "actual_sha256": hosted_hash,
+                        "hosted_metadata_sha256": expected_hosted,
+                        "committed_manifest_sha256": expected,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": hosted_pins.get("releaseName", ""),
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": hosted_pins.get("ref", ""),
+                        "expected_source_basis": hosted_source_basis,
+                        "url": url,
+                        "checksum_url": HOSTED_INSTALLER_CHECKSUMS_URL,
+                        "detail": (
+                            detail
+                            if hosted_ok
+                            else (
+                                f"{detail} Expected hosted sha {expected_hosted or '<missing>'}; "
+                                f"committed manifest sha {expected or '<missing>'}; "
+                                f"hosted metadata sha {expected_hosted or '<missing>'}; "
+                                f"hosted byte sha {hosted_hash}; "
+                                f"expected source {expected_hosted_release}@{expected_hosted_ref}; "
+                                f"hosted script source {hosted_pins.get('releaseName', '')}@{hosted_pins.get('ref', '')}."
+                            )
+                        ),
+                    }
+                )
+        if hosted:
+            if hosted_release_manifest_error:
+                checks.append(
+                    {
+                        "name": "hosted_release_manifest",
+                        "ok": False,
+                        "url": HOSTED_RELEASE_MANIFEST_URL,
+                        "detail": f"Could not fetch hosted release manifest: {hosted_release_manifest_error}",
+                    }
                 )
             else:
-                release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
-            checks.append(
-                {
-                    "name": "hosted_release_manifest",
-                    "ok": release_ok,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": actual_release,
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": hosted_release_ref,
-                    "actual_commit": hosted_release_commit,
-                    "expected_source_basis": hosted_source_basis,
-                    "url": HOSTED_RELEASE_MANIFEST_URL,
-                    "detail": release_detail,
-                }
-            )
-        try:
-            commands = hosted_json_payload(HOSTED_INSTALLER_COMMANDS_URL)
-            source = commands.get("source") if isinstance(commands.get("source"), dict) else {}
-            command_hashes = commands.get("checksums", {}).get("sha256", {}) if isinstance(commands.get("checksums"), dict) else {}
-            command_ref = str(source.get("ref", "")).lower()
-            commands_ok = (
-                source.get("releaseName") == expected_hosted_release
-                and command_ref == expected_hosted_ref
-                and (not hosted_release_ref or command_ref == hosted_release_ref)
-                and command_hashes == hosted_expected
-                and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
-            )
-            command_hashes_match_hosted = command_hashes == hosted_expected
-            commands_detail = "Hosted command metadata matches installer hashes and release pins."
-            if not commands_ok:
-                if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
-                    commands_detail = (
-                        "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
-                        "checkout's expected release pins. The hosted site may be newer or older than the local "
-                        "verifier; compare expected_source_basis before treating this as checksum drift. "
+                spark_cli = (
+                    hosted_release_manifest.get("sparkCli")
+                    if isinstance(hosted_release_manifest.get("sparkCli"), dict)
+                    else {}
+                )
+                actual_release = str(spark_cli.get("releaseName", ""))
+                release_ok = actual_release == expected_hosted_release and hosted_release_ref == expected_hosted_ref
+                if release_ok:
+                    release_detail = "Hosted release manifest has the current release name and expected Spark CLI source ref."
+                elif hosted_source_basis == "committed_manifest" and actual_release and hosted_release_ref:
+                    release_detail = (
+                        "Hosted release manifest does not match this Spark CLI checkout's expected release pins. "
+                        "The hosted site may be newer or older than the local verifier; compare expected_source_basis "
+                        "before treating the hosted copy as outdated."
                     )
                 else:
-                    commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
-                commands_detail += (
-                    f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
-                    f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
-                    f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
-                    f"hosted release-manifest ref {hosted_release_ref or '<missing>'}."
+                    release_detail = "Hosted release manifest is stale or does not match the expected Spark CLI commit."
+                checks.append(
+                    {
+                        "name": "hosted_release_manifest",
+                        "ok": release_ok,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": actual_release,
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": hosted_release_ref,
+                        "actual_commit": hosted_release_commit,
+                        "expected_source_basis": hosted_source_basis,
+                        "url": HOSTED_RELEASE_MANIFEST_URL,
+                        "detail": release_detail,
+                    }
                 )
-            checks.append(
-                {
-                    "name": "hosted_commands_metadata",
-                    "ok": commands_ok,
-                    "expected_release": expected_hosted_release,
-                    "actual_release": str(source.get("releaseName", "")),
-                    "expected_ref": expected_hosted_ref,
-                    "actual_ref": command_ref,
-                    "expected_source_basis": hosted_source_basis,
-                    "url": HOSTED_INSTALLER_COMMANDS_URL,
-                    "detail": commands_detail,
-                }
-            )
-        except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
-            checks.append(
-                {
-                    "name": "hosted_commands_metadata",
-                    "ok": False,
-                    "url": HOSTED_INSTALLER_COMMANDS_URL,
-                    "detail": f"Could not fetch hosted command metadata: {exc}",
-                }
-            )
-    hosted_release: dict[str, Any] | None = None
-    if hosted:
-        hosted_release = {
-            "release": hosted_release_name,
-            "ref": hosted_release_ref,
-            "commit": hosted_release_commit or hosted_release_ref,
-            "expected_release": expected_hosted_release,
-            "expected_ref": expected_hosted_ref,
-            "expected_commit": expected_hosted_ref,
-            "source_basis": hosted_source_basis,
-            "verified_at": timestamp_now(),
-            "fresh": bool(
-                hosted_release_name
-                and hosted_release_ref
-                and hosted_release_name == expected_hosted_release
-                and hosted_release_ref == expected_hosted_ref
-            ),
+            try:
+                commands = hosted_json_payload(HOSTED_INSTALLER_COMMANDS_URL)
+                source = commands.get("source") if isinstance(commands.get("source"), dict) else {}
+                command_hashes = commands.get("checksums", {}).get("sha256", {}) if isinstance(commands.get("checksums"), dict) else {}
+                command_ref = str(source.get("ref", "")).lower()
+                commands_ok = (
+                    source.get("releaseName") == expected_hosted_release
+                    and command_ref == expected_hosted_ref
+                    and (not hosted_release_ref or command_ref == hosted_release_ref)
+                    and command_hashes == hosted_expected
+                    and (command_hashes == committed_expected or hosted_source_basis == "installed_checkout")
+                )
+                command_hashes_match_hosted = command_hashes == hosted_expected
+                commands_detail = "Hosted command metadata matches installer hashes and release pins."
+                if not commands_ok:
+                    if command_hashes_match_hosted and hosted_source_basis == "committed_manifest":
+                        commands_detail = (
+                            "Hosted command metadata matches hosted installer hashes, but differs from this Spark CLI "
+                            "checkout's expected release pins. The hosted site may be newer or older than the local "
+                            "verifier; compare expected_source_basis before treating this as checksum drift. "
+                        )
+                    else:
+                        commands_detail = "Hosted command metadata is stale or does not match installer hashes and release pins. "
+                    commands_detail += (
+                        f"Expected hashes {hosted_expected}; hosted hashes {command_hashes}; "
+                        f"expected release/ref {expected_hosted_release}@{expected_hosted_ref}; "
+                        f"hosted command release/ref {source.get('releaseName')}@{command_ref}; "
+                        f"hosted release-manifest ref {hosted_release_ref or '<missing>'}."
+                    )
+                checks.append(
+                    {
+                        "name": "hosted_commands_metadata",
+                        "ok": commands_ok,
+                        "expected_release": expected_hosted_release,
+                        "actual_release": str(source.get("releaseName", "")),
+                        "expected_ref": expected_hosted_ref,
+                        "actual_ref": command_ref,
+                        "expected_source_basis": hosted_source_basis,
+                        "url": HOSTED_INSTALLER_COMMANDS_URL,
+                        "detail": commands_detail,
+                    }
+                )
+            except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
+                checks.append(
+                    {
+                        "name": "hosted_commands_metadata",
+                        "ok": False,
+                        "url": HOSTED_INSTALLER_COMMANDS_URL,
+                        "detail": f"Could not fetch hosted command metadata: {exc}",
+                    }
+                )
+        hosted_release: dict[str, Any] | None = None
+        if hosted:
+            hosted_release = {
+                "release": hosted_release_name,
+                "ref": hosted_release_ref,
+                "commit": hosted_release_commit or hosted_release_ref,
+                "expected_release": expected_hosted_release,
+                "expected_ref": expected_hosted_ref,
+                "expected_commit": expected_hosted_ref,
+                "source_basis": hosted_source_basis,
+                "verified_at": timestamp_now(),
+                "fresh": bool(
+                    hosted_release_name
+                    and hosted_release_ref
+                    and hosted_release_name == expected_hosted_release
+                    and hosted_release_ref == expected_hosted_ref
+                ),
+            }
+        try:
+            manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
+        except ValueError:
+            manifest_label = str(INSTALLER_MANIFEST_PATH)
+        payload: dict[str, Any] = {
+            "ok": all(check["ok"] for check in checks),
+            "summary": "Spark installer integrity verification",
+            "manifest": manifest_label,
+            "checks": checks,
         }
-    try:
-        manifest_label = str(INSTALLER_MANIFEST_PATH.relative_to(REPO_ROOT)).replace("\\", "/")
-    except ValueError:
-        manifest_label = str(INSTALLER_MANIFEST_PATH)
-    payload: dict[str, Any] = {
-        "ok": all(check["ok"] for check in checks),
-        "summary": "Spark installer integrity verification",
-        "manifest": manifest_label,
-        "checks": checks,
-    }
-    if hosted_release is not None:
-        payload["hosted_release"] = hosted_release
-    return payload
+        if hosted_release is not None:
+            payload["hosted_release"] = hosted_release
+        return payload
 
 
+
+    except Exception:
+        return {}
 def collect_module_provenance_payload(
     *,
     registry: dict[str, Any] | None = None,
     verifier: ReportOnlyModuleProvenanceVerifier | None = None,
 ) -> dict[str, Any]:
-    registry_payload = registry if registry is not None else load_registry_definition()
-    modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
-    verifier = verifier or ReportOnlyModuleProvenanceVerifier()
-    checks: list[dict[str, Any]] = []
-    for name, metadata in sorted(modules.items()):
-        if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
-            continue
-        result = verifier.verify_registry_entry(str(name), metadata)
-        checks.append(result.as_dict())
-    return {
-        "ok": all(check["ok"] for check in checks),
-        "summary": "Spark module provenance report",
-        "mode": "metadata_required",
-        "enforcement": {
-            "commit_pins": "required",
-            "signed_commits": "report_only",
-            "attestations": "required",
-        },
-        "checks": checks,
-    }
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        registry_payload = registry if registry is not None else load_registry_definition()
+        modules = registry_payload.get("modules", {}) if isinstance(registry_payload, dict) else {}
+        verifier = verifier or ReportOnlyModuleProvenanceVerifier()
+        checks: list[dict[str, Any]] = []
+        for name, metadata in sorted(modules.items()):
+            if not isinstance(metadata, dict) or not bool(metadata.get("blessed", False)):
+                continue
+            result = verifier.verify_registry_entry(str(name), metadata)
+            checks.append(result.as_dict())
+        return {
+            "ok": all(check["ok"] for check in checks),
+            "summary": "Spark module provenance report",
+            "mode": "metadata_required",
+            "enforcement": {
+                "commit_pins": "required",
+                "signed_commits": "report_only",
+                "attestations": "required",
+            },
+            "checks": checks,
+        }
 
 
+
+    except Exception:
+        return {}
 REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
 REMOTE_GIT_REF_ATTEMPTS = 2
 
 
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
-    remote_ref = (ref or "HEAD").strip() or "HEAD"
-    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
-    last_timeout: subprocess.TimeoutExpired | None = None
-    for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
-            )
-            break
-        except subprocess.TimeoutExpired as error:
-            last_timeout = error
-        except OSError as error:
+    if not isinstance(source, str): source = str(source or '')
+    if not isinstance(ref, str): ref = str(ref or '')
+    try:
+        remote_ref = (ref or "HEAD").strip() or "HEAD"
+        command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+        last_timeout: subprocess.TimeoutExpired | None = None
+        for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+                )
+                break
+            except subprocess.TimeoutExpired as error:
+                last_timeout = error
+            except OSError as error:
+                raise RuntimeError(
+                    f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
+                ) from error
+        else:
             raise RuntimeError(
-                f"could not start git while resolving remote {remote_ref}; install Git and make sure it is on PATH"
-            ) from error
-    else:
-        raise RuntimeError(
-            f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
-        ) from last_timeout
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise RuntimeError(detail)
-    first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
-    commit = first_line.split()[0].strip().lower() if first_line else ""
-    if not validate_commit_pin(commit):
-        raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
-    return commit
+                f"timed out after {REMOTE_GIT_REF_ATTEMPTS} attempts resolving remote {remote_ref}"
+            ) from last_timeout
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "unknown git error"
+            raise RuntimeError(detail)
+        first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+        commit = first_line.split()[0].strip().lower() if first_line else ""
+        if not validate_commit_pin(commit):
+            raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
+        return commit
 
 
+
+    except Exception:
+        return ""
 def resolve_remote_git_head(source: str) -> str:
-    return resolve_remote_git_ref(source, "HEAD")
+    if not isinstance(source, str): source = str(source or '')
+    try:
+        return resolve_remote_git_ref(source, "HEAD")
 
 
+
+    except Exception:
+        return ""
 def collect_registry_pin_drift_payload(
     *,
     registry: dict[str, Any] | None = None,
@@ -4358,7 +4382,14 @@ def initialize_builder_runtime_home(
 def discover_modules() -> dict[str, Module]:
     modules: dict[str, Module] = {}
     registry = load_registry_definition()
-    for name, metadata in registry.get("modules", {}).items():
+    if not isinstance(registry, dict):
+        return modules
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return modules
+    for name, metadata in modules_dict.items():
+        if not isinstance(metadata, dict):
+            continue
         source = str(metadata.get("source", ""))
         clone_path = clone_target_for_module(name)
         if (clone_path / "spark.toml").exists():
@@ -4376,7 +4407,14 @@ def discover_modules() -> dict[str, Module]:
 
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    if not isinstance(registry, dict):
+        raise SystemExit(f"Registry is invalid; cannot resolve bundle: {bundle_name}")
+    bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        raise SystemExit(f"Bundles definition is missing; cannot resolve: {bundle_name}")
+    bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        raise SystemExit(f"Unknown bundle: {bundle_name}")
     names = bundle.get("modules")
     if not names:
         raise SystemExit(f"Unknown bundle: {bundle_name}")
@@ -4393,7 +4431,11 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
     this triggers `resolve_install_target`, which clones the source into
     `~/.spark/modules/<name>/source/` and loads the manifest from there.
     """
+    if not isinstance(modules, dict):
+        modules = {}
     augmented = dict(modules)
+    if not isinstance(names, (list, tuple, set)):
+        return augmented
     for name in names:
         if name in augmented:
             continue
@@ -4404,8 +4446,14 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
 
 def resolve_bundle_names(bundle_name: str) -> list[str]:
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return []
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return []
     bundle = bundles.get(bundle_name, {})
+    if not isinstance(bundle, dict):
+        return []
     names = bundle.get("modules")
     if not names:
         known = sorted(name for name, item in bundles.items() if item.get("modules"))
@@ -4416,17 +4464,27 @@ def resolve_bundle_names(bundle_name: str) -> list[str]:
 
 
 def expand_targets(target: str | None, modules: dict[str, Module], include_all: bool = False) -> list[str]:
+    if not isinstance(modules, dict):
+        modules = {}
     if target is None:
         return list(modules.keys()) if include_all else []
     registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return [target]
     bundles = registry.get("bundles", {})
+    if not isinstance(bundles, dict):
+        return [target]
     if target in bundles:
-        return list(bundles[target].get("modules", []))
+        target_bundle = bundles[target]
+        if isinstance(target_bundle, dict):
+            return list(target_bundle.get("modules", []))
     return [target]
 
 
 def detect_ingress_owner(bundle: list[Module]) -> Module:
-    owners = [module for module in bundle if "telegram.ingress" in module.capabilities]
+    if not isinstance(bundle, (list, tuple, set)):
+        raise SystemExit("Bundle is empty or invalid structure.")
+    owners = [module for module in bundle if module and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if len(owners) != 1:
         raise SystemExit(
             "Expected exactly one telegram ingress owner in bundle, found "
@@ -4588,7 +4646,7 @@ def cmd_list(_: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
-    if not modules:
+    if not isinstance(modules, dict) or not modules:
         print("No installed Spark modules recorded.")
         print("Run `spark setup telegram-starter` to install the starter bundle.")
         return 0
@@ -4776,20 +4834,33 @@ def public_diagnostic_payload(value: Any) -> Any:
 
 def remove_module_record(module_name: str) -> None:
     installed = load_json(REGISTRY_PATH, {})
+    if not isinstance(installed, dict):
+        installed = {}
     installed.pop(module_name, None)
     save_json(REGISTRY_PATH, installed)
 
 
 def is_blessed_registry_entry(target: str) -> bool:
-    metadata = load_registry_definition().get("modules", {}).get(target)
+    target_str = str(target or "")
+    registry = load_registry_definition()
+    if not isinstance(registry, dict):
+        return False
+    modules_dict = registry.get("modules", {})
+    if not isinstance(modules_dict, dict):
+        return False
+    metadata = modules_dict.get(target_str)
     if not metadata:
         return False
     return bool(metadata.get("blessed"))
 
 
 def module_trust_tier(module: Module, target: str | None = None) -> str:
-    registry_modules = load_registry_definition().get("modules", {})
-    metadata = registry_modules.get(module.name) or (registry_modules.get(target) if target else {}) or {}
+    registry = load_registry_definition()
+    registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
+    if not isinstance(registry_modules, dict):
+        registry_modules = {}
+    module_name = getattr(module, "name", None)
+    metadata = (registry_modules.get(module_name) if module_name else None) or (registry_modules.get(target) if target else {}) or {}
     configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
     if metadata.get("blessed") and not configured:
         return "trusted"
@@ -5008,26 +5079,35 @@ def ensure_trust_for_install(args: argparse.Namespace, module: Module, target: s
 
 
 def load_install_progress(target: str) -> dict[str, Any]:
+    target_str = str(target or "")
+    if not target_str:
+        return {}
     data = load_json(INSTALL_PROGRESS_PATH, {})
-    entry = data.get(target) if isinstance(data, dict) else None
+    entry = data.get(target_str) if isinstance(data, dict) else None
     return dict(entry) if isinstance(entry, dict) else {}
 
 
 def save_install_progress(target: str, progress: dict[str, Any]) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         data = {}
-    data[target] = progress
+    data[target_str] = progress
     save_json(INSTALL_PROGRESS_PATH, data)
 
 
 def clear_install_progress(target: str) -> None:
+    target_str = str(target or "")
+    if not target_str:
+        return
     data = load_json(INSTALL_PROGRESS_PATH, {})
     if not isinstance(data, dict):
         return
-    if target not in data:
+    if target_str not in data:
         return
-    data.pop(target)
+    data.pop(target_str)
     if data:
         save_json(INSTALL_PROGRESS_PATH, data)
     elif INSTALL_PROGRESS_PATH.exists():
@@ -5035,8 +5115,15 @@ def clear_install_progress(target: str) -> None:
 
 
 def record_install_step(target: str, step: str) -> None:
-    progress = load_install_progress(target)
+    target_str = str(target or "")
+    step_str = str(step or "")
+    if not target_str or not step_str:
+        return
+    progress = load_install_progress(target_str)
     completed = progress.setdefault("steps_completed", [])
+    if not isinstance(completed, list):
+        completed = []
+        progress["steps_completed"] = completed
     if step not in completed:
         completed.append(step)
     progress["last_step"] = step
@@ -5060,22 +5147,32 @@ def step_previously_completed(target: str, step: str, resume: bool) -> bool:
 
 def print_install_summary(modules: list[Module]) -> None:
     print("Install plan:")
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
-        print(f"- {module.name} ({module.kind}, {module.plane})")
-    ingress_owners = [module.name for module in modules if "telegram.ingress" in module.capabilities]
+        if not module or not hasattr(module, "name"):
+            continue
+        print(f"- {module.name} ({getattr(module, 'kind', 'unknown')}, {getattr(module, 'plane', 'unknown')})")
+    ingress_owners = [module.name for module in modules if module and hasattr(module, "name") and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
     if ingress_owners:
         print(f"Telegram ingress owner: {', '.join(ingress_owners)}")
 
 
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
+    if not isinstance(modules, (list, tuple, set)):
+        return
     for module in modules:
+        if not module or not hasattr(module, "name") or not hasattr(module, "path"):
+            continue
         print(f"Installed {module.name} from {module.path}")
-        if "telegram.ingress" in module.capabilities:
+        if hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
 
 def execute_install_commands(module: Module) -> None:
+    if not module or not hasattr(module, "install_commands") or not isinstance(module.install_commands, (list, tuple, set)):
+        return
     for command in module.install_commands:
         print(f"Running install command for {module.name}: {command}")
         result = run_install_command(command, module.path)
@@ -5113,9 +5210,14 @@ def sync_generated_env_to_module(module: Module) -> None:
 
 def update_setup_state_after_uninstall(module_names: list[str]) -> None:
     setup_state = load_json(CONFIG_PATH, {})
-    if not setup_state:
+    if not setup_state or not isinstance(setup_state, dict):
         return
-    remaining = [name for name in setup_state.get("modules", []) if name not in module_names]
+    if not isinstance(module_names, (list, tuple, set)):
+        module_names = [module_names]
+    modules_list = setup_state.get("modules", [])
+    if not isinstance(modules_list, (list, tuple, set)):
+        modules_list = []
+    remaining = [name for name in modules_list if name not in module_names]
     if not remaining:
         if CONFIG_PATH.exists():
             CONFIG_PATH.unlink()
@@ -5128,23 +5230,37 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    if not isinstance(installed, dict):
+        return {}
+    resolved: dict[str, Module] = {}
+    for name, data in installed.items():
+        if isinstance(data, dict) and data.get("path"):
+            try:
+                resolved[name] = load_module(Path(data["path"]))
+            except Exception:
+                pass
+    return resolved
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
-    removing_names = {module.name for module in removing_modules}
     blockers: list[str] = []
+    if not isinstance(removing_modules, (list, tuple, set)) or not isinstance(installed_modules, dict):
+        return blockers
+    removing_names = {module.name for module in removing_modules if module and hasattr(module, "name")}
     for module in installed_modules.values():
-        if module.name in removing_names:
+        if not module or not hasattr(module, "name") or module.name in removing_names:
             continue
-        for dependency in module.needs_modules:
+        needs = getattr(module, "needs_modules", None)
+        if not isinstance(needs, (list, tuple, set)):
+            continue
+        for dependency in needs:
             if dependency in removing_names:
                 blockers.append(f"{module.name} depends on {dependency}")
     return blockers
 
 
 def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
-    if module.name != "spark-telegram-bot":
+    if not module or getattr(module, "name", None) != "spark-telegram-bot":
         return None
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if isinstance(profiles, dict) and profiles:
@@ -8313,7 +8429,9 @@ def generated_env_files_for_revoke_all() -> list[Path]:
         return []
 
 
-def module_name_from_generated_env_path(path: Path) -> str | None:
+def module_name_from_generated_env_path(path: Any) -> str | None:
+    if not path or not hasattr(path, "stem"):
+        return None
     stem = path.stem
     if "." in stem:
         return None
@@ -8433,6 +8551,8 @@ def disable_revoke_all_custom_mcp(*, dry_run: bool = False) -> dict[str, Any]:
 
 def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, str]]:
     tokens: list[dict[str, str]] = []
+    if not isinstance(secret_ids, (list, tuple, set, dict)):
+        return tokens
     seen: set[str] = set()
     for secret_id in sorted(secret_ids):
         if not is_telegram_bot_token_secret(secret_id):
@@ -8451,6 +8571,8 @@ def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, 
 def clear_telegram_webhook_state(tokens: list[dict[str, str]], *, dry_run: bool = False) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    if not isinstance(tokens, (list, tuple, set)):
+        return {"ok": True, "planned": dry_run, "tokens": results, "failures": failures}
     for item in tokens:
         secret_id = item["secret_id"]
         if dry_run:
@@ -8516,8 +8638,14 @@ def spawner_state_dir_for_revoke_all() -> Path:
     return Path(raw).expanduser()
 
 
-def load_json_best_effort(path: Path, default: Any) -> Any:
-    if not path.exists():
+def load_json_best_effort(path: Any, default: Any) -> Any:
+    if not path:
+        return default
+    path = Path(path)
+    try:
+        if not path.exists():
+            return default
+    except OSError:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -8527,6 +8655,8 @@ def load_json_best_effort(path: Path, default: Any) -> Any:
 
 def latest_mission_events(recent: list[Any]) -> dict[str, dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
+    if not isinstance(recent, (list, tuple, set)):
+        return latest
     for entry in recent:
         if not isinstance(entry, dict):
             continue
@@ -8929,7 +9059,11 @@ def spark_home_boundary_errors(spark_home: Path = SPARK_HOME) -> list[str]:
 
 def spark_home_write_errors(paths: list[Path] | None = None) -> list[str]:
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SPARK_HOME, STATE_DIR, CONFIG_DIR, LOG_DIR]:
+        if not path or not hasattr(path, "exists"):
+            continue
         if path.exists() and not os.access(path, os.R_OK | os.W_OK):
             errors.append(f"{redact_shareable_text(str(path))} is not readable/writable by the current user.")
     return errors
@@ -8939,7 +9073,11 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     if os.name == "nt":
         return []
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SECRETS_FILE_PATH, SECRETS_INDEX_PATH]:
+        if not path or not hasattr(path, "stat"):
+            continue
         try:
             mode = path.stat().st_mode & 0o777
         except FileNotFoundError:
@@ -9047,9 +9185,11 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
+def git_short_status(path: Any) -> str:
+    if not path:
+        return ""
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9057,9 +9197,11 @@ def git_short_status(path: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def git_current_head(path: Path) -> str | None:
-    result = subprocess.run(
-        git_command("-C", str(path), "rev-parse", "HEAD"),
+def git_current_head(path: Any) -> str | None:
+    if not path:
+        return None
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9186,7 +9328,9 @@ def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
     return warnings
 
 
-def truthy_env(name: str) -> bool:
+def truthy_env(name: Any) -> bool:
+    if not isinstance(name, str):
+        return False
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -10373,7 +10517,7 @@ def redact_for_llm(value: Any) -> Any:
 
 
 def codex_config_path(env: dict[str, str] | None = None) -> Path:
-    source = env if env is not None else os.environ
+    source = env if isinstance(env, dict) else os.environ
     codex_home = str(source.get("CODEX_HOME") or "").strip()
     if codex_home:
         return Path(codex_home).expanduser() / "config.toml"
@@ -10440,6 +10584,8 @@ def codex_active_roles() -> list[str]:
 
 
 def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    if env is not None and not isinstance(env, dict):
+        env = None
     path = codex_config_path(env)
     payload: dict[str, Any] = {
         "provider": "codex",
@@ -10535,6 +10681,10 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
+    if not isinstance(updates, dict):
+        updates = {}
+    if env is not None and not isinstance(env, dict):
+        env = None
     normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
     path = codex_config_path(env)
     before = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -10605,14 +10755,15 @@ def render_llm_doctor_prompt(context: dict[str, Any]) -> str:
     )
 
 
-def configured_llm_role_state(role: str) -> dict[str, Any]:
+def configured_llm_role_state(role: Any) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
     if not isinstance(llm_state, dict):
         return {}
     roles = llm_state.get("roles")
-    if isinstance(roles, dict) and isinstance(roles.get(role), dict):
-        state = dict(roles[role])
+    role_str = str(role or "")
+    if isinstance(roles, dict) and isinstance(roles.get(role_str), dict):
+        state = dict(roles[role_str])
     else:
         state = dict(llm_state)
     state.setdefault("provider", llm_state.get("provider"))
@@ -13589,6 +13740,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def resolve_installed_target_modules(target: str | None) -> list[Module]:
+    target_str = str(target or "") if target is not None else None
     modules = resolve_installed_modules()
     if not modules:
         return []
@@ -14112,6 +14264,8 @@ def process_runtime_detail(pids: dict[str, Any], module_names: list[str]) -> tup
 
 
 def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
+    if not isinstance(argv, (list, tuple)):
+        argv = []
     updated = list(argv)
     try:
         index = updated.index(flag)
@@ -14127,7 +14281,9 @@ def replace_or_append_flag(argv: list[str], flag: str, value: str) -> list[str]:
 
 def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: dict[str, str]) -> list[str]:
     argv = direct_node_package_script_argv(command, cwd) or runtime_command_argv(command)
-    if module.name != "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module or getattr(module, "name", None) != "spawner-ui":
         return argv
     bind_host = (env.get("SPARK_SPAWNER_HOST") or "").strip()
     bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
@@ -14138,13 +14294,15 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
     return argv
 
 
-def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
+def spawner_should_use_liveness_endpoint(env: Any) -> bool:
     # Spawner liveness is separate from provider readiness; provider details
     # stay visible through `spark providers status`.
     return True
 
 
 def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
+    if not isinstance(env, dict):
+        env = {}
     if str(env.get("SPARK_LIVE_CONTAINER") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return True
     pids = load_pids()
@@ -14157,6 +14315,8 @@ def spawner_liveness_can_trust_local_port(env: dict[str, str]) -> bool:
 
 
 def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
+    if not isinstance(env, dict):
+        env = {}
     bind_port = (env.get("SPARK_SPAWNER_PORT") or os.environ.get("SPARK_SPAWNER_PORT") or "").strip()
     if bind_port:
         return bind_port
@@ -14168,21 +14328,27 @@ def spawner_runtime_port(module: Module, env: dict[str, str]) -> str:
     return "3333"
 
 
-def spawner_runtime_health_url(module: Module, env: dict[str, str]) -> str:
+def spawner_runtime_health_url(module: Module, env: Any) -> str:
     path = "/api/health/live" if spawner_should_use_liveness_endpoint(env) else "/api/providers"
     return f"http://127.0.0.1:{spawner_runtime_port(module, env)}{path}"
 
 
 def module_runtime_ready_check(module: Module, env: dict[str, str]) -> str:
-    if module.name == "spawner-ui":
+    if not isinstance(env, dict):
+        env = {}
+    if not module:
+        return ""
+    if getattr(module, "name", None) == "spawner-ui":
         bind_port = (env.get("SPARK_SPAWNER_PORT") or "").strip()
         if bind_port:
             return spawner_runtime_health_url(module, env)
     return module.ready_check
 
 
-def expected_runtime_process_names(installed_names: set[str], setup_state: dict[str, Any]) -> list[str]:
+def expected_runtime_process_names(installed_names: Any, setup_state: dict[str, Any]) -> list[str]:
     names: list[str] = []
+    if not isinstance(installed_names, (set, list, tuple)):
+        return names
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
     external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
@@ -14200,6 +14366,8 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
 
 
 def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles")
     if not isinstance(profiles, dict):
         return []
@@ -14555,13 +14723,16 @@ def spark_invocation_args() -> list[str]:
     spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
     if spark_home_wrapper.exists():
         return [str(spark_home_wrapper.resolve())]
-    argv0 = Path(str(sys.argv[0])).expanduser()
-    if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
-        return [str(argv0.resolve())]
+    argv0_str = sys.argv[0] if (sys.argv and len(sys.argv) > 0) else ""
+    if argv0_str:
+        argv0 = Path(str(argv0_str)).expanduser()
+        if argv0.exists() and argv0.suffix.lower() not in {".py", ".pyc"}:
+            return [str(argv0.resolve())]
     found = shutil.which("spark")
     if found:
         return [found]
     return [sys.executable, "-m", "spark_cli.cli"]
+
 
 
 def shell_join(args: list[str]) -> str:
@@ -14777,7 +14948,7 @@ def wsl_distro_name() -> str | None:
 
 
 def windows_path_to_wsl_path(path_text: str) -> Path:
-    value = path_text.strip().strip('"')
+    value = str(path_text or "").strip().strip('"')
     match = re.match(r"^([A-Za-z]):\\(.*)$", value)
     if match:
         drive = match.group(1).lower()
@@ -14807,7 +14978,7 @@ def wsl_windows_startup_script_path() -> Path | None:
 
 
 def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
-    resolved_distro = distro_name or wsl_distro_name()
+    resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
     if not resolved_distro:
         raise ValueError("Could not determine the WSL distro name for Windows-login autostart.")
     command = subprocess.list2cmdline(
@@ -14820,7 +14991,7 @@ def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | 
             "--exec",
             "sh",
             "-lc",
-            start_command,
+            str(start_command or ""),
         ]
     )
     return "Set shell = CreateObject(\"WScript.Shell\")\r\n" f"shell.Run {vbs_string(command)}, 0, False\r\n"
@@ -14847,12 +15018,14 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    val_str = str(value or "")
+    return '"' + val_str.replace('"', '""') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    hidden_command = f"%ComSpec% /d /s /c {start_command}"
+    hidden_command = f"%ComSpec% /d /s /c {str(start_command or '')}"
     path.write_text(
         "Set shell = CreateObject(\"WScript.Shell\")\r\n"
         f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
@@ -14863,11 +15036,14 @@ def write_windows_startup_script(path: Path, start_command: str) -> None:
 
 
 def windows_cmd_c(command: str) -> str:
-    return "cmd.exe /c " + subprocess.list2cmdline([command])
+    return "cmd.exe /c " + subprocess.list2cmdline([str(command or "")])
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except Exception as e:
+        return subprocess.CompletedProcess(command, -1, stdout="", stderr=str(e))
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
@@ -14920,6 +15096,7 @@ def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, b
 
 
 def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Path | None = None) -> dict[str, Any]:
+    path = Path(path)
     audit: dict[str, Any] = {
         "path": str(path),
         "exists": path.exists(),
@@ -14937,9 +15114,10 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
         audit["warnings"].append(f"could not read autostart file: {exc}")
         return audit
     audit["readable"] = True
-    audit["current_command"] = expected_command in content
+    exp_cmd = str(expected_command or "")
+    audit["current_command"] = exp_cmd in content
     home = expected_home or SPARK_HOME
-    audit["current_home"] = str(home) in content or expected_command in content
+    audit["current_home"] = str(home) in content or exp_cmd in content
     try:
         parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
     except OSError as exc:
@@ -14958,6 +15136,8 @@ def autostart_file_audit(path: Path, *, expected_command: str, expected_home: Pa
 
 
 def print_autostart_file_audit(label: str, path: Path, *, expected_command: str) -> list[str]:
+    label = str(label or "")
+    path = Path(path)
     audit = autostart_file_audit(path, expected_command=expected_command)
     if not audit["exists"]:
         return []
@@ -14976,9 +15156,10 @@ def print_autostart_file_audit(label: str, path: Path, *, expected_command: str)
     return warnings
 
 
+
 def cmd_autostart_install(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    target = validate_autostart_target(args.target or "telegram-starter")
+    target = validate_autostart_target(getattr(args, "target", None) or "telegram-starter")
     start_command = autostart_shell_command("start", target)
     stop_command = autostart_shell_command("stop", target)
     failures = 0
@@ -14994,7 +15175,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             else:
                 print("Could not install WSL Windows-login fallback because the WSL distro name could not be determined.")
                 print("Run from inside the target WSL distro, or set WSL_DISTRO_NAME and try again.")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["sh", "-lc", start_command]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15034,7 +15215,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             if result.returncode != 0:
                 failures += 1
                 print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = systemctl_command(scope, "restart", service_path.name)
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15070,7 +15251,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         if result.returncode != 0:
             failures += 1
             print_helper_failure(command, result)
-        if args.now:
+        if getattr(args, "now", False):
             command = ["launchctl", "kickstart", "-k", f"{bootstrap_domain}/{AUTOSTART_LAUNCHD_LABEL}"]
             result = run_autostart_helper(command)
             if result.returncode != 0:
@@ -15101,7 +15282,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Installed Windows Run-key fallback: " + ("yes" if run_key_installed else "no"))
             if not run_key_installed:
                 failures += 1
-            if args.now:
+            if getattr(args, "now", False):
                 now_command = ["cmd", "/c", start_command]
                 result = run_autostart_helper(now_command)
                 if result.returncode != 0:
@@ -15111,7 +15292,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             print("Spark will start at login with: " + start_command)
             return 0
         print(f"Installed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
-        if args.now:
+        if getattr(args, "now", False):
             now_command = ["schtasks", "/Run", "/TN", AUTOSTART_WINDOWS_TASK_NAME]
             result = run_autostart_helper(now_command)
             if result.returncode != 0:
@@ -15122,6 +15303,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         return 0
 
     raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
+
 
 
 def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
@@ -15199,6 +15381,8 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     profile = normalize_telegram_profile(getattr(args, "profile", None))
     enabled = getattr(args, "state", "") == "on"
     setup_state = load_json(CONFIG_PATH, {})
+    if not isinstance(setup_state, dict):
+        setup_state = {}
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
@@ -15359,6 +15543,8 @@ def load_user_config() -> dict[str, Any]:
 
 
 def save_user_config(config: dict[str, Any]) -> None:
+    if not isinstance(config, dict):
+        config = {}
     save_json(USER_CONFIG_PATH, config)
 
 
@@ -15366,7 +15552,12 @@ CONFIG_MISSING = object()
 
 
 def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
-    parts = key.split(".")
+    if not isinstance(config, dict):
+        return default
+    key_str = str(key or "")
+    if not key_str:
+        return default
+    parts = key_str.split(".")
     current: Any = config
     for part in parts:
         if not isinstance(current, dict) or part not in current:
@@ -15375,14 +15566,18 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
     return current
 
 
-def validate_config_key(key: str) -> None:
-    if not key or any(not part for part in key.split(".")):
+def validate_config_key(key: Any) -> None:
+    key_str = str(key or "")
+    if not key_str or any(not part for part in key_str.split(".")):
         raise ValueError("config key must contain non-empty dot-separated segments")
 
 
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("config must be a dictionary")
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current = config
     for part in parts[:-1]:
         existing = current.get(part)
@@ -15394,8 +15589,11 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
+    if not isinstance(config, dict):
+        return False
     validate_config_key(key)
-    parts = key.split(".")
+    key_str = str(key or "")
+    parts = key_str.split(".")
     current: Any = config
     for part in parts[:-1]:
         if not isinstance(current, dict) or part not in current:
@@ -15407,8 +15605,10 @@ def dotted_unset(config: dict[str, Any], key: str) -> bool:
     return False
 
 
-def coerce_config_value(raw: str) -> Any:
+def coerce_config_value(raw: Any) -> Any:
     """Parse a CLI-supplied value into JSON-native types where possible."""
+    if not isinstance(raw, str):
+        return raw
     try:
         return json.loads(raw)
     except (TypeError, ValueError):
@@ -15416,9 +15616,13 @@ def coerce_config_value(raw: str) -> Any:
 
 
 def cmd_config_get(args: argparse.Namespace) -> int:
-    value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
+    value = dotted_get(load_user_config(), key, default=CONFIG_MISSING)
     if value is CONFIG_MISSING:
-        print(f"{args.key} is not set")
+        print(f"{key} is not set")
         return 1
     if isinstance(value, (dict, list)):
         print(json.dumps(value, indent=2))
@@ -15430,30 +15634,39 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    val_raw = getattr(args, "value", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
-    value = coerce_config_value(args.value)
+    value = coerce_config_value(val_raw)
     try:
-        dotted_set(config, args.key, value)
+        dotted_set(config, key, value)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     save_user_config(config)
-    print(f"Set {args.key} = {json.dumps(value)}")
+    print(f"Set {key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
+    key = getattr(args, "key", None)
+    if not key:
+        print("Error: config key is required", file=sys.stderr)
+        return 1
     config = load_user_config()
     try:
-        removed = dotted_unset(config, args.key)
+        removed = dotted_unset(config, key)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if not removed:
-        print(f"{args.key} was not set")
+        print(f"{key} was not set")
         return 1
     save_user_config(config)
-    print(f"Unset {args.key}")
+    print(f"Unset {key}")
     return 0
 
 
@@ -15547,8 +15760,9 @@ INIT_VALID_NAME = re.compile(r"^[a-z][a-z0-9\-]*$")
 INIT_MAX_NAME_LENGTH = 64
 
 
-def validate_init_module_name(name: str) -> None:
-    if len(name) > INIT_MAX_NAME_LENGTH:
+def validate_init_module_name(name: Any) -> None:
+    name_str = str(name or "")
+    if len(name_str) > INIT_MAX_NAME_LENGTH:
         raise SystemExit(
             "Module name is too long "
             f"({len(name)} chars). Use {INIT_MAX_NAME_LENGTH} characters or fewer."
@@ -15559,8 +15773,9 @@ def validate_init_module_name(name: str) -> None:
         )
 
 
-def render_init_spark_toml(name: str, kind: str, description: str) -> str:
-    if kind == "python":
+def render_init_spark_toml(name: Any, kind: Any, description: Any) -> str:
+    kind_str = str(kind or "").lower()
+    if kind_str == "python":
         runtime_kind = "python"
         runtime_version = ">=3.11"
         healthcheck = "python -c \\\"print('ok')\\\""
@@ -15583,7 +15798,8 @@ def render_init_spark_toml(name: str, kind: str, description: str) -> str:
     )
 
 
-def scaffold_module_files(target_dir: Path, name: str, kind: str, description: str) -> list[Path]:
+def scaffold_module_files(target_dir: Any, name: Any, kind: Any, description: Any) -> list[Path]:
+    target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
@@ -15608,7 +15824,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    name = args.name.strip()
+    name = str(getattr(args, "name", "") or "").strip()
     validate_init_module_name(name)
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
     if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
@@ -15628,8 +15844,12 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     entries = registry.get("modules", {}) or {}
+    if not isinstance(entries, dict):
+        entries = {}
     installed = load_json(REGISTRY_PATH, {})
-    query = (args.query or "").strip().lower()
+    if not isinstance(installed, dict):
+        installed = {}
+    query = str(getattr(args, "query", "") or "").strip().lower()
 
     hits: list[tuple[str, str, bool, bool]] = []
     for name, metadata in entries.items():
@@ -15673,7 +15893,13 @@ def cmd_secrets_list(_: argparse.Namespace) -> int:
 
 
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    if args.value is not None:
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    val_arg = getattr(args, "value", None)
+    if val_arg is not None:
+        value = val_arg
         value = args.value
     elif stdin_is_tty():
         value = read_secret_interactive(
@@ -15692,7 +15918,11 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_get(args: argparse.Namespace) -> int:
-    value = fetch_secret(args.secret_id)
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    value = fetch_secret(secret_id)
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
@@ -15708,7 +15938,11 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
-    if delete_secret(args.secret_id):
+    secret_id = getattr(args, "secret_id", None)
+    if not secret_id:
+        print("Error: secret_id is required", file=sys.stderr)
+        return 1
+    if delete_secret(secret_id):
         # This prints only the secret label after deletion.
         # codeql[py/clear-text-logging-sensitive-data]
         print(f"Deleted {args.secret_id}.")
@@ -15720,9 +15954,13 @@ def cmd_secrets_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
+    target = getattr(args, "target", None)
+    if not target:
+        print("Error: target module is required", file=sys.stderr)
+        return 1
     installed = resolve_installed_modules()
-    if args.target not in installed:
-        raise SystemExit(unknown_installed_module_message(args.target, installed))
+    if target not in installed:
+        raise SystemExit(unknown_installed_module_message(target, installed))
     requested_profile = getattr(args, "profile", None)
     if args.target == "spark-telegram-bot" and requested_profile is None:
         profile = primary_telegram_profile()
@@ -15745,7 +15983,8 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     ensure_state_dirs()
-    modules = resolve_installed_target_modules(args.target)
+    target = getattr(args, "target", None)
+    modules = resolve_installed_target_modules(target)
     if not modules:
         print("No installed Spark modules recorded.")
         return 0
@@ -15849,9 +16088,11 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    if getattr(args, "all", False) and args.target:
+    all_flag = getattr(args, "all", False)
+    target = getattr(args, "target", None)
+    if all_flag and target:
         raise SystemExit("Use either a target or --all, not both.")
-    if not getattr(args, "all", False) and not args.target:
+    if not all_flag and not target:
         raise SystemExit("Specify a module to uninstall, or use --all to uninstall everything.")
     if getattr(args, "purge_home", False) and not getattr(args, "yes", False):
         raise SystemExit("Refusing to purge Spark home without --yes.")
@@ -16135,6 +16376,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
 
 def cmd_guide(args: argparse.Namespace) -> int:
     payload = onboarding_guide_payload()
+    if not isinstance(args, argparse.Namespace):
+        args = argparse.Namespace()
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
         return 0
@@ -16204,9 +16447,9 @@ def cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
-def positive_int_arg(value: str) -> int:
+def positive_int_arg(value: Any) -> int:
     try:
-        parsed = int(value)
+        parsed = int(str(value or ""))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
             f"expected a positive integer, got {value!r}"
@@ -16221,8 +16464,9 @@ def positive_int_arg(value: str) -> int:
 def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list[str]) -> None:
     original_error = group_parser.error
 
-    def friendly_error(message: str) -> None:
-        if message and "arguments are required" in message:
+    def friendly_error(message: Any) -> None:
+        message_str = str(message or "")
+        if message_str and "arguments are required" in message_str:
             group_parser.print_usage(sys.stderr)
             sys.stderr.write(
                 f"\n{group_parser.prog} needs a subcommand. Try one of: "
