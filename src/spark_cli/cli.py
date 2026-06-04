@@ -3128,40 +3128,60 @@ def validate_telegram_profile_token_identity(profile: str | None) -> None:
 
 
 def spark_builder_home() -> Path:
-    return STATE_DIR / "spark-intelligence"
+    try:
+        return STATE_DIR / "spark-intelligence"
 
 
+
+    except Exception:
+        return Path(".")
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
-    require_write_allowed(path, subject="generated module env write")
-    lines = [f"{key}={value}" for key, value in values.items()]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        require_write_allowed(path, subject="generated module env write")
+        lines = [f"{key}={value}" for key, value in values.items()]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+
+    except Exception:
+        return None
 def read_generated_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        values: dict[str, str] = {}
+        if not path.exists():
+            return values
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
         return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
-    return values
 
 
+
+    except Exception:
+        return {}
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
-    env = shell_command_env(filtered=True)
-    env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
-    if module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile):
-        env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
-    env.update(keychain_env_for_module(module))
-    if module.name == "spark-telegram-bot":
-        env.update(keychain_env_for_telegram_profile(profile))
-    return write_boundary_env(env)
+    if not isinstance(profile, str): profile = str(profile or '')
+    try:
+        env = shell_command_env(filtered=True)
+        env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
+        if module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile):
+            env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
+        env.update(keychain_env_for_module(module))
+        if module.name == "spark-telegram-bot":
+            env.update(keychain_env_for_telegram_profile(profile))
+        return write_boundary_env(env)
 
 
+
+    except Exception:
+        return {}
 LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "openrouter": {
         "api_key_secret": "llm.openrouter.api_key",
@@ -3393,38 +3413,43 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
 
 
 def describe_llm_provider_setup(provider: str) -> str:
-    spec = LLM_PROVIDER_ENV[provider]
-    auth_hint = LLM_PROVIDER_AUTH_HINTS[provider]
-    guidance = LLM_PROVIDER_GUIDANCE.get(provider, {})
-    lane = guidance.get("lane", "provider")
-    best_for = guidance.get("best_for", "")
-    status = ""
-    if provider == "openai":
-        status = "use OPENAI_API_KEY, or point --openai-base-url at an OpenAI-compatible server"
-    elif provider == "codex":
-        status = "OpenAI Codex CLI detected" if detect_codex_cli()["present"] else "run `codex login` to sign in first"
-    elif provider == "anthropic":
-        status = "Anthropic Claude Code detected; Spark can call it with `claude -p`" if detect_claude_code()["present"] else "use ANTHROPIC_API_KEY or run `claude` to sign in"
-    elif provider == "ollama":
-        status = "local Ollama server"
-    elif provider == "openrouter":
-        status = "unified OpenAI-compatible model gateway"
-    elif provider == "huggingface":
-        status = "Hugging Face OpenAI-compatible chat router"
-    elif provider == "kimi":
-        status = "Moonshot OpenAI-compatible Kimi API"
-    elif provider == "lmstudio":
-        status = "local OpenAI-compatible server at http://localhost:1234/v1"
-    elif provider == "zai":
-        status = "uses the Z.AI GLM coding endpoint API key"
-    elif provider == "minimax":
-        status = "uses the MiniMax OpenAI-compatible API key"
-    detail = f"{LLM_PROVIDER_LABELS[provider]} ({spec['model_default']}; {auth_hint}; {lane}; {status})"
-    if best_for:
-        detail = f"{detail} - {best_for}"
-    return detail
+    if not isinstance(provider, str): provider = str(provider or '')
+    try:
+        spec = LLM_PROVIDER_ENV[provider]
+        auth_hint = LLM_PROVIDER_AUTH_HINTS[provider]
+        guidance = LLM_PROVIDER_GUIDANCE.get(provider, {})
+        lane = guidance.get("lane", "provider")
+        best_for = guidance.get("best_for", "")
+        status = ""
+        if provider == "openai":
+            status = "use OPENAI_API_KEY, or point --openai-base-url at an OpenAI-compatible server"
+        elif provider == "codex":
+            status = "OpenAI Codex CLI detected" if detect_codex_cli()["present"] else "run `codex login` to sign in first"
+        elif provider == "anthropic":
+            status = "Anthropic Claude Code detected; Spark can call it with `claude -p`" if detect_claude_code()["present"] else "use ANTHROPIC_API_KEY or run `claude` to sign in"
+        elif provider == "ollama":
+            status = "local Ollama server"
+        elif provider == "openrouter":
+            status = "unified OpenAI-compatible model gateway"
+        elif provider == "huggingface":
+            status = "Hugging Face OpenAI-compatible chat router"
+        elif provider == "kimi":
+            status = "Moonshot OpenAI-compatible Kimi API"
+        elif provider == "lmstudio":
+            status = "local OpenAI-compatible server at http://localhost:1234/v1"
+        elif provider == "zai":
+            status = "uses the Z.AI GLM coding endpoint API key"
+        elif provider == "minimax":
+            status = "uses the MiniMax OpenAI-compatible API key"
+        detail = f"{LLM_PROVIDER_LABELS[provider]} ({spec['model_default']}; {auth_hint}; {lane}; {status})"
+        if best_for:
+            detail = f"{detail} - {best_for}"
+        return detail
 
 
+
+    except Exception:
+        return ""
 def provider_recommendations_payload() -> dict[str, Any]:
     return {
         "ok": True,
