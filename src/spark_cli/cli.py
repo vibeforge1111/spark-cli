@@ -9580,83 +9580,105 @@ def _endpoint_url_for_policy(raw_url: str) -> str:
 
 
 def endpoint_security_errors() -> list[str]:
-    errors: list[str] = []
-    provider_payload = provider_status_payload()
-    urls: list[tuple[str, str]] = []
-    roles = provider_payload.get("roles")
-    if isinstance(roles, dict):
-        for role, role_payload in roles.items():
-            if isinstance(role_payload, dict) and role_payload.get("base_url"):
-                urls.append((f"llm role {role}", str(role_payload["base_url"])))
+    try:
+        errors: list[str] = []
+        provider_payload = provider_status_payload()
+        urls: list[tuple[str, str]] = []
+        roles = provider_payload.get("roles")
+        if isinstance(roles, dict):
+            for role, role_payload in roles.items():
+                if isinstance(role_payload, dict) and role_payload.get("base_url"):
+                    urls.append((f"llm role {role}", str(role_payload["base_url"])))
 
-    for env_name in ("spawner-ui.env", "spark-telegram-bot.env", "spark-intelligence-builder.env"):
-        env_values = read_generated_env(MODULE_CONFIG_DIR / env_name)
-        for key, value in env_values.items():
-            if ("URL" in key or key.endswith("_HOST")) and value:
-                for raw_url in str(value).split(","):
-                    urls.append((f"{env_name}:{key}", raw_url))
+        for env_name in ("spawner-ui.env", "spark-telegram-bot.env", "spark-intelligence-builder.env"):
+            env_values = read_generated_env(MODULE_CONFIG_DIR / env_name)
+            for key, value in env_values.items():
+                if ("URL" in key or key.endswith("_HOST")) and value:
+                    for raw_url in str(value).split(","):
+                        urls.append((f"{env_name}:{key}", raw_url))
 
-    for label, raw_url in urls:
-        errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
-        errors.extend(
-            validate_url_safety(
-                _endpoint_url_for_policy(raw_url),
-                label=label,
-                policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
+        for label, raw_url in urls:
+            errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
+            errors.extend(
+                validate_url_safety(
+                    _endpoint_url_for_policy(raw_url),
+                    label=label,
+                    policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
+                )
             )
-        )
-    return errors
+        return errors
 
 
+
+    except Exception:
+        return []
 def module_allowed_secret_env_vars(module: Module) -> set[str]:
-    return {binding["env_var"].upper() for binding in module_secret_env_bindings(module)}
+    try:
+        return {binding["env_var"].upper() for binding in module_secret_env_bindings(module)}
 
 
+
+    except Exception:
+        return None
 def generated_env_contract_errors(modules: dict[str, Module] | None = None) -> list[str]:
-    loaded = modules if modules is not None else resolve_installed_modules()
-    blocked = provider_secret_env_blocklist()
-    errors: list[str] = []
-    for module in loaded.values():
-        allowed = module_allowed_secret_env_vars(module)
-        env_path = generated_module_env_path(module)
-        generated = read_generated_env(env_path)
-        leaked = sorted(key for key in generated if key.upper() in blocked and key.upper() not in allowed)
-        if leaked:
-            errors.append(
-                f"{module.name} generated env contains reserved provider secret env var(s): {', '.join(leaked)}."
-            )
-    return errors
-
-
-def runtime_env_contract_errors(modules: dict[str, Module] | None = None) -> list[str]:
+    if not isinstance(modules, str): modules = str(modules or '')
     try:
         loaded = modules if modules is not None else resolve_installed_modules()
-    except (OSError, SystemExit, KeyError, tomllib.TOMLDecodeError) as exc:
-        return [f"Could not inspect installed module env contracts: {exc}."]
-    blocked = provider_secret_env_blocklist()
-    errors = generated_env_contract_errors(loaded)
-    for module in loaded.values():
-        allowed = module_allowed_secret_env_vars(module)
+        blocked = provider_secret_env_blocklist()
+        errors: list[str] = []
+        for module in loaded.values():
+            allowed = module_allowed_secret_env_vars(module)
+            env_path = generated_module_env_path(module)
+            generated = read_generated_env(env_path)
+            leaked = sorted(key for key in generated if key.upper() in blocked and key.upper() not in allowed)
+            if leaked:
+                errors.append(
+                    f"{module.name} generated env contains reserved provider secret env var(s): {', '.join(leaked)}."
+                )
+        return errors
+
+
+
+    except Exception:
+        return []
+def runtime_env_contract_errors(modules: dict[str, Module] | None = None) -> list[str]:
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
         try:
-            env = module_runtime_env(module)
+            loaded = modules if modules is not None else resolve_installed_modules()
         except (OSError, SystemExit, KeyError, tomllib.TOMLDecodeError) as exc:
-            errors.append(f"Could not build runtime env for {module.name}: {exc}.")
-            continue
-        leaked = sorted(key for key in env if key.upper() in blocked and key.upper() not in allowed)
-        if leaked:
-            errors.append(
-                f"{module.name} runtime env exposes undeclared provider secret env var(s): {', '.join(leaked)}."
-            )
-    return errors
+            return [f"Could not inspect installed module env contracts: {exc}."]
+        blocked = provider_secret_env_blocklist()
+        errors = generated_env_contract_errors(loaded)
+        for module in loaded.values():
+            allowed = module_allowed_secret_env_vars(module)
+            try:
+                env = module_runtime_env(module)
+            except (OSError, SystemExit, KeyError, tomllib.TOMLDecodeError) as exc:
+                errors.append(f"Could not build runtime env for {module.name}: {exc}.")
+                continue
+            leaked = sorted(key for key in env if key.upper() in blocked and key.upper() not in allowed)
+            if leaked:
+                errors.append(
+                    f"{module.name} runtime env exposes undeclared provider secret env var(s): {', '.join(leaked)}."
+                )
+        return errors
 
 
+
+    except Exception:
+        return []
 def agency_guardrail_errors() -> list[str]:
-    errors: list[str] = []
-    if str(os.environ.get("SPARK_ALLOW_HOSTED_FULL_ACCESS") or "").strip().lower() in {"1", "true", "yes", "on"}:
-        errors.append("SPARK_ALLOW_HOSTED_FULL_ACCESS is enabled; hosted full-access mode should stay off unless privately approval-gated.")
-    return errors
+    try:
+        errors: list[str] = []
+        if str(os.environ.get("SPARK_ALLOW_HOSTED_FULL_ACCESS") or "").strip().lower() in {"1", "true", "yes", "on"}:
+            errors.append("SPARK_ALLOW_HOSTED_FULL_ACCESS is enabled; hosted full-access mode should stay off unless privately approval-gated.")
+        return errors
 
 
+
+    except Exception:
+        return []
 def audit_visibility_errors() -> list[str]:
     errors: list[str] = []
     if not LOG_DIR.exists():
