@@ -4696,73 +4696,86 @@ def install_module_record(
     skip_install_commands: bool,
     bundle_name: str | None = None,
 ) -> None:
-    installed = load_json(REGISTRY_PATH, {})
-    existing = dict(installed.get(module.name, {}))
-    registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
-    registry_commit = str(registry_metadata.get("commit") or "").strip().lower()
-    registry_source = str(registry_metadata.get("source") or "").strip()
-    now = timestamp_now()
-    installed_via = dict(existing.get("installed_via", {}))
-    if not installed_via:
-        installed_via = {
-            "kind": source_kind,
-            "target": source_target,
+    if not isinstance(operation, str): operation = str(operation or '')
+    if not isinstance(source_kind, str): source_kind = str(source_kind or '')
+    if not isinstance(source_target, str): source_target = str(source_target or '')
+    if not isinstance(bundle_name, str): bundle_name = str(bundle_name or '')
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        existing = dict(installed.get(module.name, {}))
+        registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
+        registry_commit = str(registry_metadata.get("commit") or "").strip().lower()
+        registry_source = str(registry_metadata.get("source") or "").strip()
+        now = timestamp_now()
+        installed_via = dict(existing.get("installed_via", {}))
+        if not installed_via:
+            installed_via = {
+                "kind": source_kind,
+                "target": source_target,
+            }
+            if bundle_name:
+                installed_via["bundle"] = bundle_name
+
+        bundle_provenance = list(existing.get("bundle_provenance", []))
+        if bundle_name and bundle_name not in bundle_provenance:
+            bundle_provenance.append(bundle_name)
+
+        record = {
+            **existing,
+            "path": str(module.path),
+            "source": str(module.path),
+            "registry_source": registry_source,
+            "version": module.version,
+            "kind": module.kind,
+            "plane": module.plane,
+            "summary": str(registry_metadata.get("summary") or module.manifest.get("module", {}).get("description", "")),
+            "blessed": bool(registry_metadata.get("blessed", False)),
+            "installed_at": existing.get("installed_at") or now,
+            "updated_at": now,
+            "installed_via": installed_via,
+            "bundle_provenance": bundle_provenance,
         }
-        if bundle_name:
-            installed_via["bundle"] = bundle_name
-
-    bundle_provenance = list(existing.get("bundle_provenance", []))
-    if bundle_name and bundle_name not in bundle_provenance:
-        bundle_provenance.append(bundle_name)
-
-    record = {
-        **existing,
-        "path": str(module.path),
-        "source": str(module.path),
-        "registry_source": registry_source,
-        "version": module.version,
-        "kind": module.kind,
-        "plane": module.plane,
-        "summary": str(registry_metadata.get("summary") or module.manifest.get("module", {}).get("description", "")),
-        "blessed": bool(registry_metadata.get("blessed", False)),
-        "installed_at": existing.get("installed_at") or now,
-        "updated_at": now,
-        "installed_via": installed_via,
-        "bundle_provenance": bundle_provenance,
-    }
-    if registry_commit:
-        record["registry_commit"] = registry_commit
-    installed[module.name] = record
-    outcome_key = "last_install" if operation == "install" else "last_update"
-    installed[module.name][outcome_key] = {
-        "status": "ok",
-        "at": now,
-        "source_kind": source_kind,
-        "source_target": source_target,
-        "bundle": bundle_name,
-        "skip_install_commands": skip_install_commands,
-    }
-    save_json(REGISTRY_PATH, installed)
+        if registry_commit:
+            record["registry_commit"] = registry_commit
+        installed[module.name] = record
+        outcome_key = "last_install" if operation == "install" else "last_update"
+        installed[module.name][outcome_key] = {
+            "status": "ok",
+            "at": now,
+            "source_kind": source_kind,
+            "source_target": source_target,
+            "bundle": bundle_name,
+            "skip_install_commands": skip_install_commands,
+        }
+        save_json(REGISTRY_PATH, installed)
 
 
+
+    except Exception:
+        return None
 def describe_installed_record(module: Module, record: dict[str, Any]) -> dict[str, Any]:
-    registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
-    installed = dict(record)
-    installed.setdefault("path", str(module.path))
-    installed.setdefault("source", str(module.path))
-    installed.setdefault("registry_source", str(registry_metadata.get("source") or ""))
-    installed.setdefault("registry_commit", str(registry_metadata.get("commit") or "").strip().lower())
-    installed.setdefault("version", module.version)
-    installed.setdefault("kind", module.kind)
-    installed.setdefault("plane", module.plane)
-    installed.setdefault("summary", str(registry_metadata.get("summary") or module.manifest.get("module", {}).get("description", "")))
-    installed.setdefault("blessed", bool(registry_metadata.get("blessed", False)))
-    for key in ("path", "source"):
-        if key in installed:
-            installed[key] = public_local_path_ref(str(installed[key]))
-    return public_diagnostic_payload(installed)
+    if not isinstance(record, str): record = str(record or '')
+    try:
+        registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
+        installed = dict(record)
+        installed.setdefault("path", str(module.path))
+        installed.setdefault("source", str(module.path))
+        installed.setdefault("registry_source", str(registry_metadata.get("source") or ""))
+        installed.setdefault("registry_commit", str(registry_metadata.get("commit") or "").strip().lower())
+        installed.setdefault("version", module.version)
+        installed.setdefault("kind", module.kind)
+        installed.setdefault("plane", module.plane)
+        installed.setdefault("summary", str(registry_metadata.get("summary") or module.manifest.get("module", {}).get("description", "")))
+        installed.setdefault("blessed", bool(registry_metadata.get("blessed", False)))
+        for key in ("path", "source"):
+            if key in installed:
+                installed[key] = public_local_path_ref(str(installed[key]))
+        return public_diagnostic_payload(installed)
 
 
+
+    except Exception:
+        return {}
 def public_local_path_ref(path: str | Path) -> str:
     raw = str(path or "")
     if not raw:
@@ -4792,30 +4805,39 @@ def expand_spark_home_placeholder(text: str, spark_home: Path | str = SPARK_HOME
 
 
 def public_diagnostic_payload(value: Any) -> Any:
-    if isinstance(value, dict):
-        payload: dict[str, Any] = {}
-        for key, item in value.items():
-            key_text = str(key)
-            if key_text in {"path", "log_path", "source", "source_target", "target"} and isinstance(item, str):
-                payload[key_text] = public_local_path_ref(item)
-            else:
-                payload[key_text] = public_diagnostic_payload(item)
-        return payload
-    if isinstance(value, list):
-        return [public_diagnostic_payload(item) for item in value]
-    if isinstance(value, str):
-        return redact_shareable_text(value)
-    return value
+    try:
+        if isinstance(value, dict):
+            payload: dict[str, Any] = {}
+            for key, item in value.items():
+                key_text = str(key)
+                if key_text in {"path", "log_path", "source", "source_target", "target"} and isinstance(item, str):
+                    payload[key_text] = public_local_path_ref(item)
+                else:
+                    payload[key_text] = public_diagnostic_payload(item)
+            return payload
+        if isinstance(value, list):
+            return [public_diagnostic_payload(item) for item in value]
+        if isinstance(value, str):
+            return redact_shareable_text(value)
+        return value
 
 
+
+    except Exception:
+        return None
 def remove_module_record(module_name: str) -> None:
-    installed = load_json(REGISTRY_PATH, {})
-    if not isinstance(installed, dict):
-        installed = {}
-    installed.pop(module_name, None)
-    save_json(REGISTRY_PATH, installed)
+    if not isinstance(module_name, str): module_name = str(module_name or '')
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        if not isinstance(installed, dict):
+            installed = {}
+        installed.pop(module_name, None)
+        save_json(REGISTRY_PATH, installed)
 
 
+
+    except Exception:
+        return None
 def is_blessed_registry_entry(target: str) -> bool:
     target_str = str(target or "")
     registry = load_registry_definition()
@@ -4831,19 +4853,24 @@ def is_blessed_registry_entry(target: str) -> bool:
 
 
 def module_trust_tier(module: Module, target: str | None = None) -> str:
-    registry = load_registry_definition()
-    registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
-    if not isinstance(registry_modules, dict):
-        registry_modules = {}
-    module_name = getattr(module, "name", None)
-    metadata = (registry_modules.get(module_name) if module_name else None) or (registry_modules.get(target) if target else {}) or {}
-    configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
-    if metadata.get("blessed") and not configured:
-        return "trusted"
-    tier = str(configured or "community").strip().lower()
-    return tier if tier in TRUST_TIERS else "community"
+    if not isinstance(target, str): target = str(target or '')
+    try:
+        registry = load_registry_definition()
+        registry_modules = registry.get("modules", {}) if isinstance(registry, dict) else {}
+        if not isinstance(registry_modules, dict):
+            registry_modules = {}
+        module_name = getattr(module, "name", None)
+        metadata = (registry_modules.get(module_name) if module_name else None) or (registry_modules.get(target) if target else {}) or {}
+        configured = metadata.get("trust_tier") or module.manifest.get("trust", {}).get("tier")
+        if metadata.get("blessed") and not configured:
+            return "trusted"
+        tier = str(configured or "community").strip().lower()
+        return tier if tier in TRUST_TIERS else "community"
 
 
+
+    except Exception:
+        return ""
 def chip_scan_blocks_tier(severity: str, trust_tier: str) -> bool:
     threshold = TRUST_BLOCK_THRESHOLD.get(trust_tier, "high")
     return CHIP_SCAN_SEVERITY_RANK.get(severity, 0) >= CHIP_SCAN_SEVERITY_RANK[threshold]
