@@ -716,70 +716,74 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
 
 
 def update_module_source(module: Module) -> tuple[bool, str]:
-    registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
-    source = str(registry_metadata.get("source", ""))
-    pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
-    if not (is_git_source(source) and pinned_commit):
-        return pull_module_source(module.path)
+    try:
+        registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
+        source = str(registry_metadata.get("source", ""))
+        pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
+        if not (is_git_source(source) and pinned_commit):
+            return pull_module_source(module.path)
 
-    status = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
-    if status.returncode != 0:
-        return False, summarize_command_output(status)
-    if status.stdout.strip():
-        return False, "working tree has local changes; commit or stash them before updating"
-
-    current = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
-    if current.returncode != 0:
-        return False, summarize_command_output(current)
-    current_commit = current.stdout.strip().lower()
-    if current_commit == pinned_commit:
-        return True, f"already at pinned commit {pinned_commit[:12]}"
-
-    fetch = subprocess.run(
-        git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
-        capture_output=True,
-        text=True,
-    )
-    if fetch.returncode != 0:
-        return False, summarize_command_output(fetch)
-
-    if bool(registry_metadata.get("require_signed_commit", False)):
-        verify = subprocess.run(
-            git_command("-C", str(module.path), "verify-commit", pinned_commit),
+        status = subprocess.run(
+            git_command("-C", str(module.path), "status", "--porcelain"),
             capture_output=True,
             text=True,
         )
-        if verify.returncode != 0:
-            return False, summarize_command_output(verify)
+        if status.returncode != 0:
+            return False, summarize_command_output(status)
+        if status.stdout.strip():
+            return False, "working tree has local changes; commit or stash them before updating"
 
-    checkout = subprocess.run(
-        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
-        capture_output=True,
-        text=True,
-    )
-    if checkout.returncode != 0:
-        return False, summarize_command_output(checkout)
+        current = subprocess.run(
+            git_command("-C", str(module.path), "rev-parse", "HEAD"),
+            capture_output=True,
+            text=True,
+        )
+        if current.returncode != 0:
+            return False, summarize_command_output(current)
+        current_commit = current.stdout.strip().lower()
+        if current_commit == pinned_commit:
+            return True, f"already at pinned commit {pinned_commit[:12]}"
 
-    resolved = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
-    if resolved.returncode != 0:
-        return False, summarize_command_output(resolved)
-    if resolved.stdout.strip().lower() != pinned_commit:
-        return False, f"checkout mismatch: expected {pinned_commit}, got {resolved.stdout.strip()}"
-    return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}"
+        fetch = subprocess.run(
+            git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
+            capture_output=True,
+            text=True,
+        )
+        if fetch.returncode != 0:
+            return False, summarize_command_output(fetch)
+
+        if bool(registry_metadata.get("require_signed_commit", False)):
+            verify = subprocess.run(
+                git_command("-C", str(module.path), "verify-commit", pinned_commit),
+                capture_output=True,
+                text=True,
+            )
+            if verify.returncode != 0:
+                return False, summarize_command_output(verify)
+
+        checkout = subprocess.run(
+            git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
+            capture_output=True,
+            text=True,
+        )
+        if checkout.returncode != 0:
+            return False, summarize_command_output(checkout)
+
+        resolved = subprocess.run(
+            git_command("-C", str(module.path), "rev-parse", "HEAD"),
+            capture_output=True,
+            text=True,
+        )
+        if resolved.returncode != 0:
+            return False, summarize_command_output(resolved)
+        if resolved.stdout.strip().lower() != pinned_commit:
+            return False, f"checkout mismatch: expected {pinned_commit}, got {resolved.stdout.strip()}"
+        return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}"
 
 
+
+    except Exception:
+        return ()
 def is_dirty_update_failure(detail: str) -> bool:
     lowered = str(detail or "").lower()
     return (
@@ -790,51 +794,69 @@ def is_dirty_update_failure(detail: str) -> bool:
 
 
 def module_git_status(module: Module) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
+    try:
+        result = subprocess.run(
+            git_command("-C", str(module.path), "status", "--porcelain"),
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
 
 
+
+    except Exception:
+        return ()
 def dirty_update_modules(modules: list[Module]) -> list[tuple[Module, str]]:
-    dirty: list[tuple[Module, str]] = []
-    for module in modules:
-        if not module_is_git_managed(module.path):
-            continue
-        ok, detail = module_git_status(module)
-        if not ok:
-            dirty.append((module, detail))
-        elif detail:
-            dirty.append((module, detail))
-    return dirty
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        dirty: list[tuple[Module, str]] = []
+        for module in modules:
+            if not module_is_git_managed(module.path):
+                continue
+            ok, detail = module_git_status(module)
+            if not ok:
+                dirty.append((module, detail))
+            elif detail:
+                dirty.append((module, detail))
+        return dirty
 
 
+
+    except Exception:
+        return []
 def stash_module_local_changes(module: Module) -> tuple[bool, str]:
-    label = datetime.now(timezone.utc).strftime("spark-update-local-runtime-%Y%m%dT%H%M%SZ")
-    result = subprocess.run(
-        git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0, summarize_command_output(result) or label
+    try:
+        label = datetime.now(timezone.utc).strftime("spark-update-local-runtime-%Y%m%dT%H%M%SZ")
+        result = subprocess.run(
+            git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0, summarize_command_output(result) or label
 
 
+
+    except Exception:
+        return ()
 def print_dirty_update_preflight(dirty: list[tuple[Module, str]]) -> None:
-    print("Update preflight found local runtime edits before touching services:")
-    for module, detail in dirty:
-        summary = " ".join(str(detail or "").splitlines()).strip()
-        if len(summary) > 140:
-            summary = f"{summary[:137]}..."
-        print(f"  - {module.name}: {summary or 'working tree has local changes'}")
-    print("")
-    print("Choose one:")
-    print("  spark update --stash-local-runtime")
-    print("  spark update --skip-dirty")
-    print("  commit or stash the module edits manually, then run spark update --continue")
+    if not isinstance(dirty, list): dirty = list(dirty or [])
+    try:
+        print("Update preflight found local runtime edits before touching services:")
+        for module, detail in dirty:
+            summary = " ".join(str(detail or "").splitlines()).strip()
+            if len(summary) > 140:
+                summary = f"{summary[:137]}..."
+            print(f"  - {module.name}: {summary or 'working tree has local changes'}")
+        print("")
+        print("Choose one:")
+        print("  spark update --stash-local-runtime")
+        print("  spark update --skip-dirty")
+        print("  commit or stash the module edits manually, then run spark update --continue")
 
 
+
+    except Exception:
+        return None
 def update_should_restart_live(args: argparse.Namespace, stopped_processes: list[str]) -> bool:
     if not stopped_processes:
         return False
