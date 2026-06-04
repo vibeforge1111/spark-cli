@@ -2442,80 +2442,54 @@ def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
 
 def stdin_is_tty() -> bool:
     try:
-        return bool(sys.stdin.isatty())
-    except (AttributeError, ValueError):
+        try:
+            return bool(sys.stdin.isatty())
+        except (AttributeError, ValueError):
+            return False
+
+
+
+    except Exception:
         return False
-
-
 def stdout_is_tty() -> bool:
     try:
-        return bool(sys.stdout.isatty())
-    except (AttributeError, ValueError):
+        try:
+            return bool(sys.stdout.isatty())
+        except (AttributeError, ValueError):
+            return False
+
+
+
+    except Exception:
         return False
-
-
 def read_secret_interactive(prompt: str) -> str:
-    """Read a secret from an interactive terminal.
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    try:
+        """Read a secret from an interactive terminal.
 
-    Interactive Windows/POSIX terminals get one asterisk per typed/pasted
-    character so users can tell input landed without exposing the value. Weird
-    terminals fall back to the standard hidden getpass prompt.
-    """
-    if sys.platform == "win32" and stdin_is_tty() and stdout_is_tty():
-        import msvcrt
+        Interactive Windows/POSIX terminals get one asterisk per typed/pasted
+        character so users can tell input landed without exposing the value. Weird
+        terminals fall back to the standard hidden getpass prompt.
+        """
+        if sys.platform == "win32" and stdin_is_tty() and stdout_is_tty():
+            import msvcrt
 
-        chars: list[str] = []
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        while True:
-            char = msvcrt.getwch()
-            if char in {"\r", "\n"}:
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return "".join(chars)
-            if char == "\x03":
-                raise KeyboardInterrupt
-            if char == "\x1a":
-                raise EOFError
-            if char in {"\x00", "\xe0"}:
-                msvcrt.getwch()
-                continue
-            if char in {"\b", "\x7f"}:
-                if chars:
-                    chars.pop()
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
-            chars.append(char)
-            sys.stdout.write("*")
+            chars: list[str] = []
+            sys.stdout.write(prompt)
             sys.stdout.flush()
-    if sys.platform != "win32" and stdin_is_tty() and stdout_is_tty():
-        try:
-            import termios
-            import tty
-
-            fd = sys.stdin.fileno()
-        except (AttributeError, ImportError, OSError):
-            return getpass.getpass(prompt)
-        try:
-            original_attrs = termios.tcgetattr(fd)
-        except termios.error:
-            return getpass.getpass(prompt)
-        chars: list[str] = []
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        try:
-            tty.setcbreak(fd)
             while True:
-                char = sys.stdin.read(1)
-                if char in {"", "\x04"}:
-                    raise EOFError
+                char = msvcrt.getwch()
                 if char in {"\r", "\n"}:
                     sys.stdout.write("\n")
                     sys.stdout.flush()
                     return "".join(chars)
                 if char == "\x03":
                     raise KeyboardInterrupt
+                if char == "\x1a":
+                    raise EOFError
+                if char in {"\x00", "\xe0"}:
+                    msvcrt.getwch()
+                    continue
                 if char in {"\b", "\x7f"}:
                     if chars:
                         chars.pop()
@@ -2525,29 +2499,76 @@ def read_secret_interactive(prompt: str) -> str:
                 chars.append(char)
                 sys.stdout.write("*")
                 sys.stdout.flush()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
-    return getpass.getpass(prompt)
+        if sys.platform != "win32" and stdin_is_tty() and stdout_is_tty():
+            try:
+                import termios
+                import tty
+
+                fd = sys.stdin.fileno()
+            except (AttributeError, ImportError, OSError):
+                return getpass.getpass(prompt)
+            try:
+                original_attrs = termios.tcgetattr(fd)
+            except termios.error:
+                return getpass.getpass(prompt)
+            chars: list[str] = []
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            try:
+                tty.setcbreak(fd)
+                while True:
+                    char = sys.stdin.read(1)
+                    if char in {"", "\x04"}:
+                        raise EOFError
+                    if char in {"\r", "\n"}:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        return "".join(chars)
+                    if char == "\x03":
+                        raise KeyboardInterrupt
+                    if char in {"\b", "\x7f"}:
+                        if chars:
+                            chars.pop()
+                            sys.stdout.write("\b \b")
+                            sys.stdout.flush()
+                        continue
+                    chars.append(char)
+                    sys.stdout.write("*")
+                    sys.stdout.flush()
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+        return getpass.getpass(prompt)
 
 
+
+    except Exception:
+        return ""
 def setup_is_interactive(args: argparse.Namespace) -> bool:
-    if getattr(args, "non_interactive", False):
+    try:
+        if getattr(args, "non_interactive", False):
+            return False
+        return stdin_is_tty()
+
+
+
+    except Exception:
         return False
-    return stdin_is_tty()
-
-
 def detect_claude_code() -> dict[str, Any]:
-    if os.name == "nt":
-        for raw_dir in os.environ.get("PATH", "").split(os.pathsep):
-            if not raw_dir:
-                continue
-            candidate = Path(raw_dir) / "claude.ps1"
-            if candidate.exists():
-                return {"present": True, "path": str(candidate)}
-    path = shutil.which("claude")
-    return {"present": bool(path), "path": path}
+    try:
+        if os.name == "nt":
+            for raw_dir in os.environ.get("PATH", "").split(os.pathsep):
+                if not raw_dir:
+                    continue
+                candidate = Path(raw_dir) / "claude.ps1"
+                if candidate.exists():
+                    return {"present": True, "path": str(candidate)}
+        path = shutil.which("claude")
+        return {"present": bool(path), "path": path}
 
 
+
+    except Exception:
+        return {}
 def detect_codex_cli() -> dict[str, Any]:
     path = shutil.which("codex")
     return {"present": bool(path), "path": path}
