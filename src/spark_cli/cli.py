@@ -6907,49 +6907,76 @@ def refresh_telegram_profile_envs(modules: dict[str, Module]) -> None:
 
 
 def builder_runtime_env_refs_from_installed(installed: object) -> dict[str, str]:
-    builder_path = installed_record_path(installed, "spark-intelligence-builder")
-    if builder_path is None:
+    try:
+        builder_path = installed_record_path(installed, "spark-intelligence-builder")
+        if builder_path is None:
+            return {}
+        return {
+            "SPARK_BUILDER_REPO": str(builder_path),
+            "SPARK_BUILDER_HOME": str(spark_builder_home()),
+            "SPARK_BUILDER_PYTHON": str(Path(sys.executable)),
+            "SPARK_BUILDER_BRIDGE_MODE": "required",
+        }
+
+
+
+    except Exception:
         return {}
-    return {
-        "SPARK_BUILDER_REPO": str(builder_path),
-        "SPARK_BUILDER_HOME": str(spark_builder_home()),
-        "SPARK_BUILDER_PYTHON": str(Path(sys.executable)),
-        "SPARK_BUILDER_BRIDGE_MODE": "required",
-    }
-
-
 def installed_records_from_modules(modules_by_name: dict[str, Module]) -> dict[str, dict[str, str]]:
     return {name: {"path": str(module.path)} for name, module in modules_by_name.items()}
 
 
 def _mapping_path_candidates(values: dict[str, str], name: str) -> list[Path]:
-    raw = values.get(name, "")
-    if not raw.strip():
+    if not isinstance(values, str): values = str(values or '')
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        raw = values.get(name, "")
+        if not raw.strip():
+            return []
+        return [Path(item).expanduser() for item in raw.split(os.pathsep) if item.strip()]
+
+
+
+    except Exception:
         return []
-    return [Path(item).expanduser() for item in raw.split(os.pathsep) if item.strip()]
-
-
 def _mapping_named_path_candidates(values: dict[str, str], prefix: str, suffix: str) -> list[Path]:
-    candidates: list[Path] = []
-    for name, raw in values.items():
-        if not name.startswith(prefix) or not name.endswith(suffix) or not raw.strip():
-            continue
-        candidates.append(Path(raw).expanduser())
-    return candidates
+    if not isinstance(values, str): values = str(values or '')
+    if not isinstance(prefix, str): prefix = str(prefix or '')
+    if not isinstance(suffix, str): suffix = str(suffix or '')
+    try:
+        candidates: list[Path] = []
+        for name, raw in values.items():
+            if not name.startswith(prefix) or not name.endswith(suffix) or not raw.strip():
+                continue
+            candidates.append(Path(raw).expanduser())
+        return candidates
 
 
+
+    except Exception:
+        return []
 def specialization_repo_env_var(path_key: str) -> str:
-    normalized = str(path_key or "").strip().upper().replace("-", "_")
-    return f"SPARK_SWARM_SPECIALIZATION_PATH_{normalized}_REPO"
+    if not isinstance(path_key, str): path_key = str(path_key or '')
+    try:
+        normalized = str(path_key or "").strip().upper().replace("-", "_")
+        return f"SPARK_SWARM_SPECIALIZATION_PATH_{normalized}_REPO"
 
 
+
+    except Exception:
+        return ""
 def _specialization_path_candidates_from_values(values: dict[str, str]) -> list[Path]:
-    return [
-        *_mapping_path_candidates(values, "SPARK_SPECIALIZATION_PATH_ROOTS"),
-        *_mapping_named_path_candidates(values, "SPARK_SWARM_SPECIALIZATION_PATH_", "_REPO"),
-    ]
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        return [
+            *_mapping_path_candidates(values, "SPARK_SPECIALIZATION_PATH_ROOTS"),
+            *_mapping_named_path_candidates(values, "SPARK_SWARM_SPECIALIZATION_PATH_", "_REPO"),
+        ]
 
 
+
+    except Exception:
+        return []
 def telegram_specialization_runtime_env_refs_from_installed(
     installed: object,
     current_env: dict[str, str] | None = None,
