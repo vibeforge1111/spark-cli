@@ -1451,6 +1451,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "git_history_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
 
+    def test_approval_classifier_flags_git_symbolic_ref_mutation(self) -> None:
+        mutating_commands = [
+            ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
+            ["git", "symbolic-ref", "-m", "switch head", "HEAD", "refs/heads/main"],
+            ["git", "symbolic-ref", "--delete", "HEAD"],
+        ]
+
+        for command in mutating_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "git_history_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+        for command in (["git", "symbolic-ref", "HEAD"], ["git", "symbolic-ref", "-q", "HEAD"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)
