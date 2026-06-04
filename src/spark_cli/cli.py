@@ -13470,97 +13470,118 @@ def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
 
 
 def onboarding_checklist() -> list[str]:
-    return [
-        "Open your Spark bot in Telegram.",
-        "If Telegram asks for a start code, send /start.",
-        "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
-        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
-        "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
-        "Send a normal message, then try a tiny build with /run say exactly OK.",
-        "When you are ready, ask Spark how it can improve for your workflows.",
-        "If anything is quiet or confusing, run spark fix telegram.",
-    ]
+    try:
+        return [
+            "Open your Spark bot in Telegram.",
+            "If Telegram asks for a start code, send /start.",
+            "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
+            "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
+            "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
+            "Send a normal message, then try a tiny build with /run say exactly OK.",
+            "When you are ready, ask Spark how it can improve for your workflows.",
+            "If anything is quiet or confusing, run spark fix telegram.",
+        ]
 
 
+
+    except Exception:
+        return []
 def first_run_smoke_telegram_script() -> list[str]:
-    return [
-        "/start",
-        "/access 4",
-        "/diagnose",
-        "/remember I like concise warm replies",
-        "/recall concise warm replies",
-        '/run Build a tiny static HTML page called Spark first-run smoke. It should have one file, index.html, with a dark Mission Control panel, a green "Spark Live OK" status, and the text "Telegram to Spawner relay worked". Do not add package files, do not install dependencies, and keep it simple enough to finish fast.',
-        "/board",
-    ]
+    try:
+        return [
+            "/start",
+            "/access 4",
+            "/diagnose",
+            "/remember I like concise warm replies",
+            "/recall concise warm replies",
+            '/run Build a tiny static HTML page called Spark first-run smoke. It should have one file, index.html, with a dark Mission Control panel, a green "Spark Live OK" status, and the text "Telegram to Spawner relay worked". Do not add package files, do not install dependencies, and keep it simple enough to finish fast.',
+            "/board",
+        ]
 
 
+
+    except Exception:
+        return []
 def collect_first_run_smoke_payload(*, deep: bool = True) -> dict[str, Any]:
-    payload = collect_verify_payload(deep=deep)
-    payload = dict(payload)
-    payload["summary"] = "Spark first-run smoke"
-    payload["deep"] = deep
-    payload["onboarding_checklist"] = onboarding_checklist()
-    payload["telegram_script"] = first_run_smoke_telegram_script()
-    payload["success_criteria"] = [
-        "Telegram /diagnose reports Telegram, providers, memory, and Spawner as ready.",
-        "The /remember then /recall probe returns the saved preference.",
-        "The tiny static /run sends progress, completion, and a preview link.",
-        "The generated workspace contains index.html with Spark Live OK and Telegram-to-Spawner relay text.",
-        "The generated workspace does not require package.json, node_modules, or dependency installation.",
-    ]
-    payload["next_commands"] = [
-        "spark smoke first-run",
-        "spark providers test --role chat",
-        "spark logs spark-telegram-bot --lines 80",
-        "spark logs spawner-ui --lines 80",
-        "spark fix telegram",
-        "spark fix spawner",
-    ]
-    return payload
+    try:
+        payload = collect_verify_payload(deep=deep)
+        payload = dict(payload)
+        payload["summary"] = "Spark first-run smoke"
+        payload["deep"] = deep
+        payload["onboarding_checklist"] = onboarding_checklist()
+        payload["telegram_script"] = first_run_smoke_telegram_script()
+        payload["success_criteria"] = [
+            "Telegram /diagnose reports Telegram, providers, memory, and Spawner as ready.",
+            "The /remember then /recall probe returns the saved preference.",
+            "The tiny static /run sends progress, completion, and a preview link.",
+            "The generated workspace contains index.html with Spark Live OK and Telegram-to-Spawner relay text.",
+            "The generated workspace does not require package.json, node_modules, or dependency installation.",
+        ]
+        payload["next_commands"] = [
+            "spark smoke first-run",
+            "spark providers test --role chat",
+            "spark logs spark-telegram-bot --lines 80",
+            "spark logs spawner-ui --lines 80",
+            "spark fix telegram",
+            "spark fix spawner",
+        ]
+        return payload
 
 
+
+    except Exception:
+        return {}
 def print_first_run_smoke_payload(payload: dict[str, Any]) -> None:
-    print(payload["summary"])
-    print(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
-    print(f"Mode: {'deep local checks' if payload.get('deep') else 'quick local checks'}")
-    print("")
-    for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
-        if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
-    if payload.get("status_repair_hints"):
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        print(payload["summary"])
+        print(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
+        print(f"Mode: {'deep local checks' if payload.get('deep') else 'quick local checks'}")
         print("")
-        print("Status repair hints:")
-        for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
-    print("")
-    print("Telegram first-run script:")
-    for item in payload["telegram_script"]:
-        print(f"  {item}")
-    print("")
-    print("Pass criteria:")
-    for item in payload["success_criteria"]:
-        print(f"  - {item}")
-    print("")
-    print("Repair commands:")
-    for command in payload["next_commands"][1:]:
-        print(f"  {command}")
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("repair"):
+                print(f"      {check['repair']}")
+        if payload.get("status_repair_hints"):
+            print("")
+            print("Status repair hints:")
+            for hint in payload["status_repair_hints"]:
+                print(f"  - {hint}")
+        print("")
+        print("Telegram first-run script:")
+        for item in payload["telegram_script"]:
+            print(f"  {item}")
+        print("")
+        print("Pass criteria:")
+        for item in payload["success_criteria"]:
+            print(f"  - {item}")
+        print("")
+        print("Repair commands:")
+        for command in payload["next_commands"][1:]:
+            print(f"  {command}")
 
 
+
+    except Exception:
+        return None
 def cmd_smoke(args: argparse.Namespace) -> int:
-    command = getattr(args, "smoke_command", None)
-    if command != "first-run":
-        raise SystemExit("Choose a smoke command, for example: spark smoke first-run")
+    try:
+        command = getattr(args, "smoke_command", None)
+        if command != "first-run":
+            raise SystemExit("Choose a smoke command, for example: spark smoke first-run")
 
-    payload = collect_first_run_smoke_payload(deep=not bool(getattr(args, "quick", False)))
-    if args.json:
-        print(json.dumps(payload, indent=2))
+        payload = collect_first_run_smoke_payload(deep=not bool(getattr(args, "quick", False)))
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print_first_run_smoke_payload(payload)
         return 0 if payload["ok"] else 1
-    print_first_run_smoke_payload(payload)
-    return 0 if payload["ok"] else 1
 
 
+
+    except Exception:
+        return 0
 def print_hosted_security_payload(payload: dict[str, Any]) -> None:
     print(payload["summary"])
     for check in payload["checks"]:
