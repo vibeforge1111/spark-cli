@@ -52,51 +52,64 @@ SECRET_LIKE_PATTERN = re.compile(
 
 
 def _digest_command(argv: list[str]) -> str:
-    redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", part) for part in argv]
+    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
+    redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", str(part or "")) for part in argv_list]
     return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
 
 
 def _lower_parts(argv: list[str]) -> list[str]:
-    return [part.lower() for part in argv]
+    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
+    return [str(part or "").lower() for part in argv_list]
 
 
 def _contains_any(parts: list[str], values: set[str]) -> bool:
-    return any(part in values for part in parts)
+    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+    values_set = values if isinstance(values, set) else set(values) if isinstance(values, (list, tuple)) else set()
+    lowered_parts = {str(p or "").lower() for p in parts_list}
+    lowered_values = {str(v or "").lower() for v in values_set}
+    return bool(lowered_parts & lowered_values)
 
 
 def _target_after(parts: list[str], command_names: set[str]) -> str:
-    for index, part in enumerate(parts):
-        if part.lower() in command_names and index + 1 < len(parts):
-            for candidate in parts[index + 1 :]:
-                if not candidate.startswith("-"):
-                    return candidate
+    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+    cmd_names = {str(cmd or "").lower() for cmd in (command_names if isinstance(command_names, set) else set(command_names or []))}
+    for index, part in enumerate(parts_list):
+        part_str = str(part or "").lower()
+        if part_str in cmd_names and index + 1 < len(parts_list):
+            for candidate in parts_list[index + 1 :]:
+                candidate_str = str(candidate or "")
+                if not candidate_str.startswith("-"):
+                    return candidate_str
     return ""
 
 
 def _has_option_value(parts: list[str], option_names: set[str], suspicious_values: set[str]) -> bool:
-    lowered = _lower_parts(parts)
+    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+    lowered = _lower_parts(parts_list)
+    opt_names = {str(opt or "").lower() for opt in (option_names if isinstance(option_names, set) else set(option_names or []))}
+    susp_vals = {str(susp or "").lower() for susp in (suspicious_values if isinstance(suspicious_values, set) else set(suspicious_values or []))}
     for index, part in enumerate(lowered):
         value = ""
         if "=" in part:
             name, value = part.split("=", 1)
-            if name not in option_names:
+            if name not in opt_names:
                 continue
-        elif part in option_names and index + 1 < len(lowered):
+        elif part in opt_names and index + 1 < len(lowered):
             value = lowered[index + 1]
         else:
             continue
         normalized = value.replace("\\", "/").rstrip("/")
         if (
-            normalized in suspicious_values
-            or any(normalized.startswith(item.rstrip("/") + "/") for item in suspicious_values)
-            or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in suspicious_values)
+            normalized in susp_vals
+            or any(normalized.startswith(item.rstrip("/") + "/") for item in susp_vals)
+            or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in susp_vals)
         ):
             return True
     return False
 
 
 def _is_env_assignment(value: str) -> bool:
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", str(value or "")))
 
 
 def _decision(
@@ -109,8 +122,11 @@ def _decision(
     target_display: str = "",
     confirmation_phrase: str = "",
 ) -> ApprovalDecision:
+    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
     requires = action_class != "none"
     phrase = confirmation_phrase
+    ctx_non_interactive = getattr(context, "non_interactive", False)
+    ctx_surface = getattr(context, "surface", "cli")
     if requires and not phrase:
         noun = target_display or action_class.replace("_", " ")
         phrase = f"approve {noun}".strip().lower()[:80]
@@ -118,25 +134,27 @@ def _decision(
         action_class=action_class,
         risk=risk,
         requires_approval=requires,
-        approval_mode="blocked" if requires and context.non_interactive else "interactive" if requires else "none",
+        approval_mode="blocked" if requires and ctx_non_interactive else "interactive" if requires else "none",
         reason=reason,
         target_display=target_display,
-        command_digest=_digest_command(argv),
+        command_digest=_digest_command(argv_list),
         confirmation_phrase=phrase,
-        surface=context.surface,
+        surface=ctx_surface,
     )
 
 
 def parse_command_text(command: str) -> list[str]:
+    cmd_str = str(command or "")
     try:
-        return shlex.split(command, posix=True)
+        return shlex.split(cmd_str, posix=True)
     except ValueError:
-        return command.split()
+        return cmd_str.split()
 
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
-    ctx = context or CommandContext()
-    parts = [part for part in argv if part != "--"]
+    ctx = context if isinstance(context, CommandContext) else CommandContext()
+    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
+    parts = [str(part or "") for part in argv_list if str(part or "") != "--"]
     lowered = _lower_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
