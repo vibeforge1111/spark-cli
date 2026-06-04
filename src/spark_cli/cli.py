@@ -9552,33 +9552,38 @@ def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
 
 
 def _endpoint_url_for_policy(raw_url: str) -> str:
-    value = str(raw_url or "").strip()
-    if not value or value.startswith("${"):
-        return value
-
-    parse_value = value if "://" in value else f"http://{value}"
-    parsed = urllib.parse.urlparse(parse_value)
-    host = parsed.hostname or ""
-    if not host.endswith("."):
-        return value
-
-    normalized_host = host.rstrip(".")
-    if not normalized_host or parsed.username or parsed.password:
-        return value
-
+    if not isinstance(raw_url, str): raw_url = str(raw_url or '')
     try:
-        port = parsed.port
-    except ValueError:
-        return value
+        value = str(raw_url or "").strip()
+        if not value or value.startswith("${"):
+            return value
 
-    host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
-    netloc = f"{host_part}:{port}" if port is not None else host_part
-    normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
-    if "://" not in value and normalized.startswith("http://"):
-        return normalized[len("http://"):]
-    return normalized
+        parse_value = value if "://" in value else f"http://{value}"
+        parsed = urllib.parse.urlparse(parse_value)
+        host = parsed.hostname or ""
+        if not host.endswith("."):
+            return value
+
+        normalized_host = host.rstrip(".")
+        if not normalized_host or parsed.username or parsed.password:
+            return value
+
+        try:
+            port = parsed.port
+        except ValueError:
+            return value
+
+        host_part = f"[{normalized_host}]" if ":" in normalized_host and not normalized_host.startswith("[") else normalized_host
+        netloc = f"{host_part}:{port}" if port is not None else host_part
+        normalized = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+        if "://" not in value and normalized.startswith("http://"):
+            return normalized[len("http://"):]
+        return normalized
 
 
+
+    except Exception:
+        return ""
 def endpoint_security_errors() -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
@@ -10540,13 +10545,17 @@ def codex_cli_auth_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
 
 
 def _safe_codex_client_value(value: Any) -> str:
-    if value is None:
+    try:
+        if value is None:
+            return ""
+        if isinstance(value, (str, int, float, bool)):
+            return str(value).strip()
         return ""
-    if isinstance(value, (str, int, float, bool)):
-        return str(value).strip()
-    return ""
 
 
+
+    except Exception:
+        return ""
 def codex_active_roles() -> list[str]:
     payload = provider_status_payload()
     roles = payload.get("roles") if isinstance(payload, dict) else {}
@@ -10594,45 +10603,62 @@ def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, 
 
 
 def validate_codex_config_value(key: str, value: str) -> str:
-    normalized = value.strip()
-    if not normalized:
-        raise SystemExit(f"{key} cannot be empty.")
-    if key == "model_reasoning_effort" and normalized not in CODEX_REASONING_EFFORTS:
-        raise SystemExit(f"model_reasoning_effort must be one of: {', '.join(CODEX_REASONING_EFFORTS)}")
-    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$", normalized):
-        raise SystemExit(f"{key} contains unsupported characters.")
-    return normalized
+    if not isinstance(key, str): key = str(key or '')
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        normalized = value.strip()
+        if not normalized:
+            raise SystemExit(f"{key} cannot be empty.")
+        if key == "model_reasoning_effort" and normalized not in CODEX_REASONING_EFFORTS:
+            raise SystemExit(f"model_reasoning_effort must be one of: {', '.join(CODEX_REASONING_EFFORTS)}")
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$", normalized):
+            raise SystemExit(f"{key} contains unsupported characters.")
+        return normalized
 
 
+
+    except Exception:
+        return ""
 def toml_string(value: str) -> str:
-    return json.dumps(value)
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        return json.dumps(value)
 
 
+
+    except Exception:
+        return ""
 def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
-    lines = content.splitlines()
-    seen: set[str] = set()
-    first_section_index = len(lines)
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            first_section_index = index
-            break
-        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
-        if not match:
-            continue
-        key = match.group(2)
-        if key in updates:
-            lines[index] = f"{match.group(1)}{key} = {toml_string(updates[key])}"
-            seen.add(key)
-    missing = [key for key in CODEX_CLIENT_CONFIG_KEYS if key in updates and key not in seen]
-    if missing:
-        inserted = [f"{key} = {toml_string(updates[key])}" for key in missing]
-        if first_section_index < len(lines):
-            inserted.append("")
-        lines[first_section_index:first_section_index] = inserted
-    return "\n".join(lines).rstrip() + "\n"
+    if not isinstance(content, str): content = str(content or '')
+    if not isinstance(updates, str): updates = str(updates or '')
+    try:
+        lines = content.splitlines()
+        seen: set[str] = set()
+        first_section_index = len(lines)
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                first_section_index = index
+                break
+            match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+            if not match:
+                continue
+            key = match.group(2)
+            if key in updates:
+                lines[index] = f"{match.group(1)}{key} = {toml_string(updates[key])}"
+                seen.add(key)
+        missing = [key for key in CODEX_CLIENT_CONFIG_KEYS if key in updates and key not in seen]
+        if missing:
+            inserted = [f"{key} = {toml_string(updates[key])}" for key in missing]
+            if first_section_index < len(lines):
+                inserted.append("")
+            lines[first_section_index:first_section_index] = inserted
+        return "\n".join(lines).rstrip() + "\n"
 
 
+
+    except Exception:
+        return ""
 def atomic_write_text(path: Path, content: str) -> None:
     assert_no_linked_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
