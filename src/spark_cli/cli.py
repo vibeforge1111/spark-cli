@@ -9419,16 +9419,20 @@ NODE_LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json")
 
 
 def package_json_dependency_maps(payload: Any) -> dict[str, dict[str, str]]:
-    if not isinstance(payload, dict):
+    try:
+        if not isinstance(payload, dict):
+            return {}
+        maps: dict[str, dict[str, str]] = {}
+        for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+            raw = payload.get(key)
+            if isinstance(raw, dict):
+                maps[key] = {str(name): str(spec) for name, spec in raw.items()}
+        return maps
+
+
+
+    except Exception:
         return {}
-    maps: dict[str, dict[str, str]] = {}
-    for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-        raw = payload.get(key)
-        if isinstance(raw, dict):
-            maps[key] = {str(name): str(spec) for name, spec in raw.items()}
-    return maps
-
-
 def package_dependency_spec_is_commit_pinned(spec: str) -> bool:
     raw = str(spec or "").strip()
     if not raw:
@@ -9441,60 +9445,69 @@ def package_dependency_spec_is_commit_pinned(spec: str) -> bool:
 
 
 def dependency_lock_integrity_errors() -> list[str]:
-    installed = load_json(REGISTRY_PATH, {})
-    errors: list[str] = []
-    if not isinstance(installed, dict):
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        errors: list[str] = []
+        if not isinstance(installed, dict):
+            return errors
+        for name, record in sorted(installed.items()):
+            if not isinstance(record, dict):
+                continue
+            path = Path(str(record.get("path") or "")).expanduser()
+            package_json_path = path / "package.json"
+            if not package_json_path.exists():
+                continue
+            try:
+                package_json = json.loads(package_json_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                errors.append(f"Node module `{name}` package.json could not be read: {exc}.")
+                continue
+            dep_maps = package_json_dependency_maps(package_json)
+            for dep_name, spec in sorted({dep: spec for deps in dep_maps.values() for dep, spec in deps.items()}.items()):
+                if not package_dependency_spec_is_commit_pinned(spec):
+                    errors.append(f"Node module `{name}` dependency `{dep_name}` uses an unpinned git/source spec.")
+
+            lock_path = next((path / lockfile for lockfile in NODE_LOCKFILES if (path / lockfile).exists()), None)
+            if lock_path is None:
+                continue
+            try:
+                lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                errors.append(f"Node module `{name}` dependency lockfile could not be read: {exc}.")
+                continue
+            lock_version = lock_payload.get("lockfileVersion") if isinstance(lock_payload, dict) else None
+            if not isinstance(lock_version, int) or lock_version < 1:
+                errors.append(f"Node module `{name}` dependency lockfile has no valid lockfileVersion.")
+                continue
+            packages = lock_payload.get("packages") if isinstance(lock_payload, dict) else None
+            root_package = packages.get("") if isinstance(packages, dict) else None
+            legacy_deps = lock_payload.get("dependencies") if isinstance(lock_payload, dict) else None
+            for section, deps in dep_maps.items():
+                locked_root = root_package.get(section) if isinstance(root_package, dict) else None
+                for dep_name, spec in sorted(deps.items()):
+                    root_spec = locked_root.get(dep_name) if isinstance(locked_root, dict) else None
+                    if root_package is not None and root_spec != spec:
+                        errors.append(f"Node module `{name}` lockfile root entry is stale for `{dep_name}`.")
+                        continue
+                    package_entry = packages.get(f"node_modules/{dep_name}") if isinstance(packages, dict) else None
+                    legacy_entry = legacy_deps.get(dep_name) if isinstance(legacy_deps, dict) else None
+                    if package_entry is None and legacy_entry is None:
+                        errors.append(f"Node module `{name}` lockfile is missing resolved entry for `{dep_name}`.")
         return errors
-    for name, record in sorted(installed.items()):
-        if not isinstance(record, dict):
-            continue
-        path = Path(str(record.get("path") or "")).expanduser()
-        package_json_path = path / "package.json"
-        if not package_json_path.exists():
-            continue
-        try:
-            package_json = json.loads(package_json_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            errors.append(f"Node module `{name}` package.json could not be read: {exc}.")
-            continue
-        dep_maps = package_json_dependency_maps(package_json)
-        for dep_name, spec in sorted({dep: spec for deps in dep_maps.values() for dep, spec in deps.items()}.items()):
-            if not package_dependency_spec_is_commit_pinned(spec):
-                errors.append(f"Node module `{name}` dependency `{dep_name}` uses an unpinned git/source spec.")
-
-        lock_path = next((path / lockfile for lockfile in NODE_LOCKFILES if (path / lockfile).exists()), None)
-        if lock_path is None:
-            continue
-        try:
-            lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            errors.append(f"Node module `{name}` dependency lockfile could not be read: {exc}.")
-            continue
-        lock_version = lock_payload.get("lockfileVersion") if isinstance(lock_payload, dict) else None
-        if not isinstance(lock_version, int) or lock_version < 1:
-            errors.append(f"Node module `{name}` dependency lockfile has no valid lockfileVersion.")
-            continue
-        packages = lock_payload.get("packages") if isinstance(lock_payload, dict) else None
-        root_package = packages.get("") if isinstance(packages, dict) else None
-        legacy_deps = lock_payload.get("dependencies") if isinstance(lock_payload, dict) else None
-        for section, deps in dep_maps.items():
-            locked_root = root_package.get(section) if isinstance(root_package, dict) else None
-            for dep_name, spec in sorted(deps.items()):
-                root_spec = locked_root.get(dep_name) if isinstance(locked_root, dict) else None
-                if root_package is not None and root_spec != spec:
-                    errors.append(f"Node module `{name}` lockfile root entry is stale for `{dep_name}`.")
-                    continue
-                package_entry = packages.get(f"node_modules/{dep_name}") if isinstance(packages, dict) else None
-                legacy_entry = legacy_deps.get(dep_name) if isinstance(legacy_deps, dict) else None
-                if package_entry is None and legacy_entry is None:
-                    errors.append(f"Node module `{name}` lockfile is missing resolved entry for `{dep_name}`.")
-    return errors
 
 
+
+    except Exception:
+        return []
 def requirement_file_enables_hash_mode(lines: list[str]) -> bool:
-    return any("--require-hashes" in line.split("#", 1)[0] for line in lines)
+    if not isinstance(lines, str): lines = str(lines or '')
+    try:
+        return any("--require-hashes" in line.split("#", 1)[0] for line in lines)
 
 
+
+    except Exception:
+        return False
 def requirement_line_needs_hash(line: str) -> bool:
     raw = line.split("#", 1)[0].strip()
     if not raw:
@@ -9507,50 +9520,60 @@ def requirement_line_needs_hash(line: str) -> bool:
 
 
 def dependency_hash_mode_errors() -> list[str]:
-    installed = load_json(REGISTRY_PATH, {})
-    errors: list[str] = []
-    if not isinstance(installed, dict):
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        errors: list[str] = []
+        if not isinstance(installed, dict):
+            return errors
+        for name, record in sorted(installed.items()):
+            if not isinstance(record, dict):
+                continue
+            requirements_path = Path(str(record.get("path") or "")).expanduser() / "requirements.txt"
+            if not requirements_path.exists():
+                continue
+            try:
+                lines = requirements_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            if not requirement_file_enables_hash_mode(lines):
+                continue
+            unhashed = [line.split("#", 1)[0].strip() for line in lines if requirement_line_needs_hash(line)]
+            if unhashed:
+                errors.append(f"Python module `{name}` uses --require-hashes but has unhashed requirements: {', '.join(unhashed[:5])}.")
         return errors
-    for name, record in sorted(installed.items()):
-        if not isinstance(record, dict):
-            continue
-        requirements_path = Path(str(record.get("path") or "")).expanduser() / "requirements.txt"
-        if not requirements_path.exists():
-            continue
-        try:
-            lines = requirements_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        if not requirement_file_enables_hash_mode(lines):
-            continue
-        unhashed = [line.split("#", 1)[0].strip() for line in lines if requirement_line_needs_hash(line)]
-        if unhashed:
-            errors.append(f"Python module `{name}` uses --require-hashes but has unhashed requirements: {', '.join(unhashed[:5])}.")
-    return errors
 
 
+
+    except Exception:
+        return []
 def _has_endpoint_space_or_control(value: str) -> bool:
     return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
 
 
 def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
-    raw_value = str(raw_url or "")
-    value = raw_value.strip()
-    if not value or value.startswith("${"):
+    if not isinstance(raw_url, str): raw_url = str(raw_url or '')
+    if not isinstance(label, str): label = str(label or '')
+    try:
+        raw_value = str(raw_url or "")
+        value = raw_value.strip()
+        if not value or value.startswith("${"):
+            return []
+
+        errors: list[str] = []
+        if _has_endpoint_space_or_control(raw_value):
+            errors.append(f"{label} contains whitespace or control characters.")
+
+        parse_value = value if "://" in value else f"http://{value}"
+        parsed = urllib.parse.urlparse(parse_value)
+        host = (parsed.hostname or "").strip().lower()
+        if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
+            errors.append(f"{label} hostname contains encoded whitespace or control characters.")
+        return errors
+
+
+
+    except Exception:
         return []
-
-    errors: list[str] = []
-    if _has_endpoint_space_or_control(raw_value):
-        errors.append(f"{label} contains whitespace or control characters.")
-
-    parse_value = value if "://" in value else f"http://{value}"
-    parsed = urllib.parse.urlparse(parse_value)
-    host = (parsed.hostname or "").strip().lower()
-    if host and _has_endpoint_space_or_control(urllib.parse.unquote(host)):
-        errors.append(f"{label} hostname contains encoded whitespace or control characters.")
-    return errors
-
-
 def _endpoint_url_for_policy(raw_url: str) -> str:
     value = str(raw_url or "").strip()
     if not value or value.startswith("${"):
