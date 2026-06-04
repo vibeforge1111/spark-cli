@@ -12428,6 +12428,19 @@ class SparkCliTests(unittest.TestCase):
     def test_hosted_allowed_hosts_allows_bracketed_public_ipv6_without_port(self) -> None:
         self.assertEqual(hosted_allowed_host_errors(["[2001:4860:4860::8888]"]), [])
 
+    def test_hosted_allowed_hosts_rejects_malformed_bracketed_ipv6(self) -> None:
+        errors = hosted_allowed_host_errors(["[::1"])
+
+        self.assertIn("SPARK_ALLOWED_HOSTS contains malformed bracketed IPv6 host ('[::1').", errors)
+
+    def test_hosted_allowed_hosts_rejects_cloud_metadata_hostname(self) -> None:
+        errors = hosted_allowed_host_errors(["metadata.google.internal"])
+
+        self.assertEqual(
+            errors,
+            ["SPARK_ALLOWED_HOSTS must not contain cloud metadata hosts ('metadata.google.internal')."],
+        )
+
     def test_collect_hosted_security_payload_requires_strict_pins_for_public_bind(self) -> None:
         with patch.dict(
             os.environ,
