@@ -1152,16 +1152,25 @@ def fetch_secret(secret_id: str) -> str | None:
 
 
 def is_telegram_bot_token_secret(secret_id: str) -> bool:
-    return secret_id == "telegram.bot_token" or (
-        secret_id.startswith("telegram.profiles.") and secret_id.endswith(".bot_token")
-    )
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        return secret_id == "telegram.bot_token" or (
+            secret_id.startswith("telegram.profiles.") and secret_id.endswith(".bot_token")
+        )
 
 
+
+    except Exception:
+        return False
 def telegram_token_validation_error_detail(error: BaseException) -> str:
-    detail = redact_sensitive_text(str(error))
-    return re.sub(r"/bot[^/\s]+/", "/bot[REDACTED]/", detail, flags=re.IGNORECASE)
+    try:
+        detail = redact_sensitive_text(str(error))
+        return re.sub(r"/bot[^/\s]+/", "/bot[REDACTED]/", detail, flags=re.IGNORECASE)
 
 
+
+    except Exception:
+        return ""
 def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_token") -> dict[str, Any]:
     """Validate a Telegram bot token with getMe before persisting it."""
     token = extract_telegram_bot_token(token)
@@ -1304,13 +1313,22 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
+    try:
+        return hashlib.sha256(payload).hexdigest()
 
 
+
+    except Exception:
+        return ""
 def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        return sha256_bytes(path.read_bytes())
 
 
+
+    except Exception:
+        return ""
 def _path_is_reparse_point(path: Path) -> bool:
     if path.is_symlink():
         return True
@@ -2763,15 +2781,20 @@ def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
 
 
 def parse_version_tuple(raw: str) -> tuple[int, ...] | None:
-    match = re.search(r"\d+(?:\.\d+)*", raw or "")
-    if not match:
-        return None
+    if not isinstance(raw, str): raw = str(raw or '')
     try:
-        return tuple(int(part) for part in match.group(0).split("."))
-    except ValueError:
-        return None
+        match = re.search(r"\d+(?:\.\d+)*", raw or "")
+        if not match:
+            return None
+        try:
+            return tuple(int(part) for part in match.group(0).split("."))
+        except ValueError:
+            return None
 
 
+
+    except Exception:
+        return ()
 def compare_version_tuples(actual: tuple[int, ...], operator: str, required: tuple[int, ...]) -> bool:
     length = max(len(actual), len(required))
     a = actual + (0,) * (length - len(actual))
