@@ -12,42 +12,45 @@ SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
-    parts = shlex.split(command, posix=True)
+    parts = shlex.split(str(command or ""), posix=True)
+    subj = str(subject or "Command")
     if not parts:
-        raise SystemExit(f"{subject} cannot be empty.")
+        raise SystemExit(f"{subj} cannot be empty.")
     if any(part in SHELL_CHAIN_TOKENS for part in parts):
-        raise SystemExit(f"{subject} must be a single argv command, not a shell command chain.")
+        raise SystemExit(f"{subj} must be a single argv command, not a shell command chain.")
     return parts
 
 
 def resolve_runtime_executable(name: str) -> str:
-    path = shutil.which(name)
+    name_str = str(name or "")
+    path = shutil.which(name_str)
     if path:
         return path
-    if os.name == "nt" and not name.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
+    if os.name == "nt" and not name_str.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
         for suffix in (".cmd", ".exe", ".bat"):
-            path = shutil.which(name + suffix)
+            path = shutil.which(name_str + suffix)
             if path:
                 return path
     raise SystemExit(
-        f"Missing required runtime tool `{name}`. Install it, reopen the terminal, then rerun the command. "
+        f"Missing required runtime tool `{name_str}`. Install it, reopen the terminal, then rerun the command. "
         "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
     )
 
 
 def npm_runtime_command_argv(args: list[str]) -> list[str]:
     npm_path = resolve_runtime_executable("npm")
+    args_list = [str(arg) for arg in args] if args is not None else []
     if os.name == "nt" and os.path.splitext(npm_path)[1].lower() in {".cmd", ".bat"}:
         npm_dir = os.path.dirname(npm_path)
         node_path = shutil.which("node") or os.path.join(npm_dir, "node.exe")
         npm_cli = os.path.join(npm_dir, "node_modules", "npm", "bin", "npm-cli.js")
         if node_path and os.path.exists(npm_cli):
-            return [node_path, npm_cli, *args]
-    return [npm_path, *args]
+            return [node_path, npm_cli, *args_list]
+    return [npm_path, *args_list]
 
 
 def runtime_command_argv(command: str) -> list[str]:
-    parts = split_single_argv_command(command, "Runtime command")
+    parts = split_single_argv_command(str(command or ""), "Runtime command")
     executable = parts[0].lower()
     if executable in {"python", "python3"}:
         return [str(Path(sys.executable)), *parts[1:]]
@@ -70,7 +73,16 @@ def run_runtime_command(
     env: dict[str, str] | None = None,
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    argv = runtime_command_argv(command)
+    argv = runtime_command_argv(str(command or ""))
+    if cwd is not None:
+        cwd = Path(cwd)
+    if env is not None and not isinstance(env, dict):
+        env = None
+    if timeout is not None:
+        try:
+            timeout = int(timeout)
+        except (ValueError, TypeError):
+            timeout = None
     try:
         return subprocess.run(
             argv,
