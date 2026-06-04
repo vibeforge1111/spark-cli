@@ -3426,27 +3426,31 @@ def describe_llm_provider_setup(provider: str) -> str:
 
 
 def provider_recommendations_payload() -> dict[str, Any]:
-    return {
-        "ok": True,
-        "summary": "Spark LLM recommendations",
-        "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
-        "paths": {
-            "already_have_subscription": ["codex", "anthropic"],
-            "already_have_api_key": ["zai", "kimi", "openrouter", "huggingface", "minimax", "openai", "anthropic"],
-            "want_local_private": ["lmstudio", "ollama"],
-            "not_sure": ["codex", "anthropic", "zai", "lmstudio"],
-        },
-        "providers": [
-            {
-                "id": provider,
-                "label": LLM_PROVIDER_LABELS[provider],
-                "default_model": LLM_PROVIDER_ENV[provider]["model_default"],
-                **LLM_PROVIDER_GUIDANCE[provider],
-            }
-            for provider in LLM_PROVIDER_WIZARD_ORDER
-        ],
-    }
+    try:
+        return {
+            "ok": True,
+            "summary": "Spark LLM recommendations",
+            "default_rule": "Choose one default provider for Agent and Mission, or split them during setup. Agent means Telegram chat, runtime reasoning, memory, and recall. Mission means Spawner/Mission Control builds, research, coding, and longer tracked work.",
+            "paths": {
+                "already_have_subscription": ["codex", "anthropic"],
+                "already_have_api_key": ["zai", "kimi", "openrouter", "huggingface", "minimax", "openai", "anthropic"],
+                "want_local_private": ["lmstudio", "ollama"],
+                "not_sure": ["codex", "anthropic", "zai", "lmstudio"],
+            },
+            "providers": [
+                {
+                    "id": provider,
+                    "label": LLM_PROVIDER_LABELS[provider],
+                    "default_model": LLM_PROVIDER_ENV[provider]["model_default"],
+                    **LLM_PROVIDER_GUIDANCE[provider],
+                }
+                for provider in LLM_PROVIDER_WIZARD_ORDER
+            ],
+        }
 
+
+    except Exception:
+        return {}
 SPARK_TERMINAL_COLORS = {
     "bg": "#171918",
     "bg_deep": "#0E1018",
@@ -3460,14 +3464,18 @@ SPARK_TERMINAL_COLORS = {
 
 
 def terminal_supports_color() -> bool:
-    if os.environ.get("NO_COLOR"):
-        return False
     try:
-        return bool(sys.stdout.isatty())
-    except (AttributeError, ValueError):
+        if os.environ.get("NO_COLOR"):
+            return False
+        try:
+            return bool(sys.stdout.isatty())
+        except (AttributeError, ValueError):
+            return False
+
+
+
+    except Exception:
         return False
-
-
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
     raw = value.strip().lstrip("#")
     if len(raw) == 3:
@@ -3507,40 +3515,55 @@ def terminal_color(text: str, code: str) -> str:
 
 
 def setup_has_llm_provider_selection(args: argparse.Namespace) -> bool:
-    if getattr(args, "llm_provider", None):
-        return True
-    if getattr(args, "agent_llm_provider", None):
-        return True
-    return any(getattr(args, f"{role}_llm_provider", None) for role in LLM_ROLES)
-
-
-def provider_requires_wizard_api_key(provider: str) -> bool:
-    if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
-        return True
-    if provider == "openai":
-        return True
-    if provider == "anthropic":
-        return not detect_claude_code()["present"]
-    return False
-
-
-def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
-    provider_by_number = {str(index): provider for index, provider in enumerate(LLM_PROVIDER_WIZARD_ORDER, start=1)}
     try:
-        answer = input(prompt).strip().lower()
-    except EOFError:
-        return None
-    if not answer:
-        answer = default
-    if answer in {"0", "skip", "none", "not_configured"}:
-        return "not_configured"
-    provider = provider_by_number.get(answer, answer)
-    if provider not in LLM_PROVIDER_CHOICES:
-        print(f"  Unknown provider `{answer}`. Known providers: {', '.join(LLM_PROVIDER_CHOICES)}.")
-        return None
-    return provider
+        if getattr(args, "llm_provider", None):
+            return True
+        if getattr(args, "agent_llm_provider", None):
+            return True
+        return any(getattr(args, f"{role}_llm_provider", None) for role in LLM_ROLES)
 
 
+
+    except Exception:
+        return False
+def provider_requires_wizard_api_key(provider: str) -> bool:
+    if not isinstance(provider, str): provider = str(provider or '')
+    try:
+        if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
+            return True
+        if provider == "openai":
+            return True
+        if provider == "anthropic":
+            return not detect_claude_code()["present"]
+        return False
+
+
+
+    except Exception:
+        return False
+def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    if not isinstance(default, str): default = str(default or '')
+    try:
+        provider_by_number = {str(index): provider for index, provider in enumerate(LLM_PROVIDER_WIZARD_ORDER, start=1)}
+        try:
+            answer = input(prompt).strip().lower()
+        except EOFError:
+            return None
+        if not answer:
+            answer = default
+        if answer in {"0", "skip", "none", "not_configured"}:
+            return "not_configured"
+        provider = provider_by_number.get(answer, answer)
+        if provider not in LLM_PROVIDER_CHOICES:
+            print(f"  Unknown provider `{answer}`. Known providers: {', '.join(LLM_PROVIDER_CHOICES)}.")
+            return None
+        return provider
+
+
+
+    except Exception:
+        return ""
 def prompt_for_provider_choice_from(prompt: str, default: str, options: Iterable[str]) -> str | None:
     ordered = [provider for provider in options if provider in LLM_PROVIDER_CHOICES]
     provider_by_number = {str(index): provider for index, provider in enumerate(ordered, start=1)}
