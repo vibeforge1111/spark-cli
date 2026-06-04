@@ -65,7 +65,7 @@ def collect_docker_doctor_payload(*, timeout: int = 8) -> dict[str, Any]:
         _check(
             "docker_cli",
             bool(docker_path),
-            f"Docker CLI found at {docker_path}." if docker_path else "Docker CLI was not found on PATH.",
+            "Docker CLI is available on PATH." if docker_path else "Docker CLI was not found on PATH.",
             repair=docker_repair_hint(family),
         )
     ]
