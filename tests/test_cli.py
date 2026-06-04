@@ -526,6 +526,17 @@ class SparkCliTests(unittest.TestCase):
             self.assertNotIn(leaked, text)
         self.assertIn("[REDACTED]", text)
 
+    def test_sandbox_redaction_catches_local_user_paths(self) -> None:
+        mac_path = "/".join(["", "Users", "alice", "private", "auth.json"])
+        linux_path = "/".join(["", "home", "alice", "private", "poll.json"])
+        windows_path = "\\".join(["C:", "Users", "Alice", "private", "cache.json"])
+
+        text = redact_sandbox_text("\n".join([mac_path, linux_path, windows_path]))
+
+        self.assertEqual(text.count("[REDACTED_LOCAL_PATH]"), 3)
+        for leaked in [mac_path, linux_path, windows_path, "auth.json", "poll.json", "cache.json"]:
+            self.assertNotIn(leaked, text)
+
     def test_sandbox_redaction_catches_github_token_prefixes(self) -> None:
         tokens = [
             "ghp_abcdefghijklmnopqrstuvwxyz123456",
