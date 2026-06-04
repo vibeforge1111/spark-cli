@@ -2621,44 +2621,68 @@ def provider_env_blocklist() -> set[str]:
 
 
 def provider_secret_env_blocklist() -> set[str]:
-    blocked = {
-        key
-        for key in STATIC_PROVIDER_ENV_BLOCKLIST
-        if any(marker in key.upper() for marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
-    }
-    for spec in LLM_PROVIDER_ENV.values():
-        value = spec.get("api_key_env")
-        if value:
-            blocked.add(str(value))
-    return blocked
+    try:
+        blocked = {
+            key
+            for key in STATIC_PROVIDER_ENV_BLOCKLIST
+            if any(marker in key.upper() for marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+        }
+        for spec in LLM_PROVIDER_ENV.values():
+            value = spec.get("api_key_env")
+            if value:
+                blocked.add(str(value))
+        return blocked
 
 
+
+    except Exception:
+        return None
 def is_safe_parent_env_key(key: str) -> bool:
-    normalized = key.upper()
-    return normalized in SAFE_PARENT_ENV_KEYS or any(normalized.startswith(prefix) for prefix in SAFE_PARENT_ENV_PREFIXES)
+    if not isinstance(key, str): key = str(key or '')
+    try:
+        normalized = key.upper()
+        return normalized in SAFE_PARENT_ENV_KEYS or any(normalized.startswith(prefix) for prefix in SAFE_PARENT_ENV_PREFIXES)
 
 
+
+    except Exception:
+        return False
 def safe_parent_env(base: dict[str, str] | None = None) -> dict[str, str]:
-    source = os.environ if base is None else base
-    blocked = provider_env_blocklist()
-    return {
-        key: value
-        for key, value in source.items()
-        if is_safe_parent_env_key(key) and key.upper() not in blocked
-    }
+    if not isinstance(base, str): base = str(base or '')
+    try:
+        source = os.environ if base is None else base
+        blocked = provider_env_blocklist()
+        return {
+            key: value
+            for key, value in source.items()
+            if is_safe_parent_env_key(key) and key.upper() not in blocked
+        }
 
 
+
+    except Exception:
+        return {}
 def strip_reserved_workspace_env(values: dict[str, str]) -> dict[str, str]:
-    blocked = provider_env_blocklist()
-    return {key: value for key, value in values.items() if key.upper() not in blocked}
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        blocked = provider_env_blocklist()
+        return {key: value for key, value in values.items() if key.upper() not in blocked}
 
 
+
+    except Exception:
+        return {}
 def resolve_policy_path(path: Path) -> Path:
-    expanded = path.expanduser() if isinstance(path, Path) else Path(path).expanduser()
-    real_path = expanded.__class__(os.path.realpath(os.fspath(expanded)))
-    return real_path.resolve(strict=False)
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        expanded = path.expanduser() if isinstance(path, Path) else Path(path).expanduser()
+        real_path = expanded.__class__(os.path.realpath(os.fspath(expanded)))
+        return real_path.resolve(strict=False)
 
 
+
+    except Exception:
+        return Path(".")
 def policy_home_path(home: Path | None = None) -> Path:
     if home is not None:
         return resolve_policy_path(home)
