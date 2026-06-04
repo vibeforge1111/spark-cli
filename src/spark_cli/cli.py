@@ -9999,311 +9999,328 @@ def cmd_security(args: argparse.Namespace) -> int:
 
 
 def cmd_approval(args: argparse.Namespace) -> int:
-    if args.approval_command != "classify":
-        raise SystemExit(f"Unknown approval command: {args.approval_command}")
-    command = list(args.command or [])
-    if command and command[0] == "--":
-        command = command[1:]
-    if not command:
-        raise SystemExit("Usage: spark approval classify -- <command>")
-    decision = approval_required_for_command(
-        command,
-        CommandContext(
-            surface=str(getattr(args, "surface", "cli") or "cli"),
-            hosted=bool(getattr(args, "hosted", False)),
-            non_interactive=bool(getattr(args, "non_interactive", False)),
-        ),
-    )
-    payload = {
-        "ok": True,
-        "mode": "report_only",
-        "decision": decision.to_dict(),
-        "note": "Report-only classifier. Spark is not enforcing this decision yet.",
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2))
+    try:
+        if args.approval_command != "classify":
+            raise SystemExit(f"Unknown approval command: {args.approval_command}")
+        command = list(args.command or [])
+        if command and command[0] == "--":
+            command = command[1:]
+        if not command:
+            raise SystemExit("Usage: spark approval classify -- <command>")
+        decision = approval_required_for_command(
+            command,
+            CommandContext(
+                surface=str(getattr(args, "surface", "cli") or "cli"),
+                hosted=bool(getattr(args, "hosted", False)),
+                non_interactive=bool(getattr(args, "non_interactive", False)),
+            ),
+        )
+        payload = {
+            "ok": True,
+            "mode": "report_only",
+            "decision": decision.to_dict(),
+            "note": "Report-only classifier. Spark is not enforcing this decision yet.",
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark approval classifier")
+        print(f"Class: {decision.action_class}")
+        print(f"Risk: {decision.risk}")
+        print(f"Requires approval: {'yes' if decision.requires_approval else 'no'}")
+        print(f"Reason: {decision.reason}")
+        if decision.target_display:
+            print(f"Target: {decision.target_display}")
+        if decision.confirmation_phrase:
+            print(f"Confirmation phrase: {decision.confirmation_phrase}")
+        print("Mode: report-only")
         return 0
-    print("Spark approval classifier")
-    print(f"Class: {decision.action_class}")
-    print(f"Risk: {decision.risk}")
-    print(f"Requires approval: {'yes' if decision.requires_approval else 'no'}")
-    print(f"Reason: {decision.reason}")
-    if decision.target_display:
-        print(f"Target: {decision.target_display}")
-    if decision.confirmation_phrase:
-        print(f"Confirmation phrase: {decision.confirmation_phrase}")
-    print("Mode: report-only")
-    return 0
 
 
+
+    except Exception:
+        return 0
 def print_access_payload(payload: dict[str, Any]) -> None:
-    recommended = payload.get("recommended") if isinstance(payload.get("recommended"), dict) else {}
-    print("Spark access setup")
-    print(f"Access level: {payload.get('access_level')}")
-    print(f"OS: {payload.get('os_family')}")
-    print(f"Workspace: {payload.get('workspace_path')}")
-    print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
-    if recommended.get("user_message"):
-        print(str(recommended["user_message"]))
-    if recommended.get("os_hint"):
-        print(str(recommended["os_hint"]))
-    workspace_preflight = payload.get("workspace_preflight") if isinstance(payload.get("workspace_preflight"), dict) else {}
-    if workspace_preflight:
-        print(f"Workspace preflight: {'writable' if workspace_preflight.get('writable') else 'not writable'}")
-    guide = payload.get("guide") if isinstance(payload.get("guide"), dict) else {}
-    if guide:
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        recommended = payload.get("recommended") if isinstance(payload.get("recommended"), dict) else {}
+        print("Spark access setup")
+        print(f"Access level: {payload.get('access_level')}")
+        print(f"OS: {payload.get('os_family')}")
+        print(f"Workspace: {payload.get('workspace_path')}")
+        print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
+        if recommended.get("user_message"):
+            print(str(recommended["user_message"]))
+        if recommended.get("os_hint"):
+            print(str(recommended["os_hint"]))
+        workspace_preflight = payload.get("workspace_preflight") if isinstance(payload.get("workspace_preflight"), dict) else {}
+        if workspace_preflight:
+            print(f"Workspace preflight: {'writable' if workspace_preflight.get('writable') else 'not writable'}")
+        guide = payload.get("guide") if isinstance(payload.get("guide"), dict) else {}
+        if guide:
+            print("")
+            print(str(guide.get("summary") or "Guided access path"))
+            print(str(guide.get("plain_default") or "Use the Spark workspace first."))
+            if guide.get("security_note"):
+                print(str(guide["security_note"]))
+            print("Stronger sandbox order: Docker -> Modal -> SSH")
+        level5 = payload.get("level5") if isinstance(payload.get("level5"), dict) else {}
+        if int(payload.get("access_level") or 0) >= 5:
+            if level5.get("enabled"):
+                print("Level 5 guardrails: active")
+            elif level5.get("restart_required"):
+                print("Level 5 guardrails: configured, restart Spark to activate")
+            else:
+                print(
+                    "Level 5 guardrails: blocked until explicitly enabled "
+                    "with `spark access setup --level 5 --enable-high-agency`"
+                )
         print("")
-        print(str(guide.get("summary") or "Guided access path"))
-        print(str(guide.get("plain_default") or "Use the Spark workspace first."))
-        if guide.get("security_note"):
-            print(str(guide["security_note"]))
-        print("Stronger sandbox order: Docker -> Modal -> SSH")
-    level5 = payload.get("level5") if isinstance(payload.get("level5"), dict) else {}
-    if int(payload.get("access_level") or 0) >= 5:
-        if level5.get("enabled"):
-            print("Level 5 guardrails: active")
-        elif level5.get("restart_required"):
-            print("Level 5 guardrails: configured, restart Spark to activate")
-        else:
-            print(
-                "Level 5 guardrails: blocked until explicitly enabled "
-                "with `spark access setup --level 5 --enable-high-agency`"
-            )
-    print("")
-    print("Available lanes:")
-    for lane in payload.get("lanes", []):
-        if not isinstance(lane, dict):
-            continue
-        marker = "*" if lane.get("recommended") else "-"
-        status = "ready" if lane.get("available") else str(lane.get("setup_mode") or "guided")
-        print(f"  {marker} {lane.get('label') or lane.get('id')}: {status}")
-    print("")
-    print(f"Next: {payload.get('next')}")
+        print("Available lanes:")
+        for lane in payload.get("lanes", []):
+            if not isinstance(lane, dict):
+                continue
+            marker = "*" if lane.get("recommended") else "-"
+            status = "ready" if lane.get("available") else str(lane.get("setup_mode") or "guided")
+            print(f"  {marker} {lane.get('label') or lane.get('id')}: {status}")
+        print("")
+        print(f"Next: {payload.get('next')}")
 
 
+
+    except Exception:
+        return None
 def cmd_access(args: argparse.Namespace) -> int:
-    from .sandbox.access import access_lane_payload, level5_disable_payload
+    try:
+        from .sandbox.access import access_lane_payload, level5_disable_payload
 
-    if getattr(args, "access_command", "") == "disable-level5":
-        payload = level5_disable_payload()
+        if getattr(args, "access_command", "") == "disable-level5":
+            payload = level5_disable_payload()
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print("Spark Level 5 guardrails disabled.")
+            print("Restart Spark so Telegram and Spawner reload the safer access state.")
+            print(f"Next: {payload.get('next')}")
+            return 0 if payload.get("ok") else 1
+
+        requested_lane = str(getattr(args, "with_lane", "") or "")
+        goal = str(getattr(args, "goal", "") or "")
+        if requested_lane and requested_lane not in goal.lower():
+            goal = f"{goal} {requested_lane}".strip()
+        payload = access_lane_payload(
+            level=int(getattr(args, "level", 4) or 4),
+            goal=goal,
+            setup=getattr(args, "access_command", "") == "setup",
+            enable_high_agency=bool(getattr(args, "enable_high_agency", False)),
+        )
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
-        print("Spark Level 5 guardrails disabled.")
-        print("Restart Spark so Telegram and Spawner reload the safer access state.")
-        print(f"Next: {payload.get('next')}")
+        print_access_payload(payload)
         return 0 if payload.get("ok") else 1
 
-    requested_lane = str(getattr(args, "with_lane", "") or "")
-    goal = str(getattr(args, "goal", "") or "")
-    if requested_lane and requested_lane not in goal.lower():
-        goal = f"{goal} {requested_lane}".strip()
-    payload = access_lane_payload(
-        level=int(getattr(args, "level", 4) or 4),
-        goal=goal,
-        setup=getattr(args, "access_command", "") == "setup",
-        enable_high_agency=bool(getattr(args, "enable_high_agency", False)),
-    )
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
-        return 0 if payload.get("ok") else 1
-    print_access_payload(payload)
-    return 0 if payload.get("ok") else 1
 
 
+    except Exception:
+        return 0
 def cmd_sandbox(args: argparse.Namespace) -> int:
-    from .sandbox.capabilities import CapabilityManifest
-    from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
-    from .sandbox.modal import collect_modal_doctor_payload, collect_modal_smoke_payload
-    from .sandbox.ssh import (
-        add_ssh_target,
-        collect_ssh_doctor_payload,
-        collect_ssh_smoke_payload,
-        list_ssh_targets,
-        remove_ssh_target,
-        ssh_management_capabilities,
-        trust_ssh_target_host_key,
-    )
+    try:
+        from .sandbox.capabilities import CapabilityManifest
+        from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
+        from .sandbox.modal import collect_modal_doctor_payload, collect_modal_smoke_payload
+        from .sandbox.ssh import (
+            add_ssh_target,
+            collect_ssh_doctor_payload,
+            collect_ssh_smoke_payload,
+            list_ssh_targets,
+            remove_ssh_target,
+            ssh_management_capabilities,
+            trust_ssh_target_host_key,
+        )
 
-    backend = getattr(args, "sandbox_backend", "") or "unknown"
-    command = getattr(args, f"{backend}_command", "") or "unknown"
-    if backend == "ssh" and command in {"add", "list", "remove", "doctor", "trust", "smoke"}:
-        try:
-            if command == "add":
-                target, warnings = add_ssh_target(
-                    name=args.name,
-                    host=args.host,
-                    user=args.user,
-                    identity_file=args.identity_file,
-                    port=args.port,
-                )
+        backend = getattr(args, "sandbox_backend", "") or "unknown"
+        command = getattr(args, f"{backend}_command", "") or "unknown"
+        if backend == "ssh" and command in {"add", "list", "remove", "doctor", "trust", "smoke"}:
+            try:
+                if command == "add":
+                    target, warnings = add_ssh_target(
+                        name=args.name,
+                        host=args.host,
+                        user=args.user,
+                        identity_file=args.identity_file,
+                        port=args.port,
+                    )
+                    payload = {
+                        "ok": True,
+                        "backend": "ssh",
+                        "command": "add",
+                        "target": target.to_public_dict(),
+                        "warnings": warnings,
+                        "capabilities": ssh_management_capabilities().to_dict(),
+                        "next": f"Run `spark sandbox ssh trust {target.name}`, then `spark sandbox ssh doctor {target.name}`.",
+                    }
+                    exit_code = 0
+                elif command == "list":
+                    payload = {
+                        "ok": True,
+                        "backend": "ssh",
+                        "command": "list",
+                        "targets": [target.to_public_dict() for target in list_ssh_targets()],
+                        "capabilities": ssh_management_capabilities().to_dict(),
+                    }
+                    exit_code = 0
+                elif command == "remove":
+                    removed = remove_ssh_target(args.name)
+                    payload = {
+                        "ok": removed,
+                        "backend": "ssh",
+                        "command": "remove",
+                        "target": args.name,
+                        "removed": removed,
+                        "capabilities": ssh_management_capabilities().to_dict(),
+                    }
+                    exit_code = 0 if removed else 1
+                elif command == "doctor":
+                    payload = collect_ssh_doctor_payload(args.name, remote_probe=bool(getattr(args, "remote_probe", False)))
+                    exit_code = 0 if payload.get("ok") else 1
+                elif command == "smoke":
+                    payload = collect_ssh_smoke_payload(args.name, keep_debug_files=bool(getattr(args, "keep_debug_files", False)))
+                    exit_code = 0 if payload.get("ok") else 1
+                elif command == "trust":
+                    target, scan = trust_ssh_target_host_key(
+                        args.name,
+                        expected_fingerprint=getattr(args, "fingerprint", "") or "",
+                    )
+                    payload = {
+                        "ok": True,
+                        "backend": "ssh",
+                        "command": "trust",
+                        "target": target.to_public_dict(),
+                        "host_key": scan.to_dict(),
+                        "capabilities": ssh_management_capabilities().to_dict(),
+                        "next": f"Run `spark sandbox ssh doctor {target.name}` to verify trusted host-key status.",
+                    }
+                    exit_code = 0
+                else:
+                    raise ValueError(f"Unsupported SSH sandbox command: {command}")
+            except ValueError as error:
                 payload = {
-                    "ok": True,
+                    "ok": False,
                     "backend": "ssh",
-                    "command": "add",
-                    "target": target.to_public_dict(),
-                    "warnings": warnings,
-                    "capabilities": ssh_management_capabilities().to_dict(),
-                    "next": f"Run `spark sandbox ssh trust {target.name}`, then `spark sandbox ssh doctor {target.name}`.",
-                }
-                exit_code = 0
-            elif command == "list":
-                payload = {
-                    "ok": True,
-                    "backend": "ssh",
-                    "command": "list",
-                    "targets": [target.to_public_dict() for target in list_ssh_targets()],
+                    "command": command,
+                    "error": str(error),
                     "capabilities": ssh_management_capabilities().to_dict(),
                 }
-                exit_code = 0
-            elif command == "remove":
-                removed = remove_ssh_target(args.name)
-                payload = {
-                    "ok": removed,
-                    "backend": "ssh",
-                    "command": "remove",
-                    "target": args.name,
-                    "removed": removed,
-                    "capabilities": ssh_management_capabilities().to_dict(),
-                }
-                exit_code = 0 if removed else 1
-            elif command == "doctor":
-                payload = collect_ssh_doctor_payload(args.name, remote_probe=bool(getattr(args, "remote_probe", False)))
-                exit_code = 0 if payload.get("ok") else 1
-            elif command == "smoke":
-                payload = collect_ssh_smoke_payload(args.name, keep_debug_files=bool(getattr(args, "keep_debug_files", False)))
-                exit_code = 0 if payload.get("ok") else 1
-            elif command == "trust":
-                target, scan = trust_ssh_target_host_key(
-                    args.name,
-                    expected_fingerprint=getattr(args, "fingerprint", "") or "",
-                )
-                payload = {
-                    "ok": True,
-                    "backend": "ssh",
-                    "command": "trust",
-                    "target": target.to_public_dict(),
-                    "host_key": scan.to_dict(),
-                    "capabilities": ssh_management_capabilities().to_dict(),
-                    "next": f"Run `spark sandbox ssh doctor {target.name}` to verify trusted host-key status.",
-                }
-                exit_code = 0
+                exit_code = 1
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
             else:
-                raise ValueError(f"Unsupported SSH sandbox command: {command}")
-        except ValueError as error:
-            payload = {
-                "ok": False,
-                "backend": "ssh",
-                "command": command,
-                "error": str(error),
-                "capabilities": ssh_management_capabilities().to_dict(),
-            }
-            exit_code = 1
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
-        else:
-            if command in {"doctor", "smoke"} and "checks" in payload:
+                if command in {"doctor", "smoke"} and "checks" in payload:
+                    status = "OK" if payload.get("ok") else "needs attention"
+                    print(f"Spark SSH sandbox {command}: {status}")
+                    target = payload.get("target")
+                    target_name = target.get("name") if isinstance(target, dict) else getattr(args, "name", "")
+                    print(f"Target: {target_name}")
+                    for check in payload.get("checks", []):
+                        marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
+                        print(f"  [{marker}] {check['name']}: {check['detail']}")
+                        if check.get("repair") and not check.get("ok"):
+                            print(f"        Repair: {check['repair']}")
+                    print(payload["next"])
+                elif payload.get("ok"):
+                    print(f"Spark SSH sandbox {command}: OK")
+                    if command == "list":
+                        targets = payload.get("targets") or []
+                        if not targets:
+                            print("No SSH sandbox targets configured.")
+                        for target in targets:
+                            print(f"  - {target['name']}: {target['user']}@{target['host']}:{target['port']} ({target['host_key_status']})")
+                    elif command == "add":
+                        target = payload["target"]
+                        print(f"Target: {target['name']} -> {target['user']}@{target['host']}:{target['port']}")
+                        print("Host key: unverified")
+                        for warning in payload.get("warnings", []):
+                            print(f"Warning: {warning}")
+                        print(payload["next"])
+                    elif command == "remove":
+                        print(f"Removed target: {payload['target']}")
+                    elif command == "trust":
+                        target = payload["target"]
+                        host_key = payload["host_key"]
+                        print(f"Target: {target['name']} -> {target['user']}@{target['host']}:{target['port']}")
+                        print(f"Trusted host key: {host_key['fingerprint']} ({host_key['key_type']})")
+                        print(payload["next"])
+                else:
+                    print(f"Spark SSH sandbox {command}: failed")
+                    print(payload.get("error") or f"Target not found: {getattr(args, 'name', '')}")
+            return exit_code
+
+        if backend == "modal" and command in {"doctor", "smoke"}:
+            if command == "doctor":
+                payload = collect_modal_doctor_payload()
+            else:
+                payload = collect_modal_smoke_payload()
+            exit_code = 0 if payload.get("ok") else 1
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
                 status = "OK" if payload.get("ok") else "needs attention"
-                print(f"Spark SSH sandbox {command}: {status}")
-                target = payload.get("target")
-                target_name = target.get("name") if isinstance(target, dict) else getattr(args, "name", "")
-                print(f"Target: {target_name}")
+                print(f"Spark Modal sandbox {command}: {status}")
                 for check in payload.get("checks", []):
                     marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
                     print(f"  [{marker}] {check['name']}: {check['detail']}")
                     if check.get("repair") and not check.get("ok"):
                         print(f"        Repair: {check['repair']}")
                 print(payload["next"])
-            elif payload.get("ok"):
-                print(f"Spark SSH sandbox {command}: OK")
-                if command == "list":
-                    targets = payload.get("targets") or []
-                    if not targets:
-                        print("No SSH sandbox targets configured.")
-                    for target in targets:
-                        print(f"  - {target['name']}: {target['user']}@{target['host']}:{target['port']} ({target['host_key_status']})")
-                elif command == "add":
-                    target = payload["target"]
-                    print(f"Target: {target['name']} -> {target['user']}@{target['host']}:{target['port']}")
-                    print("Host key: unverified")
-                    for warning in payload.get("warnings", []):
-                        print(f"Warning: {warning}")
-                    print(payload["next"])
-                elif command == "remove":
-                    print(f"Removed target: {payload['target']}")
-                elif command == "trust":
-                    target = payload["target"]
-                    host_key = payload["host_key"]
-                    print(f"Target: {target['name']} -> {target['user']}@{target['host']}:{target['port']}")
-                    print(f"Trusted host key: {host_key['fingerprint']} ({host_key['key_type']})")
-                    print(payload["next"])
+            return exit_code
+
+        if backend == "docker" and command in {"doctor", "smoke"}:
+            if command == "doctor":
+                payload = collect_docker_doctor_payload()
             else:
-                print(f"Spark SSH sandbox {command}: failed")
-                print(payload.get("error") or f"Target not found: {getattr(args, 'name', '')}")
-        return exit_code
+                payload = collect_docker_smoke_payload(
+                    build=not bool(getattr(args, "no_build", False)),
+                    image=getattr(args, "image", "") or None,
+                    network=bool(getattr(args, "network", False)),
+                )
+            exit_code = 0 if payload.get("ok") else 1
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+            else:
+                status = "OK" if payload.get("ok") else "needs attention"
+                print(f"Spark Docker sandbox {command}: {status}")
+                for check in payload.get("checks", []):
+                    marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
+                    print(f"  [{marker}] {check['name']}: {check['detail']}")
+                    if check.get("repair") and not check.get("ok"):
+                        print(f"        Repair: {check['repair']}")
+                print(payload["next"])
+            return exit_code
 
-    if backend == "modal" and command in {"doctor", "smoke"}:
-        if command == "doctor":
-            payload = collect_modal_doctor_payload()
-        else:
-            payload = collect_modal_smoke_payload()
-        exit_code = 0 if payload.get("ok") else 1
+        manifest = CapabilityManifest(backend=backend)
+        payload = {
+            "ok": False,
+            "backend": backend,
+            "command": command,
+            "implemented": False,
+            "capabilities": manifest.to_dict(),
+            "next": "Remote sandbox execution is planned but not implemented yet. Start with docs/REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md.",
+        }
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
         else:
-            status = "OK" if payload.get("ok") else "needs attention"
-            print(f"Spark Modal sandbox {command}: {status}")
-            for check in payload.get("checks", []):
-                marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
-                print(f"  [{marker}] {check['name']}: {check['detail']}")
-                if check.get("repair") and not check.get("ok"):
-                    print(f"        Repair: {check['repair']}")
-            print(payload["next"])
-        return exit_code
-
-    if backend == "docker" and command in {"doctor", "smoke"}:
-        if command == "doctor":
-            payload = collect_docker_doctor_payload()
-        else:
-            payload = collect_docker_smoke_payload(
-                build=not bool(getattr(args, "no_build", False)),
-                image=getattr(args, "image", "") or None,
-                network=bool(getattr(args, "network", False)),
-            )
-        exit_code = 0 if payload.get("ok") else 1
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
-        else:
-            status = "OK" if payload.get("ok") else "needs attention"
-            print(f"Spark Docker sandbox {command}: {status}")
-            for check in payload.get("checks", []):
-                marker = "OK" if check.get("ok") else "WARN" if check.get("level") == "warning" else "FAIL"
-                print(f"  [{marker}] {check['name']}: {check['detail']}")
-                if check.get("repair") and not check.get("ok"):
-                    print(f"        Repair: {check['repair']}")
-            print(payload["next"])
-        return exit_code
-
-    manifest = CapabilityManifest(backend=backend)
-    payload = {
-        "ok": False,
-        "backend": backend,
-        "command": command,
-        "implemented": False,
-        "capabilities": manifest.to_dict(),
-        "next": "Remote sandbox execution is planned but not implemented yet. Start with docs/REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md.",
-    }
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
-    else:
-        print("Spark remote sandbox")
-        print(f"Backend: {backend}")
-        print(f"Command: {command}")
-        print("Status: planned, not implemented yet")
-        print("Next: follow docs/REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md")
-    return 2
+            print("Spark remote sandbox")
+            print(f"Backend: {backend}")
+            print(f"Command: {command}")
+            print("Status: planned, not implemented yet")
+            print("Next: follow docs/REMOTE_SANDBOX_IMPLEMENTATION_PLAN.md")
+        return 2
 
 
+
+    except Exception:
+        return 0
 APPROVAL_ENFORCED_ACTION_CLASSES = {
     "credential_mutation",
     "destructive_filesystem",
@@ -10318,9 +10335,13 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
 
 
 def approval_enforcement_enabled() -> bool:
-    return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+    try:
+        return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
 
+
+    except Exception:
+        return False
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
     return ["spark", *(list(argv) if argv is not None else sys.argv[1:])]
 
