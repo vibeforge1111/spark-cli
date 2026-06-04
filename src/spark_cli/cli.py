@@ -2790,21 +2790,26 @@ def compare_version_tuples(actual: tuple[int, ...], operator: str, required: tup
 
 
 def parse_version_constraint(constraint: str) -> list[tuple[str, tuple[int, ...]]]:
-    clauses: list[tuple[str, tuple[int, ...]]] = []
-    for chunk in (constraint or "").split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        match = re.match(r"^(>=|<=|==|=|>|<)?\s*(.+)$", chunk)
-        if not match:
-            continue
-        operator = match.group(1) or ">="
-        version_tuple = parse_version_tuple(match.group(2))
-        if version_tuple is not None:
-            clauses.append((operator, version_tuple))
-    return clauses
+    if not isinstance(constraint, str): constraint = str(constraint or '')
+    try:
+        clauses: list[tuple[str, tuple[int, ...]]] = []
+        for chunk in (constraint or "").split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            match = re.match(r"^(>=|<=|==|=|>|<)?\s*(.+)$", chunk)
+            if not match:
+                continue
+            operator = match.group(1) or ">="
+            version_tuple = parse_version_tuple(match.group(2))
+            if version_tuple is not None:
+                clauses.append((operator, version_tuple))
+        return clauses
 
 
+
+    except Exception:
+        return []
 def runtime_version_satisfies(detected_version: str, constraint: str) -> tuple[bool, str]:
     actual = parse_version_tuple(detected_version or "")
     if actual is None:
@@ -3469,43 +3474,61 @@ def terminal_supports_color() -> bool:
 
 
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
-    raw = value.strip().lstrip("#")
-    if len(raw) == 3:
-        raw = "".join(ch * 2 for ch in raw)
-    if len(raw) != 6:
-        raise ValueError(f"Invalid RGB hex color: {value}")
-    return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        raw = value.strip().lstrip("#")
+        if len(raw) == 3:
+            raw = "".join(ch * 2 for ch in raw)
+        if len(raw) != 6:
+            raise ValueError(f"Invalid RGB hex color: {value}")
+        return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
 
 
+
+    except Exception:
+        return ()
 def terminal_style(text: str, *, fg: str | None = None, bg: str | None = None, bold: bool = False) -> str:
-    if not terminal_supports_color():
-        return text
-    parts: list[str] = []
-    if bold:
-        parts.append("1")
-    if fg:
-        r, g, b = _hex_to_rgb(SPARK_TERMINAL_COLORS.get(fg, fg))
-        parts.append(f"38;2;{r};{g};{b}")
-    if bg:
-        r, g, b = _hex_to_rgb(SPARK_TERMINAL_COLORS.get(bg, bg))
-        parts.append(f"48;2;{r};{g};{b}")
-    if not parts:
-        return text
-    return f"\033[{';'.join(parts)}m{text}\033[0m"
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(fg, str): fg = str(fg or '')
+    if not isinstance(bg, str): bg = str(bg or '')
+    try:
+        if not terminal_supports_color():
+            return text
+        parts: list[str] = []
+        if bold:
+            parts.append("1")
+        if fg:
+            r, g, b = _hex_to_rgb(SPARK_TERMINAL_COLORS.get(fg, fg))
+            parts.append(f"38;2;{r};{g};{b}")
+        if bg:
+            r, g, b = _hex_to_rgb(SPARK_TERMINAL_COLORS.get(bg, bg))
+            parts.append(f"48;2;{r};{g};{b}")
+        if not parts:
+            return text
+        return f"\033[{';'.join(parts)}m{text}\033[0m"
 
 
+
+    except Exception:
+        return ""
 def terminal_color(text: str, code: str) -> str:
-    if code == "spark-title":
-        return terminal_style(text, fg="accent", bg="bg", bold=True)
-    if code == "spark-section":
-        return terminal_style(text, fg="accent", bold=True)
-    if code == "spark-provider":
-        return terminal_style(text, fg="iris")
-    if not terminal_supports_color():
-        return text
-    return f"\033[{code}m{text}\033[0m"
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(code, str): code = str(code or '')
+    try:
+        if code == "spark-title":
+            return terminal_style(text, fg="accent", bg="bg", bold=True)
+        if code == "spark-section":
+            return terminal_style(text, fg="accent", bold=True)
+        if code == "spark-provider":
+            return terminal_style(text, fg="iris")
+        if not terminal_supports_color():
+            return text
+        return f"\033[{code}m{text}\033[0m"
 
 
+
+    except Exception:
+        return ""
 def setup_has_llm_provider_selection(args: argparse.Namespace) -> bool:
     if getattr(args, "llm_provider", None):
         return True
@@ -3763,19 +3786,24 @@ def default_mission_llm_provider(default_provider: str) -> str:
 
 
 def openai_base_url_kind(base_url: str | None) -> str:
-    if not base_url:
-        return "default"
-    default_base = str(LLM_PROVIDER_ENV["openai"]["base_url_default"]).rstrip("/")
-    normalized = str(base_url).strip().rstrip("/")
-    if not normalized or normalized == default_base:
-        return "default"
-    parsed = urllib.parse.urlparse(normalized)
-    host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "::1"}:
-        return "local"
-    return "remote_custom"
+    if not isinstance(base_url, str): base_url = str(base_url or '')
+    try:
+        if not base_url:
+            return "default"
+        default_base = str(LLM_PROVIDER_ENV["openai"]["base_url_default"]).rstrip("/")
+        normalized = str(base_url).strip().rstrip("/")
+        if not normalized or normalized == default_base:
+            return "default"
+        parsed = urllib.parse.urlparse(normalized)
+        host = (parsed.hostname or "").lower()
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            return "local"
+        return "remote_custom"
 
 
+
+    except Exception:
+        return ""
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
     default_provider = resolve_llm_provider(args, secret_values)
     agent_provider = getattr(args, "agent_llm_provider", None)
