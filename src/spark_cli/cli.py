@@ -5584,33 +5584,43 @@ def run_install_commands_with_progress(
     args: argparse.Namespace,
     resume: bool,
 ) -> None:
-    """Run [install.dev].commands with progress tracking so --resume can skip them."""
-    if args.skip_install_commands:
-        return
-    if step_previously_completed(progress_key, "install_commands", resume):
-        print(f"--resume: skipping install commands for {module.name} (already completed).")
-        return
+    if not isinstance(progress_key, str): progress_key = str(progress_key or '')
     try:
-        execute_install_commands(module)
-    except SystemExit as error:
-        record_install_failure(progress_key, "install_commands", str(error))
-        raise
-    record_install_step(progress_key, "install_commands")
+        """Run [install.dev].commands with progress tracking so --resume can skip them."""
+        if args.skip_install_commands:
+            return
+        if step_previously_completed(progress_key, "install_commands", resume):
+            print(f"--resume: skipping install commands for {module.name} (already completed).")
+            return
+        try:
+            execute_install_commands(module)
+        except SystemExit as error:
+            record_install_failure(progress_key, "install_commands", str(error))
+            raise
+        record_install_step(progress_key, "install_commands")
 
 
+
+    except Exception:
+        return None
 def setup_should_run_install_commands(
     module: Module,
     installed_modules: dict[str, Module],
     args: argparse.Namespace,
 ) -> bool:
-    """Return whether setup should run dependency install commands for this module."""
-    if getattr(args, "skip_install_commands", False):
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        """Return whether setup should run dependency install commands for this module."""
+        if getattr(args, "skip_install_commands", False):
+            return False
+        if getattr(args, "run_install_commands", False):
+            return True
+        return module.name not in installed_modules
+
+
+
+    except Exception:
         return False
-    if getattr(args, "run_install_commands", False):
-        return True
-    return module.name not in installed_modules
-
-
 def print_setup_next_steps(
     bundle_name: str,
     ingress_owner: Module,
@@ -5621,105 +5631,116 @@ def print_setup_next_steps(
     start_ok: bool,
     autostart_enabled: bool,
 ) -> None:
-    provider = llm_state.get("provider") or "unknown"
-    model = llm_state.get("model") or "not configured"
-    roles = llm_state.get("roles") if isinstance(llm_state.get("roles"), dict) else {}
-    session = str(setup_state.get("onboarding_session") or new_onboarding_session_code())
-    telegram_label = "@YourSparkBot"
-    print("")
-    if start_now and start_ok:
-        print("Spark is ready.")
-    elif start_now:
-        print("Spark is installed, but not running yet.")
-    else:
-        print("Spark is configured, but not started yet.")
-    print("")
-    print(f"Telegram: {telegram_label}")
-    print(f"Autostart: {'enabled' if autostart_enabled else 'disabled'}")
-    access_state = setup_state.get("access") if isinstance(setup_state, dict) else None
-    if isinstance(access_state, dict):
-        preflight = access_state.get("workspace_preflight") if isinstance(access_state.get("workspace_preflight"), dict) else {}
-        ready_label = "ready" if preflight.get("writable") else "needs attention"
+    if not isinstance(bundle_name, str): bundle_name = str(bundle_name or '')
+    if not isinstance(llm_state, str): llm_state = str(llm_state or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        provider = llm_state.get("provider") or "unknown"
+        model = llm_state.get("model") or "not configured"
+        roles = llm_state.get("roles") if isinstance(llm_state.get("roles"), dict) else {}
+        session = str(setup_state.get("onboarding_session") or new_onboarding_session_code())
+        telegram_label = "@YourSparkBot"
         print("")
-        print(f"Access: Level 4 safe workspace is {ready_label} at {access_state.get('workspace_path')}.")
-        print("Recommended for builders: choose Level 4 when prompted so Mission Control can work in this workspace.")
-        print("Choose a lower level only for chat-only or public-research installs.")
-        print("Spark uses workspace-write by default; whole-computer access is off.")
-        print("Docker: optional stronger local isolation for riskier or reproducible work.")
-        print("Modal: optional disposable cloud compute; Spark does not pass secrets or project files by default.")
-        print("SSH: optional user-owned remote machine access, not the default sandbox.")
-        print("Level 5 whole-computer mode stays off unless explicitly enabled with:")
-        print("  spark access setup --level 5 --enable-high-agency")
-    else:
-        print("Recommended for builders: choose Level 4 when prompted so Mission Control can inspect and build in local workspaces.")
-        print("Choose a lower level only for chat-only or public-research installs.")
-    print("")
-    print("Start chatting and building:")
-    print("  1. Open your Spark bot in Telegram.")
-    print(f"  2. If Telegram asks for a start code, send: /start {session}")
-    print("  3. Send a normal message, or try: /run say exactly OK")
-    print("")
-    print("When you are ready, ask Spark how it can improve for your workflows.")
-    print("Your agent will guide memory, missions, and self-improvement one step at a time.")
-    print("")
-    if provider == "not_configured":
-        print("LLM provider: not configured yet")
-    else:
-        print(f"LLM provider: {provider} ({model})")
-    if roles:
-        print("LLM roles:")
-        for role in LLM_ROLES:
-            role_state = roles.get(role, {})
-            print(
-                f"  - {role}: {role_state.get('provider', provider)} "
-                f"({role_state.get('model', model)}, auth={role_state.get('auth_mode', llm_state.get('auth_mode', 'unknown'))})"
-            )
-    voice_state = setup_state.get("voice") if isinstance(setup_state, dict) else None
-    if isinstance(voice_state, dict) and voice_state.get("enabled"):
-        print("")
-        print("Voice:")
-        if voice_state.get("elevenlabs_secret_configured"):
-            print("  ElevenLabs key is stored in Spark secrets and injected into Builder at runtime.")
+        if start_now and start_ok:
+            print("Spark is ready.")
+        elif start_now:
+            print("Spark is installed, but not running yet.")
         else:
-            print("  Voice chip is installed; choose hosted or local/private setup from Telegram.")
-        print("  In Telegram, send: /voice self-test")
-        print("  Then say: Guide me through ElevenLabs voice setup")
-    print("")
-    print("Checks:")
-    print("  spark verify --onboarding")
-    print("  spark fix telegram")
-    print("  spark fix spawner")
-    if not start_ok:
+            print("Spark is configured, but not started yet.")
         print("")
-        print("Mission Control or Spark did not fully start. Start it now:")
-        print(f"  spark start {bundle_name}")
-        print("  spark logs spawner-ui --lines 80")
+        print(f"Telegram: {telegram_label}")
+        print(f"Autostart: {'enabled' if autostart_enabled else 'disabled'}")
+        access_state = setup_state.get("access") if isinstance(setup_state, dict) else None
+        if isinstance(access_state, dict):
+            preflight = access_state.get("workspace_preflight") if isinstance(access_state.get("workspace_preflight"), dict) else {}
+            ready_label = "ready" if preflight.get("writable") else "needs attention"
+            print("")
+            print(f"Access: Level 4 safe workspace is {ready_label} at {access_state.get('workspace_path')}.")
+            print("Recommended for builders: choose Level 4 when prompted so Mission Control can work in this workspace.")
+            print("Choose a lower level only for chat-only or public-research installs.")
+            print("Spark uses workspace-write by default; whole-computer access is off.")
+            print("Docker: optional stronger local isolation for riskier or reproducible work.")
+            print("Modal: optional disposable cloud compute; Spark does not pass secrets or project files by default.")
+            print("SSH: optional user-owned remote machine access, not the default sandbox.")
+            print("Level 5 whole-computer mode stays off unless explicitly enabled with:")
+            print("  spark access setup --level 5 --enable-high-agency")
+        else:
+            print("Recommended for builders: choose Level 4 when prompted so Mission Control can inspect and build in local workspaces.")
+            print("Choose a lower level only for chat-only or public-research installs.")
+        print("")
+        print("Start chatting and building:")
+        print("  1. Open your Spark bot in Telegram.")
+        print(f"  2. If Telegram asks for a start code, send: /start {session}")
+        print("  3. Send a normal message, or try: /run say exactly OK")
+        print("")
+        print("When you are ready, ask Spark how it can improve for your workflows.")
+        print("Your agent will guide memory, missions, and self-improvement one step at a time.")
+        print("")
+        if provider == "not_configured":
+            print("LLM provider: not configured yet")
+        else:
+            print(f"LLM provider: {provider} ({model})")
+        if roles:
+            print("LLM roles:")
+            for role in LLM_ROLES:
+                role_state = roles.get(role, {})
+                print(
+                    f"  - {role}: {role_state.get('provider', provider)} "
+                    f"({role_state.get('model', model)}, auth={role_state.get('auth_mode', llm_state.get('auth_mode', 'unknown'))})"
+                )
+        voice_state = setup_state.get("voice") if isinstance(setup_state, dict) else None
+        if isinstance(voice_state, dict) and voice_state.get("enabled"):
+            print("")
+            print("Voice:")
+            if voice_state.get("elevenlabs_secret_configured"):
+                print("  ElevenLabs key is stored in Spark secrets and injected into Builder at runtime.")
+            else:
+                print("  Voice chip is installed; choose hosted or local/private setup from Telegram.")
+            print("  In Telegram, send: /voice self-test")
+            print("  Then say: Guide me through ElevenLabs voice setup")
+        print("")
+        print("Checks:")
+        print("  spark verify --onboarding")
+        print("  spark fix telegram")
+        print("  spark fix spawner")
+        if not start_ok:
+            print("")
+            print("Mission Control or Spark did not fully start. Start it now:")
+            print(f"  spark start {bundle_name}")
+            print("  spark logs spawner-ui --lines 80")
 
 
+
+    except Exception:
+        return None
 def resolve_setup_bundle_plan(args: argparse.Namespace) -> SetupBundlePlan:
-    modules = discover_modules()
-    modules = ensure_bundle_modules_available(resolve_bundle_names(args.bundle), modules)
-    bundle = resolve_bundle(args.bundle, modules)
-    ingress_owner = detect_ingress_owner(bundle)
-    installed_modules = resolve_installed_modules()
-    for module in bundle:
-        validate_manifest_schema(module)
-    conflicts = detect_capability_conflicts(bundle, installed_modules)
-    if conflicts:
-        raise SystemExit("Cannot run setup because of capability conflicts: " + "; ".join(conflicts))
-    unmet = validate_capability_needs_for_install(bundle, installed_modules, modules, bundle_name=args.bundle)
-    if unmet:
-        raise SystemExit("Cannot run setup because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
-    if not getattr(args, "skip_runtime_check", False):
-        enforce_runtime_versions(bundle)
-    return SetupBundlePlan(
-        modules=modules,
-        bundle=bundle,
-        ingress_owner=ingress_owner,
-        installed_modules=installed_modules,
-    )
+    try:
+        modules = discover_modules()
+        modules = ensure_bundle_modules_available(resolve_bundle_names(args.bundle), modules)
+        bundle = resolve_bundle(args.bundle, modules)
+        ingress_owner = detect_ingress_owner(bundle)
+        installed_modules = resolve_installed_modules()
+        for module in bundle:
+            validate_manifest_schema(module)
+        conflicts = detect_capability_conflicts(bundle, installed_modules)
+        if conflicts:
+            raise SystemExit("Cannot run setup because of capability conflicts: " + "; ".join(conflicts))
+        unmet = validate_capability_needs_for_install(bundle, installed_modules, modules, bundle_name=args.bundle)
+        if unmet:
+            raise SystemExit("Cannot run setup because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+        if not getattr(args, "skip_runtime_check", False):
+            enforce_runtime_versions(bundle)
+        return SetupBundlePlan(
+            modules=modules,
+            bundle=bundle,
+            ingress_owner=ingress_owner,
+            installed_modules=installed_modules,
+        )
 
 
+
+    except Exception:
+        return None
 def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
     if not getattr(args, "with_voice", False):
         return
@@ -5734,16 +5755,22 @@ def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
 
 
 def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_values: dict[str, str]) -> dict[str, Any] | None:
-    if not any(module.name == VOICE_MODULE_NAME for module in bundle):
-        return None
-    return {
-        "enabled": True,
-        "module": VOICE_MODULE_NAME,
-        "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
-        "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
-    }
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        if not any(module.name == VOICE_MODULE_NAME for module in bundle):
+            return None
+        return {
+            "enabled": True,
+            "module": VOICE_MODULE_NAME,
+            "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
+            "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
+        }
 
 
+
+    except Exception:
+        return {}
 def collect_setup_configuration(
     args: argparse.Namespace,
     bundle: list[Module],
