@@ -6636,38 +6636,42 @@ def browser_use_normalize_structured_agent_json(raw: str) -> str:
 
 
 def browser_use_agent_history_payload(history: Any) -> dict[str, Any]:
-    def read(name: str, default: Any = None) -> Any:
-        value = getattr(history, name, default)
-        if callable(value):
-            try:
-                return value()
-            except TypeError:
-                return default
-        return value
+    try:
+        def read(name: str, default: Any = None) -> Any:
+            value = getattr(history, name, default)
+            if callable(value):
+                try:
+                    return value()
+                except TypeError:
+                    return default
+            return value
 
-    final_result = read("final_result", "") or ""
-    extracted = read("extracted_content", []) or []
-    errors = read("errors", []) or []
-    urls = read("urls", []) or []
-    screenshots = read("screenshot_paths", []) or []
-    action_names = read("action_names", []) or []
-    return {
-        "final_result": browser_use_bounded_text(str(final_result), BROWSER_USE_TASK_TEXT_LIMIT),
-        "extracted_content": browser_use_bounded_list(extracted, limit=6),
-        "errors": browser_use_bounded_list(errors, limit=5),
-        "urls": browser_use_bounded_list(urls, limit=8),
-        "screenshot_paths": browser_use_bounded_list(screenshots, limit=8),
-        "action_names": browser_use_bounded_list(action_names, limit=20),
-        "number_of_steps": read("number_of_steps", 0) or 0,
-        "total_duration_seconds": read("total_duration_seconds", 0) or 0,
-        "is_done": bool(read("is_done", False)),
-        "is_successful": bool(read("is_successful", False)),
-        "is_judged": bool(read("is_judged", False)),
-        "is_validated": bool(read("is_validated", False)),
-        "judgement": browser_use_bounded_text(str(read("judgement", "") or ""), 1200),
-    }
+        final_result = read("final_result", "") or ""
+        extracted = read("extracted_content", []) or []
+        errors = read("errors", []) or []
+        urls = read("urls", []) or []
+        screenshots = read("screenshot_paths", []) or []
+        action_names = read("action_names", []) or []
+        return {
+            "final_result": browser_use_bounded_text(str(final_result), BROWSER_USE_TASK_TEXT_LIMIT),
+            "extracted_content": browser_use_bounded_list(extracted, limit=6),
+            "errors": browser_use_bounded_list(errors, limit=5),
+            "urls": browser_use_bounded_list(urls, limit=8),
+            "screenshot_paths": browser_use_bounded_list(screenshots, limit=8),
+            "action_names": browser_use_bounded_list(action_names, limit=20),
+            "number_of_steps": read("number_of_steps", 0) or 0,
+            "total_duration_seconds": read("total_duration_seconds", 0) or 0,
+            "is_done": bool(read("is_done", False)),
+            "is_successful": bool(read("is_successful", False)),
+            "is_judged": bool(read("is_judged", False)),
+            "is_validated": bool(read("is_validated", False)),
+            "judgement": browser_use_bounded_text(str(read("judgement", "") or ""), 1200),
+        }
 
 
+
+    except Exception:
+        return {}
 def browser_use_task_completed(result: dict[str, Any]) -> bool:
     if result.get("is_successful") is False:
         return False
@@ -6725,138 +6729,142 @@ def browser_use_public_payload(payload: Any) -> Any:
 
 
 def cmd_browser_use(args: argparse.Namespace) -> int:
-    action = getattr(args, "browser_use_command", "status")
-    if action == "status":
-        payload = browser_use_status_payload()
-        if getattr(args, "json", False):
-            print(json.dumps(payload, indent=2))
+    try:
+        action = getattr(args, "browser_use_command", "status")
+        if action == "status":
+            payload = browser_use_status_payload()
+            if getattr(args, "json", False):
+                print(json.dumps(payload, indent=2))
+                return 0 if payload["status"] != "failed" else 1
+            print("Spark browser-use")
+            print(f"Status: {payload['status']}")
+            print(f"Package: {'available' if payload['package_available'] else 'missing'}")
+            print(f"CLI: {'available' if payload['cli_available'] else 'missing'}")
+            print(f"Status file: {payload['status_path']} ({'present' if payload['status_exists'] else 'missing'})")
+            if payload["proven_scope"]:
+                print("Proven scope: " + ", ".join(payload["proven_scope"]))
+            if payload["last_failure_reason"]:
+                print(f"Last failure: {payload['last_failure_reason']}")
+            latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
+            if latest_action:
+                action_label = str(latest_action.get("action") or "action")
+                action_status = str(latest_action.get("status") or "unknown")
+                print(f"Latest action: {action_label} -> {action_status}")
+                if latest_action.get("last_failure_reason"):
+                    print(f"Latest action failure: {latest_action['last_failure_reason']}")
+            print(f"Next: {payload['next_action']}")
             return 0 if payload["status"] != "failed" else 1
-        print("Spark browser-use")
-        print(f"Status: {payload['status']}")
-        print(f"Package: {'available' if payload['package_available'] else 'missing'}")
-        print(f"CLI: {'available' if payload['cli_available'] else 'missing'}")
-        print(f"Status file: {payload['status_path']} ({'present' if payload['status_exists'] else 'missing'})")
-        if payload["proven_scope"]:
-            print("Proven scope: " + ", ".join(payload["proven_scope"]))
-        if payload["last_failure_reason"]:
-            print(f"Last failure: {payload['last_failure_reason']}")
-        latest_action = payload.get("latest_action") if isinstance(payload.get("latest_action"), dict) else {}
-        if latest_action:
-            action_label = str(latest_action.get("action") or "action")
-            action_status = str(latest_action.get("status") or "unknown")
-            print(f"Latest action: {action_label} -> {action_status}")
-            if latest_action.get("last_failure_reason"):
-                print(f"Latest action failure: {latest_action['last_failure_reason']}")
-        print(f"Next: {payload['next_action']}")
-        return 0 if payload["status"] != "failed" else 1
 
-    if action == "install":
-        if getattr(args, "dry_run", False):
-            print("Spark browser-use install preview")
-            print("Would run:")
-            print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
-            print("  browser-use install")
-            print("  browser-use doctor")
-            print("Then run: spark browser-use probe")
+        if action == "install":
+            if getattr(args, "dry_run", False):
+                print("Spark browser-use install preview")
+                print("Would run:")
+                print(f"  {sys.executable} -m pip install -e {REPO_ROOT}[browser-use]")
+                print("  browser-use install")
+                print("  browser-use doctor")
+                print("Then run: spark browser-use probe")
+                return 0
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
+                    check=True,
+                    timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise SystemExit(
+                    f"browser-use package install failed with exit code {exc.returncode}. "
+                    "Fix the Python package install, then rerun `spark browser-use install`."
+                ) from None
+            except subprocess.TimeoutExpired as exc:
+                raise SystemExit(
+                    f"browser-use package install timed out after {exc.timeout}s. "
+                    "The package download may be slow or the network unreachable."
+                ) from None
+            except OSError as exc:
+                raise SystemExit(
+                    "browser-use package install could not start. "
+                    "Check Python/pip availability, then rerun `spark browser-use install`."
+                ) from exc
+            cli_path = browser_use_cli_path()
+            if not cli_path:
+                raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
+            try:
+                run_browser_use_command(cli_path, "install", timeout=180)
+                run_browser_use_command(cli_path, "doctor", timeout=60)
+            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
+            print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
             return 0
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-e", f"{REPO_ROOT}[browser-use]"],
-                check=True,
-                timeout=PIP_EDITABLE_INSTALL_TIMEOUT_SECONDS,
-            )
-        except subprocess.CalledProcessError as exc:
-            raise SystemExit(
-                f"browser-use package install failed with exit code {exc.returncode}. "
-                "Fix the Python package install, then rerun `spark browser-use install`."
-            ) from None
-        except subprocess.TimeoutExpired as exc:
-            raise SystemExit(
-                f"browser-use package install timed out after {exc.timeout}s. "
-                "The package download may be slow or the network unreachable."
-            ) from None
-        except OSError as exc:
-            raise SystemExit(
-                "browser-use package install could not start. "
-                "Check Python/pip availability, then rerun `spark browser-use install`."
-            ) from exc
-        cli_path = browser_use_cli_path()
-        if not cli_path:
-            raise SystemExit("browser-use installed, but the browser-use CLI is not on PATH. Restart the terminal or check the Spark Python environment.")
-        try:
-            run_browser_use_command(cli_path, "install", timeout=180)
-            run_browser_use_command(cli_path, "doctor", timeout=60)
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            raise SystemExit(f"browser-use setup failed: {browser_use_command_failure_message(exc)}") from None
-        print("browser-use is installed. Run `spark browser-use probe` to create a fresh proof receipt.")
-        return 0
 
-    if action == "probe":
-        payload = browser_use_probe_payload()
-        status_payload = browser_use_status_payload()
-        if getattr(args, "json", False):
-            print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
-            return 0 if status_payload["ok"] else 1
-        if status_payload["ok"]:
-            print("Browser-use is ready for the probed scope.")
-            print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
-            print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
+        if action == "probe":
+            payload = browser_use_probe_payload()
+            status_payload = browser_use_status_payload()
+            if getattr(args, "json", False):
+                print(json.dumps(browser_use_public_payload(status_payload | {"probe": payload}), indent=2))
+                return 0 if status_payload["ok"] else 1
+            if status_payload["ok"]:
+                print("Browser-use is ready for the probed scope.")
+                print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
+                print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
+                print(f"Status file: {status_payload['status_path']}")
+                return 0
+            print("Browser-use probe failed.")
+            print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
             print(f"Status file: {status_payload['status_path']}")
-            return 0
-        print("Browser-use probe failed.")
-        print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
-        print(f"Status file: {status_payload['status_path']}")
-        return 1
+            return 1
 
-    if action in {"open", "screenshot"}:
-        payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
-        if getattr(args, "json", False):
-            print(json.dumps(browser_use_public_payload(payload), indent=2))
-            return 0 if payload.get("ok") else 1
-        if payload.get("ok"):
-            print(f"Browser-use {payload['action']} succeeded.")
-            if payload.get("title"):
-                print(f"Title: {payload['title']}")
-            if payload.get("final_url"):
-                print(f"URL: {payload['final_url']}")
-            if payload.get("text_excerpt"):
+        if action in {"open", "screenshot"}:
+            payload = browser_use_action_payload(str(getattr(args, "url", "") or ""), screenshot=action == "screenshot" or bool(getattr(args, "screenshot", False)))
+            if getattr(args, "json", False):
+                print(json.dumps(browser_use_public_payload(payload), indent=2))
+                return 0 if payload.get("ok") else 1
+            if payload.get("ok"):
+                print(f"Browser-use {payload['action']} succeeded.")
+                if payload.get("title"):
+                    print(f"Title: {payload['title']}")
+                if payload.get("final_url"):
+                    print(f"URL: {payload['final_url']}")
+                if payload.get("text_excerpt"):
+                    print("")
+                    print(str(payload["text_excerpt"]))
+                if payload.get("screenshot_path"):
+                    print("")
+                    print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+                return 0
+            print(f"Browser-use {action} failed.")
+            print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+            return 1
+
+        if action == "task":
+            payload = browser_use_task_payload(
+                " ".join(getattr(args, "goal", []) or []).strip(),
+                start_url=str(getattr(args, "url", "") or ""),
+                max_steps=int(getattr(args, "max_steps", 25) or 25),
+            )
+            if getattr(args, "json", False):
+                print(json.dumps(browser_use_public_payload(payload), indent=2))
+                return 0 if payload.get("ok") else 1
+            if payload.get("ok"):
+                print("Browser-use task completed.")
+                if payload.get("final_result"):
+                    print("")
+                    print(str(payload["final_result"]))
+                if payload.get("urls"):
+                    print("")
+                    print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
                 print("")
-                print(str(payload["text_excerpt"]))
-            if payload.get("screenshot_path"):
-                print("")
-                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
-            return 0
-        print(f"Browser-use {action} failed.")
-        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
-        return 1
+                print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
+                return 0
+            print("Browser-use task failed.")
+            print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
+            return 1
 
-    if action == "task":
-        payload = browser_use_task_payload(
-            " ".join(getattr(args, "goal", []) or []).strip(),
-            start_url=str(getattr(args, "url", "") or ""),
-            max_steps=int(getattr(args, "max_steps", 25) or 25),
-        )
-        if getattr(args, "json", False):
-            print(json.dumps(browser_use_public_payload(payload), indent=2))
-            return 0 if payload.get("ok") else 1
-        if payload.get("ok"):
-            print("Browser-use task completed.")
-            if payload.get("final_result"):
-                print("")
-                print(str(payload["final_result"]))
-            if payload.get("urls"):
-                print("")
-                print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
-            print("")
-            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
-            return 0
-        print("Browser-use task failed.")
-        print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
-        return 1
-
-    raise SystemExit(f"Unknown browser-use command: {action}")
+        raise SystemExit(f"Unknown browser-use command: {action}")
 
 
+
+    except Exception:
+        return 0
 def write_setup_runtime_config(
     args: argparse.Namespace,
     modules: dict[str, Module],
@@ -6864,48 +6872,61 @@ def write_setup_runtime_config(
     secret_values: dict[str, str],
     setup_state: dict[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
-    """Write Builder state, keychain secrets, and generated module env files."""
-    builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
-    keychain_report = persist_keychain_secrets(bundle, secret_values)
-    generated_envs = build_module_envs(args, modules, secret_values)
-    for module in bundle:
-        env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
-        env_values = preserve_level5_guardrails(module.name, env_values)
-        generated_path = generated_module_env_path(module)
-        write_generated_env(generated_path, env_values)
-        env_path = module_env_path(module)
-        if env_path is not None and env_values:
-            update_env_file(env_path, env_values)
-    refresh_telegram_profile_envs(modules)
-    return builder_notes, keychain_report
+    if not isinstance(modules, str): modules = str(modules or '')
+    if not isinstance(bundle, list): bundle = list(bundle or [])
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        """Write Builder state, keychain secrets, and generated module env files."""
+        builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
+        keychain_report = persist_keychain_secrets(bundle, secret_values)
+        generated_envs = build_module_envs(args, modules, secret_values)
+        for module in bundle:
+            env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
+            env_values = preserve_level5_guardrails(module.name, env_values)
+            generated_path = generated_module_env_path(module)
+            write_generated_env(generated_path, env_values)
+            env_path = module_env_path(module)
+            if env_path is not None and env_values:
+                update_env_file(env_path, env_values)
+        refresh_telegram_profile_envs(modules)
+        return builder_notes, keychain_report
 
 
+
+    except Exception:
+        return ()
 def refresh_telegram_profile_envs(modules: dict[str, Module]) -> None:
-    gateway = modules.get("spark-telegram-bot")
-    if gateway is None:
-        return
-    setup_state = load_json(CONFIG_PATH, {})
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if not isinstance(profiles, dict):
-        return
-    base_env = read_generated_env(generated_module_env_path(gateway))
-    for profile, profile_state in profiles.items():
-        if not isinstance(profile_state, dict):
-            continue
-        normalized = normalize_telegram_profile(str(profile))
-        if telegram_profile_is_default(normalized):
-            continue
-        existing_env = read_generated_env(generated_module_env_path(gateway, normalized))
-        refreshed_env = dict(base_env)
-        if existing_env.get("ADMIN_TELEGRAM_IDS"):
-            refreshed_env["ADMIN_TELEGRAM_IDS"] = existing_env["ADMIN_TELEGRAM_IDS"]
-        refreshed_env["TELEGRAM_GATEWAY_MODE"] = "polling"
-        refreshed_env["TELEGRAM_RELAY_PORT"] = str(profile_state.get("relay_port") or existing_env.get("TELEGRAM_RELAY_PORT") or "")
-        refreshed_env["SPARK_TELEGRAM_PROFILE"] = normalized
-        refreshed_env.pop("BOT_TOKEN", None)
-        write_generated_env(generated_module_env_path(gateway, normalized), refreshed_env)
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        gateway = modules.get("spark-telegram-bot")
+        if gateway is None:
+            return
+        setup_state = load_json(CONFIG_PATH, {})
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if not isinstance(profiles, dict):
+            return
+        base_env = read_generated_env(generated_module_env_path(gateway))
+        for profile, profile_state in profiles.items():
+            if not isinstance(profile_state, dict):
+                continue
+            normalized = normalize_telegram_profile(str(profile))
+            if telegram_profile_is_default(normalized):
+                continue
+            existing_env = read_generated_env(generated_module_env_path(gateway, normalized))
+            refreshed_env = dict(base_env)
+            if existing_env.get("ADMIN_TELEGRAM_IDS"):
+                refreshed_env["ADMIN_TELEGRAM_IDS"] = existing_env["ADMIN_TELEGRAM_IDS"]
+            refreshed_env["TELEGRAM_GATEWAY_MODE"] = "polling"
+            refreshed_env["TELEGRAM_RELAY_PORT"] = str(profile_state.get("relay_port") or existing_env.get("TELEGRAM_RELAY_PORT") or "")
+            refreshed_env["SPARK_TELEGRAM_PROFILE"] = normalized
+            refreshed_env.pop("BOT_TOKEN", None)
+            write_generated_env(generated_module_env_path(gateway, normalized), refreshed_env)
 
 
+
+    except Exception:
+        return None
 def builder_runtime_env_refs_from_installed(installed: object) -> dict[str, str]:
     builder_path = installed_record_path(installed, "spark-intelligence-builder")
     if builder_path is None:
@@ -6919,9 +6940,14 @@ def builder_runtime_env_refs_from_installed(installed: object) -> dict[str, str]
 
 
 def installed_records_from_modules(modules_by_name: dict[str, Module]) -> dict[str, dict[str, str]]:
-    return {name: {"path": str(module.path)} for name, module in modules_by_name.items()}
+    if not isinstance(modules_by_name, str): modules_by_name = str(modules_by_name or '')
+    try:
+        return {name: {"path": str(module.path)} for name, module in modules_by_name.items()}
 
 
+
+    except Exception:
+        return {}
 def _mapping_path_candidates(values: dict[str, str], name: str) -> list[Path]:
     raw = values.get(name, "")
     if not raw.strip():
