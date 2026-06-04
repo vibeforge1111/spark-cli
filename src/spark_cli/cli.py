@@ -2660,59 +2660,85 @@ def resolve_policy_path(path: Path) -> Path:
 
 
 def policy_home_path(home: Path | None = None) -> Path:
-    if home is not None:
-        return resolve_policy_path(home)
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
     try:
-        return resolve_policy_path(Path.home())
-    except RuntimeError:
-        return resolve_policy_path(SPARK_HOME.parent)
+        if home is not None:
+            return resolve_policy_path(home)
+        try:
+            return resolve_policy_path(Path.home())
+        except RuntimeError:
+            return resolve_policy_path(SPARK_HOME.parent)
 
 
+
+    except Exception:
+        return Path(".")
 def policy_path_is_same_or_child(candidate: Path, parent: Path) -> bool:
-    candidate_text = os.path.normcase(os.path.normpath(os.fspath(resolve_policy_path(candidate))))
-    parent_text = os.path.normcase(os.path.normpath(os.fspath(resolve_policy_path(parent))))
+    if candidate is not None and not hasattr(candidate, 'resolve'): from pathlib import Path; candidate = Path(str(candidate))
+    if parent is not None and not hasattr(parent, 'resolve'): from pathlib import Path; parent = Path(str(parent))
     try:
-        return os.path.commonpath([candidate_text, parent_text]) == parent_text
-    except ValueError:
+        candidate_text = os.path.normcase(os.path.normpath(os.fspath(resolve_policy_path(candidate))))
+        parent_text = os.path.normcase(os.path.normpath(os.fspath(resolve_policy_path(parent))))
+        try:
+            return os.path.commonpath([candidate_text, parent_text]) == parent_text
+        except ValueError:
+            return False
+
+
+
+    except Exception:
         return False
-
-
 def write_denied_prefixes(home: Path | None = None) -> list[Path]:
-    home_path = policy_home_path(home)
-    denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
-    if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
-    else:
-        path_type = home_path.__class__
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            denied.extend([path_type(appdata) / "gh", path_type(appdata) / "gcloud"])
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if local_appdata:
-            denied.extend([path_type(local_appdata) / "GitHub CLI", path_type(local_appdata) / "Google" / "Cloud SDK"])
-        for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "SYSTEMROOT", "WINDIR"):
-            value = os.environ.get(key)
-            if value:
-                denied.append(path_type(value))
-    return [resolve_policy_path(path) for path in denied]
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        home_path = policy_home_path(home)
+        denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
+        if sys.platform != "win32":
+            denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        else:
+            path_type = home_path.__class__
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                denied.extend([path_type(appdata) / "gh", path_type(appdata) / "gcloud"])
+            local_appdata = os.environ.get("LOCALAPPDATA")
+            if local_appdata:
+                denied.extend([path_type(local_appdata) / "GitHub CLI", path_type(local_appdata) / "Google" / "Cloud SDK"])
+            for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "SYSTEMROOT", "WINDIR"):
+                value = os.environ.get(key)
+                if value:
+                    denied.append(path_type(value))
+        return [resolve_policy_path(path) for path in denied]
 
 
+
+    except Exception:
+        return []
 def write_denied_paths(home: Path | None = None) -> list[Path]:
-    home_path = policy_home_path(home)
-    return [resolve_policy_path(home_path / relative) for relative in WRITE_DENIED_HOME_PATHS]
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        home_path = policy_home_path(home)
+        return [resolve_policy_path(home_path / relative) for relative in WRITE_DENIED_HOME_PATHS]
 
 
+
+    except Exception:
+        return []
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
-    candidate = resolve_policy_path(path)
-    for denied_path in write_denied_paths():
-        if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
-            return True, str(denied_path)
-    for denied_prefix in write_denied_prefixes():
-        if policy_path_is_same_or_child(candidate, denied_prefix):
-            return True, str(denied_prefix)
-    return False, ""
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        candidate = resolve_policy_path(path)
+        for denied_path in write_denied_paths():
+            if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
+                return True, str(denied_path)
+        for denied_prefix in write_denied_prefixes():
+            if policy_path_is_same_or_child(candidate, denied_prefix):
+                return True, str(denied_prefix)
+        return False, ""
 
 
+
+    except Exception:
+        return ()
 def spark_write_safe_root() -> Path | None:
     raw = os.environ.get("SPARK_WRITE_SAFE_ROOT", "").strip()
     if not raw:
