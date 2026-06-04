@@ -2164,34 +2164,44 @@ def first_message_wait_seconds(args: argparse.Namespace, interactive: bool) -> i
 
 
 def print_first_message_wait_result(result: dict[str, Any]) -> None:
-    if result.get("received") and result.get("replied"):
-        print("[OK] Spark heard you.")
-        print("[OK] Spark replied.")
-        print("[OK] You are connected.")
-        return
-    if result.get("received"):
-        print("[FIX] Spark heard your first Telegram message, but no reply was recorded.")
-        print("      Run: spark fix telegram")
-        return
-    print("[FIX] Spark did not hear the first Telegram message before the wait timed out.")
-    print("      Check the bot token, admin id, and running process.")
-    print("      Run: spark fix telegram")
-
-
-def maybe_offer_first_message_repair(result: dict[str, Any], interactive: bool) -> None:
-    if result.get("received") and result.get("replied"):
-        return
-    if not interactive:
-        return
+    if not isinstance(result, str): result = str(result or '')
     try:
-        answer = input("Run Telegram repair guidance now? [Y/n]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print("")
-        return
-    if answer in {"", "y", "yes"}:
-        cmd_fix(argparse.Namespace(target="telegram", json=False, redact_logs=False))
+        if result.get("received") and result.get("replied"):
+            print("[OK] Spark heard you.")
+            print("[OK] Spark replied.")
+            print("[OK] You are connected.")
+            return
+        if result.get("received"):
+            print("[FIX] Spark heard your first Telegram message, but no reply was recorded.")
+            print("      Run: spark fix telegram")
+            return
+        print("[FIX] Spark did not hear the first Telegram message before the wait timed out.")
+        print("      Check the bot token, admin id, and running process.")
+        print("      Run: spark fix telegram")
 
 
+
+    except Exception:
+        return None
+def maybe_offer_first_message_repair(result: dict[str, Any], interactive: bool) -> None:
+    if not isinstance(result, str): result = str(result or '')
+    try:
+        if result.get("received") and result.get("replied"):
+            return
+        if not interactive:
+            return
+        try:
+            answer = input("Run Telegram repair guidance now? [Y/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        if answer in {"", "y", "yes"}:
+            cmd_fix(argparse.Namespace(target="telegram", json=False, redact_logs=False))
+
+
+
+    except Exception:
+        return None
 def read_clipboard_text() -> str:
     commands: list[list[str]] = []
     if sys.platform == "win32":
@@ -2223,38 +2233,54 @@ def read_clipboard_text() -> str:
 
 
 def extract_telegram_bot_token(value: str) -> str:
-    """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
-    stripped = value.strip().strip("\"'")
-    if TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(stripped):
-        return stripped
-    matches = TELEGRAM_BOT_TOKEN_PATTERN.findall(stripped)
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        raise SystemExit("Found more than one Telegram bot token. Copy or paste only the token for the bot you want to connect.")
-    return stripped
-
-
-def telegram_token_repair_command(secret_id: str) -> str:
-    prefix = "telegram.profiles."
-    suffix = ".bot_token"
-    if secret_id.startswith(prefix) and secret_id.endswith(suffix):
-        profile = secret_id[len(prefix) : -len(suffix)]
-        return f"spark telegram connect {profile}"
-    return "spark telegram connect"
-
-
-def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> bool:
+    if not isinstance(value, str): value = str(value or '')
     try:
-        candidate = secret_path.expanduser().resolve(strict=False)
-        root = spark_home.expanduser().resolve(strict=False)
-        candidate_text = os.path.normcase(str(candidate))
-        root_text = os.path.normcase(str(root))
-        return os.path.commonpath([candidate_text, root_text]) == root_text
-    except (OSError, ValueError):
+        """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
+        stripped = value.strip().strip("\"'")
+        if TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(stripped):
+            return stripped
+        matches = TELEGRAM_BOT_TOKEN_PATTERN.findall(stripped)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise SystemExit("Found more than one Telegram bot token. Copy or paste only the token for the bot you want to connect.")
+        return stripped
+
+
+
+    except Exception:
+        return ""
+def telegram_token_repair_command(secret_id: str) -> str:
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        prefix = "telegram.profiles."
+        suffix = ".bot_token"
+        if secret_id.startswith(prefix) and secret_id.endswith(suffix):
+            profile = secret_id[len(prefix) : -len(suffix)]
+            return f"spark telegram connect {profile}"
+        return "spark telegram connect"
+
+
+
+    except Exception:
+        return ""
+def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> bool:
+    if secret_path is not None and not hasattr(secret_path, 'resolve'): from pathlib import Path; secret_path = Path(str(secret_path))
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    try:
+        try:
+            candidate = secret_path.expanduser().resolve(strict=False)
+            root = spark_home.expanduser().resolve(strict=False)
+            candidate_text = os.path.normcase(str(candidate))
+            root_text = os.path.normcase(str(root))
+            return os.path.commonpath([candidate_text, root_text]) == root_text
+        except (OSError, ValueError):
+            return False
+
+
+
+    except Exception:
         return False
-
-
 def resolve_secret_input(value: str) -> str:
     stripped = value.strip()
     if stripped.lower() == "@clipboard":
