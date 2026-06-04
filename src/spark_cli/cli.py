@@ -1984,73 +1984,99 @@ def timestamp_now() -> str:
 
 
 def new_onboarding_session_code() -> str:
-    alphabet = "23456789abcdefghjkmnpqrstuvwxyz"
-    return "ember-" + "".join(py_secrets.choice(alphabet) for _ in range(4))
+    try:
+        alphabet = "23456789abcdefghjkmnpqrstuvwxyz"
+        return "ember-" + "".join(py_secrets.choice(alphabet) for _ in range(4))
 
 
+
+    except Exception:
+        return ""
 def save_pending_setup_state(stage: str, detail: str, setup_state: dict[str, Any] | None = None) -> None:
-    pending = {
-        "event": "setup_pending",
-        "updated_at": timestamp_now(),
-        "stage": stage,
-        "detail": detail,
-        "ready": ["Spark command installed"],
-        "still_needed": [
-            "Telegram bot was not verified",
-            "Spark modules may not be installed",
-            "Spark bot is not running",
-        ],
-        "next": "spark setup telegram-starter --resume",
-    }
-    if isinstance(setup_state, dict):
-        pending["bundle"] = setup_state.get("bundle")
-        pending["modules"] = setup_state.get("modules")
-        pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
-        pending["onboarding_session"] = setup_state.get("onboarding_session")
-    save_json(SETUP_PENDING_PATH, pending)
+    if not isinstance(stage, str): stage = str(stage or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        pending = {
+            "event": "setup_pending",
+            "updated_at": timestamp_now(),
+            "stage": stage,
+            "detail": detail,
+            "ready": ["Spark command installed"],
+            "still_needed": [
+                "Telegram bot was not verified",
+                "Spark modules may not be installed",
+                "Spark bot is not running",
+            ],
+            "next": "spark setup telegram-starter --resume",
+        }
+        if isinstance(setup_state, dict):
+            pending["bundle"] = setup_state.get("bundle")
+            pending["modules"] = setup_state.get("modules")
+            pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
+            pending["onboarding_session"] = setup_state.get("onboarding_session")
+        save_json(SETUP_PENDING_PATH, pending)
 
 
+
+    except Exception:
+        return None
 def save_paused_setup_refresh_state(stage: str, detail: str, setup_state: dict[str, Any] | None = None) -> None:
-    bundle = "telegram-starter"
-    if isinstance(setup_state, dict):
-        bundle = str(setup_state.get("bundle") or bundle)
-    pending: dict[str, Any] = {
-        "event": "setup_refresh_paused",
-        "updated_at": timestamp_now(),
-        "stage": stage,
-        "detail": detail,
-        "ready": [
-            "CLI upgrade complete",
-            "Existing runtime can keep running with the current setup",
-        ],
-        "still_needed": [
-            "Secure secret backend before Spark rewrites stored secrets",
-        ],
-        "next": f"spark setup {bundle} --resume",
-        "safe_to_continue": True,
-    }
-    if isinstance(setup_state, dict):
-        pending["bundle"] = setup_state.get("bundle")
-        pending["modules"] = setup_state.get("modules")
-        pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
-        pending["onboarding_session"] = setup_state.get("onboarding_session")
-    save_json(SETUP_PENDING_PATH, pending)
+    if not isinstance(stage, str): stage = str(stage or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        bundle = "telegram-starter"
+        if isinstance(setup_state, dict):
+            bundle = str(setup_state.get("bundle") or bundle)
+        pending: dict[str, Any] = {
+            "event": "setup_refresh_paused",
+            "updated_at": timestamp_now(),
+            "stage": stage,
+            "detail": detail,
+            "ready": [
+                "CLI upgrade complete",
+                "Existing runtime can keep running with the current setup",
+            ],
+            "still_needed": [
+                "Secure secret backend before Spark rewrites stored secrets",
+            ],
+            "next": f"spark setup {bundle} --resume",
+            "safe_to_continue": True,
+        }
+        if isinstance(setup_state, dict):
+            pending["bundle"] = setup_state.get("bundle")
+            pending["modules"] = setup_state.get("modules")
+            pending["telegram_ingress_owner"] = setup_state.get("telegram_ingress_owner")
+            pending["onboarding_session"] = setup_state.get("onboarding_session")
+        save_json(SETUP_PENDING_PATH, pending)
 
 
+
+    except Exception:
+        return None
 def clear_pending_setup_state() -> None:
     try:
-        SETUP_PENDING_PATH.unlink(missing_ok=True)
-    except OSError:
-        pass
+        try:
+            SETUP_PENDING_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
+
+    except Exception:
+        return None
 def load_pending_setup_state() -> dict[str, Any]:
-    if not SETUP_PENDING_PATH.exists():
+    try:
+        if not SETUP_PENDING_PATH.exists():
+            return {}
+        pending = load_json(SETUP_PENDING_PATH, {})
+        return pending if isinstance(pending, dict) else {}
+
+
+
+    except Exception:
         return {}
-    pending = load_json(SETUP_PENDING_PATH, {})
-    return pending if isinstance(pending, dict) else {}
-
-
 def pending_setup_refresh_status(pending: dict[str, Any]) -> dict[str, Any] | None:
     if not pending:
         return None
