@@ -711,6 +711,8 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
         git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0, summarize_command_output(result)
 
@@ -794,6 +796,8 @@ def module_git_status(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
 
@@ -817,6 +821,8 @@ def stash_module_local_changes(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0, summarize_command_output(result) or label
 
