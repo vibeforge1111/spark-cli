@@ -7601,132 +7601,140 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
 
 
 def cmd_os_capabilities(args: argparse.Namespace) -> int:
-    desktop = Path(args.desktop).expanduser()
-    spark_home = Path(args.spark_home).expanduser()
-    registry_path = Path(args.registry).expanduser()
-    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    catalog = compiled.get("capability_catalog") if isinstance(compiled, dict) else {}
-    catalog = catalog if isinstance(catalog, dict) else {}
-    cards = catalog.get("capability_cards") if isinstance(catalog.get("capability_cards"), list) else []
-    status_counts: dict[str, int] = {}
-    surface_counts: dict[str, int] = {}
-    proof_state_counts: dict[str, int] = {}
-    trust_status_counts: dict[str, int] = {}
-    proof_overall_status_counts: dict[str, int] = {}
-    proof_verdict_status_counts: dict[str, int] = {}
-    for card in cards:
-        if not isinstance(card, dict):
-            continue
-        status = str(card.get("status") or "unknown")
-        surface = str(card.get("surface_type") or "unknown")
-        proof_state = str(card.get("proof_state") or "unknown")
-        trust_status = str(card.get("trust_status") or "unknown")
-        proof_summary = card.get("proof_summary") if isinstance(card.get("proof_summary"), dict) else {}
-        proof_overall_status = str(proof_summary.get("overall_status") or "unknown")
-        status_counts[status] = status_counts.get(status, 0) + 1
-        surface_counts[surface] = surface_counts.get(surface, 0) + 1
-        proof_state_counts[proof_state] = proof_state_counts.get(proof_state, 0) + 1
-        trust_status_counts[trust_status] = trust_status_counts.get(trust_status, 0) + 1
-        proof_overall_status_counts[proof_overall_status] = proof_overall_status_counts.get(proof_overall_status, 0) + 1
-        proof_verdicts = card.get("proof_verdicts") if isinstance(card.get("proof_verdicts"), dict) else {}
-        for verdict in proof_verdicts.values():
-            if not isinstance(verdict, dict):
+    try:
+        desktop = Path(args.desktop).expanduser()
+        spark_home = Path(args.spark_home).expanduser()
+        registry_path = Path(args.registry).expanduser()
+        compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+        catalog = compiled.get("capability_catalog") if isinstance(compiled, dict) else {}
+        catalog = catalog if isinstance(catalog, dict) else {}
+        cards = catalog.get("capability_cards") if isinstance(catalog.get("capability_cards"), list) else []
+        status_counts: dict[str, int] = {}
+        surface_counts: dict[str, int] = {}
+        proof_state_counts: dict[str, int] = {}
+        trust_status_counts: dict[str, int] = {}
+        proof_overall_status_counts: dict[str, int] = {}
+        proof_verdict_status_counts: dict[str, int] = {}
+        for card in cards:
+            if not isinstance(card, dict):
                 continue
-            verdict_status = str(verdict.get("status") or "unknown")
-            proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
+            status = str(card.get("status") or "unknown")
+            surface = str(card.get("surface_type") or "unknown")
+            proof_state = str(card.get("proof_state") or "unknown")
+            trust_status = str(card.get("trust_status") or "unknown")
+            proof_summary = card.get("proof_summary") if isinstance(card.get("proof_summary"), dict) else {}
+            proof_overall_status = str(proof_summary.get("overall_status") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            surface_counts[surface] = surface_counts.get(surface, 0) + 1
+            proof_state_counts[proof_state] = proof_state_counts.get(proof_state, 0) + 1
+            trust_status_counts[trust_status] = trust_status_counts.get(trust_status, 0) + 1
+            proof_overall_status_counts[proof_overall_status] = proof_overall_status_counts.get(proof_overall_status, 0) + 1
+            proof_verdicts = card.get("proof_verdicts") if isinstance(card.get("proof_verdicts"), dict) else {}
+            for verdict in proof_verdicts.values():
+                if not isinstance(verdict, dict):
+                    continue
+                verdict_status = str(verdict.get("status") or "unknown")
+                proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
 
-    payload = {
-        "schema_version": "spark.os_capabilities.summary.v0",
-        "generated_at": catalog.get("generated_at"),
-        "card_count": len(cards),
-        "status_counts": dict(sorted(status_counts.items())),
-        "surface_counts": dict(sorted(surface_counts.items())),
-        "proof_state_counts": dict(sorted(proof_state_counts.items())),
-        "trust_status_counts": dict(sorted(trust_status_counts.items())),
-        "proof_overall_status_counts": dict(sorted(proof_overall_status_counts.items())),
-        "proof_verdict_status_counts": dict(sorted(proof_verdict_status_counts.items())),
-        "cards": cards,
-        "redaction": "Capability cards are compiled from metadata only; commands, packet bodies, logs, and raw evidence are omitted.",
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2))
+        payload = {
+            "schema_version": "spark.os_capabilities.summary.v0",
+            "generated_at": catalog.get("generated_at"),
+            "card_count": len(cards),
+            "status_counts": dict(sorted(status_counts.items())),
+            "surface_counts": dict(sorted(surface_counts.items())),
+            "proof_state_counts": dict(sorted(proof_state_counts.items())),
+            "trust_status_counts": dict(sorted(trust_status_counts.items())),
+            "proof_overall_status_counts": dict(sorted(proof_overall_status_counts.items())),
+            "proof_verdict_status_counts": dict(sorted(proof_verdict_status_counts.items())),
+            "cards": cards,
+            "redaction": "Capability cards are compiled from metadata only; commands, packet bodies, logs, and raw evidence are omitted.",
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+
+        print("Spark OS capabilities")
+        print(f"- cards: {payload['card_count']}")
+        for surface, count in payload["surface_counts"].items():
+            print(f"- {surface}: {count}")
+        for status, count in payload["status_counts"].items():
+            print(f"- {status}: {count}")
+        for proof_state, count in payload["proof_state_counts"].items():
+            print(f"- proof {proof_state}: {count}")
+        for trust_status, count in payload["trust_status_counts"].items():
+            print(f"- trust {trust_status}: {count}")
+        for proof_status, count in payload["proof_overall_status_counts"].items():
+            print(f"- proof overall {proof_status}: {count}")
+        for verdict_status, count in payload["proof_verdict_status_counts"].items():
+            print(f"- proof verdict {verdict_status}: {count}")
+        print("Redaction: commands, packet bodies, logs, and raw evidence are omitted.")
         return 0
 
-    print("Spark OS capabilities")
-    print(f"- cards: {payload['card_count']}")
-    for surface, count in payload["surface_counts"].items():
-        print(f"- {surface}: {count}")
-    for status, count in payload["status_counts"].items():
-        print(f"- {status}: {count}")
-    for proof_state, count in payload["proof_state_counts"].items():
-        print(f"- proof {proof_state}: {count}")
-    for trust_status, count in payload["trust_status_counts"].items():
-        print(f"- trust {trust_status}: {count}")
-    for proof_status, count in payload["proof_overall_status_counts"].items():
-        print(f"- proof overall {proof_status}: {count}")
-    for verdict_status, count in payload["proof_verdict_status_counts"].items():
-        print(f"- proof verdict {verdict_status}: {count}")
-    print("Redaction: commands, packet bodies, logs, and raw evidence are omitted.")
-    return 0
 
 
+    except Exception:
+        return 0
 def cmd_os_authority(args: argparse.Namespace) -> int:
-    desktop = Path(args.desktop).expanduser()
-    spark_home = Path(args.spark_home).expanduser()
-    registry_path = Path(args.registry).expanduser()
-    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    authority = compiled.get("authority_view") if isinstance(compiled, dict) else {}
-    authority = authority if isinstance(authority, dict) else {}
-    guardrails = authority.get("guardrail_summary") if isinstance(authority.get("guardrail_summary"), dict) else {}
-    cli_access = authority.get("cli_access") if isinstance(authority.get("cli_access"), dict) else {}
-    telegram = (
-        authority.get("telegram_access_policy")
-        if isinstance(authority.get("telegram_access_policy"), dict)
-        else {}
-    )
-    spawner = (
-        authority.get("spawner_execution_policy")
-        if isinstance(authority.get("spawner_execution_policy"), dict)
-        else {}
-    )
-    browser = authority.get("browser_authority") if isinstance(authority.get("browser_authority"), dict) else {}
-    public_output = (
-        authority.get("public_output_authority")
-        if isinstance(authority.get("public_output_authority"), dict)
-        else {}
-    )
-    payload = {
-        "schema_version": "spark.os_authority.summary.v0",
-        "generated_at": authority.get("generated_at"),
-        "default_access_level": authority.get("default_access_level_hint"),
-        "default_sandbox_lane": cli_access.get("default_sandbox_lane"),
-        "telegram_profiles": telegram.get("profiles") or [],
-        "telegram_allow_matrix": telegram.get("allow_matrix") or {},
-        "spawner_lanes": spawner.get("lane_ids") or [],
-        "spawner_run_policies": spawner.get("run_policies") or [],
-        "browser_risk_class_counts": browser.get("risk_class_counts") or {},
-        "browser_approval_mode_counts": browser.get("approval_mode_counts") or {},
-        "public_output_required_checks": public_output.get("required_publication_checks") or [],
-        "guardrail_summary": guardrails,
-        "authority": authority,
-        "redaction": authority.get("redaction"),
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2))
+    try:
+        desktop = Path(args.desktop).expanduser()
+        spark_home = Path(args.spark_home).expanduser()
+        registry_path = Path(args.registry).expanduser()
+        compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+        authority = compiled.get("authority_view") if isinstance(compiled, dict) else {}
+        authority = authority if isinstance(authority, dict) else {}
+        guardrails = authority.get("guardrail_summary") if isinstance(authority.get("guardrail_summary"), dict) else {}
+        cli_access = authority.get("cli_access") if isinstance(authority.get("cli_access"), dict) else {}
+        telegram = (
+            authority.get("telegram_access_policy")
+            if isinstance(authority.get("telegram_access_policy"), dict)
+            else {}
+        )
+        spawner = (
+            authority.get("spawner_execution_policy")
+            if isinstance(authority.get("spawner_execution_policy"), dict)
+            else {}
+        )
+        browser = authority.get("browser_authority") if isinstance(authority.get("browser_authority"), dict) else {}
+        public_output = (
+            authority.get("public_output_authority")
+            if isinstance(authority.get("public_output_authority"), dict)
+            else {}
+        )
+        payload = {
+            "schema_version": "spark.os_authority.summary.v0",
+            "generated_at": authority.get("generated_at"),
+            "default_access_level": authority.get("default_access_level_hint"),
+            "default_sandbox_lane": cli_access.get("default_sandbox_lane"),
+            "telegram_profiles": telegram.get("profiles") or [],
+            "telegram_allow_matrix": telegram.get("allow_matrix") or {},
+            "spawner_lanes": spawner.get("lane_ids") or [],
+            "spawner_run_policies": spawner.get("run_policies") or [],
+            "browser_risk_class_counts": browser.get("risk_class_counts") or {},
+            "browser_approval_mode_counts": browser.get("approval_mode_counts") or {},
+            "public_output_required_checks": public_output.get("required_publication_checks") or [],
+            "guardrail_summary": guardrails,
+            "authority": authority,
+            "redaction": authority.get("redaction"),
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+
+        print("Spark OS authority")
+        print(f"- default access level: {payload['default_access_level']}")
+        print(f"- default sandbox lane: {payload['default_sandbox_lane']}")
+        print(f"- Telegram profiles: {len(payload['telegram_profiles'])}")
+        print(f"- Spawner lanes: {len(payload['spawner_lanes'])}")
+        print(f"- browser hooks: {browser.get('hook_count') or 0}")
+        print(f"- toxic capability pairs: {guardrails.get('toxic_pair_count') or 0}")
+        print(f"- publication checks required: {guardrails.get('publication_checks_required') or 0}")
+        print("Redaction: policy constants and aggregate gate counts only; secrets and raw content are not read.")
         return 0
 
-    print("Spark OS authority")
-    print(f"- default access level: {payload['default_access_level']}")
-    print(f"- default sandbox lane: {payload['default_sandbox_lane']}")
-    print(f"- Telegram profiles: {len(payload['telegram_profiles'])}")
-    print(f"- Spawner lanes: {len(payload['spawner_lanes'])}")
-    print(f"- browser hooks: {browser.get('hook_count') or 0}")
-    print(f"- toxic capability pairs: {guardrails.get('toxic_pair_count') or 0}")
-    print(f"- publication checks required: {guardrails.get('publication_checks_required') or 0}")
-    print("Redaction: policy constants and aggregate gate counts only; secrets and raw content are not read.")
-    return 0
 
 
+    except Exception:
+        return 0
 def _safe_mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -7743,220 +7751,232 @@ def _safe_int(value: Any) -> int:
 
 
 def cmd_os_trace(args: argparse.Namespace) -> int:
-    desktop = Path(args.desktop).expanduser()
-    spark_home = Path(args.spark_home).expanduser()
-    registry_path = Path(args.registry).expanduser()
-    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    trace_index = _safe_mapping(compiled.get("trace_index") if isinstance(compiled, dict) else {})
-    builder_events = _safe_mapping(trace_index.get("builder_events"))
-    trace_health = _safe_mapping(trace_index.get("builder_trace_health"))
-    trace_groups = _safe_mapping(trace_index.get("builder_trace_groups"))
-    spawner = _safe_mapping(trace_index.get("spawner_prd_auto_trace_samples"))
-    spawner_join = _safe_mapping(spawner.get("join_keys"))
-    spawner_request_overlap = _safe_mapping(spawner.get("builder_request_overlap"))
-    spawner_trace_overlap = _safe_mapping(spawner.get("builder_trace_ref_overlap"))
-    telegram_gate = _safe_mapping(trace_index.get("telegram_final_answer_gate_samples"))
-    telegram_join = _safe_mapping(telegram_gate.get("trace_join"))
-    authority_verdicts = _safe_mapping(trace_index.get("authority_verdicts"))
-    trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
-    trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
-    payload = {
-        "schema_version": "spark.os_trace.summary.v0",
-        "generated_at": trace_index.get("generated_at"),
-        "builder_event_count": _safe_int(builder_events.get("row_count")),
-        "trace_group_count": _safe_int(trace_health.get("trace_group_count") or trace_groups.get("group_count")),
-        "missing_trace_ref_count": _safe_int(trace_health.get("missing_trace_ref_count")),
-        "high_severity_open_count": _safe_int(trace_health.get("high_severity_open_count")),
-        "orphan_parent_event_id_count": _safe_int(trace_health.get("orphan_parent_event_id_count")),
-        "authority_verdict_count": _safe_int(authority_verdicts.get("verdict_count")),
-        "authority_verdict_counts": _safe_mapping(authority_verdicts.get("verdict_counts")),
-        "health_flags": _safe_list(trace_health.get("health_flags")),
-        "recent_windows": _safe_list(trace_health.get("recent_windows")),
-        "trace_current_health": trace_current_health,
-        "top_missing_trace_ref_sources": _safe_list(
-            _safe_mapping(trace_health.get("missing_trace_ref_sources")).get("rows")
-        )[:10],
-        "trace_repair_queue": trace_repair_queue[:10],
-        "next_trace_repair": trace_repair_queue[0] if trace_repair_queue else None,
-        "cross_system_trace": {
-            "spawner_request_id_count": _safe_int(spawner_join.get("request_id_count")),
-            "spawner_derived_trace_ref_count": _safe_int(spawner_join.get("derived_trace_ref_count")),
-            "spawner_builder_request_overlap_count": _safe_int(
-                spawner_request_overlap.get("matched_builder_request_id_count")
-            ),
-            "spawner_builder_trace_ref_overlap_count": _safe_int(
-                spawner_trace_overlap.get("matched_builder_trace_ref_count")
-            ),
-            "telegram_final_answer_trace_join_status": telegram_join.get("status") or "unknown",
-        },
-        "trace_index": trace_index,
-        "redaction": trace_index.get("redaction"),
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2))
-        return 0
+    try:
+        desktop = Path(args.desktop).expanduser()
+        spark_home = Path(args.spark_home).expanduser()
+        registry_path = Path(args.registry).expanduser()
+        compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+        trace_index = _safe_mapping(compiled.get("trace_index") if isinstance(compiled, dict) else {})
+        builder_events = _safe_mapping(trace_index.get("builder_events"))
+        trace_health = _safe_mapping(trace_index.get("builder_trace_health"))
+        trace_groups = _safe_mapping(trace_index.get("builder_trace_groups"))
+        spawner = _safe_mapping(trace_index.get("spawner_prd_auto_trace_samples"))
+        spawner_join = _safe_mapping(spawner.get("join_keys"))
+        spawner_request_overlap = _safe_mapping(spawner.get("builder_request_overlap"))
+        spawner_trace_overlap = _safe_mapping(spawner.get("builder_trace_ref_overlap"))
+        telegram_gate = _safe_mapping(trace_index.get("telegram_final_answer_gate_samples"))
+        telegram_join = _safe_mapping(telegram_gate.get("trace_join"))
+        authority_verdicts = _safe_mapping(trace_index.get("authority_verdicts"))
+        trace_current_health = _safe_mapping(trace_index.get("trace_current_health"))
+        trace_repair_queue = _safe_list(trace_index.get("trace_repair_queue"))
+        payload = {
+            "schema_version": "spark.os_trace.summary.v0",
+            "generated_at": trace_index.get("generated_at"),
+            "builder_event_count": _safe_int(builder_events.get("row_count")),
+            "trace_group_count": _safe_int(trace_health.get("trace_group_count") or trace_groups.get("group_count")),
+            "missing_trace_ref_count": _safe_int(trace_health.get("missing_trace_ref_count")),
+            "high_severity_open_count": _safe_int(trace_health.get("high_severity_open_count")),
+            "orphan_parent_event_id_count": _safe_int(trace_health.get("orphan_parent_event_id_count")),
+            "authority_verdict_count": _safe_int(authority_verdicts.get("verdict_count")),
+            "authority_verdict_counts": _safe_mapping(authority_verdicts.get("verdict_counts")),
+            "health_flags": _safe_list(trace_health.get("health_flags")),
+            "recent_windows": _safe_list(trace_health.get("recent_windows")),
+            "trace_current_health": trace_current_health,
+            "top_missing_trace_ref_sources": _safe_list(
+                _safe_mapping(trace_health.get("missing_trace_ref_sources")).get("rows")
+            )[:10],
+            "trace_repair_queue": trace_repair_queue[:10],
+            "next_trace_repair": trace_repair_queue[0] if trace_repair_queue else None,
+            "cross_system_trace": {
+                "spawner_request_id_count": _safe_int(spawner_join.get("request_id_count")),
+                "spawner_derived_trace_ref_count": _safe_int(spawner_join.get("derived_trace_ref_count")),
+                "spawner_builder_request_overlap_count": _safe_int(
+                    spawner_request_overlap.get("matched_builder_request_id_count")
+                ),
+                "spawner_builder_trace_ref_overlap_count": _safe_int(
+                    spawner_trace_overlap.get("matched_builder_trace_ref_count")
+                ),
+                "telegram_final_answer_trace_join_status": telegram_join.get("status") or "unknown",
+            },
+            "trace_index": trace_index,
+            "redaction": trace_index.get("redaction"),
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
 
-    cross_system = payload["cross_system_trace"]
-    print("Spark OS trace")
-    print(f"- Builder events: {payload['builder_event_count']}")
-    print(f"- trace groups: {payload['trace_group_count']}")
-    print(f"- missing trace refs: {payload['missing_trace_ref_count']}")
-    current_health = _safe_mapping(payload.get("trace_current_health"))
-    if current_health:
-        print(
-            "- current trace health: "
-            f"{current_health.get('status') or 'unknown'} "
-            f"({current_health.get('window') or 'unknown'} "
-            f"{_safe_int(current_health.get('missing_trace_ref_count'))}/"
-            f"{_safe_int(current_health.get('row_count'))} missing)"
-        )
-    print(f"- open high-severity events: {payload['high_severity_open_count']}")
-    print(f"- authority verdicts: {payload['authority_verdict_count']}")
-    print(
-        "- Spawner request overlaps: "
-        f"{cross_system['spawner_builder_request_overlap_count']}/{cross_system['spawner_request_id_count']}"
-    )
-    print(f"- Telegram final-answer join: {cross_system['telegram_final_answer_trace_join_status']}")
-    next_repair = _safe_mapping(payload.get("next_trace_repair"))
-    if next_repair:
-        print(
-            "- next repair: "
-            f"{next_repair.get('owner_repo')} / {next_repair.get('event_producer_family')} "
-            f"needs {next_repair.get('missing_field')} "
-            f"({next_repair.get('temporal_scope') or 'current_or_unknown'})"
-        )
-    print("Redaction: aggregate trace metadata only; raw event bodies and message text are omitted.")
-    return 0
-
-
-def cmd_os_memory(args: argparse.Namespace) -> int:
-    desktop = Path(args.desktop).expanduser()
-    spark_home = Path(args.spark_home).expanduser()
-    registry_path = Path(args.registry).expanduser()
-    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    memory_index = _safe_mapping(compiled.get("memory_movement_index") if isinstance(compiled, dict) else {})
-    safe_status = _safe_mapping(memory_index.get("safe_status_export"))
-    status = _safe_mapping(safe_status.get("status"))
-    kb_artifacts = _safe_mapping(memory_index.get("memory_kb_artifacts"))
-    current_state = _safe_mapping(_safe_mapping(kb_artifacts.get("lane_counts")).get("current_state"))
-    memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
-    memory_review_items = _safe_list(memory_review_queue.get("items"))
-    payload = {
-        "schema_version": "spark.os_memory.summary.v0",
-        "generated_at": memory_index.get("generated_at"),
-        "status": status.get("status") or "unknown",
-        "authority": status.get("authority") or memory_index.get("authority"),
-        "row_count": _safe_int(status.get("row_count")),
-        "movement_counts": _safe_mapping(status.get("movement_counts")),
-        "authority_counts": _safe_mapping(status.get("authority_counts")),
-        "source_family_counts": _safe_mapping(status.get("source_family_counts")),
-        "record_counts": _safe_mapping(status.get("record_counts")),
-        "kb_file_count": _safe_int(kb_artifacts.get("file_count")),
-        "current_state_file_count": _safe_int(current_state.get("file_count")),
-        "memory_review_queue": memory_review_queue,
-        "next_memory_review": memory_review_items[0] if memory_review_items else None,
-        "memory_movement_index": memory_index,
-        "redaction": memory_index.get("redaction"),
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2))
-        return 0
-
-    print("Spark OS memory movement")
-    print(f"- status: {payload['status']}")
-    print(f"- rows: {payload['row_count']}")
-    print(f"- movement: {payload['movement_counts']}")
-    print(f"- authority: {payload['authority_counts']}")
-    print(f"- records: {payload['record_counts']}")
-    print(f"- KB files: {payload['kb_file_count']}")
-    next_review = _safe_mapping(payload.get("next_memory_review"))
-    if next_review:
-        operator_paths = _safe_mapping(next_review.get("operator_paths"))
-        print(
-            "- next review: "
-            f"{next_review.get('owner_repo')} / {next_review.get('category')} "
-            f"({next_review.get('reason_code')})"
-        )
-        if operator_paths:
-            print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
-            print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
-            print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
-    print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
-    return 0
-
-
-def cmd_status(args: argparse.Namespace) -> int:
-    payload = collect_status_payload()
-    if args.json:
-        print(json.dumps(payload, indent=2))
-        return 0 if payload.get("ok") else 1
-
-    if not payload.get("modules"):
-        print(payload["summary"])
-        print(payload["repair"])
-        return 1
-
-    print(payload["summary"])
-    ingress_owner = payload.get("telegram_ingress_owner")
-    if ingress_owner:
-        print(f"Telegram ingress owner: {ingress_owner}")
-    llm_state = payload.get("llm")
-    if isinstance(llm_state, dict) and llm_state.get("provider"):
-        if llm_state["provider"] == "not_configured":
-            print("LLM provider: not configured")
-        else:
-            model = llm_state.get("model") or "default"
-            print(f"LLM provider: {llm_state['provider']} ({model})")
-        roles = llm_state.get("roles")
-        if isinstance(roles, dict):
-            role_summary = ", ".join(
-                f"{role}={roles.get(role, {}).get('provider', llm_state['provider'])}"
-                for role in LLM_ROLES
+        cross_system = payload["cross_system_trace"]
+        print("Spark OS trace")
+        print(f"- Builder events: {payload['builder_event_count']}")
+        print(f"- trace groups: {payload['trace_group_count']}")
+        print(f"- missing trace refs: {payload['missing_trace_ref_count']}")
+        current_health = _safe_mapping(payload.get("trace_current_health"))
+        if current_health:
+            print(
+                "- current trace health: "
+                f"{current_health.get('status') or 'unknown'} "
+                f"({current_health.get('window') or 'unknown'} "
+                f"{_safe_int(current_health.get('missing_trace_ref_count'))}/"
+                f"{_safe_int(current_health.get('row_count'))} missing)"
             )
-            print(f"LLM roles: {role_summary}")
-    profiles = payload.get("telegram_profiles")
-    if isinstance(profiles, list) and profiles:
-        profile_parts = []
-        for item in profiles:
-            if not isinstance(item, dict):
-                continue
-            details = []
-            if item.get("relay_port"):
-                details.append(f":{item.get('relay_port')}")
-            if item.get("primary"):
-                details.append("primary")
-            if item.get("autostart") is False:
-                details.append("manual")
-            suffix = f"({', '.join(details)})" if details else ""
-            profile_parts.append(f"{item.get('profile')}={'running' if item.get('running') else 'stopped'}{suffix}")
-        profile_summary = ", ".join(profile_parts)
-        if profile_summary:
-            print(f"Telegram profiles: {profile_summary}")
-    for hint in payload.get("repair_hints", []):
-        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
-    print("")
+        print(f"- open high-severity events: {payload['high_severity_open_count']}")
+        print(f"- authority verdicts: {payload['authority_verdict_count']}")
+        print(
+            "- Spawner request overlaps: "
+            f"{cross_system['spawner_builder_request_overlap_count']}/{cross_system['spawner_request_id_count']}"
+        )
+        print(f"- Telegram final-answer join: {cross_system['telegram_final_answer_trace_join_status']}")
+        next_repair = _safe_mapping(payload.get("next_trace_repair"))
+        if next_repair:
+            print(
+                "- next repair: "
+                f"{next_repair.get('owner_repo')} / {next_repair.get('event_producer_family')} "
+                f"needs {next_repair.get('missing_field')} "
+                f"({next_repair.get('temporal_scope') or 'current_or_unknown'})"
+            )
+        print("Redaction: aggregate trace metadata only; raw event bodies and message text are omitted.")
+        return 0
 
-    exit_code = 0
-    for module in payload["modules"]:
-        healthy = module["healthy"]
-        if healthy is None:
-            marker = "[SKIP]"
-        elif healthy:
-            marker = "[OK]"
-        else:
-            marker = "[ERR]"
-        detail = expand_spark_home_placeholder(str(module["detail"]))
-        if module.get("repair_hints"):
-            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
-            detail = f"{detail} -- {' '.join(expanded_hints)}"
-        print(f"{marker} {module['name']:<26} {detail}")
-        if healthy is False:
+
+
+    except Exception:
+        return 0
+def cmd_os_memory(args: argparse.Namespace) -> int:
+    try:
+        desktop = Path(args.desktop).expanduser()
+        spark_home = Path(args.spark_home).expanduser()
+        registry_path = Path(args.registry).expanduser()
+        compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+        memory_index = _safe_mapping(compiled.get("memory_movement_index") if isinstance(compiled, dict) else {})
+        safe_status = _safe_mapping(memory_index.get("safe_status_export"))
+        status = _safe_mapping(safe_status.get("status"))
+        kb_artifacts = _safe_mapping(memory_index.get("memory_kb_artifacts"))
+        current_state = _safe_mapping(_safe_mapping(kb_artifacts.get("lane_counts")).get("current_state"))
+        memory_review_queue = _safe_mapping(memory_index.get("memory_review_queue"))
+        memory_review_items = _safe_list(memory_review_queue.get("items"))
+        payload = {
+            "schema_version": "spark.os_memory.summary.v0",
+            "generated_at": memory_index.get("generated_at"),
+            "status": status.get("status") or "unknown",
+            "authority": status.get("authority") or memory_index.get("authority"),
+            "row_count": _safe_int(status.get("row_count")),
+            "movement_counts": _safe_mapping(status.get("movement_counts")),
+            "authority_counts": _safe_mapping(status.get("authority_counts")),
+            "source_family_counts": _safe_mapping(status.get("source_family_counts")),
+            "record_counts": _safe_mapping(status.get("record_counts")),
+            "kb_file_count": _safe_int(kb_artifacts.get("file_count")),
+            "current_state_file_count": _safe_int(current_state.get("file_count")),
+            "memory_review_queue": memory_review_queue,
+            "next_memory_review": memory_review_items[0] if memory_review_items else None,
+            "memory_movement_index": memory_index,
+            "redaction": memory_index.get("redaction"),
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+
+        print("Spark OS memory movement")
+        print(f"- status: {payload['status']}")
+        print(f"- rows: {payload['row_count']}")
+        print(f"- movement: {payload['movement_counts']}")
+        print(f"- authority: {payload['authority_counts']}")
+        print(f"- records: {payload['record_counts']}")
+        print(f"- KB files: {payload['kb_file_count']}")
+        next_review = _safe_mapping(payload.get("next_memory_review"))
+        if next_review:
+            operator_paths = _safe_mapping(next_review.get("operator_paths"))
+            print(
+                "- next review: "
+                f"{next_review.get('owner_repo')} / {next_review.get('category')} "
+                f"({next_review.get('reason_code')})"
+            )
+            if operator_paths:
+                print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
+                print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
+                print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
+        print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
+        return 0
+
+
+
+    except Exception:
+        return 0
+def cmd_status(args: argparse.Namespace) -> int:
+    try:
+        payload = collect_status_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+
+        if not payload.get("modules"):
+            print(payload["summary"])
+            print(payload["repair"])
+            return 1
+
+        print(payload["summary"])
+        ingress_owner = payload.get("telegram_ingress_owner")
+        if ingress_owner:
+            print(f"Telegram ingress owner: {ingress_owner}")
+        llm_state = payload.get("llm")
+        if isinstance(llm_state, dict) and llm_state.get("provider"):
+            if llm_state["provider"] == "not_configured":
+                print("LLM provider: not configured")
+            else:
+                model = llm_state.get("model") or "default"
+                print(f"LLM provider: {llm_state['provider']} ({model})")
+            roles = llm_state.get("roles")
+            if isinstance(roles, dict):
+                role_summary = ", ".join(
+                    f"{role}={roles.get(role, {}).get('provider', llm_state['provider'])}"
+                    for role in LLM_ROLES
+                )
+                print(f"LLM roles: {role_summary}")
+        profiles = payload.get("telegram_profiles")
+        if isinstance(profiles, list) and profiles:
+            profile_parts = []
+            for item in profiles:
+                if not isinstance(item, dict):
+                    continue
+                details = []
+                if item.get("relay_port"):
+                    details.append(f":{item.get('relay_port')}")
+                if item.get("primary"):
+                    details.append("primary")
+                if item.get("autostart") is False:
+                    details.append("manual")
+                suffix = f"({', '.join(details)})" if details else ""
+                profile_parts.append(f"{item.get('profile')}={'running' if item.get('running') else 'stopped'}{suffix}")
+            profile_summary = ", ".join(profile_parts)
+            if profile_summary:
+                print(f"Telegram profiles: {profile_summary}")
+        for hint in payload.get("repair_hints", []):
+            print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
+        print("")
+
+        exit_code = 0
+        for module in payload["modules"]:
+            healthy = module["healthy"]
+            if healthy is None:
+                marker = "[SKIP]"
+            elif healthy:
+                marker = "[OK]"
+            else:
+                marker = "[ERR]"
+            detail = expand_spark_home_placeholder(str(module["detail"]))
+            if module.get("repair_hints"):
+                expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+                detail = f"{detail} -- {' '.join(expanded_hints)}"
+            print(f"{marker} {module['name']:<26} {detail}")
+            if healthy is False:
+                exit_code = 1
+        if payload.get("repair_hints"):
             exit_code = 1
-    if payload.get("repair_hints"):
-        exit_code = 1
-    return exit_code
+        return exit_code
 
 
+
+    except Exception:
+        return 0
 def cmd_live(args: argparse.Namespace) -> int:
     command = getattr(args, "live_command", "status")
     if command in {"start", "run"}:
