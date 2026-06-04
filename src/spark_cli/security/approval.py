@@ -230,6 +230,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve git history mutation",
         )
 
+    if first == "git" and second == "remote" and len(lowered) > 2 and lowered[2] in {"add", "remove", "rename", "set-url"}:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Command can change Git remote routing for future fetch or publish operations.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git remote routing",
+        )
+
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
             parts,

@@ -1451,6 +1451,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "git_history_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
 
+    def test_approval_classifier_flags_git_remote_routing_mutation(self) -> None:
+        blocked_commands = (
+            ["git", "remote", "add", "origin", "https://example.test/repo.git"],
+            ["git", "remote", "set-url", "origin", "https://example.test/repo.git"],
+            ["git", "remote", "remove", "origin"],
+            ["git", "remote", "rename", "origin", "upstream"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve git remote routing")
+
+        allowed_commands = (
+            ["git", "remote"],
+            ["git", "remote", "-v"],
+            ["git", "remote", "show", "origin"],
+        )
+        for command in allowed_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)
