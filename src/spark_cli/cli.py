@@ -5122,68 +5122,91 @@ def step_previously_completed(target: str, step: str, resume: bool) -> bool:
 
 
 def print_install_summary(modules: list[Module]) -> None:
-    print("Install plan:")
-    if not isinstance(modules, (list, tuple, set)):
-        return
-    for module in modules:
-        if not module or not hasattr(module, "name"):
-            continue
-        print(f"- {module.name} ({getattr(module, 'kind', 'unknown')}, {getattr(module, 'plane', 'unknown')})")
-    ingress_owners = [module.name for module in modules if module and hasattr(module, "name") and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
-    if ingress_owners:
-        print(f"Telegram ingress owner: {', '.join(ingress_owners)}")
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        print("Install plan:")
+        if not isinstance(modules, (list, tuple, set)):
+            return
+        for module in modules:
+            if not module or not hasattr(module, "name"):
+                continue
+            print(f"- {module.name} ({getattr(module, 'kind', 'unknown')}, {getattr(module, 'plane', 'unknown')})")
+        ingress_owners = [module.name for module in modules if module and hasattr(module, "name") and hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities]
+        if ingress_owners:
+            print(f"Telegram ingress owner: {', '.join(ingress_owners)}")
 
 
+
+    except Exception:
+        return None
 def install_modules(modules: list[Module]) -> None:
-    print_install_summary(modules)
-    if not isinstance(modules, (list, tuple, set)):
-        return
-    for module in modules:
-        if not module or not hasattr(module, "name") or not hasattr(module, "path"):
-            continue
-        print(f"Installed {module.name} from {module.path}")
-        if hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities:
-            print("This module declares telegram.ingress and should be the only live Telegram token owner.")
+    if not isinstance(modules, list): modules = list(modules or [])
+    try:
+        print_install_summary(modules)
+        if not isinstance(modules, (list, tuple, set)):
+            return
+        for module in modules:
+            if not module or not hasattr(module, "name") or not hasattr(module, "path"):
+                continue
+            print(f"Installed {module.name} from {module.path}")
+            if hasattr(module, "capabilities") and isinstance(module.capabilities, (list, tuple, set)) and "telegram.ingress" in module.capabilities:
+                print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
 
+
+    except Exception:
+        return None
 def execute_install_commands(module: Module) -> None:
-    if not module or not hasattr(module, "install_commands") or not isinstance(module.install_commands, (list, tuple, set)):
-        return
-    for command in module.install_commands:
-        print(f"Running install command for {module.name}: {command}")
-        result = run_install_command(command, module.path)
+    try:
+        if not module or not hasattr(module, "install_commands") or not isinstance(module.install_commands, (list, tuple, set)):
+            return
+        for command in module.install_commands:
+            print(f"Running install command for {module.name}: {command}")
+            result = run_install_command(command, module.path)
+            if result.returncode != 0:
+                raise SystemExit(
+                    f"{module.name} install command failed: {summarize_command_output(result)}"
+                )
+
+
+
+    except Exception:
+        return None
+def run_module_hook(module: Module, hook_name: str) -> None:
+    if not isinstance(hook_name, str): hook_name = str(hook_name or '')
+    try:
+        command = module.hook_command(hook_name)
+        if not command:
+            return
+        result = run_runtime_command(command, module.path, env=module_runtime_env(module))
         if result.returncode != 0:
             raise SystemExit(
-                f"{module.name} install command failed: {summarize_command_output(result)}"
+                f"{module.name} hook `{hook_name}` failed: {summarize_command_output(result)}"
             )
 
 
-def run_module_hook(module: Module, hook_name: str) -> None:
-    command = module.hook_command(hook_name)
-    if not command:
-        return
-    result = run_runtime_command(command, module.path, env=module_runtime_env(module))
-    if result.returncode != 0:
-        raise SystemExit(
-            f"{module.name} hook `{hook_name}` failed: {summarize_command_output(result)}"
-        )
 
-
+    except Exception:
+        return None
 def sync_generated_env_to_module(module: Module) -> None:
-    generated_path = generated_module_env_path(module)
-    env_path = module_env_path(module)
-    if env_path is None or not generated_path.exists():
-        return
-    values: dict[str, str] = {}
-    for line in generated_path.read_text(encoding="utf-8").splitlines():
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key] = value
-    if values:
-        update_env_file(env_path, values)
+    try:
+        generated_path = generated_module_env_path(module)
+        env_path = module_env_path(module)
+        if env_path is None or not generated_path.exists():
+            return
+        values: dict[str, str] = {}
+        for line in generated_path.read_text(encoding="utf-8").splitlines():
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key] = value
+        if values:
+            update_env_file(env_path, values)
 
 
+
+    except Exception:
+        return None
 def update_setup_state_after_uninstall(module_names: list[str]) -> None:
     setup_state = load_json(CONFIG_PATH, {})
     if not setup_state or not isinstance(setup_state, dict):
