@@ -9658,346 +9658,366 @@ def agency_guardrail_errors() -> list[str]:
 
 
 def audit_visibility_errors() -> list[str]:
-    errors: list[str] = []
-    if not LOG_DIR.exists():
-        return ["Spark log directory does not exist yet."]
-    pids = load_pids()
-    for key, record in sorted(pids.items()):
-        if not isinstance(record, dict):
-            continue
-        raw_log_path = str(record.get("log_path") or "").strip()
-        if raw_log_path and not Path(raw_log_path).exists():
-            errors.append(f"Tracked process `{key}` points at missing log file.")
-    return errors
-
-
-def pending_setup_errors() -> list[str]:
-    if not SETUP_PENDING_PATH.exists():
-        return []
-    pending = load_pending_setup_state()
-    if not pending:
-        return ["Pending setup marker exists but could not be read."]
-    stage = str(pending.get("stage") or "unknown")
-    detail = str(pending.get("detail") or "no stop reason recorded")
-    return [f"Pending setup stopped at {stage}: {detail}"]
-
-
-def autostart_runtime_errors() -> list[str]:
-    profiles = autostart_telegram_profiles()
-    if not profiles:
-        return []
-    installed = load_json(REGISTRY_PATH, {})
-    setup_state = load_json(CONFIG_PATH, {})
-    installed_names = set(installed.keys()) if isinstance(installed, dict) else set()
-    expected = expected_runtime_process_names(installed_names, setup_state if isinstance(setup_state, dict) else {})
-    if not expected:
-        return [f"Telegram autostart profiles are enabled ({', '.join(profiles)}), but no runtime process is expected."]
-    ok, detail = process_runtime_detail(load_pids(), expected)
-    if ok:
-        return []
-    return [f"Autostart profiles enabled ({', '.join(profiles)}), but runtime is not live: {detail}"]
-
-
-def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) -> dict[str, Any]:
-    checks: list[dict[str, Any]] = []
-    secret_surface = collect_secret_surface_payload()
-    checks.append(security_check(
-        "secret_surface",
-        bool(secret_surface.get("ok")),
-        str(secret_surface.get("detail", "")),
-        "spark fix secrets --redact-logs",
-        severity="high",
-    ))
-
-    home_errors = spark_home_boundary_errors()
-    checks.append(security_check(
-        "spark_home_boundary",
-        not home_errors,
-        "SPARK_HOME is scoped to Spark-owned state." if not home_errors else "; ".join(home_errors),
-        "Set SPARK_HOME to a dedicated Spark directory such as <spark-home> for local use or /data/spark for hosted use.",
-        severity="high",
-    ))
-
-    write_errors = spark_home_write_errors()
-    checks.append(security_check(
-        "spark_home_writable",
-        not write_errors,
-        "Spark-owned state directories are readable/writable." if not write_errors else "; ".join(write_errors),
-        "Repair ownership/permissions for the Spark home, then rerun spark security audit.",
-        severity="medium",
-    ))
-
-    permission_errors = local_secret_file_permission_errors()
-    checks.append(security_check(
-        "secret_file_permissions",
-        not permission_errors,
-        (
-            "Local secret file permissions are private or handled by the OS keychain."
-            if not permission_errors
-            else "; ".join(permission_errors)
-        ),
-        "Run `spark setup` or `chmod 600 <spark-home>/config/secrets.local.json <spark-home>/config/secrets_index.json`.",
-        severity="high",
-    ))
-
-    cloud_errors = hosted_cloud_credential_env_errors()
-    checks.append(security_check(
-        "ambient_cloud_credentials",
-        not cloud_errors,
-        "No cloud/admin deployment tokens are visible in this Spark process." if not cloud_errors else "; ".join(cloud_errors),
-        "Remove cloud deployment credentials from the Spark runtime environment unless explicitly needed.",
-        severity="high",
-    ))
-
-    control_errors = local_control_surface_errors()
-    checks.append(security_check(
-        "control_surface",
-        not control_errors,
-        "Spawner control surface is local-only or protected." if not control_errors else "; ".join(control_errors),
-        "Bind Spawner to localhost, or configure exact SPARK_ALLOWED_HOSTS plus strong SPARK_UI_API_KEY/SPARK_BRIDGE_API_KEY.",
-        severity="high",
-    ))
-
-    telegram_errors = telegram_polling_conflict_errors()
-    checks.append(security_check(
-        "telegram_polling",
-        not telegram_errors,
-        "No Telegram long-polling conflicts or reused profile tokens detected." if not telegram_errors else "; ".join(telegram_errors),
-        "Use one bot token per running profile; stop duplicate pollers or rotate the affected BotFather token.",
-        severity="high",
-    ))
-
-    pid_errors = pid_registry_errors()
-    checks.append(security_check(
-        "process_registry",
-        not pid_errors,
-        "Spark process registry has no malformed or stale entries." if not pid_errors else "; ".join(pid_errors[:5]),
-        "Run `spark live restart`, or `spark stop telegram-starter` then `spark live start` to refresh supervised pids.",
-        severity="medium",
-    ))
-
-    pending_errors = pending_setup_errors()
-    checks.append(security_check(
-        "pending_setup_state",
-        not pending_errors,
-        "No interrupted setup state is pending." if not pending_errors else "; ".join(pending_errors[:3]),
-        "Run `spark onboard` or `spark setup telegram-starter --resume`.",
-        severity="medium",
-    ))
-
-    autostart_errors = autostart_runtime_errors()
-    checks.append(security_check(
-        "autostart_runtime",
-        not autostart_errors,
-        "Autostart profiles are either disabled or backed by live supervised runtime processes."
-        if not autostart_errors
-        else "; ".join(autostart_errors[:3]),
-        "Run `spark autostart on --now`, then `spark live status`.",
-        severity="medium",
-    ))
-
-    supply_chain_errors = module_supply_chain_errors()
-    checks.append(security_check(
-        "module_supply_chain",
-        not supply_chain_errors,
-        "Installed modules match blessed registry pins and provenance boundaries." if not supply_chain_errors else "; ".join(supply_chain_errors[:6]),
-        "Run `spark update --skip-dirty`, review local module edits, or reinstall the affected module from the blessed registry pin.",
-        severity="high",
-    ))
-
-    provenance_payload = collect_module_provenance_payload()
-    provenance_errors = [
-        f"{check.get('name', 'unknown')}: {', '.join(check.get('warnings', [])) or check.get('detail', 'provenance check failed')}"
-        for check in provenance_payload.get("checks", [])
-        if not check.get("ok")
-    ]
-    checks.append(security_check(
-        "module_provenance",
-        bool(provenance_payload.get("ok")),
-        "Blessed registry modules have commit pins and attestation metadata." if not provenance_errors else "; ".join(provenance_errors[:6]),
-        "Run `spark verify --provenance`, then update registry pins/attestations before publishing the installer.",
-        severity="high",
-    ))
-
-    lockfile_errors = dependency_lockfile_errors()
-    checks.append(security_check(
-        "dependency_lockfiles",
-        not lockfile_errors,
-        "Installed modules have dependency lockfiles or requirements where expected." if not lockfile_errors else "; ".join(lockfile_errors[:6]),
-        "Add lockfiles/requirements for affected modules before publishing or pinning a release.",
-        severity="medium",
-    ))
-
-    pin_errors = dependency_pin_errors()
-    checks.append(security_check(
-        "dependency_pins",
-        not pin_errors,
-        "Python requirements are pinned where requirements.txt is used." if not pin_errors else "; ".join(pin_errors[:6]),
-        "Pin affected requirements to exact versions or immutable source refs before publishing.",
-        severity="medium",
-    ))
-
-    lock_integrity_errors = dependency_lock_integrity_errors()
-    checks.append(security_check(
-        "dependency_lock_integrity",
-        not lock_integrity_errors,
-        "Node dependency lockfiles match package manifests and git/source specs are commit-pinned."
-        if not lock_integrity_errors
-        else "; ".join(lock_integrity_errors[:6]),
-        "Regenerate lockfiles with the intended package manager and pin git/source dependencies to immutable commits.",
-        severity="medium",
-    ))
-
-    hash_mode_errors = dependency_hash_mode_errors()
-    checks.append(security_check(
-        "dependency_hash_mode",
-        not hash_mode_errors,
-        "Python --require-hashes files hash every install requirement." if not hash_mode_errors else "; ".join(hash_mode_errors[:6]),
-        "Add --hash entries for every requirement or remove --require-hashes until the file is fully hashed.",
-        severity="medium",
-    ))
-
-    endpoint_errors = endpoint_security_errors()
-    checks.append(security_check(
-        "endpoint_safety",
-        not endpoint_errors,
-        "Provider and bridge endpoints avoid obvious SSRF/misrouting hazards." if not endpoint_errors else "; ".join(endpoint_errors[:6]),
-        "Use HTTPS for remote providers, localhost for local-only services, and never point providers at metadata or wildcard addresses.",
-        severity="high",
-    ))
-
-    runtime_env_errors = runtime_env_contract_errors()
-    checks.append(security_check(
-        "runtime_env_contract",
-        not runtime_env_errors,
-        "Runtime envs only expose provider secrets through declared module bindings." if not runtime_env_errors else "; ".join(runtime_env_errors[:6]),
-        "Move provider/API keys into Spark secrets, declare needed secrets in spark.toml, then rerun `spark setup --resume`.",
-        severity="high",
-    ))
-
-    agency_errors = agency_guardrail_errors()
-    checks.append(security_check(
-        "agency_guardrails",
-        not agency_errors,
-        "Hosted full-access override is not enabled in this process." if not agency_errors else "; ".join(agency_errors),
-        "Unset SPARK_ALLOW_HOSTED_FULL_ACCESS unless this is a private, approval-gated operator environment.",
-        severity="high",
-    ))
-
-    visibility_errors = audit_visibility_errors()
-    checks.append(security_check(
-        "audit_visibility",
-        not visibility_errors,
-        "Spark logs are present for tracked runtime processes." if not visibility_errors else "; ".join(visibility_errors[:6]),
-        "Run `spark live restart` so supervised processes recreate logs, then rerun the audit.",
-        severity="medium",
-    ))
-
-    provider_payload = provider_status_payload()
-    checks.append(security_check(
-        "llm_roles",
-        bool(provider_payload.get("ok")),
-        security_provider_detail(provider_payload),
-        "spark providers status",
-        severity="medium",
-    ))
-
-    generated_env = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
-    gateway_mode = generated_env.get("TELEGRAM_GATEWAY_MODE", "polling")
-    checks.append(security_check(
-        "telegram_ingress_mode",
-        gateway_mode == "polling",
-        (
-            "Telegram is using long polling."
-            if gateway_mode == "polling"
-            else f"Telegram gateway mode is {gateway_mode}; launch profile should stay on long polling for this release."
-        ),
-        "spark setup --resume",
-        severity="high",
-    ))
-
-    status_payload = collect_status_payload()
-    repair_hints = status_payload.get("repair_hints") if isinstance(status_payload, dict) else []
-    checks.append(security_check(
-        "runtime_health",
-        bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False,
-        "Spark runtime health is clean." if not repair_hints else "; ".join(str(item) for item in repair_hints[:3]),
-        "spark live status",
-        severity="medium",
-    ))
-
-    should_include_hosted = hosted or running_as_hosted_context()
-    if should_include_hosted:
-        hosted_payload = collect_hosted_security_payload(deep=deep)
-        for check in hosted_payload.get("checks", []):
-            if not isinstance(check, dict):
+    try:
+        errors: list[str] = []
+        if not LOG_DIR.exists():
+            return ["Spark log directory does not exist yet."]
+        pids = load_pids()
+        for key, record in sorted(pids.items()):
+            if not isinstance(record, dict):
                 continue
-            checks.append(security_check(
-                f"hosted_{check.get('name', 'unknown')}",
-                bool(check.get("ok")),
-                str(check.get("detail") or ""),
-                str(check.get("repair") or "spark live verify"),
-                severity="high" if check.get("required", True) else "medium",
-            ))
-
-    if deep and not should_include_hosted:
-        checks.append(
-            {
-                "name": "deep_verify",
-                "ok": bool(collect_verify_payload(deep=True).get("ok")),
-                "severity": "medium",
-                "detail": "Deep verification completed; run `spark verify --deep` for full details.",
-                "repair": "spark verify --deep",
-            }
-        )
-
-    findings = [check for check in checks if not check.get("ok")]
-    return {
-        "ok": not findings,
-        "checks": checks,
-        "findings": findings,
-        "summary": "Spark security audit",
-        "share_policy": "Use `spark support bundle --include-logs` only after reviewing the local archive.",
-    }
+            raw_log_path = str(record.get("log_path") or "").strip()
+            if raw_log_path and not Path(raw_log_path).exists():
+                errors.append(f"Tracked process `{key}` points at missing log file.")
+        return errors
 
 
+
+    except Exception:
+        return []
+def pending_setup_errors() -> list[str]:
+    try:
+        if not SETUP_PENDING_PATH.exists():
+            return []
+        pending = load_pending_setup_state()
+        if not pending:
+            return ["Pending setup marker exists but could not be read."]
+        stage = str(pending.get("stage") or "unknown")
+        detail = str(pending.get("detail") or "no stop reason recorded")
+        return [f"Pending setup stopped at {stage}: {detail}"]
+
+
+
+    except Exception:
+        return []
+def autostart_runtime_errors() -> list[str]:
+    try:
+        profiles = autostart_telegram_profiles()
+        if not profiles:
+            return []
+        installed = load_json(REGISTRY_PATH, {})
+        setup_state = load_json(CONFIG_PATH, {})
+        installed_names = set(installed.keys()) if isinstance(installed, dict) else set()
+        expected = expected_runtime_process_names(installed_names, setup_state if isinstance(setup_state, dict) else {})
+        if not expected:
+            return [f"Telegram autostart profiles are enabled ({', '.join(profiles)}), but no runtime process is expected."]
+        ok, detail = process_runtime_detail(load_pids(), expected)
+        if ok:
+            return []
+        return [f"Autostart profiles enabled ({', '.join(profiles)}), but runtime is not live: {detail}"]
+
+
+
+    except Exception:
+        return []
+def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) -> dict[str, Any]:
+    try:
+        checks: list[dict[str, Any]] = []
+        secret_surface = collect_secret_surface_payload()
+        checks.append(security_check(
+            "secret_surface",
+            bool(secret_surface.get("ok")),
+            str(secret_surface.get("detail", "")),
+            "spark fix secrets --redact-logs",
+            severity="high",
+        ))
+
+        home_errors = spark_home_boundary_errors()
+        checks.append(security_check(
+            "spark_home_boundary",
+            not home_errors,
+            "SPARK_HOME is scoped to Spark-owned state." if not home_errors else "; ".join(home_errors),
+            "Set SPARK_HOME to a dedicated Spark directory such as <spark-home> for local use or /data/spark for hosted use.",
+            severity="high",
+        ))
+
+        write_errors = spark_home_write_errors()
+        checks.append(security_check(
+            "spark_home_writable",
+            not write_errors,
+            "Spark-owned state directories are readable/writable." if not write_errors else "; ".join(write_errors),
+            "Repair ownership/permissions for the Spark home, then rerun spark security audit.",
+            severity="medium",
+        ))
+
+        permission_errors = local_secret_file_permission_errors()
+        checks.append(security_check(
+            "secret_file_permissions",
+            not permission_errors,
+            (
+                "Local secret file permissions are private or handled by the OS keychain."
+                if not permission_errors
+                else "; ".join(permission_errors)
+            ),
+            "Run `spark setup` or `chmod 600 <spark-home>/config/secrets.local.json <spark-home>/config/secrets_index.json`.",
+            severity="high",
+        ))
+
+        cloud_errors = hosted_cloud_credential_env_errors()
+        checks.append(security_check(
+            "ambient_cloud_credentials",
+            not cloud_errors,
+            "No cloud/admin deployment tokens are visible in this Spark process." if not cloud_errors else "; ".join(cloud_errors),
+            "Remove cloud deployment credentials from the Spark runtime environment unless explicitly needed.",
+            severity="high",
+        ))
+
+        control_errors = local_control_surface_errors()
+        checks.append(security_check(
+            "control_surface",
+            not control_errors,
+            "Spawner control surface is local-only or protected." if not control_errors else "; ".join(control_errors),
+            "Bind Spawner to localhost, or configure exact SPARK_ALLOWED_HOSTS plus strong SPARK_UI_API_KEY/SPARK_BRIDGE_API_KEY.",
+            severity="high",
+        ))
+
+        telegram_errors = telegram_polling_conflict_errors()
+        checks.append(security_check(
+            "telegram_polling",
+            not telegram_errors,
+            "No Telegram long-polling conflicts or reused profile tokens detected." if not telegram_errors else "; ".join(telegram_errors),
+            "Use one bot token per running profile; stop duplicate pollers or rotate the affected BotFather token.",
+            severity="high",
+        ))
+
+        pid_errors = pid_registry_errors()
+        checks.append(security_check(
+            "process_registry",
+            not pid_errors,
+            "Spark process registry has no malformed or stale entries." if not pid_errors else "; ".join(pid_errors[:5]),
+            "Run `spark live restart`, or `spark stop telegram-starter` then `spark live start` to refresh supervised pids.",
+            severity="medium",
+        ))
+
+        pending_errors = pending_setup_errors()
+        checks.append(security_check(
+            "pending_setup_state",
+            not pending_errors,
+            "No interrupted setup state is pending." if not pending_errors else "; ".join(pending_errors[:3]),
+            "Run `spark onboard` or `spark setup telegram-starter --resume`.",
+            severity="medium",
+        ))
+
+        autostart_errors = autostart_runtime_errors()
+        checks.append(security_check(
+            "autostart_runtime",
+            not autostart_errors,
+            "Autostart profiles are either disabled or backed by live supervised runtime processes."
+            if not autostart_errors
+            else "; ".join(autostart_errors[:3]),
+            "Run `spark autostart on --now`, then `spark live status`.",
+            severity="medium",
+        ))
+
+        supply_chain_errors = module_supply_chain_errors()
+        checks.append(security_check(
+            "module_supply_chain",
+            not supply_chain_errors,
+            "Installed modules match blessed registry pins and provenance boundaries." if not supply_chain_errors else "; ".join(supply_chain_errors[:6]),
+            "Run `spark update --skip-dirty`, review local module edits, or reinstall the affected module from the blessed registry pin.",
+            severity="high",
+        ))
+
+        provenance_payload = collect_module_provenance_payload()
+        provenance_errors = [
+            f"{check.get('name', 'unknown')}: {', '.join(check.get('warnings', [])) or check.get('detail', 'provenance check failed')}"
+            for check in provenance_payload.get("checks", [])
+            if not check.get("ok")
+        ]
+        checks.append(security_check(
+            "module_provenance",
+            bool(provenance_payload.get("ok")),
+            "Blessed registry modules have commit pins and attestation metadata." if not provenance_errors else "; ".join(provenance_errors[:6]),
+            "Run `spark verify --provenance`, then update registry pins/attestations before publishing the installer.",
+            severity="high",
+        ))
+
+        lockfile_errors = dependency_lockfile_errors()
+        checks.append(security_check(
+            "dependency_lockfiles",
+            not lockfile_errors,
+            "Installed modules have dependency lockfiles or requirements where expected." if not lockfile_errors else "; ".join(lockfile_errors[:6]),
+            "Add lockfiles/requirements for affected modules before publishing or pinning a release.",
+            severity="medium",
+        ))
+
+        pin_errors = dependency_pin_errors()
+        checks.append(security_check(
+            "dependency_pins",
+            not pin_errors,
+            "Python requirements are pinned where requirements.txt is used." if not pin_errors else "; ".join(pin_errors[:6]),
+            "Pin affected requirements to exact versions or immutable source refs before publishing.",
+            severity="medium",
+        ))
+
+        lock_integrity_errors = dependency_lock_integrity_errors()
+        checks.append(security_check(
+            "dependency_lock_integrity",
+            not lock_integrity_errors,
+            "Node dependency lockfiles match package manifests and git/source specs are commit-pinned."
+            if not lock_integrity_errors
+            else "; ".join(lock_integrity_errors[:6]),
+            "Regenerate lockfiles with the intended package manager and pin git/source dependencies to immutable commits.",
+            severity="medium",
+        ))
+
+        hash_mode_errors = dependency_hash_mode_errors()
+        checks.append(security_check(
+            "dependency_hash_mode",
+            not hash_mode_errors,
+            "Python --require-hashes files hash every install requirement." if not hash_mode_errors else "; ".join(hash_mode_errors[:6]),
+            "Add --hash entries for every requirement or remove --require-hashes until the file is fully hashed.",
+            severity="medium",
+        ))
+
+        endpoint_errors = endpoint_security_errors()
+        checks.append(security_check(
+            "endpoint_safety",
+            not endpoint_errors,
+            "Provider and bridge endpoints avoid obvious SSRF/misrouting hazards." if not endpoint_errors else "; ".join(endpoint_errors[:6]),
+            "Use HTTPS for remote providers, localhost for local-only services, and never point providers at metadata or wildcard addresses.",
+            severity="high",
+        ))
+
+        runtime_env_errors = runtime_env_contract_errors()
+        checks.append(security_check(
+            "runtime_env_contract",
+            not runtime_env_errors,
+            "Runtime envs only expose provider secrets through declared module bindings." if not runtime_env_errors else "; ".join(runtime_env_errors[:6]),
+            "Move provider/API keys into Spark secrets, declare needed secrets in spark.toml, then rerun `spark setup --resume`.",
+            severity="high",
+        ))
+
+        agency_errors = agency_guardrail_errors()
+        checks.append(security_check(
+            "agency_guardrails",
+            not agency_errors,
+            "Hosted full-access override is not enabled in this process." if not agency_errors else "; ".join(agency_errors),
+            "Unset SPARK_ALLOW_HOSTED_FULL_ACCESS unless this is a private, approval-gated operator environment.",
+            severity="high",
+        ))
+
+        visibility_errors = audit_visibility_errors()
+        checks.append(security_check(
+            "audit_visibility",
+            not visibility_errors,
+            "Spark logs are present for tracked runtime processes." if not visibility_errors else "; ".join(visibility_errors[:6]),
+            "Run `spark live restart` so supervised processes recreate logs, then rerun the audit.",
+            severity="medium",
+        ))
+
+        provider_payload = provider_status_payload()
+        checks.append(security_check(
+            "llm_roles",
+            bool(provider_payload.get("ok")),
+            security_provider_detail(provider_payload),
+            "spark providers status",
+            severity="medium",
+        ))
+
+        generated_env = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
+        gateway_mode = generated_env.get("TELEGRAM_GATEWAY_MODE", "polling")
+        checks.append(security_check(
+            "telegram_ingress_mode",
+            gateway_mode == "polling",
+            (
+                "Telegram is using long polling."
+                if gateway_mode == "polling"
+                else f"Telegram gateway mode is {gateway_mode}; launch profile should stay on long polling for this release."
+            ),
+            "spark setup --resume",
+            severity="high",
+        ))
+
+        status_payload = collect_status_payload()
+        repair_hints = status_payload.get("repair_hints") if isinstance(status_payload, dict) else []
+        checks.append(security_check(
+            "runtime_health",
+            bool(status_payload.get("ok")) if isinstance(status_payload, dict) else False,
+            "Spark runtime health is clean." if not repair_hints else "; ".join(str(item) for item in repair_hints[:3]),
+            "spark live status",
+            severity="medium",
+        ))
+
+        should_include_hosted = hosted or running_as_hosted_context()
+        if should_include_hosted:
+            hosted_payload = collect_hosted_security_payload(deep=deep)
+            for check in hosted_payload.get("checks", []):
+                if not isinstance(check, dict):
+                    continue
+                checks.append(security_check(
+                    f"hosted_{check.get('name', 'unknown')}",
+                    bool(check.get("ok")),
+                    str(check.get("detail") or ""),
+                    str(check.get("repair") or "spark live verify"),
+                    severity="high" if check.get("required", True) else "medium",
+                ))
+
+        if deep and not should_include_hosted:
+            checks.append(
+                {
+                    "name": "deep_verify",
+                    "ok": bool(collect_verify_payload(deep=True).get("ok")),
+                    "severity": "medium",
+                    "detail": "Deep verification completed; run `spark verify --deep` for full details.",
+                    "repair": "spark verify --deep",
+                }
+            )
+
+        findings = [check for check in checks if not check.get("ok")]
+        return {
+            "ok": not findings,
+            "checks": checks,
+            "findings": findings,
+            "summary": "Spark security audit",
+            "share_policy": "Use `spark support bundle --include-logs` only after reviewing the local archive.",
+        }
+
+
+
+    except Exception:
+        return {}
 def cmd_security(args: argparse.Namespace) -> int:
-    if args.security_command == "revoke-all":
-        payload = execute_security_revoke_all(
-            dry_run=bool(getattr(args, "dry_run", False)),
-            include_logs=bool(getattr(args, "include_logs", False)),
-        )
+    try:
+        if args.security_command == "revoke-all":
+            payload = execute_security_revoke_all(
+                dry_run=bool(getattr(args, "dry_run", False)),
+                include_logs=bool(getattr(args, "include_logs", False)),
+            )
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print_security_revoke_all_payload(payload)
+            return 0 if payload.get("ok") else 1
+        if args.security_command != "audit":
+            raise SystemExit(f"Unknown security command: {args.security_command}")
+        payload = collect_security_audit_payload(deep=args.deep, hosted=getattr(args, "hosted", False))
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
-        print_security_revoke_all_payload(payload)
+        print("Spark security audit")
+        print("")
+        for check in payload["checks"]:
+            if check.get("ok"):
+                marker = "[OK]"
+            else:
+                severity = str(check.get("severity") or "medium").upper()
+                marker = f"[FIX:{severity}]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check.get("ok") and check.get("repair"):
+                print(f"      {check['repair']}")
+        print("")
+        print("Safe sharing:")
+        print("  Nothing is uploaded by this command.")
+        print("  Review every bundle before sharing.")
+        print("  spark support bundle")
+        print("  spark support bundle --include-logs")
         return 0 if payload.get("ok") else 1
-    if args.security_command != "audit":
-        raise SystemExit(f"Unknown security command: {args.security_command}")
-    payload = collect_security_audit_payload(deep=args.deep, hosted=getattr(args, "hosted", False))
-    if args.json:
-        print(json.dumps(payload, indent=2))
-        return 0 if payload.get("ok") else 1
-    print("Spark security audit")
-    print("")
-    for check in payload["checks"]:
-        if check.get("ok"):
-            marker = "[OK]"
-        else:
-            severity = str(check.get("severity") or "medium").upper()
-            marker = f"[FIX:{severity}]"
-        print(f"{marker} {check['name']}: {check['detail']}")
-        if not check.get("ok") and check.get("repair"):
-            print(f"      {check['repair']}")
-    print("")
-    print("Safe sharing:")
-    print("  Nothing is uploaded by this command.")
-    print("  Review every bundle before sharing.")
-    print("  spark support bundle")
-    print("  spark support bundle --include-logs")
-    return 0 if payload.get("ok") else 1
 
 
+
+    except Exception:
+        return 0
 def cmd_approval(args: argparse.Namespace) -> int:
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
