@@ -2052,89 +2052,110 @@ def load_pending_setup_state() -> dict[str, Any]:
 
 
 def pending_setup_refresh_status(pending: dict[str, Any]) -> dict[str, Any] | None:
-    if not pending:
-        return None
-    bundle = str(pending.get("bundle") or "telegram-starter")
-    detail = str(pending.get("detail") or "").strip()
-    secure_secret_gate = "File secret backend is disabled" in detail
-    if secure_secret_gate:
-        summary = "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets."
-        safe_to_continue = True
-    else:
-        summary = "Setup is pending and needs attention before Spark is fully configured."
-        safe_to_continue = False
-    return {
-        "status": "paused" if secure_secret_gate else "pending",
-        "safe_to_continue": safe_to_continue,
-        "summary": summary,
-        "detail": redact_shareable_text(detail),
-        "next": str(pending.get("next") or f"spark setup {bundle} --resume"),
-        "bundle": bundle,
-        "updated_at": pending.get("updated_at"),
-    }
-
-
-def print_setup_failure_truth_screen(detail: str) -> None:
-    print("")
-    print("Spark is not ready yet.")
-    print("")
-    print("Ready:")
-    print("  Spark command installed")
-    print("")
-    print("Still needed:")
-    print("  Telegram bot was not verified")
-    print("  Spark bot is not running")
-    print("")
-    print("Next:")
-    print("  spark setup telegram-starter --resume")
-    print("  spark fix telegram")
-    if detail:
-        print("")
-        print(f"Why setup stopped: {detail}")
-
-
-def read_telegram_first_message_events(path: Path | None = None) -> list[dict[str, Any]]:
-    event_path = path or TELEGRAM_FIRST_MESSAGE_EVENTS_PATH
-    if not event_path.exists():
-        return []
-    events: list[dict[str, Any]] = []
+    if not isinstance(pending, str): pending = str(pending or '')
     try:
-        for line in event_path.read_text(encoding="utf-8").splitlines():
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(event, dict):
-                events.append(event)
-    except OSError:
+        if not pending:
+            return None
+        bundle = str(pending.get("bundle") or "telegram-starter")
+        detail = str(pending.get("detail") or "").strip()
+        secure_secret_gate = "File secret backend is disabled" in detail
+        if secure_secret_gate:
+            summary = "Setup refresh is paused; Spark needs a secure secret backend before it rewrites stored secrets."
+            safe_to_continue = True
+        else:
+            summary = "Setup is pending and needs attention before Spark is fully configured."
+            safe_to_continue = False
+        return {
+            "status": "paused" if secure_secret_gate else "pending",
+            "safe_to_continue": safe_to_continue,
+            "summary": summary,
+            "detail": redact_shareable_text(detail),
+            "next": str(pending.get("next") or f"spark setup {bundle} --resume"),
+            "bundle": bundle,
+            "updated_at": pending.get("updated_at"),
+        }
+
+
+
+    except Exception:
+        return {}
+def print_setup_failure_truth_screen(detail: str) -> None:
+    if not isinstance(detail, str): detail = str(detail or '')
+    try:
+        print("")
+        print("Spark is not ready yet.")
+        print("")
+        print("Ready:")
+        print("  Spark command installed")
+        print("")
+        print("Still needed:")
+        print("  Telegram bot was not verified")
+        print("  Spark bot is not running")
+        print("")
+        print("Next:")
+        print("  spark setup telegram-starter --resume")
+        print("  spark fix telegram")
+        if detail:
+            print("")
+            print(f"Why setup stopped: {detail}")
+
+
+
+    except Exception:
+        return None
+def read_telegram_first_message_events(path: Path | None = None) -> list[dict[str, Any]]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        event_path = path or TELEGRAM_FIRST_MESSAGE_EVENTS_PATH
+        if not event_path.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        try:
+            for line in event_path.read_text(encoding="utf-8").splitlines():
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict):
+                    events.append(event)
+        except OSError:
+            return []
+        return events
+
+
+
+    except Exception:
         return []
-    return events
-
-
 def telegram_first_message_seen(
     session: str,
     path: Path | None = None,
 ) -> dict[str, Any]:
-    normalized = str(session or "").strip()
-    for event in reversed(read_telegram_first_message_events(path)):
-        if event.get("event") != "telegram_first_message":
-            continue
-        if normalized and str(event.get("session") or "").strip() != normalized:
-            continue
-        return {
-            "received": True,
-            "replied": bool(event.get("replied")),
-            "session": str(event.get("session") or ""),
-            "chat_id": event.get("chat_id"),
-            "user_id": event.get("user_id"),
-            "event": event,
-        }
-    return {"received": False, "replied": False, "session": normalized}
+    if not isinstance(session, str): session = str(session or '')
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        normalized = str(session or "").strip()
+        for event in reversed(read_telegram_first_message_events(path)):
+            if event.get("event") != "telegram_first_message":
+                continue
+            if normalized and str(event.get("session") or "").strip() != normalized:
+                continue
+            return {
+                "received": True,
+                "replied": bool(event.get("replied")),
+                "session": str(event.get("session") or ""),
+                "chat_id": event.get("chat_id"),
+                "user_id": event.get("user_id"),
+                "event": event,
+            }
+        return {"received": False, "replied": False, "session": normalized}
 
 
+
+    except Exception:
+        return {}
 def wait_for_telegram_first_message(
     session: str,
     timeout_seconds: int,
@@ -2142,18 +2163,24 @@ def wait_for_telegram_first_message(
     *,
     poll_seconds: float = 1.0,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + max(0, int(timeout_seconds))
-    while True:
-        result = telegram_first_message_seen(session, path)
-        if result.get("received"):
-            result["timed_out"] = False
-            return result
-        if time.monotonic() >= deadline:
-            result["timed_out"] = True
-            return result
-        time.sleep(max(0.1, poll_seconds))
+    if not isinstance(session, str): session = str(session or '')
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        deadline = time.monotonic() + max(0, int(timeout_seconds))
+        while True:
+            result = telegram_first_message_seen(session, path)
+            if result.get("received"):
+                result["timed_out"] = False
+                return result
+            if time.monotonic() >= deadline:
+                result["timed_out"] = True
+                return result
+            time.sleep(max(0.1, poll_seconds))
 
 
+
+    except Exception:
+        return {}
 def first_message_wait_seconds(args: argparse.Namespace, interactive: bool) -> int:
     if not getattr(args, "wait_first_message", True):
         return 0
