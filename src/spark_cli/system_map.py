@@ -29,6 +29,20 @@ DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
+
+# Compiled hot-path patterns. safe_short_string is called dozens of times
+# per system_map compile pass (every authority verdict, event count, scope
+# label). Pre-compiling at module load eliminates per-call regex AST
+# construction.
+_REDACT_SECRET_RE = re.compile(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)")
+_SENSITIVE_PREFIX_RE = re.compile(r"(human|telegram|user|chat):")
+_LONG_DIGIT_RE = re.compile(r"\d{7,}")
+_SENSITIVE_TOKEN_RE = re.compile(r"(?i)(token|secret|api[_-]?key)")
+_GIT_AHEAD_RE = re.compile(r"ahead\s+(\d+)")
+_GIT_BEHIND_RE = re.compile(r"behind\s+(\d+)")
+_LEDGER_STATUS_RE = re.compile(r"(?m)^\s*status:\s*([a-zA-Z0-9_.-]+)\s*$")
+_LEDGER_SCHEMA_RE = re.compile(r"(?m)^\s*schema(?:_version)?:\s*([a-zA-Z0-9_.-]+)\s*$")
+
 CONTRACT_FILE_HINTS = (
     "docs/AGENT_OPERATING_CONTEXT_AND_DRIFT_CONTROL.md",
     "docs/SPARK_UPGRADE_LEDGER.yaml",
@@ -457,8 +471,8 @@ def parse_branch_status(line: str) -> dict[str, Any]:
             upstream = rest.split(" ", 1)[0] if rest else None
         else:
             branch = body.split(" ", 1)[0]
-        ahead_match = re.search(r"ahead\s+(\d+)", body)
-        behind_match = re.search(r"behind\s+(\d+)", body)
+        ahead_match = _GIT_AHEAD_RE.search(body)
+        behind_match = _GIT_BEHIND_RE.search(body)
         ahead = int(ahead_match.group(1)) if ahead_match else 0
         behind = int(behind_match.group(1)) if behind_match else 0
     return {"branch": branch, "upstream": upstream, "ahead": ahead, "behind": behind}
@@ -666,8 +680,8 @@ def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
             text = candidate.read_text(encoding="utf-8")
         except Exception as exc:
             return {"exists": True, "path": str(candidate), "error": f"{type(exc).__name__}: {exc}"}
-        statuses = Counter(re.findall(r"(?m)^\s*status:\s*([a-zA-Z0-9_.-]+)\s*$", text))
-        schema_match = re.search(r"(?m)^\s*schema(?:_version)?:\s*([a-zA-Z0-9_.-]+)\s*$", text)
+        statuses = Counter(_LEDGER_STATUS_RE.findall(text))
+        schema_match = _LEDGER_SCHEMA_RE.search(text)
         return {
             "exists": True,
             "path": str(candidate),
@@ -1399,7 +1413,7 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = _REDACT_SECRET_RE.sub(r"\1\2[redacted]", value.strip())
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
@@ -1408,9 +1422,9 @@ def safe_short_string(value: str, limit: int = 240) -> str:
 def sensitive_identifier(value: str) -> bool:
     lowered = value.lower()
     return bool(
-        re.search(r"(human|telegram|user|chat):", lowered)
-        or re.search(r"\d{7,}", lowered)
-        or re.search(r"(?i)(token|secret|api[_-]?key)", lowered)
+        _SENSITIVE_PREFIX_RE.search(lowered)
+        or _LONG_DIGIT_RE.search(lowered)
+        or _SENSITIVE_TOKEN_RE.search(lowered)
     )
 
 
