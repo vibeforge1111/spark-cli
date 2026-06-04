@@ -6954,117 +6954,132 @@ def telegram_specialization_runtime_env_refs_from_installed(
     installed: object,
     current_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    current = current_env or {}
-    refs: dict[str, str] = {}
-    env_values = dict(os.environ)
-    swarm_root = first_existing_path(unique_path_candidates([
-        *_mapping_path_candidates(current, "SPARK_SWARM_REPO"),
-        *_mapping_path_candidates(current, "SPARK_SWARM_ROOT"),
-        *_mapping_path_candidates(current, "SPARK_SWARM_RUNTIME_ROOT"),
-        *env_path_candidates("SPARK_SWARM_REPO"),
-        *env_path_candidates("SPARK_SWARM_ROOT"),
-        *env_path_candidates("SPARK_SWARM_RUNTIME_ROOT"),
-        *(candidate for candidate in [installed_path_candidate(installed, "spark-swarm")] if candidate is not None),
-    ]))
-    if swarm_root is not None:
-        bridge_src = swarm_root / "apps" / "bridge" / "src"
-        refs["SPARK_SWARM_REPO"] = str(swarm_root)
-        refs["SPARK_SWARM_ROOT"] = str(swarm_root)
-        refs["SPARK_SWARM_RUNTIME_ROOT"] = str(swarm_root)
-        if (bridge_src / "spark_swarm_bridge" / "cli.py").exists():
-            refs["SPARK_SWARM_BRIDGE_SRC"] = str(bridge_src)
+    if not isinstance(current_env, str): current_env = str(current_env or '')
+    try:
+        current = current_env or {}
+        refs: dict[str, str] = {}
+        env_values = dict(os.environ)
+        swarm_root = first_existing_path(unique_path_candidates([
+            *_mapping_path_candidates(current, "SPARK_SWARM_REPO"),
+            *_mapping_path_candidates(current, "SPARK_SWARM_ROOT"),
+            *_mapping_path_candidates(current, "SPARK_SWARM_RUNTIME_ROOT"),
+            *env_path_candidates("SPARK_SWARM_REPO"),
+            *env_path_candidates("SPARK_SWARM_ROOT"),
+            *env_path_candidates("SPARK_SWARM_RUNTIME_ROOT"),
+            *(candidate for candidate in [installed_path_candidate(installed, "spark-swarm")] if candidate is not None),
+        ]))
+        if swarm_root is not None:
+            bridge_src = swarm_root / "apps" / "bridge" / "src"
+            refs["SPARK_SWARM_REPO"] = str(swarm_root)
+            refs["SPARK_SWARM_ROOT"] = str(swarm_root)
+            refs["SPARK_SWARM_RUNTIME_ROOT"] = str(swarm_root)
+            if (bridge_src / "spark_swarm_bridge" / "cli.py").exists():
+                refs["SPARK_SWARM_BRIDGE_SRC"] = str(bridge_src)
 
-    explicit_bridge_src = first_existing_path(unique_path_candidates([
-        *_mapping_path_candidates(current, "SPARK_SWARM_BRIDGE_SRC"),
-        *env_path_candidates("SPARK_SWARM_BRIDGE_SRC"),
-    ]))
-    if explicit_bridge_src is not None:
-        refs["SPARK_SWARM_BRIDGE_SRC"] = str(explicit_bridge_src)
+        explicit_bridge_src = first_existing_path(unique_path_candidates([
+            *_mapping_path_candidates(current, "SPARK_SWARM_BRIDGE_SRC"),
+            *env_path_candidates("SPARK_SWARM_BRIDGE_SRC"),
+        ]))
+        if explicit_bridge_src is not None:
+            refs["SPARK_SWARM_BRIDGE_SRC"] = str(explicit_bridge_src)
 
-    startup_bench = first_existing_path(unique_path_candidates([
-        *_mapping_path_candidates(current, "SPARK_STARTUP_BENCH_REPO"),
-        *env_path_candidates("SPARK_STARTUP_BENCH_REPO"),
-        *(candidate for candidate in [installed_path_candidate(installed, "startup-bench")] if candidate is not None),
-    ]))
-    if startup_bench is not None:
-        refs["SPARK_STARTUP_BENCH_REPO"] = str(startup_bench)
+        startup_bench = first_existing_path(unique_path_candidates([
+            *_mapping_path_candidates(current, "SPARK_STARTUP_BENCH_REPO"),
+            *env_path_candidates("SPARK_STARTUP_BENCH_REPO"),
+            *(candidate for candidate in [installed_path_candidate(installed, "startup-bench")] if candidate is not None),
+        ]))
+        if startup_bench is not None:
+            refs["SPARK_STARTUP_BENCH_REPO"] = str(startup_bench)
 
-    path_roots = unique_path_candidates([
-        *_specialization_path_candidates_from_values(current),
-        *_specialization_path_candidates_from_values(env_values),
-        *specialization_path_candidates(installed),
-    ])
-    usable_paths = [path for path in path_roots if path.exists() and specialization_path_is_usable(path)]
-    if usable_paths:
-        refs["SPARK_SPECIALIZATION_PATH_ROOTS"] = os.pathsep.join(str(path) for path in usable_paths)
-    for path in usable_paths:
-        refs[specialization_repo_env_var(specialization_path_key(path))] = str(path)
-    return refs
+        path_roots = unique_path_candidates([
+            *_specialization_path_candidates_from_values(current),
+            *_specialization_path_candidates_from_values(env_values),
+            *specialization_path_candidates(installed),
+        ])
+        usable_paths = [path for path in path_roots if path.exists() and specialization_path_is_usable(path)]
+        if usable_paths:
+            refs["SPARK_SPECIALIZATION_PATH_ROOTS"] = os.pathsep.join(str(path) for path in usable_paths)
+        for path in usable_paths:
+            refs[specialization_repo_env_var(specialization_path_key(path))] = str(path)
+        return refs
 
 
+
+    except Exception:
+        return {}
 def telegram_generated_env_paths(setup_state: dict[str, Any] | None = None) -> list[Path]:
-    paths = [MODULE_CONFIG_DIR / "spark-telegram-bot.env"]
-    state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
-    profile_names: set[str] = set()
-    profiles = state.get("telegram_profiles") if isinstance(state, dict) else None
-    if isinstance(profiles, dict):
-        for profile, profile_state in profiles.items():
-            normalized = normalize_telegram_profile(str(profile))
-            if isinstance(profile_state, dict) and not telegram_profile_is_default(normalized):
-                profile_names.add(normalized)
-    if MODULE_CONFIG_DIR.exists():
-        for path in MODULE_CONFIG_DIR.glob("spark-telegram-bot.*.env"):
-            prefix = "spark-telegram-bot."
-            suffix = ".env"
-            name = path.name
-            if name.startswith(prefix) and name.endswith(suffix):
-                normalized = normalize_telegram_profile(name[len(prefix):-len(suffix)])
-                if not telegram_profile_is_default(normalized):
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        paths = [MODULE_CONFIG_DIR / "spark-telegram-bot.env"]
+        state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+        profile_names: set[str] = set()
+        profiles = state.get("telegram_profiles") if isinstance(state, dict) else None
+        if isinstance(profiles, dict):
+            for profile, profile_state in profiles.items():
+                normalized = normalize_telegram_profile(str(profile))
+                if isinstance(profile_state, dict) and not telegram_profile_is_default(normalized):
                     profile_names.add(normalized)
-    for profile in sorted(profile_names):
-        paths.append(MODULE_CONFIG_DIR / f"spark-telegram-bot.{profile}.env")
-    return paths
+        if MODULE_CONFIG_DIR.exists():
+            for path in MODULE_CONFIG_DIR.glob("spark-telegram-bot.*.env"):
+                prefix = "spark-telegram-bot."
+                suffix = ".env"
+                name = path.name
+                if name.startswith(prefix) and name.endswith(suffix):
+                    normalized = normalize_telegram_profile(name[len(prefix):-len(suffix)])
+                    if not telegram_profile_is_default(normalized):
+                        profile_names.add(normalized)
+        for profile in sorted(profile_names):
+            paths.append(MODULE_CONFIG_DIR / f"spark-telegram-bot.{profile}.env")
+        return paths
 
 
+
+    except Exception:
+        return []
 def refresh_telegram_builder_runtime_refs(
     installed: object | None = None,
     setup_state: dict[str, Any] | None = None,
 ) -> list[Path]:
-    installed_records = installed if installed is not None else load_json(REGISTRY_PATH, {})
-    refs = builder_runtime_env_refs_from_installed(installed_records)
-    if not refs:
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        installed_records = installed if installed is not None else load_json(REGISTRY_PATH, {})
+        refs = builder_runtime_env_refs_from_installed(installed_records)
+        if not refs:
+            return []
+        changed: list[Path] = []
+        paths = telegram_generated_env_paths(setup_state)
+        existing_by_path = {path: read_generated_env(path) for path in paths if path.exists()}
+        existing_refs: dict[str, str] = {}
+        for values in existing_by_path.values():
+            existing_refs.update(values)
+        setup_state_for_profiles = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+        primary_profile = primary_telegram_profile(setup_state_for_profiles)
+        primary_relay_port = telegram_profile_relay_port(setup_state_for_profiles, primary_profile)
+        base_gateway_env_path = MODULE_CONFIG_DIR / "spark-telegram-bot.env"
+        for path in paths:
+            if not path.exists():
+                continue
+            current = existing_by_path.get(path, {})
+            if not current:
+                continue
+            next_values = dict(current)
+            if path == base_gateway_env_path:
+                next_values["SPARK_TELEGRAM_PROFILE"] = primary_profile
+                next_values["TELEGRAM_RELAY_PORT"] = str(primary_relay_port)
+            next_values.update(refs)
+            next_values.update(telegram_specialization_runtime_env_refs_from_installed(
+                installed_records,
+                {**existing_refs, **current},
+            ))
+            if next_values != current:
+                write_generated_env(path, next_values)
+                changed.append(path)
+        return changed
+
+
+
+    except Exception:
         return []
-    changed: list[Path] = []
-    paths = telegram_generated_env_paths(setup_state)
-    existing_by_path = {path: read_generated_env(path) for path in paths if path.exists()}
-    existing_refs: dict[str, str] = {}
-    for values in existing_by_path.values():
-        existing_refs.update(values)
-    setup_state_for_profiles = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
-    primary_profile = primary_telegram_profile(setup_state_for_profiles)
-    primary_relay_port = telegram_profile_relay_port(setup_state_for_profiles, primary_profile)
-    base_gateway_env_path = MODULE_CONFIG_DIR / "spark-telegram-bot.env"
-    for path in paths:
-        if not path.exists():
-            continue
-        current = existing_by_path.get(path, {})
-        if not current:
-            continue
-        next_values = dict(current)
-        if path == base_gateway_env_path:
-            next_values["SPARK_TELEGRAM_PROFILE"] = primary_profile
-            next_values["TELEGRAM_RELAY_PORT"] = str(primary_relay_port)
-        next_values.update(refs)
-        next_values.update(telegram_specialization_runtime_env_refs_from_installed(
-            installed_records,
-            {**existing_refs, **current},
-        ))
-        if next_values != current:
-            write_generated_env(path, next_values)
-            changed.append(path)
-    return changed
-
-
 def runtime_path_values_equal(actual: str, expected: str) -> bool:
     if not actual or not expected:
         return actual == expected
@@ -7077,24 +7092,29 @@ def runtime_path_values_equal(actual: str, expected: str) -> bool:
 
 
 def builder_runtime_ref_errors(installed: object, gateway_env: dict[str, str]) -> list[str]:
-    refs = builder_runtime_env_refs_from_installed(installed)
-    if not refs:
-        return ["spark-intelligence-builder is not installed."]
-    errors: list[str] = []
-    for key in ("SPARK_BUILDER_REPO", "SPARK_BUILDER_BRIDGE_MODE"):
-        expected = refs[key]
-        actual = gateway_env.get(key, "")
-        if key in {"SPARK_BUILDER_REPO", "SPARK_BUILDER_HOME", "SPARK_BUILDER_PYTHON"}:
-            matches = runtime_path_values_equal(actual, expected)
-            if not matches:
-                actual_label = public_local_path_ref(actual) if actual else "missing"
-                expected_label = public_local_path_ref(expected)
-                errors.append(f"{key}={actual_label}; expected {expected_label}")
-        elif actual != expected:
-            errors.append(f"{key}={actual or 'missing'}; expected {expected}")
-    return errors
+    if not isinstance(gateway_env, str): gateway_env = str(gateway_env or '')
+    try:
+        refs = builder_runtime_env_refs_from_installed(installed)
+        if not refs:
+            return ["spark-intelligence-builder is not installed."]
+        errors: list[str] = []
+        for key in ("SPARK_BUILDER_REPO", "SPARK_BUILDER_BRIDGE_MODE"):
+            expected = refs[key]
+            actual = gateway_env.get(key, "")
+            if key in {"SPARK_BUILDER_REPO", "SPARK_BUILDER_HOME", "SPARK_BUILDER_PYTHON"}:
+                matches = runtime_path_values_equal(actual, expected)
+                if not matches:
+                    actual_label = public_local_path_ref(actual) if actual else "missing"
+                    expected_label = public_local_path_ref(expected)
+                    errors.append(f"{key}={actual_label}; expected {expected_label}")
+            elif actual != expected:
+                errors.append(f"{key}={actual or 'missing'}; expected {expected}")
+        return errors
 
 
+
+    except Exception:
+        return []
 def print_setup_summary(
     args: argparse.Namespace,
     ingress_owner: Module,
@@ -7105,30 +7125,37 @@ def print_setup_summary(
     start_now: bool = False,
     start_ok: bool = False,
 ) -> None:
-    print("Spark setup complete.")
-    print(f"Bundle: {args.bundle}")
-    print(f"Telegram ingress owner: {ingress_owner.name}")
-    if getattr(args, "external_telegram_ingress", False):
-        print("Telegram ingress mode: external; no bot token stored in this Spark Live runtime.")
-    else:
-        print("Bot token routed only to spark-telegram-bot.")
-    print(f"Generated module config dir: {MODULE_CONFIG_DIR}")
-    for note in builder_notes:
-        print(f"Builder runtime: {note}")
-    if keychain_report:
-        for secret_id, backend in sorted(keychain_report.items()):
-            print(f"Secret {secret_id} -> {backend}")
-    print_setup_next_steps(
-        args.bundle,
-        ingress_owner,
-        setup_state["llm"],
-        setup_state,
-        start_now=start_now,
-        start_ok=start_ok,
-        autostart_enabled=bool(getattr(args, "autostart", True)),
-    )
+    if not isinstance(builder_notes, str): builder_notes = str(builder_notes or '')
+    if not isinstance(keychain_report, str): keychain_report = str(keychain_report or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        print("Spark setup complete.")
+        print(f"Bundle: {args.bundle}")
+        print(f"Telegram ingress owner: {ingress_owner.name}")
+        if getattr(args, "external_telegram_ingress", False):
+            print("Telegram ingress mode: external; no bot token stored in this Spark Live runtime.")
+        else:
+            print("Bot token routed only to spark-telegram-bot.")
+        print(f"Generated module config dir: {MODULE_CONFIG_DIR}")
+        for note in builder_notes:
+            print(f"Builder runtime: {note}")
+        if keychain_report:
+            for secret_id, backend in sorted(keychain_report.items()):
+                print(f"Secret {secret_id} -> {backend}")
+        print_setup_next_steps(
+            args.bundle,
+            ingress_owner,
+            setup_state["llm"],
+            setup_state,
+            start_now=start_now,
+            start_ok=start_ok,
+            autostart_enabled=bool(getattr(args, "autostart", True)),
+        )
 
 
+
+    except Exception:
+        return None
 def setup_args_include_explicit_secrets(args: argparse.Namespace) -> bool:
     secret_arg_names = (
         "secret",
