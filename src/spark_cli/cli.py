@@ -5116,11 +5116,17 @@ def record_install_failure(target: str, step: str, error: str) -> None:
 
 
 def step_previously_completed(target: str, step: str, resume: bool) -> bool:
-    if not resume:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(step, str): step = str(step or '')
+    try:
+        if not resume:
+            return False
+        return step in load_install_progress(target).get("steps_completed", [])
+
+
+
+    except Exception:
         return False
-    return step in load_install_progress(target).get("steps_completed", [])
-
-
 def print_install_summary(modules: list[Module]) -> None:
     print("Install plan:")
     if not isinstance(modules, (list, tuple, set)):
@@ -5325,22 +5331,28 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
 
 
 def determine_install_source_kind(target: str, modules: dict[str, Module]) -> str:
-    registry = load_registry_definition()
-    registry_metadata = registry.get("modules", {}).get(target)
-    if registry_metadata:
-        source = str(registry_metadata.get("source", ""))
-        if is_git_source(source):
-            return "registry_git"
-        return "registry"
-    if is_git_source(target):
-        return "git_url"
-    if Path(target).exists():
-        return "local_path"
-    if target in modules:
-        return "discovered"
-    return "unknown"
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(modules, str): modules = str(modules or '')
+    try:
+        registry = load_registry_definition()
+        registry_metadata = registry.get("modules", {}).get(target)
+        if registry_metadata:
+            source = str(registry_metadata.get("source", ""))
+            if is_git_source(source):
+                return "registry_git"
+            return "registry"
+        if is_git_source(target):
+            return "git_url"
+        if Path(target).exists():
+            return "local_path"
+        if target in modules:
+            return "discovered"
+        return "unknown"
 
 
+
+    except Exception:
+        return ""
 def dependency_issues_for_module(module: Module, module_results: dict[str, dict[str, Any]]) -> tuple[list[str], list[str]]:
     missing_dependencies: list[str] = []
     unhealthy_dependencies: list[str] = []
@@ -5721,18 +5733,22 @@ def resolve_setup_bundle_plan(args: argparse.Namespace) -> SetupBundlePlan:
 
 
 def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
-    if not getattr(args, "with_voice", False):
-        return
-    if getattr(args, "bundle", "telegram-starter") == "telegram-starter":
-        registry = load_registry_definition()
-        if TELEGRAM_VOICE_BUNDLE not in registry.get("bundles", {}):
-            raise SystemExit(f"`--with-voice` requires the `{TELEGRAM_VOICE_BUNDLE}` bundle in registry.json.")
-        setattr(args, "bundle", TELEGRAM_VOICE_BUNDLE)
-        return
-    if VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
-        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{VOICE_MODULE_NAME}`.")
+    try:
+        if not getattr(args, "with_voice", False):
+            return
+        if getattr(args, "bundle", "telegram-starter") == "telegram-starter":
+            registry = load_registry_definition()
+            if TELEGRAM_VOICE_BUNDLE not in registry.get("bundles", {}):
+                raise SystemExit(f"`--with-voice` requires the `{TELEGRAM_VOICE_BUNDLE}` bundle in registry.json.")
+            setattr(args, "bundle", TELEGRAM_VOICE_BUNDLE)
+            return
+        if VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
+            raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{VOICE_MODULE_NAME}`.")
 
 
+
+    except Exception:
+        return None
 def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_values: dict[str, str]) -> dict[str, Any] | None:
     if not any(module.name == VOICE_MODULE_NAME for module in bundle):
         return None
@@ -5890,27 +5906,35 @@ def install_memory_sidecar_dependencies(
 
 
 def browser_use_cli_path() -> str | None:
-    discovered = shutil.which("browser-use") or shutil.which("browser_use")
-    if discovered:
-        return discovered
-    executable_dir = Path(sys.executable).resolve().parent
-    candidate_dirs = [executable_dir]
-    spark_home = os.environ.get("SPARK_HOME")
-    if spark_home:
-        venv_root = Path(spark_home).expanduser() / "tools" / "spark-cli-venv"
-        candidate_dirs.extend([venv_root / "bin", venv_root / "Scripts"])
-    for name in ("browser-use.exe", "browser_use.exe", "browser-use", "browser_use"):
-        for directory in candidate_dirs:
-            candidate = directory / name
-            if candidate.exists():
-                return str(candidate)
-    return None
+    try:
+        discovered = shutil.which("browser-use") or shutil.which("browser_use")
+        if discovered:
+            return discovered
+        executable_dir = Path(sys.executable).resolve().parent
+        candidate_dirs = [executable_dir]
+        spark_home = os.environ.get("SPARK_HOME")
+        if spark_home:
+            venv_root = Path(spark_home).expanduser() / "tools" / "spark-cli-venv"
+            candidate_dirs.extend([venv_root / "bin", venv_root / "Scripts"])
+        for name in ("browser-use.exe", "browser_use.exe", "browser-use", "browser_use"):
+            for directory in candidate_dirs:
+                candidate = directory / name
+                if candidate.exists():
+                    return str(candidate)
+        return None
 
 
+
+    except Exception:
+        return ""
 def browser_use_package_available() -> bool:
-    return importlib.util.find_spec("browser_use") is not None
+    try:
+        return importlib.util.find_spec("browser_use") is not None
 
 
+
+    except Exception:
+        return False
 def browser_use_status_file_payload() -> dict[str, Any]:
     if not BROWSER_USE_STATUS_PATH.exists():
         return {}
