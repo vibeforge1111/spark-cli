@@ -8880,7 +8880,16 @@ def redact_secret_surface_logs() -> dict[str, Any]:
         redacted = redact_sensitive_text(original)
         if redacted != original:
             try:
-                path.write_text(redacted, encoding="utf-8")
+                temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+                try:
+                    temp_path.write_text(redacted, encoding="utf-8")
+                    os.replace(temp_path, path)
+                finally:
+                    try:
+                        if temp_path.exists():
+                            temp_path.unlink()
+                    except OSError:
+                        pass
             except OSError:
                 continue
             changed.append(redact_shareable_text(str(path)))
