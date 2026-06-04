@@ -5185,145 +5185,169 @@ def sync_generated_env_to_module(module: Module) -> None:
 
 
 def update_setup_state_after_uninstall(module_names: list[str]) -> None:
-    setup_state = load_json(CONFIG_PATH, {})
-    if not setup_state or not isinstance(setup_state, dict):
-        return
-    if not isinstance(module_names, (list, tuple, set)):
-        module_names = [module_names]
-    modules_list = setup_state.get("modules", [])
-    if not isinstance(modules_list, (list, tuple, set)):
-        modules_list = []
-    remaining = [name for name in modules_list if name not in module_names]
-    if not remaining:
-        if CONFIG_PATH.exists():
-            CONFIG_PATH.unlink()
-        return
-    setup_state["modules"] = remaining
-    if setup_state.get("telegram_ingress_owner") in module_names:
-        setup_state["telegram_ingress_owner"] = None
-    save_json(CONFIG_PATH, setup_state)
+    if not isinstance(module_names, str): module_names = str(module_names or '')
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        if not setup_state or not isinstance(setup_state, dict):
+            return
+        if not isinstance(module_names, (list, tuple, set)):
+            module_names = [module_names]
+        modules_list = setup_state.get("modules", [])
+        if not isinstance(modules_list, (list, tuple, set)):
+            modules_list = []
+        remaining = [name for name in modules_list if name not in module_names]
+        if not remaining:
+            if CONFIG_PATH.exists():
+                CONFIG_PATH.unlink()
+            return
+        setup_state["modules"] = remaining
+        if setup_state.get("telegram_ingress_owner") in module_names:
+            setup_state["telegram_ingress_owner"] = None
+        save_json(CONFIG_PATH, setup_state)
 
 
-def resolve_installed_modules() -> dict[str, Module]:
-    installed = load_json(REGISTRY_PATH, {})
-    if not isinstance(installed, dict):
-        return {}
-    resolved: dict[str, Module] = {}
-    for name, data in installed.items():
-        if isinstance(data, dict) and data.get("path"):
-            try:
-                resolved[name] = load_module(Path(data["path"]))
-            except Exception:
-                pass
-    return resolved
 
-
-def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
-    blockers: list[str] = []
-    if not isinstance(removing_modules, (list, tuple, set)) or not isinstance(installed_modules, dict):
-        return blockers
-    removing_names = {module.name for module in removing_modules if module and hasattr(module, "name")}
-    for module in installed_modules.values():
-        if not module or not hasattr(module, "name") or module.name in removing_names:
-            continue
-        needs = getattr(module, "needs_modules", None)
-        if not isinstance(needs, (list, tuple, set)):
-            continue
-        for dependency in needs:
-            if dependency in removing_names:
-                blockers.append(f"{module.name} depends on {dependency}")
-    return blockers
-
-
-def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
-    if not module or getattr(module, "name", None) != "spark-telegram-bot":
+    except Exception:
         return None
-    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
-    if isinstance(profiles, dict) and profiles:
-        return primary_telegram_profile(setup_state)
-    return None
+def resolve_installed_modules() -> dict[str, Module]:
+    try:
+        installed = load_json(REGISTRY_PATH, {})
+        if not isinstance(installed, dict):
+            return {}
+        resolved: dict[str, Module] = {}
+        for name, data in installed.items():
+            if isinstance(data, dict) and data.get("path"):
+                try:
+                    resolved[name] = load_module(Path(data["path"]))
+                except Exception:
+                    pass
+        return resolved
 
 
+
+    except Exception:
+        return {}
+def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
+    if not isinstance(removing_modules, list): removing_modules = list(removing_modules or [])
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    try:
+        blockers: list[str] = []
+        if not isinstance(removing_modules, (list, tuple, set)) or not isinstance(installed_modules, dict):
+            return blockers
+        removing_names = {module.name for module in removing_modules if module and hasattr(module, "name")}
+        for module in installed_modules.values():
+            if not module or not hasattr(module, "name") or module.name in removing_names:
+                continue
+            needs = getattr(module, "needs_modules", None)
+            if not isinstance(needs, (list, tuple, set)):
+                continue
+            for dependency in needs:
+                if dependency in removing_names:
+                    blockers.append(f"{module.name} depends on {dependency}")
+        return blockers
+
+
+
+    except Exception:
+        return []
+def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> str | None:
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        if not module or getattr(module, "name", None) != "spark-telegram-bot":
+            return None
+        profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+        if isinstance(profiles, dict) and profiles:
+            return primary_telegram_profile(setup_state)
+        return None
+
+
+
+    except Exception:
+        return ""
 def evaluate_module_health(module: Module) -> dict[str, Any]:
-    setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
-    runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
-    if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
-        if not spawner_liveness_can_trust_local_port(runtime_env):
+    try:
+        setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
+        runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
+        if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
+            if not spawner_liveness_can_trust_local_port(runtime_env):
+                return {
+                    "name": module.name,
+                    "version": module.version,
+                    "kind": module.kind,
+                    "plane": module.plane,
+                    "healthy": False,
+                    "detail": "Spawner UI live health is not trusted because no Spark-supervised spawner-ui process is running.",
+                    "healthcheck_command": None,
+                    "failure_hint": "Run `spark start spawner-ui`, then rerun `spark status`.",
+                    "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+                }
+            health_url = spawner_runtime_health_url(module, runtime_env)
+            failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
+            success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
+            try:
+                request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
+                with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
+                    healthy = 200 <= int(response.status) < 300
+                    detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
+            except (urllib.error.URLError, TimeoutError) as exc:
+                healthy = False
+                detail = f"Spawner UI live health failed: {exc}"
             return {
                 "name": module.name,
                 "version": module.version,
                 "kind": module.kind,
                 "plane": module.plane,
-                "healthy": False,
-                "detail": "Spawner UI live health is not trusted because no Spark-supervised spawner-ui process is running.",
-                "healthcheck_command": None,
-                "failure_hint": "Run `spark start spawner-ui`, then rerun `spark status`.",
-                "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+                "healthy": healthy,
+                "detail": detail,
+                "healthcheck_command": f"GET {health_url}",
+                "failure_hint": failure_hint,
+                "success_hint": success_hint,
             }
-        health_url = spawner_runtime_health_url(module, runtime_env)
+        if module.name == "spark-telegram-bot" and telegram_ingress_is_external(setup_state):
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": True,
+                "detail": "Telegram ingress is external; this Spark Live runtime does not store or poll the bot token.",
+                "healthcheck_command": None,
+                "failure_hint": None,
+                "success_hint": "External Telegram ingress owner is expected to run its own healthcheck.",
+            }
+        command = module.healthcheck_command
+        if not command:
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": None,
+                "detail": "no healthcheck declared",
+                "healthcheck_command": None,
+                "failure_hint": None,
+            }
+        timeout_seconds = ready_timeout_seconds(module)
+        result = run_runtime_command(command, module.path, env=runtime_env, timeout=timeout_seconds)
+        detail = summarize_command_output(result)
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
-        try:
-            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
-            with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
-                healthy = 200 <= int(response.status) < 300
-                detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
-        except (urllib.error.URLError, TimeoutError) as exc:
-            healthy = False
-            detail = f"Spawner UI live health failed: {exc}"
         return {
             "name": module.name,
             "version": module.version,
             "kind": module.kind,
             "plane": module.plane,
-            "healthy": healthy,
+            "healthy": result.returncode == 0,
             "detail": detail,
-            "healthcheck_command": f"GET {health_url}",
+            "healthcheck_command": command,
             "failure_hint": failure_hint,
             "success_hint": success_hint,
         }
-    if module.name == "spark-telegram-bot" and telegram_ingress_is_external(setup_state):
-        return {
-            "name": module.name,
-            "version": module.version,
-            "kind": module.kind,
-            "plane": module.plane,
-            "healthy": True,
-            "detail": "Telegram ingress is external; this Spark Live runtime does not store or poll the bot token.",
-            "healthcheck_command": None,
-            "failure_hint": None,
-            "success_hint": "External Telegram ingress owner is expected to run its own healthcheck.",
-        }
-    command = module.healthcheck_command
-    if not command:
-        return {
-            "name": module.name,
-            "version": module.version,
-            "kind": module.kind,
-            "plane": module.plane,
-            "healthy": None,
-            "detail": "no healthcheck declared",
-            "healthcheck_command": None,
-            "failure_hint": None,
-        }
-    timeout_seconds = ready_timeout_seconds(module)
-    result = run_runtime_command(command, module.path, env=runtime_env, timeout=timeout_seconds)
-    detail = summarize_command_output(result)
-    failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
-    success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
-    return {
-        "name": module.name,
-        "version": module.version,
-        "kind": module.kind,
-        "plane": module.plane,
-        "healthy": result.returncode == 0,
-        "detail": detail,
-        "healthcheck_command": command,
-        "failure_hint": failure_hint,
-        "success_hint": success_hint,
-    }
 
 
+
+    except Exception:
+        return {}
 def determine_install_source_kind(target: str, modules: dict[str, Module]) -> str:
     registry = load_registry_definition()
     registry_metadata = registry.get("modules", {}).get(target)
