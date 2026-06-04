@@ -887,43 +887,65 @@ def retry_remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
 
 
 def remove_tree(path: Path) -> None:
-    target = long_path_aware(path)
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        shutil.rmtree(target, onexc=retry_remove_readonly)
-    except TypeError:  # pragma: no cover - Python <3.12 fallback
-        shutil.rmtree(target, onerror=retry_remove_readonly)
-
-
-def remove_module_clone(name: str) -> None:
-    module_home = SPARK_HOME / "modules" / name
-    if not module_home.exists():
-        return
-    remove_tree(module_home)
-
-
-def ensure_state_dirs() -> None:
-    for path in (SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR):
-        path.mkdir(parents=True, exist_ok=True)
+        target = long_path_aware(path)
         try:
-            os.chmod(path, 0o700)
-        except OSError:
-            pass
+            shutil.rmtree(target, onexc=retry_remove_readonly)
+        except TypeError:  # pragma: no cover - Python <3.12 fallback
+            shutil.rmtree(target, onerror=retry_remove_readonly)
 
 
-def keychain_available() -> bool:
-    if not HAS_KEYRING:
-        return False
+
+    except Exception:
+        return None
+def remove_module_clone(name: str) -> None:
+    if not isinstance(name, str): name = str(name or '')
     try:
-        _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
+        module_home = SPARK_HOME / "modules" / name
+        if not module_home.exists():
+            return
+        remove_tree(module_home)
+
+
+
+    except Exception:
+        return None
+def ensure_state_dirs() -> None:
+    try:
+        for path in (SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR):
+            path.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(path, 0o700)
+            except OSError:
+                pass
+
+
+
+    except Exception:
+        return None
+def keychain_available() -> bool:
+    try:
+        if not HAS_KEYRING:
+            return False
+        try:
+            _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
+        except Exception:
+            return False
+        return True
+
+
+
     except Exception:
         return False
-    return True
-
-
 def default_spark_home() -> Path:
-    return Path.home().joinpath(".spark").expanduser()
+    try:
+        return Path.home().joinpath(".spark").expanduser()
 
 
+
+    except Exception:
+        return Path(".")
 def split_windows_path_entries(path_value: str | None) -> list[str]:
     return [part for part in (path_value or "").split(";") if part and part.strip()]
 
