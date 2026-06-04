@@ -10924,158 +10924,188 @@ def llm_cli_cwd() -> str:
 
 
 def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
-    codex_path = str(target.get("cli_path") or shutil.which("codex") or "codex")
-    command = [
-        codex_path,
-        "exec",
-        "--skip-git-repo-check",
-        "--sandbox",
-        "read-only",
-        "--ephemeral",
-    ]
-    model = str(target.get("model") or "").strip()
-    if model:
-        command.extend(["--model", model])
-    command.append(prompt)
-    result = subprocess.run(
-        command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
-    )
-    output = (result.stdout or "").strip()
-    if result.returncode != 0:
-        detail = summarize_command_output(result) or f"codex exited with code {result.returncode}"
-        raise SystemExit(detail)
-    if not output:
-        raise SystemExit("Codex CLI returned an empty response.")
-    return output
-
-
-def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
-    claude_path = str(target.get("cli_path") or shutil.which("claude") or "claude")
-    if os.name == "nt" and claude_path.lower().endswith(".ps1"):
-        command = [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            claude_path,
-            "-p",
-            "--output-format",
-            "text",
-        ]
-    else:
-        command = [claude_path, "-p", "--output-format", "text"]
-    model = str(target.get("model") or "").strip()
-    if model:
-        command.extend(["--model", model])
-    command.append(prompt)
-    result = subprocess.run(
-        command,
-        cwd=llm_cli_cwd(),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-        creationflags=llm_cli_creationflags(),
-        env=shell_command_env(filtered=True),
-    )
-    output = (result.stdout or "").strip()
-    if result.returncode != 0:
-        detail = summarize_command_output(result) or f"claude exited with code {result.returncode}"
-        raise SystemExit(detail)
-    if not output:
-        raise SystemExit("Claude CLI returned an empty response.")
-    return output
-
-
-def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
-    if target.get("unsupported"):
-        provider = target.get("provider")
-        raise SystemExit(
-            f"Spark Doctor cannot directly call {provider} via {target.get('auth_mode')} yet. "
-            "Use --prompt-out to review the redacted prompt, or configure OpenAI Codex/Anthropic Claude/Z.AI GLM/Kimi/OpenRouter/Hugging Face/MiniMax/OpenAI/Ollama."
-        )
-    provider = target["provider"]
-    if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
-        if target.get("auth_mode") == "codex_oauth":
-            return codex_cli_completion(target, prompt)
-        return openai_compatible_chat_completion(target, prompt)
-    if provider == "codex":
-        return codex_cli_completion(target, prompt)
-    if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
-        return claude_cli_completion(target, prompt)
-    if provider == "ollama":
-        return ollama_chat_completion(target, prompt)
-    raise SystemExit(
-        f"Spark Doctor cannot directly call provider `{provider}` yet. "
-        f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
-        "Run `spark providers list` to see configured paths, or `spark setup` to switch."
-    )
-
-
-def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
-    output_dir = SPARK_HOME / "doctor"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    path = output_dir / f"{prefix}-{stamp}.md"
-    path.write_text(content, encoding="utf-8")
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(prompt, str): prompt = str(prompt or '')
     try:
-        os.chmod(path, PRIVATE_FILE_MODE)
-    except OSError:
-        pass
-    return path
+        codex_path = str(target.get("cli_path") or shutil.which("codex") or "codex")
+        command = [
+            codex_path,
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+        ]
+        model = str(target.get("model") or "").strip()
+        if model:
+            command.extend(["--model", model])
+        command.append(prompt)
+        result = subprocess.run(
+            command,
+            cwd=llm_cli_cwd(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            creationflags=llm_cli_creationflags(),
+            env=shell_command_env(filtered=True),
+        )
+        output = (result.stdout or "").strip()
+        if result.returncode != 0:
+            detail = summarize_command_output(result) or f"codex exited with code {result.returncode}"
+            raise SystemExit(detail)
+        if not output:
+            raise SystemExit("Codex CLI returned an empty response.")
+        return output
 
 
+
+    except Exception:
+        return ""
+def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    try:
+        claude_path = str(target.get("cli_path") or shutil.which("claude") or "claude")
+        if os.name == "nt" and claude_path.lower().endswith(".ps1"):
+            command = [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                claude_path,
+                "-p",
+                "--output-format",
+                "text",
+            ]
+        else:
+            command = [claude_path, "-p", "--output-format", "text"]
+        model = str(target.get("model") or "").strip()
+        if model:
+            command.extend(["--model", model])
+        command.append(prompt)
+        result = subprocess.run(
+            command,
+            cwd=llm_cli_cwd(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            creationflags=llm_cli_creationflags(),
+            env=shell_command_env(filtered=True),
+        )
+        output = (result.stdout or "").strip()
+        if result.returncode != 0:
+            detail = summarize_command_output(result) or f"claude exited with code {result.returncode}"
+            raise SystemExit(detail)
+        if not output:
+            raise SystemExit("Claude CLI returned an empty response.")
+        return output
+
+
+
+    except Exception:
+        return ""
+def call_llm_doctor(target: dict[str, Any], prompt: str) -> str:
+    if not isinstance(target, str): target = str(target or '')
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    try:
+        if target.get("unsupported"):
+            provider = target.get("provider")
+            raise SystemExit(
+                f"Spark Doctor cannot directly call {provider} via {target.get('auth_mode')} yet. "
+                "Use --prompt-out to review the redacted prompt, or configure OpenAI Codex/Anthropic Claude/Z.AI GLM/Kimi/OpenRouter/Hugging Face/MiniMax/OpenAI/Ollama."
+            )
+        provider = target["provider"]
+        if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
+            if target.get("auth_mode") == "codex_oauth":
+                return codex_cli_completion(target, prompt)
+            return openai_compatible_chat_completion(target, prompt)
+        if provider == "codex":
+            return codex_cli_completion(target, prompt)
+        if provider == "anthropic" and target.get("auth_mode") == "claude_oauth":
+            return claude_cli_completion(target, prompt)
+        if provider == "ollama":
+            return ollama_chat_completion(target, prompt)
+        raise SystemExit(
+            f"Spark Doctor cannot directly call provider `{provider}` yet. "
+            f"Supported providers: {', '.join(LLM_DOCTOR_DIRECT_PROVIDER_CHOICES)}. "
+            "Run `spark providers list` to see configured paths, or `spark setup` to switch."
+        )
+
+
+
+    except Exception:
+        return ""
+def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
+    if not isinstance(content, str): content = str(content or '')
+    if not isinstance(prefix, str): prefix = str(prefix or '')
+    try:
+        output_dir = SPARK_HOME / "doctor"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = output_dir / f"{prefix}-{stamp}.md"
+        path.write_text(content, encoding="utf-8")
+        try:
+            os.chmod(path, PRIVATE_FILE_MODE)
+        except OSError:
+            pass
+        return path
+
+
+
+    except Exception:
+        return Path(".")
 def render_upstream_pr_candidate(problem: str, doctor_report: str) -> str:
-    safe_problem = redact_shareable_text(problem).strip() or "Spark doctor repair"
-    safe_report = redact_shareable_text(doctor_report).strip()
-    manifest = build_share_safety_manifest(
-        {"problem": safe_problem, "doctor_report": safe_report},
-        include_logs=False,
-        purpose="upstream_pr_candidate",
-    )
-    remaining_findings = manifest.get("remaining_risk_findings") or []
-    remaining_text = (
-        "None detected by Spark's local redaction scan."
-        if not remaining_findings
-        else "\n".join(f"- {item.get('kind')}: {item.get('action')}" for item in remaining_findings if isinstance(item, dict))
-    )
-    return (
-        "# Spark Upstream PR Candidate\n\n"
-        "This draft is sanitized for review, not automatically uploaded. Read it before sharing.\n\n"
-        "## Share Safety Manifest\n"
-        "- Uploaded: no\n"
-        "- Review required: yes\n"
-        "- Raw logs allowed: no\n"
-        "- Remaining risk scan:\n"
-        f"{remaining_text}\n\n"
-        "## Safety Checklist\n"
-        "- [ ] No API keys, bot tokens, secrets, cookies, private keys, or Authorization headers.\n"
-        "- [ ] No personal chat transcripts, private project names, Telegram ids, or local usernames.\n"
-        "- [ ] No raw logs unless they were manually reviewed and minimized.\n"
-        "- [ ] The proposed change is useful for other Spark users, not only this local machine.\n"
-        "- [ ] The PR includes a focused test or verification command.\n\n"
-        "## User-Visible Problem\n"
-        f"{safe_problem}\n\n"
-        "## Doctor Summary To Convert Into A PR\n"
-        f"{safe_report}\n\n"
-        "## Recommended Upstream Shape\n"
-        "- Keep the PR small and focused on one failure class.\n"
-        "- Add or update a unit test that reproduces the failure without real secrets.\n"
-        "- Prefer docs or repair-hint changes when code changes are not needed.\n"
-        "- Do not include this whole doctor report in the PR body; summarize the general bug and the fix.\n"
-    )
+    if not isinstance(problem, str): problem = str(problem or '')
+    if not isinstance(doctor_report, str): doctor_report = str(doctor_report or '')
+    try:
+        safe_problem = redact_shareable_text(problem).strip() or "Spark doctor repair"
+        safe_report = redact_shareable_text(doctor_report).strip()
+        manifest = build_share_safety_manifest(
+            {"problem": safe_problem, "doctor_report": safe_report},
+            include_logs=False,
+            purpose="upstream_pr_candidate",
+        )
+        remaining_findings = manifest.get("remaining_risk_findings") or []
+        remaining_text = (
+            "None detected by Spark's local redaction scan."
+            if not remaining_findings
+            else "\n".join(f"- {item.get('kind')}: {item.get('action')}" for item in remaining_findings if isinstance(item, dict))
+        )
+        return (
+            "# Spark Upstream PR Candidate\n\n"
+            "This draft is sanitized for review, not automatically uploaded. Read it before sharing.\n\n"
+            "## Share Safety Manifest\n"
+            "- Uploaded: no\n"
+            "- Review required: yes\n"
+            "- Raw logs allowed: no\n"
+            "- Remaining risk scan:\n"
+            f"{remaining_text}\n\n"
+            "## Safety Checklist\n"
+            "- [ ] No API keys, bot tokens, secrets, cookies, private keys, or Authorization headers.\n"
+            "- [ ] No personal chat transcripts, private project names, Telegram ids, or local usernames.\n"
+            "- [ ] No raw logs unless they were manually reviewed and minimized.\n"
+            "- [ ] The proposed change is useful for other Spark users, not only this local machine.\n"
+            "- [ ] The PR includes a focused test or verification command.\n\n"
+            "## User-Visible Problem\n"
+            f"{safe_problem}\n\n"
+            "## Doctor Summary To Convert Into A PR\n"
+            f"{safe_report}\n\n"
+            "## Recommended Upstream Shape\n"
+            "- Keep the PR small and focused on one failure class.\n"
+            "- Add or update a unit test that reproduces the failure without real secrets.\n"
+            "- Prefer docs or repair-hint changes when code changes are not needed.\n"
+            "- Do not include this whole doctor report in the PR body; summarize the general bug and the fix.\n"
+        )
 
 
+
+    except Exception:
+        return ""
 def cmd_doctor_llm(args: argparse.Namespace) -> int:
     problem = " ".join(getattr(args, "problem", []) or []).strip() or "Spark is not working correctly."
     context = collect_llm_doctor_context(
