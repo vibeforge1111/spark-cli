@@ -12843,39 +12843,51 @@ def current_uid() -> int | None:
 
 
 def proc_uid_for_pid(pid: int) -> int | None:
-    status_path = Path("/proc") / str(pid) / "status"
     try:
-        for line in status_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("Uid:"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    return int(parts[1])
-    except (OSError, ValueError):
-        return None
-    return None
-
-
-def tracked_runtime_uids() -> list[int]:
-    uids: list[int] = []
-    for record in load_pids().values():
-        if not isinstance(record, dict):
-            continue
+        status_path = Path("/proc") / str(pid) / "status"
         try:
-            pid = int(record.get("pid") or 0)
-        except (TypeError, ValueError):
-            continue
-        if not pid or not pid_is_running(pid):
-            continue
-        uid = proc_uid_for_pid(pid)
-        if uid is not None:
-            uids.append(uid)
-    return uids
+            for line in status_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("Uid:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1])
+        except (OSError, ValueError):
+            return None
+        return None
 
 
+
+    except Exception:
+        return 0
+def tracked_runtime_uids() -> list[int]:
+    try:
+        uids: list[int] = []
+        for record in load_pids().values():
+            if not isinstance(record, dict):
+                continue
+            try:
+                pid = int(record.get("pid") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not pid or not pid_is_running(pid):
+                continue
+            uid = proc_uid_for_pid(pid)
+            if uid is not None:
+                uids.append(uid)
+        return uids
+
+
+
+    except Exception:
+        return []
 def docker_socket_present() -> bool:
-    return Path("/var/run/docker.sock").exists()
+    try:
+        return Path("/var/run/docker.sock").exists()
 
 
+
+    except Exception:
+        return False
 HOSTED_SENSITIVE_MOUNTPOINTS = {
     "/root",
     "/home/spark/.ssh",
@@ -12908,32 +12920,42 @@ def decode_mountinfo_path(value: str) -> str:
 
 
 def mountinfo_mountpoints(text: str) -> list[str]:
-    mountpoints: list[str] = []
-    for line in text.splitlines():
-        parts = line.split()
-        if len(parts) >= 5:
-            mountpoints.append(decode_mountinfo_path(parts[4]))
-    return mountpoints
-
-
-def hosted_sensitive_mount_errors(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> list[str]:
-    if os.name == "nt":
-        return []
+    if not isinstance(text, str): text = str(text or '')
     try:
-        mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
+        mountpoints: list[str] = []
+        for line in text.splitlines():
+            parts = line.split()
+            if len(parts) >= 5:
+                mountpoints.append(decode_mountinfo_path(parts[4]))
+        return mountpoints
+
+
+
+    except Exception:
         return []
-    except OSError as exc:
-        return [f"Could not inspect Linux mount table: {exc}."]
+def hosted_sensitive_mount_errors(mountinfo_path: Path = Path("/proc/self/mountinfo")) -> list[str]:
+    if mountinfo_path is not None and not hasattr(mountinfo_path, 'resolve'): from pathlib import Path; mountinfo_path = Path(str(mountinfo_path))
+    try:
+        if os.name == "nt":
+            return []
+        try:
+            mountinfo = mountinfo_path.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            return []
+        except OSError as exc:
+            return [f"Could not inspect Linux mount table: {exc}."]
 
-    errors: list[str] = []
-    for mountpoint in mountinfo_mountpoints(mountinfo):
-        normalized = mountpoint.rstrip("/") or "/"
-        if normalized in HOSTED_SENSITIVE_MOUNTPOINTS:
-            errors.append(f"Sensitive mountpoint is visible inside hosted Spark: {normalized}.")
-    return errors
+        errors: list[str] = []
+        for mountpoint in mountinfo_mountpoints(mountinfo):
+            normalized = mountpoint.rstrip("/") or "/"
+            if normalized in HOSTED_SENSITIVE_MOUNTPOINTS:
+                errors.append(f"Sensitive mountpoint is visible inside hosted Spark: {normalized}.")
+        return errors
 
 
+
+    except Exception:
+        return []
 def hosted_cloud_credential_env_errors(env: dict[str, str] | None = None) -> list[str]:
     source = env if env is not None else os.environ
     exposed = [key for key in sorted(HOSTED_CLOUD_CREDENTIAL_ENV_KEYS) if source.get(key)]
