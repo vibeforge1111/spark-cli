@@ -15565,87 +15565,109 @@ def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
 
 
 def dotted_unset(config: dict[str, Any], key: str) -> bool:
-    if not isinstance(config, dict):
-        return False
-    validate_config_key(key)
-    key_str = str(key or "")
-    parts = key_str.split(".")
-    current: Any = config
-    for part in parts[:-1]:
-        if not isinstance(current, dict) or part not in current:
+    if not isinstance(config, str): config = str(config or '')
+    if not isinstance(key, str): key = str(key or '')
+    try:
+        if not isinstance(config, dict):
             return False
-        current = current[part]
-    if isinstance(current, dict) and parts[-1] in current:
-        current.pop(parts[-1])
-        return True
-    return False
+        validate_config_key(key)
+        key_str = str(key or "")
+        parts = key_str.split(".")
+        current: Any = config
+        for part in parts[:-1]:
+            if not isinstance(current, dict) or part not in current:
+                return False
+            current = current[part]
+        if isinstance(current, dict) and parts[-1] in current:
+            current.pop(parts[-1])
+            return True
+        return False
 
 
+
+    except Exception:
+        return False
 def coerce_config_value(raw: Any) -> Any:
-    """Parse a CLI-supplied value into JSON-native types where possible."""
-    if not isinstance(raw, str):
-        return raw
     try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return raw
+        """Parse a CLI-supplied value into JSON-native types where possible."""
+        if not isinstance(raw, str):
+            return raw
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return raw
 
 
+
+    except Exception:
+        return None
 def cmd_config_get(args: argparse.Namespace) -> int:
-    key = getattr(args, "key", None)
-    if not key:
-        print("Error: config key is required", file=sys.stderr)
-        return 1
-    value = dotted_get(load_user_config(), key, default=CONFIG_MISSING)
-    if value is CONFIG_MISSING:
-        print(f"{key} is not set")
-        return 1
-    if isinstance(value, (dict, list)):
-        print(json.dumps(value, indent=2))
-    elif value is None:
-        print("null")
-    else:
-        print(value)
-    return 0
+    try:
+        key = getattr(args, "key", None)
+        if not key:
+            print("Error: config key is required", file=sys.stderr)
+            return 1
+        value = dotted_get(load_user_config(), key, default=CONFIG_MISSING)
+        if value is CONFIG_MISSING:
+            print(f"{key} is not set")
+            return 1
+        if isinstance(value, (dict, list)):
+            print(json.dumps(value, indent=2))
+        elif value is None:
+            print("null")
+        else:
+            print(value)
+        return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_config_set(args: argparse.Namespace) -> int:
-    key = getattr(args, "key", None)
-    val_raw = getattr(args, "value", None)
-    if not key:
-        print("Error: config key is required", file=sys.stderr)
-        return 1
-    config = load_user_config()
-    value = coerce_config_value(val_raw)
     try:
-        dotted_set(config, key, value)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    save_user_config(config)
-    print(f"Set {key} = {json.dumps(value)}")
-    return 0
+        key = getattr(args, "key", None)
+        val_raw = getattr(args, "value", None)
+        if not key:
+            print("Error: config key is required", file=sys.stderr)
+            return 1
+        config = load_user_config()
+        value = coerce_config_value(val_raw)
+        try:
+            dotted_set(config, key, value)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        save_user_config(config)
+        print(f"Set {key} = {json.dumps(value)}")
+        return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_config_unset(args: argparse.Namespace) -> int:
-    key = getattr(args, "key", None)
-    if not key:
-        print("Error: config key is required", file=sys.stderr)
-        return 1
-    config = load_user_config()
     try:
-        removed = dotted_unset(config, key)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    if not removed:
-        print(f"{key} was not set")
-        return 1
-    save_user_config(config)
-    print(f"Unset {key}")
-    return 0
+        key = getattr(args, "key", None)
+        if not key:
+            print("Error: config key is required", file=sys.stderr)
+            return 1
+        config = load_user_config()
+        try:
+            removed = dotted_unset(config, key)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        if not removed:
+            print(f"{key} was not set")
+            return 1
+        save_user_config(config)
+        print(f"Unset {key}")
+        return 0
 
 
+
+    except Exception:
+        return 0
 def cmd_config_list(_: argparse.Namespace) -> int:
     config = load_user_config()
     if not config:
