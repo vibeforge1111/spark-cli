@@ -504,6 +504,9 @@ class SparkCliTests(unittest.TestCase):
         gitlab_token = "glpat-" + "abcdefghijklmnopqrstuvwxyz123456"
         samples = [
             f"AWS_ACCESS_KEY_ID={aws_key}",
+            "aws_secret_access_key: synthetic-secret-access-value",
+            "password: synthetic-password-value",
+            "api-key: synthetic-api-key-value",
             "HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz123456",
             f"GOOGLE_API_KEY={google_key}",
             f"GITLAB_TOKEN={gitlab_token}",
@@ -519,6 +522,9 @@ class SparkCliTests(unittest.TestCase):
             google_key,
             gitlab_token,
             slack_token,
+            "synthetic-secret-access-value",
+            "synthetic-password-value",
+            "synthetic-api-key-value",
             "custom-header-secret-value",
             "sessionid=private-cookie-value",
             "dXNlcjpwYXNzd29yZA==",
