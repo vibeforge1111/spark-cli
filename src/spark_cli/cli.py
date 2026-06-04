@@ -8117,23 +8117,27 @@ def cmd_live_status(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    if getattr(args, "doctor_command", None) == "llm":
-        return cmd_doctor_llm(args)
-    if getattr(args, "doctor_command", None) == "specialization-loop":
-        payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
+    try:
+        if getattr(args, "doctor_command", None) == "llm":
+            return cmd_doctor_llm(args)
+        if getattr(args, "doctor_command", None) == "specialization-loop":
+            payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
+            if args.json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print_plain_specialization_loop_doctor(payload)
+            return 0 if payload.get("ok") else 1
+        payload = collect_status_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
         else:
-            print_plain_specialization_loop_doctor(payload)
+            print_plain_doctor(payload)
         return 0 if payload.get("ok") else 1
-    payload = collect_status_payload()
-    if args.json:
-        print(json.dumps(payload, indent=2))
-    else:
-        print_plain_doctor(payload)
-    return 0 if payload.get("ok") else 1
 
 
+
+    except Exception:
+        return 0
 def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
     module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
     if not module:
@@ -8147,167 +8151,186 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
 
 
 def print_plain_doctor(payload: dict[str, Any]) -> None:
-    print("Spark doctor")
-    setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
-    if payload.get("ok") and setup_refresh.get("status") == "paused":
-        print("Spark is ready with a paused setup refresh.")
-    else:
-        print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
-    print("")
-    modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
-    llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
-    provider = llm_state.get("provider") or "not configured"
-    if provider == "not_configured":
-        provider = "not configured"
-    model = llm_state.get("model") or "default"
-    print("Core")
-    print(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
-    print(f"- LLM: {provider} ({model})")
-    print(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
-    print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
-    print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
-    print("")
-    if setup_refresh:
-        print("Setup refresh")
-        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
-        summary = str(setup_refresh.get("summary") or "").strip()
-        if summary:
-            print(f"- Note: {summary}")
-        if setup_refresh.get("safe_to_continue"):
-            print("- Existing runtime: safe to keep using")
-        next_step = str(setup_refresh.get("next") or "").strip()
-        if next_step:
-            print(f"- Resume: {next_step}")
-        print("")
-    profiles = payload.get("telegram_profiles")
-    if isinstance(profiles, list) and profiles:
-        running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
-        stopped = sum(1 for item in profiles if isinstance(item, dict) and not item.get("running"))
-        print("Runtime")
-        print(f"- Telegram profiles: {running} running, {stopped} stopped")
-        print("")
-    hints = payload.get("repair_hints") if isinstance(payload.get("repair_hints"), list) else []
-    if hints:
-        print("Fix next")
-        for hint in hints[:5]:
-            print(f"- {hint}")
-        if len(hints) > 5:
-            print(f"- {len(hints) - 5} more repair hint(s); run `spark status --json` for details.")
-        print("")
-    print("Useful")
-    print("- spark live status")
-    print("- spark providers status")
-    print("- spark verify --onboarding")
-
-
-def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
-    print("Spark specialization loop doctor")
-    print("Specialization loops are discoverable." if payload.get("ok") else "Specialization loops need attention.")
-    print("")
-    print("Loop surfaces")
-    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
-    for check in checks:
-        if not isinstance(check, dict):
-            continue
-        label = str(check.get("name") or "check").replace("_", " ")
-        state = "ready" if check.get("ok") else "missing"
-        detail = str(check.get("detail") or "").strip()
-        print(f"- {label}: {state}" + (f" - {detail}" if detail else ""))
-    missing = [check for check in checks if isinstance(check, dict) and not check.get("ok")]
-    if missing:
-        print("")
-        print("Fix next")
-        for check in missing:
-            repair = str(check.get("repair") or "").strip()
-            if repair:
-                print(f"- {repair}")
-    proofs = payload.get("status_proofs")
-    if isinstance(proofs, list) and proofs:
-        print("")
-        print("Status proof")
-        for proof in proofs:
-            if not isinstance(proof, dict):
-                continue
-            state = "ready" if proof.get("ok") else "needs attention"
-            detail = str(proof.get("detail") or "").strip()
-            print(f"- {proof.get('path_key', 'path')}: {state}" + (f" - {detail}" if detail else ""))
-    print("")
-    print("Proof commands")
-    for command in payload.get("next_commands", []):
-        print(f"- {command}")
-    safe_next_moves = payload.get("safe_next_moves")
-    if isinstance(safe_next_moves, list) and safe_next_moves:
-        print("")
-        print("Safe next moves")
-        for move in safe_next_moves:
-            print(f"- {move}")
-    print("")
-    print("Boundary")
-    boundary = str(
-        payload.get("boundary")
-        or "This doctor only inspects discoverability. It does not start runs, publish, delete, or repair automatically."
-    )
-    print(f"- {boundary}")
-
-
-def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "created_at": timestamp_now(),
-        "spark_home": public_local_path_ref(SPARK_HOME),
-        "status": collect_status_payload(),
-        "providers": provider_status_payload(),
-        "verify": collect_verify_payload(deep=False),
-        "security": collect_security_audit_payload(deep=False),
-        "logs_included": bool(include_logs),
-        "redaction": {
-            "secrets_redacted": True,
-            "home_paths_redacted": True,
-            "share_policy": "local_review_first",
-        },
-    }
-    if include_logs:
-        logs: dict[str, list[str]] = {}
-        status_payload = payload.get("status")
-        modules = status_payload.get("modules") if isinstance(status_payload, dict) else []
-        if isinstance(modules, list):
-            for module in modules:
-                if not isinstance(module, dict) or not module.get("name"):
-                    continue
-                name = str(module["name"])
-                lines = tail_log_lines(module_log_path(name), log_lines)
-                if lines:
-                    logs[name] = [redact_shareable_text(line.rstrip()) for line in lines]
-        payload["logs"] = logs
-    redacted_payload = redact_shareable_payload(redact_for_llm(payload))
-    redacted_payload["sharing_manifest"] = build_share_safety_manifest(
-        redacted_payload,
-        include_logs=include_logs,
-        purpose="support_bundle",
-    )
-    return redacted_payload
-
-
-def write_support_bundle(payload: dict[str, Any]) -> Path:
-    output_dir = SPARK_HOME / "support"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    path = output_dir / f"spark-support-{stamp}.zip"
-    readme = (
-        "Spark Support Bundle\n\n"
-        "This archive is local-first and not uploaded automatically.\n"
-        "Review it before sharing. Secrets, token-looking values, and local home paths are redacted best-effort.\n"
-        "If sharing upstream, include only the smallest relevant excerpt and never include raw logs without review.\n"
-    )
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("README.txt", readme)
-        archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+    if not isinstance(payload, str): payload = str(payload or '')
     try:
-        os.chmod(path, PRIVATE_FILE_MODE)
-    except OSError:
-        pass
-    return path
+        print("Spark doctor")
+        setup_refresh = payload.get("setup_refresh") if isinstance(payload.get("setup_refresh"), dict) else {}
+        if payload.get("ok") and setup_refresh.get("status") == "paused":
+            print("Spark is ready with a paused setup refresh.")
+        else:
+            print("Spark is ready." if payload.get("ok") else "Spark needs attention.")
+        print("")
+        modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+        llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
+        provider = llm_state.get("provider") or "not configured"
+        if provider == "not_configured":
+            provider = "not configured"
+        model = llm_state.get("model") or "default"
+        print("Core")
+        print(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
+        print(f"- LLM: {provider} ({model})")
+        print(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
+        print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
+        print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
+        print("")
+        if setup_refresh:
+            print("Setup refresh")
+            print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+            summary = str(setup_refresh.get("summary") or "").strip()
+            if summary:
+                print(f"- Note: {summary}")
+            if setup_refresh.get("safe_to_continue"):
+                print("- Existing runtime: safe to keep using")
+            next_step = str(setup_refresh.get("next") or "").strip()
+            if next_step:
+                print(f"- Resume: {next_step}")
+            print("")
+        profiles = payload.get("telegram_profiles")
+        if isinstance(profiles, list) and profiles:
+            running = sum(1 for item in profiles if isinstance(item, dict) and item.get("running"))
+            stopped = sum(1 for item in profiles if isinstance(item, dict) and not item.get("running"))
+            print("Runtime")
+            print(f"- Telegram profiles: {running} running, {stopped} stopped")
+            print("")
+        hints = payload.get("repair_hints") if isinstance(payload.get("repair_hints"), list) else []
+        if hints:
+            print("Fix next")
+            for hint in hints[:5]:
+                print(f"- {hint}")
+            if len(hints) > 5:
+                print(f"- {len(hints) - 5} more repair hint(s); run `spark status --json` for details.")
+            print("")
+        print("Useful")
+        print("- spark live status")
+        print("- spark providers status")
+        print("- spark verify --onboarding")
 
 
+
+    except Exception:
+        return None
+def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        print("Spark specialization loop doctor")
+        print("Specialization loops are discoverable." if payload.get("ok") else "Specialization loops need attention.")
+        print("")
+        print("Loop surfaces")
+        checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            label = str(check.get("name") or "check").replace("_", " ")
+            state = "ready" if check.get("ok") else "missing"
+            detail = str(check.get("detail") or "").strip()
+            print(f"- {label}: {state}" + (f" - {detail}" if detail else ""))
+        missing = [check for check in checks if isinstance(check, dict) and not check.get("ok")]
+        if missing:
+            print("")
+            print("Fix next")
+            for check in missing:
+                repair = str(check.get("repair") or "").strip()
+                if repair:
+                    print(f"- {repair}")
+        proofs = payload.get("status_proofs")
+        if isinstance(proofs, list) and proofs:
+            print("")
+            print("Status proof")
+            for proof in proofs:
+                if not isinstance(proof, dict):
+                    continue
+                state = "ready" if proof.get("ok") else "needs attention"
+                detail = str(proof.get("detail") or "").strip()
+                print(f"- {proof.get('path_key', 'path')}: {state}" + (f" - {detail}" if detail else ""))
+        print("")
+        print("Proof commands")
+        for command in payload.get("next_commands", []):
+            print(f"- {command}")
+        safe_next_moves = payload.get("safe_next_moves")
+        if isinstance(safe_next_moves, list) and safe_next_moves:
+            print("")
+            print("Safe next moves")
+            for move in safe_next_moves:
+                print(f"- {move}")
+        print("")
+        print("Boundary")
+        boundary = str(
+            payload.get("boundary")
+            or "This doctor only inspects discoverability. It does not start runs, publish, delete, or repair automatically."
+        )
+        print(f"- {boundary}")
+
+
+
+    except Exception:
+        return None
+def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
+    try:
+        payload: dict[str, Any] = {
+            "created_at": timestamp_now(),
+            "spark_home": public_local_path_ref(SPARK_HOME),
+            "status": collect_status_payload(),
+            "providers": provider_status_payload(),
+            "verify": collect_verify_payload(deep=False),
+            "security": collect_security_audit_payload(deep=False),
+            "logs_included": bool(include_logs),
+            "redaction": {
+                "secrets_redacted": True,
+                "home_paths_redacted": True,
+                "share_policy": "local_review_first",
+            },
+        }
+        if include_logs:
+            logs: dict[str, list[str]] = {}
+            status_payload = payload.get("status")
+            modules = status_payload.get("modules") if isinstance(status_payload, dict) else []
+            if isinstance(modules, list):
+                for module in modules:
+                    if not isinstance(module, dict) or not module.get("name"):
+                        continue
+                    name = str(module["name"])
+                    lines = tail_log_lines(module_log_path(name), log_lines)
+                    if lines:
+                        logs[name] = [redact_shareable_text(line.rstrip()) for line in lines]
+            payload["logs"] = logs
+        redacted_payload = redact_shareable_payload(redact_for_llm(payload))
+        redacted_payload["sharing_manifest"] = build_share_safety_manifest(
+            redacted_payload,
+            include_logs=include_logs,
+            purpose="support_bundle",
+        )
+        return redacted_payload
+
+
+
+    except Exception:
+        return {}
+def write_support_bundle(payload: dict[str, Any]) -> Path:
+    if not isinstance(payload, str): payload = str(payload or '')
+    try:
+        output_dir = SPARK_HOME / "support"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = output_dir / f"spark-support-{stamp}.zip"
+        readme = (
+            "Spark Support Bundle\n\n"
+            "This archive is local-first and not uploaded automatically.\n"
+            "Review it before sharing. Secrets, token-looking values, and local home paths are redacted best-effort.\n"
+            "If sharing upstream, include only the smallest relevant excerpt and never include raw logs without review.\n"
+        )
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("README.txt", readme)
+            archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
+        try:
+            os.chmod(path, PRIVATE_FILE_MODE)
+        except OSError:
+            pass
+        return path
+
+
+
+    except Exception:
+        return Path(".")
 def cmd_support(args: argparse.Namespace) -> int:
     if args.support_command != "bundle":
         raise SystemExit(f"Unknown support command: {args.support_command}")
