@@ -11559,47 +11559,75 @@ def collect_autostart_fix_payload() -> dict[str, Any]:
 
 
 def cmd_fix(args: argparse.Namespace) -> int:
-    if args.target == "secrets":
-        if getattr(args, "redact_logs", False):
-            result = redact_secret_surface_logs()
-            changed = result.get("changed", [])
-            print("Spark log redaction")
-            print("")
-            if changed:
-                print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
-                for path in changed:
-                    print(f"      {path}")
-            else:
-                print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
-            print("")
-            print("Next:")
-            print("  spark verify --deep")
-            return 0
+    try:
+        if args.target == "secrets":
+            if getattr(args, "redact_logs", False):
+                result = redact_secret_surface_logs()
+                changed = result.get("changed", [])
+                print("Spark log redaction")
+                print("")
+                if changed:
+                    print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
+                    for path in changed:
+                        print(f"      {path}")
+                else:
+                    print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
+                print("")
+                print("Next:")
+                print("  spark verify --deep")
+                return 0
 
-        payload = collect_secret_surface_payload()
+            payload = collect_secret_surface_payload()
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("ok") else 1
+            print("Spark secret surface check")
+            print("")
+            marker = "[OK]" if payload.get("ok") else "[FIX]"
+            print(f"{marker} generated configs/logs: {payload['detail']}")
+            for finding in payload.get("findings", []):
+                counts = ", ".join(f"{key}={value}" for key, value in finding.get("counts", {}).items())
+                print(f"      {finding.get('path')} ({counts})")
+            if not payload.get("ok"):
+                print("")
+                print("Repair:")
+                print("  - Run `spark fix secrets --redact-logs` to redact local generated logs.")
+                print("  - Rerun `spark setup` after updating modules so keychain-backed secrets are removed from generated env files.")
+                print("  - Run `spark verify --deep` again before sharing any diagnostics upstream.")
+            return 0 if payload.get("ok") else 1
+
+        if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
+            payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
+            if args.json:
+                print(json.dumps(payload, indent=2))
+                return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
+            print(payload["summary"])
+            print("")
+            for check in payload["checks"]:
+                marker = "[OK]" if check["ok"] else "[FIX]"
+                print(f"{marker} {check['name']}: {check['detail']}")
+                if not check["ok"] and check.get("repair"):
+                    print(f"      {check['repair']}")
+            if args.target == "autostart" and payload.get("hooks"):
+                print("")
+                print("Hooks:")
+                for hook in payload["hooks"]:
+                    installed_text = "yes" if hook.get("exists") else "no"
+                    print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                    for warning in hook.get("warnings", []):
+                        print(f"      warning: {warning}")
+            print("")
+            print("Useful commands:")
+            for command in payload["next_commands"]:
+                print(f"  {command}")
+            return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
+
+        if args.target != "telegram":
+            raise SystemExit(f"Unknown fix target: {args.target}")
+        payload = collect_telegram_fix_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
-        print("Spark secret surface check")
-        print("")
-        marker = "[OK]" if payload.get("ok") else "[FIX]"
-        print(f"{marker} generated configs/logs: {payload['detail']}")
-        for finding in payload.get("findings", []):
-            counts = ", ".join(f"{key}={value}" for key, value in finding.get("counts", {}).items())
-            print(f"      {finding.get('path')} ({counts})")
-        if not payload.get("ok"):
-            print("")
-            print("Repair:")
-            print("  - Run `spark fix secrets --redact-logs` to redact local generated logs.")
-            print("  - Rerun `spark setup` after updating modules so keychain-backed secrets are removed from generated env files.")
-            print("  - Run `spark verify --deep` again before sharing any diagnostics upstream.")
-        return 0 if payload.get("ok") else 1
-
-    if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
-        payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
-        if args.json:
-            print(json.dumps(payload, indent=2))
-            return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
         print(payload["summary"])
         print("")
         for check in payload["checks"]:
@@ -11607,262 +11635,258 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print(f"{marker} {check['name']}: {check['detail']}")
             if not check["ok"] and check.get("repair"):
                 print(f"      {check['repair']}")
-        if args.target == "autostart" and payload.get("hooks"):
+        if payload.get("status_repair_hints"):
             print("")
-            print("Hooks:")
-            for hook in payload["hooks"]:
-                installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
-                for warning in hook.get("warnings", []):
-                    print(f"      warning: {warning}")
+            print("Status repair hints:")
+            for hint in payload["status_repair_hints"]:
+                print(f"  - {hint}")
         print("")
         print("Useful commands:")
         for command in payload["next_commands"]:
             print(f"  {command}")
-        return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
-
-    if args.target != "telegram":
-        raise SystemExit(f"Unknown fix target: {args.target}")
-    payload = collect_telegram_fix_payload()
-    if args.json:
-        print(json.dumps(payload, indent=2))
         return 0 if payload.get("ok") else 1
-    print(payload["summary"])
-    print("")
-    for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
-        if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
-    if payload.get("status_repair_hints"):
-        print("")
-        print("Status repair hints:")
-        for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
-    print("")
-    print("Useful commands:")
-    for command in payload["next_commands"]:
-        print(f"  {command}")
-    return 0 if payload.get("ok") else 1
 
 
+
+    except Exception:
+        return 0
 def provider_catalog_payload() -> dict[str, Any]:
-    codex = detect_codex_cli()
-    claude = detect_claude_code()
-    return {
-        "ok": True,
-        "providers": [
-            {
-                "id": "openai",
-                "label": "OpenAI",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider openai --openai-api-key <key>",
-            },
-            {
-                "id": "codex",
-                "label": "OpenAI Codex",
-                "auth": ["codex_oauth"],
-                "oauth_available": bool(codex["present"]),
-                "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider codex",
-            },
-            {
-                "id": "anthropic",
-                "label": "Anthropic Claude",
-                "auth": ["claude_oauth", "api_key"],
-                "oauth_available": bool(claude["present"]),
-                "recommended_for": ["chat", "builder"],
-                "setup": "spark setup --llm-provider anthropic",
-            },
-            {
-                "id": "openrouter",
-                "label": "OpenRouter",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider openrouter --openrouter-api-key <key> --openrouter-model <model>",
-            },
-            {
-                "id": "zai",
-                "label": "Z.AI GLM",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider zai --zai-api-key <key>",
-            },
-            {
-                "id": "kimi",
-                "label": "Kimi / Moonshot",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "memory", "mission"],
-                "setup": "spark setup --llm-provider kimi --kimi-api-key <key> --kimi-model <model>",
-            },
-            {
-                "id": "huggingface",
-                "label": "Hugging Face",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider huggingface --huggingface-api-key <key> --huggingface-model <model>",
-            },
-            {
-                "id": "lmstudio",
-                "label": "LM Studio",
-                "auth": ["local"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "memory", "mission", "local/private"],
-                "setup": "spark setup --llm-provider lmstudio --lmstudio-model <loaded-model-id>",
-            },
-            {
-                "id": "minimax",
-                "label": "MiniMax",
-                "auth": ["api_key"],
-                "oauth_available": False,
-                "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider minimax --minimax-api-key <key>",
-            },
-            {
-                "id": "ollama",
-                "label": "Ollama",
-                "auth": ["local"],
-                "oauth_available": False,
-                "recommended_for": ["memory", "local/private"],
-                "setup": "spark setup --llm-provider ollama --ollama-model <model>",
-            },
-        ],
-        "roles": list(LLM_ROLES),
-    }
+    try:
+        codex = detect_codex_cli()
+        claude = detect_claude_code()
+        return {
+            "ok": True,
+            "providers": [
+                {
+                    "id": "openai",
+                    "label": "OpenAI",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "mission"],
+                    "setup": "spark setup --llm-provider openai --openai-api-key <key>",
+                },
+                {
+                    "id": "codex",
+                    "label": "OpenAI Codex",
+                    "auth": ["codex_oauth"],
+                    "oauth_available": bool(codex["present"]),
+                    "recommended_for": ["chat", "builder", "mission"],
+                    "setup": "spark setup --llm-provider codex",
+                },
+                {
+                    "id": "anthropic",
+                    "label": "Anthropic Claude",
+                    "auth": ["claude_oauth", "api_key"],
+                    "oauth_available": bool(claude["present"]),
+                    "recommended_for": ["chat", "builder"],
+                    "setup": "spark setup --llm-provider anthropic",
+                },
+                {
+                    "id": "openrouter",
+                    "label": "OpenRouter",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "memory"],
+                    "setup": "spark setup --llm-provider openrouter --openrouter-api-key <key> --openrouter-model <model>",
+                },
+                {
+                    "id": "zai",
+                    "label": "Z.AI GLM",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "mission"],
+                    "setup": "spark setup --llm-provider zai --zai-api-key <key>",
+                },
+                {
+                    "id": "kimi",
+                    "label": "Kimi / Moonshot",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "memory", "mission"],
+                    "setup": "spark setup --llm-provider kimi --kimi-api-key <key> --kimi-model <model>",
+                },
+                {
+                    "id": "huggingface",
+                    "label": "Hugging Face",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "memory"],
+                    "setup": "spark setup --llm-provider huggingface --huggingface-api-key <key> --huggingface-model <model>",
+                },
+                {
+                    "id": "lmstudio",
+                    "label": "LM Studio",
+                    "auth": ["local"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "memory", "mission", "local/private"],
+                    "setup": "spark setup --llm-provider lmstudio --lmstudio-model <loaded-model-id>",
+                },
+                {
+                    "id": "minimax",
+                    "label": "MiniMax",
+                    "auth": ["api_key"],
+                    "oauth_available": False,
+                    "recommended_for": ["chat", "builder", "mission"],
+                    "setup": "spark setup --llm-provider minimax --minimax-api-key <key>",
+                },
+                {
+                    "id": "ollama",
+                    "label": "Ollama",
+                    "auth": ["local"],
+                    "oauth_available": False,
+                    "recommended_for": ["memory", "local/private"],
+                    "setup": "spark setup --llm-provider ollama --ollama-model <model>",
+                },
+            ],
+            "roles": list(LLM_ROLES),
+        }
 
 
+
+    except Exception:
+        return {}
 def provider_status_payload() -> dict[str, Any]:
-    setup_state = load_json(CONFIG_PATH, {})
-    llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
-    secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
-    if not isinstance(llm_state, dict):
-        return {
-            "ok": False,
-            "configured": False,
-            "summary": "No LLM provider is configured.",
-            "roles": {},
-            "repair_hints": ["Run `spark setup --llm-provider openai` or `spark setup --llm-provider codex` to choose a provider."],
-        }
-    roles = llm_state.get("roles")
-    if not isinstance(roles, dict):
-        roles = {role: llm_state for role in LLM_ROLES}
-    role_payload: dict[str, Any] = {}
-    for role in LLM_ROLES:
-        state = roles.get(role, {})
-        if not isinstance(state, dict):
-            state = {}
-        provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
-        provider_spec = LLM_PROVIDER_ENV.get(provider, {})
-        api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        if not isinstance(llm_state, dict):
+            return {
+                "ok": False,
+                "configured": False,
+                "summary": "No LLM provider is configured.",
+                "roles": {},
+                "repair_hints": ["Run `spark setup --llm-provider openai` or `spark setup --llm-provider codex` to choose a provider."],
+            }
+        roles = llm_state.get("roles")
+        if not isinstance(roles, dict):
+            roles = {role: llm_state for role in LLM_ROLES}
+        role_payload: dict[str, Any] = {}
+        for role in LLM_ROLES:
+            state = roles.get(role, {})
+            if not isinstance(state, dict):
+                state = {}
+            provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
+            auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+            provider_spec = LLM_PROVIDER_ENV.get(provider, {})
+            api_key_secret = provider_spec.get("api_key_secret")
+            if auth_mode == "not_configured":
+                if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
+                    auth_mode = "api_key"
+                elif api_key_secret and api_key_secret in secret_keys:
+                    auth_mode = "api_key"
+                elif provider == "codex" and detect_codex_cli()["present"]:
                     auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
-        role_state = {
-            "provider": provider,
-            "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
-            "model": state.get("model") or llm_state.get("model") or "",
-            "auth_mode": auth_mode,
-            "base_url": state.get("base_url") or llm_state.get("base_url") or "",
-            "ready": provider != "not_configured" and auth_mode != "not_configured",
+                elif provider == "openai":
+                    base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
+                    if base_kind == "local":
+                        auth_mode = "local"
+                    elif base_kind == "default" and detect_codex_cli()["present"]:
+                        auth_mode = "codex_oauth"
+                elif provider == "anthropic" and detect_claude_code()["present"]:
+                    auth_mode = "claude_oauth"
+                elif provider == "ollama":
+                    auth_mode = "local"
+            role_state = {
+                "provider": provider,
+                "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
+                "model": state.get("model") or llm_state.get("model") or "",
+                "auth_mode": auth_mode,
+                "base_url": state.get("base_url") or llm_state.get("base_url") or "",
+                "ready": provider != "not_configured" and auth_mode != "not_configured",
+            }
+            if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
+                codex_auth = codex_cli_auth_payload()
+                role_state["codex_auth"] = codex_auth
+                if not codex_auth.get("ok"):
+                    role_state["ready"] = False
+            if provider == "codex" and auth_mode == "codex_oauth":
+                role_state["codex_client"] = codex_client_config_payload()
+            role_payload[role] = role_state
+        repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
+        return {
+            "ok": not repair_hints,
+            "configured": bool(llm_state.get("provider") and llm_state.get("provider") != "not_configured"),
+            "summary": "Spark LLM provider roles",
+            "roles": role_payload,
+            "repair_hints": repair_hints,
         }
-        if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
-            codex_auth = codex_cli_auth_payload()
-            role_state["codex_auth"] = codex_auth
-            if not codex_auth.get("ok"):
-                role_state["ready"] = False
-        if provider == "codex" and auth_mode == "codex_oauth":
-            role_state["codex_client"] = codex_client_config_payload()
-        role_payload[role] = role_state
-    repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
-    return {
-        "ok": not repair_hints,
-        "configured": bool(llm_state.get("provider") and llm_state.get("provider") != "not_configured"),
-        "summary": "Spark LLM provider roles",
-        "roles": role_payload,
-        "repair_hints": repair_hints,
-    }
 
 
+
+    except Exception:
+        return {}
 def resolve_provider_test_target(role: str, provider: str | None = None) -> dict[str, Any]:
-    args = argparse.Namespace(
-        role=role,
-        provider=provider,
-        model=None,
-        base_url=None,
-    )
-    return resolve_llm_doctor_target(args)
+    if not isinstance(role, str): role = str(role or '')
+    if not isinstance(provider, str): provider = str(provider or '')
+    try:
+        args = argparse.Namespace(
+            role=role,
+            provider=provider,
+            model=None,
+            base_url=None,
+        )
+        return resolve_llm_doctor_target(args)
 
 
+
+    except Exception:
+        return {}
 def provider_test_payload(*, role: str = "chat", provider: str | None = None) -> dict[str, Any]:
+    if not isinstance(role, str): role = str(role or '')
+    if not isinstance(provider, str): provider = str(provider or '')
     try:
-        target = resolve_provider_test_target(role, provider)
-    except SystemExit as exc:
+        try:
+            target = resolve_provider_test_target(role, provider)
+        except SystemExit as exc:
+            return {
+                "ok": False,
+                "role": role,
+                "provider": provider or "configured",
+                "detail": str(exc),
+                "repair": "spark setup",
+            }
+        safe_target = redact_for_llm(target)
+        if target.get("unsupported"):
+            return {
+                "ok": False,
+                "role": role,
+                "provider": target.get("provider"),
+                "model": target.get("model"),
+                "auth_mode": target.get("auth_mode"),
+                "detail": f"Provider {target.get('provider')} is configured but Spark CLI cannot directly probe this auth mode yet.",
+                "repair": "spark providers status",
+                "target": safe_target,
+            }
+        prompt = "Reply with exactly PING_OK. No extra words."
+        try:
+            response = call_llm_doctor(target, prompt).strip()
+        except (SystemExit, urllib.error.URLError, TimeoutError, OSError) as exc:
+            return {
+                "ok": False,
+                "role": role,
+                "provider": target.get("provider"),
+                "model": target.get("model"),
+                "auth_mode": target.get("auth_mode"),
+                "detail": redact_sensitive_text(str(exc)),
+                "repair": "spark setup",
+                "target": safe_target,
+            }
         return {
-            "ok": False,
-            "role": role,
-            "provider": provider or "configured",
-            "detail": str(exc),
-            "repair": "spark setup",
-        }
-    safe_target = redact_for_llm(target)
-    if target.get("unsupported"):
-        return {
-            "ok": False,
+            "ok": "PING_OK" in response,
             "role": role,
             "provider": target.get("provider"),
             "model": target.get("model"),
             "auth_mode": target.get("auth_mode"),
-            "detail": f"Provider {target.get('provider')} is configured but Spark CLI cannot directly probe this auth mode yet.",
-            "repair": "spark providers status",
+            "detail": response if "PING_OK" in response else "Provider replied, but not with PING_OK.",
+            "repair": "" if "PING_OK" in response else "spark setup",
             "target": safe_target,
         }
-    prompt = "Reply with exactly PING_OK. No extra words."
-    try:
-        response = call_llm_doctor(target, prompt).strip()
-    except (SystemExit, urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {
-            "ok": False,
-            "role": role,
-            "provider": target.get("provider"),
-            "model": target.get("model"),
-            "auth_mode": target.get("auth_mode"),
-            "detail": redact_sensitive_text(str(exc)),
-            "repair": "spark setup",
-            "target": safe_target,
-        }
-    return {
-        "ok": "PING_OK" in response,
-        "role": role,
-        "provider": target.get("provider"),
-        "model": target.get("model"),
-        "auth_mode": target.get("auth_mode"),
-        "detail": response if "PING_OK" in response else "Provider replied, but not with PING_OK.",
-        "repair": "" if "PING_OK" in response else "spark setup",
-        "target": safe_target,
-    }
 
 
+
+    except Exception:
+        return {}
 def cmd_providers(args: argparse.Namespace) -> int:
     if args.providers_command == "recommend":
         payload = provider_recommendations_payload()
