@@ -14592,108 +14592,129 @@ def stop_module(name: str, pid: int) -> None:
 
 
 def stop_tracked_process_key(process_key: str) -> bool:
-    with pid_file_lock():
-        pids = load_pids()
-        record = pids.get(process_key)
-        if not isinstance(record, dict):
-            return False
-        pid = int(record.get("pid") or 0)
-        if pid and pid_is_running(pid):
-            stop_module(process_key, pid)
-        pids.pop(process_key, None)
-        save_pids(pids)
-    return True
+    if not isinstance(process_key, str): process_key = str(process_key or '')
+    try:
+        with pid_file_lock():
+            pids = load_pids()
+            record = pids.get(process_key)
+            if not isinstance(record, dict):
+                return False
+            pid = int(record.get("pid") or 0)
+            if pid and pid_is_running(pid):
+                stop_module(process_key, pid)
+            pids.pop(process_key, None)
+            save_pids(pids)
+        return True
 
 
+
+    except Exception:
+        return False
 def cmd_stop(args: argparse.Namespace) -> int:
-    if getattr(args, "json", False):
-        return run_process_command_json("stop", args, cmd_stop_plain)
-    return cmd_stop_plain(args)
+    try:
+        if getattr(args, "json", False):
+            return run_process_command_json("stop", args, cmd_stop_plain)
+        return cmd_stop_plain(args)
 
 
+
+    except Exception:
+        return 0
 def cmd_stop_plain(args: argparse.Namespace) -> int:
-    with pid_file_lock():
-        pids = load_pids()
-    if not pids:
-        print("No tracked Spark processes.")
+    try:
+        with pid_file_lock():
+            pids = load_pids()
+        if not pids:
+            print("No tracked Spark processes.")
+            return 0
+
+        installed_modules = resolve_installed_modules()
+        profile = normalize_telegram_profile(getattr(args, "profile", None))
+        if profile != DEFAULT_TELEGRAM_PROFILE:
+            requested_names = expand_targets(args.target, installed_modules, include_all=True)
+            if "spark-telegram-bot" not in requested_names:
+                print(f"Profile {profile} only applies to spark-telegram-bot; no profiled process stopped.")
+                return 0
+            target_names = [module_process_key("spark-telegram-bot", profile)]
+        else:
+            if getattr(args, "cascade", False):
+                target_names = resolve_stop_module_names(args.target, installed_modules, pids)
+            else:
+                target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
+        for name in target_names:
+            if not stop_tracked_process_key(name):
+                print(f"Skipping {name}: no tracked pid")
         return 0
 
-    installed_modules = resolve_installed_modules()
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
-    if profile != DEFAULT_TELEGRAM_PROFILE:
-        requested_names = expand_targets(args.target, installed_modules, include_all=True)
-        if "spark-telegram-bot" not in requested_names:
-            print(f"Profile {profile} only applies to spark-telegram-bot; no profiled process stopped.")
-            return 0
-        target_names = [module_process_key("spark-telegram-bot", profile)]
-    else:
-        if getattr(args, "cascade", False):
-            target_names = resolve_stop_module_names(args.target, installed_modules, pids)
-        else:
-            target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
-    for name in target_names:
-        if not stop_tracked_process_key(name):
-            print(f"Skipping {name}: no tracked pid")
-    return 0
 
 
+    except Exception:
+        return 0
 def cmd_restart(args: argparse.Namespace) -> int:
-    if getattr(args, "json", False):
-        return run_process_command_json("restart", args, cmd_restart_plain)
-    return cmd_restart_plain(args)
+    try:
+        if getattr(args, "json", False):
+            return run_process_command_json("restart", args, cmd_restart_plain)
+        return cmd_restart_plain(args)
 
 
+
+    except Exception:
+        return 0
 def cmd_restart_plain(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    installed_modules = resolve_installed_modules()
-    if not installed_modules:
-        print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
-        return 1
-    profile = normalize_telegram_profile(getattr(args, "profile", None))
-    if profile != DEFAULT_TELEGRAM_PROFILE:
-        requested_names = expand_targets(args.target, installed_modules, include_all=True)
-        if "spark-telegram-bot" not in requested_names:
-            print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
-        else:
-            stop_code = cmd_stop_plain(args)
-            module = installed_modules["spark-telegram-bot"]
-            if not emit_runtime_supply_chain_guard([module], args):
-                return 1
-            start_code = 0
-            if not start_module(
-                module,
-                allow_boot_warnings=getattr(args, "allow_boot_warnings", False),
-                profile=profile,
-            ):
-                start_code = 1
-            return start_code or stop_code
-    restart_modules = (
-        resolve_restart_modules(args.target, installed_modules, load_pids())
-        if getattr(args, "cascade", False)
-        else resolve_start_modules(args.target, installed_modules)
-    )
-    if not emit_runtime_supply_chain_guard(restart_modules, args):
-        return 1
-    stop_code = cmd_stop_plain(args)
-    start_code = 0
-    for module in restart_modules:
-        if not module.run_command:
-            print(f"Skipping {module.name}: no run.default command declared")
-            continue
-        if module.name == "spark-telegram-bot":
-            for telegram_profile in telegram_profiles_to_start_by_default():
+    try:
+        ensure_state_dirs()
+        installed_modules = resolve_installed_modules()
+        if not installed_modules:
+            print("No installed Spark modules recorded. Run `spark setup telegram-starter` first.")
+            return 1
+        profile = normalize_telegram_profile(getattr(args, "profile", None))
+        if profile != DEFAULT_TELEGRAM_PROFILE:
+            requested_names = expand_targets(args.target, installed_modules, include_all=True)
+            if "spark-telegram-bot" not in requested_names:
+                print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
+            else:
+                stop_code = cmd_stop_plain(args)
+                module = installed_modules["spark-telegram-bot"]
+                if not emit_runtime_supply_chain_guard([module], args):
+                    return 1
+                start_code = 0
                 if not start_module(
                     module,
                     allow_boot_warnings=getattr(args, "allow_boot_warnings", False),
-                    profile=telegram_profile,
+                    profile=profile,
                 ):
                     start_code = 1
-            continue
-        if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
-            start_code = 1
-    return start_code or stop_code
+                return start_code or stop_code
+        restart_modules = (
+            resolve_restart_modules(args.target, installed_modules, load_pids())
+            if getattr(args, "cascade", False)
+            else resolve_start_modules(args.target, installed_modules)
+        )
+        if not emit_runtime_supply_chain_guard(restart_modules, args):
+            return 1
+        stop_code = cmd_stop_plain(args)
+        start_code = 0
+        for module in restart_modules:
+            if not module.run_command:
+                print(f"Skipping {module.name}: no run.default command declared")
+                continue
+            if module.name == "spark-telegram-bot":
+                for telegram_profile in telegram_profiles_to_start_by_default():
+                    if not start_module(
+                        module,
+                        allow_boot_warnings=getattr(args, "allow_boot_warnings", False),
+                        profile=telegram_profile,
+                    ):
+                        start_code = 1
+                continue
+            if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
+                start_code = 1
+        return start_code or stop_code
 
 
+
+    except Exception:
+        return 0
 def spark_invocation_args() -> list[str]:
     wrapper_name = "spark.cmd" if os.name == "nt" else "spark"
     spark_home_wrapper = SPARK_HOME / "bin" / wrapper_name
