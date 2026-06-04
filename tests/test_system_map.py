@@ -2640,6 +2640,82 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
 
+    def test_source_owner_compile_emits_contract_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            state = spark_home / "state"
+            out = root / "out"
+            source_owner_repo = Path(__file__).resolve().parents[1]
+            desktop.mkdir()
+            state.mkdir(parents=True)
+
+            registry = root / "registry.json"
+            registry.write_text(
+                json.dumps(
+                    {
+                        "modules": {
+                            "spark-cli": {
+                                "source": "https://example.test/spark-cli",
+                                "summary": "Spark OS compiler source owner",
+                                "blessed": True,
+                            }
+                        },
+                        "bundles": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "installed.json").write_text(
+                json.dumps(
+                    {
+                        "spark-cli": {
+                            "path": str(source_owner_repo),
+                            "source": str(source_owner_repo),
+                            "kind": "runtime",
+                            "plane": "authority",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "setup.json").write_text("{}", encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+
+            args = build_parser().parse_args(
+                [
+                    "os",
+                    "compile",
+                    "--desktop",
+                    str(desktop),
+                    "--spark-home",
+                    str(spark_home),
+                    "--registry",
+                    str(registry),
+                    "--out",
+                    str(out),
+                    "--json",
+                ]
+            )
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = args.func(args)
+
+            summary = json.loads(stdout.getvalue())
+            contract_coverage_path = out / "contract-coverage.json"
+            contract_coverage = json.loads(contract_coverage_path.read_text(encoding="utf-8"))
+            edges_by_id = {item["id"]: item for item in contract_coverage["edges"]}
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(summary["ok"])
+        self.assertEqual(contract_coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(summary["outputs"]["contract_coverage"], str(contract_coverage_path))
+        self.assertEqual(summary["contract_coverage"], contract_coverage["summary"])
+        self.assertIn("spark_cli.browser_use_actions", edges_by_id)
+        self.assertEqual(edges_by_id["spark_cli.browser_use_actions"]["owner_repo"], "spark-cli")
+        self.assertTrue(edges_by_id["spark_cli.browser_use_actions"]["source_exists"])
+
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
