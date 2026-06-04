@@ -99,6 +99,11 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _is_kubectl_secret_resource(value: str) -> bool:
+    resource_type = value.split("/", 1)[0]
+    return resource_type in {"secret", "secrets"}
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -302,7 +307,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
-    if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
+    if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and _is_kubectl_secret_resource(lowered[2]):
         return _decision(
             parts,
             ctx,
