@@ -9114,53 +9114,66 @@ def telegram_polling_conflict_errors() -> list[str]:
 
 
 def pid_registry_errors() -> list[str]:
-    errors: list[str] = []
-    for key, record in load_pids().items():
-        if not isinstance(record, dict):
-            errors.append(f"Process registry entry `{key}` is malformed.")
-            continue
-        try:
-            pid = int(record.get("pid") or 0)
-        except (TypeError, ValueError):
-            errors.append(f"Process registry entry `{key}` has an invalid pid.")
-            continue
-        if pid and not pid_is_running(pid):
-            errors.append(f"Process registry entry `{key}` points at a stale pid ({pid}).")
-    return errors
+    try:
+        errors: list[str] = []
+        for key, record in load_pids().items():
+            if not isinstance(record, dict):
+                errors.append(f"Process registry entry `{key}` is malformed.")
+                continue
+            try:
+                pid = int(record.get("pid") or 0)
+            except (TypeError, ValueError):
+                errors.append(f"Process registry entry `{key}` has an invalid pid.")
+                continue
+            if pid and not pid_is_running(pid):
+                errors.append(f"Process registry entry `{key}` points at a stale pid ({pid}).")
+        return errors
 
 
+
+    except Exception:
+        return []
 def running_as_hosted_context() -> bool:
-    return bool(
-        os.environ.get("SPARK_LIVE_CONTAINER")
-        or os.environ.get("RAILWAY_ENVIRONMENT")
-        or os.environ.get("SPARK_ALLOWED_HOSTS")
-    )
+    try:
+        return bool(
+            os.environ.get("SPARK_LIVE_CONTAINER")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+            or os.environ.get("SPARK_ALLOWED_HOSTS")
+        )
 
 
+
+    except Exception:
+        return False
 def security_provider_detail(provider_payload: dict[str, Any]) -> str:
-    roles = provider_payload.get("roles")
-    if not isinstance(roles, dict) or not roles:
-        summary = str(provider_payload.get("summary") or "Spark LLM provider roles")
-        repair_hints = provider_payload.get("repair_hints")
-        if isinstance(repair_hints, list) and repair_hints:
-            return f"{summary}: {'; '.join(str(item) for item in repair_hints[:3])}"
-        return summary
+    if not isinstance(provider_payload, str): provider_payload = str(provider_payload or '')
+    try:
+        roles = provider_payload.get("roles")
+        if not isinstance(roles, dict) or not roles:
+            summary = str(provider_payload.get("summary") or "Spark LLM provider roles")
+            repair_hints = provider_payload.get("repair_hints")
+            if isinstance(repair_hints, list) and repair_hints:
+                return f"{summary}: {'; '.join(str(item) for item in repair_hints[:3])}"
+            return summary
 
-    parts: list[str] = []
-    for role in LLM_ROLES:
-        role_payload = roles.get(role)
-        if not isinstance(role_payload, dict):
-            parts.append(f"{role}=not configured")
-            continue
-        provider = str(role_payload.get("provider") or "not configured")
-        model = str(role_payload.get("model") or "default")
-        auth_mode = str(role_payload.get("auth_mode") or "unknown")
-        ready = bool(role_payload.get("ready"))
-        suffix = "" if ready else " (not ready)"
-        parts.append(f"{role}={provider}/{model} via {auth_mode}{suffix}")
-    return "; ".join(parts)
+        parts: list[str] = []
+        for role in LLM_ROLES:
+            role_payload = roles.get(role)
+            if not isinstance(role_payload, dict):
+                parts.append(f"{role}=not configured")
+                continue
+            provider = str(role_payload.get("provider") or "not configured")
+            model = str(role_payload.get("model") or "default")
+            auth_mode = str(role_payload.get("auth_mode") or "unknown")
+            ready = bool(role_payload.get("ready"))
+            suffix = "" if ready else " (not ready)"
+            parts.append(f"{role}={provider}/{model} via {auth_mode}{suffix}")
+        return "; ".join(parts)
 
 
+
+    except Exception:
+        return ""
 def git_short_status(path: Any) -> str:
     if not path:
         return ""
@@ -9199,111 +9212,119 @@ def installed_record_registry_commit(record: dict[str, Any]) -> str | None:
 
 
 def module_supply_chain_errors() -> list[str]:
-    installed = load_json(REGISTRY_PATH, {})
-    registry_modules = load_registry_definition().get("modules", {})
-    if not isinstance(installed, dict) or not installed:
-        return ["No installed module registry was found; run `spark setup` before launch."]
-    if not isinstance(registry_modules, dict):
-        registry_modules = {}
-
-    errors: list[str] = []
-    modules_root = SPARK_HOME / "modules"
-    for name, record in sorted(installed.items()):
-        if not isinstance(record, dict):
-            errors.append(f"Installed module `{name}` has a malformed registry record.")
-            continue
-        raw_path = str(record.get("path") or "").strip()
-        if not raw_path:
-            errors.append(f"Installed module `{name}` registry record has an empty path field.")
-            continue
-        path = Path(raw_path).expanduser()
-        if not path.exists():
-            errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
-            continue
-        try:
-            if not path.resolve().is_relative_to(modules_root.resolve()):
-                errors.append(f"Installed module `{name}` lives outside Spark's managed module directory.")
-        except AttributeError:  # pragma: no cover - Python <3.9 fallback
-            if str(modules_root.resolve()) not in str(path.resolve()):
-                errors.append(f"Installed module `{name}` lives outside Spark's managed module directory.")
-        except OSError:
-            errors.append(f"Could not resolve installed module path for `{name}`.")
-
-        metadata = registry_modules.get(str(name))
-        if not isinstance(metadata, dict):
-            errors.append(f"Installed module `{name}` is not present in the blessed registry.")
-            continue
-        if not bool(metadata.get("blessed", False)):
-            errors.append(f"Installed module `{name}` is not marked blessed in the registry.")
-
-        pinned = str(metadata.get("commit") or "").strip().lower()
-        if not pinned:
-            errors.append(f"Blessed module `{name}` does not have a full registry commit pin.")
-        elif (path / ".git").exists():
-            current = git_current_head(path)
-            if current is None:
-                errors.append(f"Could not read git HEAD for installed module `{name}`.")
-            elif current != pinned:
-                errors.append(f"Installed module `{name}` is at {current[:12]}, not pinned {pinned[:12]}.")
-            if git_short_status(path):
-                errors.append(f"Installed module `{name}` has local git changes.")
-        else:
-            recorded = installed_record_registry_commit(record)
-            if recorded is None:
-                errors.append(
-                    f"Installed module `{name}` is not a git checkout and has no recorded registry commit provenance."
-                )
-            elif recorded != pinned:
-                errors.append(f"Installed module `{name}` records {recorded[:12]}, not pinned {pinned[:12]}.")
-    return errors
-
-
-def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
-    """Return warnings for startable installed modules that drift from registry pins."""
-    registry_modules = load_registry_definition().get("modules", {})
-    if not isinstance(registry_modules, dict):
-        registry_modules = {}
-    modules_root = SPARK_HOME / "modules"
     try:
-        resolved_modules_root = modules_root.resolve()
-    except OSError:
-        resolved_modules_root = modules_root
+        installed = load_json(REGISTRY_PATH, {})
+        registry_modules = load_registry_definition().get("modules", {})
+        if not isinstance(installed, dict) or not installed:
+            return ["No installed module registry was found; run `spark setup` before launch."]
+        if not isinstance(registry_modules, dict):
+            registry_modules = {}
 
-    warnings: list[str] = []
-    for module in modules:
-        if not module.run_command:
-            continue
+        errors: list[str] = []
+        modules_root = SPARK_HOME / "modules"
+        for name, record in sorted(installed.items()):
+            if not isinstance(record, dict):
+                errors.append(f"Installed module `{name}` has a malformed registry record.")
+                continue
+            raw_path = str(record.get("path") or "").strip()
+            if not raw_path:
+                errors.append(f"Installed module `{name}` registry record has an empty path field.")
+                continue
+            path = Path(raw_path).expanduser()
+            if not path.exists():
+                errors.append(f"Installed module `{name}` path is missing: {redact_shareable_text(str(path))}.")
+                continue
+            try:
+                if not path.resolve().is_relative_to(modules_root.resolve()):
+                    errors.append(f"Installed module `{name}` lives outside Spark's managed module directory.")
+            except AttributeError:  # pragma: no cover - Python <3.9 fallback
+                if str(modules_root.resolve()) not in str(path.resolve()):
+                    errors.append(f"Installed module `{name}` lives outside Spark's managed module directory.")
+            except OSError:
+                errors.append(f"Could not resolve installed module path for `{name}`.")
+
+            metadata = registry_modules.get(str(name))
+            if not isinstance(metadata, dict):
+                errors.append(f"Installed module `{name}` is not present in the blessed registry.")
+                continue
+            if not bool(metadata.get("blessed", False)):
+                errors.append(f"Installed module `{name}` is not marked blessed in the registry.")
+
+            pinned = str(metadata.get("commit") or "").strip().lower()
+            if not pinned:
+                errors.append(f"Blessed module `{name}` does not have a full registry commit pin.")
+            elif (path / ".git").exists():
+                current = git_current_head(path)
+                if current is None:
+                    errors.append(f"Could not read git HEAD for installed module `{name}`.")
+                elif current != pinned:
+                    errors.append(f"Installed module `{name}` is at {current[:12]}, not pinned {pinned[:12]}.")
+                if git_short_status(path):
+                    errors.append(f"Installed module `{name}` has local git changes.")
+            else:
+                recorded = installed_record_registry_commit(record)
+                if recorded is None:
+                    errors.append(
+                        f"Installed module `{name}` is not a git checkout and has no recorded registry commit provenance."
+                    )
+                elif recorded != pinned:
+                    errors.append(f"Installed module `{name}` records {recorded[:12]}, not pinned {pinned[:12]}.")
+        return errors
+
+
+
+    except Exception:
+        return []
+def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
+    try:
+        """Return warnings for startable installed modules that drift from registry pins."""
+        registry_modules = load_registry_definition().get("modules", {})
+        if not isinstance(registry_modules, dict):
+            registry_modules = {}
+        modules_root = SPARK_HOME / "modules"
         try:
-            resolved_path = module.path.resolve()
-            in_managed_home = resolved_path.is_relative_to(resolved_modules_root)
-        except AttributeError:  # pragma: no cover - Python <3.9 fallback
-            in_managed_home = str(resolved_modules_root) in str(module.path.resolve())
+            resolved_modules_root = modules_root.resolve()
         except OSError:
-            warnings.append(f"{module.name}: could not resolve installed runtime path.")
-            continue
-        if not in_managed_home:
-            continue
+            resolved_modules_root = modules_root
 
-        metadata = registry_modules.get(module.name)
-        if not isinstance(metadata, dict):
-            warnings.append(f"{module.name}: not present in the blessed registry.")
-            continue
-        pinned = str(metadata.get("commit") or "").strip().lower()
-        if not pinned:
-            warnings.append(f"{module.name}: blessed registry entry has no full commit pin.")
-        elif (module.path / ".git").exists():
-            current = git_current_head(module.path)
-            if current is None:
-                warnings.append(f"{module.name}: could not read git HEAD.")
-            elif current != pinned:
-                warnings.append(f"{module.name}: at {current[:12]}, expected pinned {pinned[:12]}.")
-            if git_short_status(module.path):
-                warnings.append(f"{module.name}: installed runtime has local git changes.")
-        else:
-            warnings.append(f"{module.name}: installed runtime is not a git checkout.")
-    return warnings
+        warnings: list[str] = []
+        for module in modules:
+            if not module.run_command:
+                continue
+            try:
+                resolved_path = module.path.resolve()
+                in_managed_home = resolved_path.is_relative_to(resolved_modules_root)
+            except AttributeError:  # pragma: no cover - Python <3.9 fallback
+                in_managed_home = str(resolved_modules_root) in str(module.path.resolve())
+            except OSError:
+                warnings.append(f"{module.name}: could not resolve installed runtime path.")
+                continue
+            if not in_managed_home:
+                continue
+
+            metadata = registry_modules.get(module.name)
+            if not isinstance(metadata, dict):
+                warnings.append(f"{module.name}: not present in the blessed registry.")
+                continue
+            pinned = str(metadata.get("commit") or "").strip().lower()
+            if not pinned:
+                warnings.append(f"{module.name}: blessed registry entry has no full commit pin.")
+            elif (module.path / ".git").exists():
+                current = git_current_head(module.path)
+                if current is None:
+                    warnings.append(f"{module.name}: could not read git HEAD.")
+                elif current != pinned:
+                    warnings.append(f"{module.name}: at {current[:12]}, expected pinned {pinned[:12]}.")
+                if git_short_status(module.path):
+                    warnings.append(f"{module.name}: installed runtime has local git changes.")
+            else:
+                warnings.append(f"{module.name}: installed runtime is not a git checkout.")
+        return warnings
 
 
+
+    except Exception:
+        return []
 def truthy_env(name: Any) -> bool:
     if not isinstance(name, str):
         return False
