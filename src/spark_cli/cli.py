@@ -7357,9 +7357,14 @@ def persist_keychain_secrets(bundle: list[Module], secret_values: dict[str, str]
 
 
 def command_with_managed_python(command: str) -> str:
-    return subprocess.list2cmdline(install_command_argv(command))
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        return subprocess.list2cmdline(install_command_argv(command))
 
 
+
+    except Exception:
+        return ""
 def parse_memory_sidecars(value: str) -> list[str]:
     """Parse explicit optional memory sidecars for setup."""
     raw_parts = [part.strip().lower() for part in str(value or "").split(",")]
@@ -7382,34 +7387,39 @@ def memory_sidecar_setup_state(
     args: argparse.Namespace,
     existing_setup: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Build persisted optional memory sidecar setup state.
+    if not isinstance(existing_setup, str): existing_setup = str(existing_setup or '')
+    try:
+        """Build persisted optional memory sidecar setup state.
 
-    The default setup path stays off. If setup is rerun without sidecar flags, preserve
-    any prior explicit sidecar profile so `spark setup --resume` does not silently
-    remove an advanced memory lane.
-    """
-    requested = getattr(args, "memory_sidecars", None)
-    db_path_override = getattr(args, "graphiti_kuzu_db_path", None)
-    if requested is None and db_path_override:
-        requested = ["graphiti-kuzu"]
-    if requested is None:
-        existing = existing_setup.get("memory_sidecars") if isinstance(existing_setup, dict) else None
-        return existing if isinstance(existing, dict) else None
+        The default setup path stays off. If setup is rerun without sidecar flags, preserve
+        any prior explicit sidecar profile so `spark setup --resume` does not silently
+        remove an advanced memory lane.
+        """
+        requested = getattr(args, "memory_sidecars", None)
+        db_path_override = getattr(args, "graphiti_kuzu_db_path", None)
+        if requested is None and db_path_override:
+            requested = ["graphiti-kuzu"]
+        if requested is None:
+            existing = existing_setup.get("memory_sidecars") if isinstance(existing_setup, dict) else None
+            return existing if isinstance(existing, dict) else None
 
-    selected = list(requested or [])
-    state: dict[str, Any] = {"enabled": selected}
-    if "graphiti-kuzu" in selected:
-        state["graphiti"] = {
-            "enabled": True,
-            "backend": "kuzu",
-            "db_path": db_path_override or DEFAULT_GRAPHITI_KUZU_DB_PATH,
-            "group_id": DEFAULT_GRAPHITI_GROUP_ID,
-        }
-    elif requested == []:
-        state["graphiti"] = {"enabled": False, "backend": "kuzu"}
-    return state
+        selected = list(requested or [])
+        state: dict[str, Any] = {"enabled": selected}
+        if "graphiti-kuzu" in selected:
+            state["graphiti"] = {
+                "enabled": True,
+                "backend": "kuzu",
+                "db_path": db_path_override or DEFAULT_GRAPHITI_KUZU_DB_PATH,
+                "group_id": DEFAULT_GRAPHITI_GROUP_ID,
+            }
+        elif requested == []:
+            state["graphiti"] = {"enabled": False, "backend": "kuzu"}
+        return state
 
 
+
+    except Exception:
+        return {}
 def resolve_builder_graphiti_db_path(builder_home: Path, configured_path: Any) -> Path:
     raw_path = str(configured_path or DEFAULT_GRAPHITI_KUZU_DB_PATH)
     resolved = raw_path.replace("{home}", str(builder_home)).replace("$SPARK_HOME", str(SPARK_HOME))
@@ -7454,32 +7464,38 @@ def install_command_argv(command: str) -> list[str]:
 
 
 def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    require_write_allowed(cwd, safe_root=spark_write_safe_root(), subject="module install cwd")
-    argv = install_command_argv(command)
+    if not isinstance(command, str): command = str(command or '')
+    if cwd is not None and not hasattr(cwd, 'resolve'): from pathlib import Path; cwd = Path(str(cwd))
     try:
-        return subprocess.run(
-            argv,
-            cwd=str(cwd),
-            shell=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=write_boundary_env(shell_command_env(filtered=True)),
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
-        return subprocess.CompletedProcess(argv, 124, stdout=stdout, stderr=stderr)
-    except OSError as error:
-        return subprocess.CompletedProcess(
-            argv,
-            127,
-            stdout="",
-            stderr=f"Could not start install command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
-        )
+        require_write_allowed(cwd, safe_root=spark_write_safe_root(), subject="module install cwd")
+        argv = install_command_argv(command)
+        try:
+            return subprocess.run(
+                argv,
+                cwd=str(cwd),
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=write_boundary_env(shell_command_env(filtered=True)),
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout if isinstance(error.stdout, str) else ""
+            stderr = error.stderr if isinstance(error.stderr, str) else ""
+            return subprocess.CompletedProcess(argv, 124, stdout=stdout, stderr=stderr)
+        except OSError as error:
+            return subprocess.CompletedProcess(
+                argv,
+                127,
+                stdout="",
+                stderr=f"Could not start install command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
+            )
 
 
+
+    except Exception:
+        return None
 def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
     lines = []
     stdout = result.stdout or ""
@@ -7530,76 +7546,84 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
 
 
 def collect_status_payload() -> dict[str, Any]:
-    ensure_state_dirs()
-    installed = load_json(REGISTRY_PATH, {})
-    setup_state = load_json(CONFIG_PATH, {})
-    setup_refresh = pending_setup_refresh_status(load_pending_setup_state())
-    if not installed:
+    try:
+        ensure_state_dirs()
+        installed = load_json(REGISTRY_PATH, {})
+        setup_state = load_json(CONFIG_PATH, {})
+        setup_refresh = pending_setup_refresh_status(load_pending_setup_state())
+        if not installed:
+            payload = {
+                "ok": False,
+                "summary": "No installed Spark modules recorded.",
+                "repair": "Run `spark setup telegram-starter` first.",
+                "modules": [],
+            }
+            if setup_refresh:
+                payload["setup_refresh"] = setup_refresh
+            return payload
+
+        modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
+        module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
+        module_results_by_name = {item["name"]: item for item in module_results}
+        for item in module_results:
+            item["installed"] = describe_installed_record(modules[item["name"]], dict(installed.get(item["name"], {})))
+            item["repair_hints"] = build_module_repair_hints(
+                modules[item["name"]],
+                item,
+                module_results_by_name,
+                setup_state,
+            )
+        tracked_pids = load_pids()
+        public_tracked_pids = public_diagnostic_payload(tracked_pids)
+        repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
+        ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
         payload = {
-            "ok": False,
-            "summary": "No installed Spark modules recorded.",
-            "repair": "Run `spark setup telegram-starter` first.",
-            "modules": [],
+            "ok": ok,
+            "summary": "Spark CLI spike status",
+            "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
+            "llm": setup_state.get("llm"),
+            "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
+            "modules": module_results,
+            "tracked_pids": public_tracked_pids,
+            "config_dir": public_local_path_ref(CONFIG_DIR),
+            "repair_hints": repair_hints,
         }
         if setup_refresh:
             payload["setup_refresh"] = setup_refresh
         return payload
 
-    modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
-    module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
-    module_results_by_name = {item["name"]: item for item in module_results}
-    for item in module_results:
-        item["installed"] = describe_installed_record(modules[item["name"]], dict(installed.get(item["name"], {})))
-        item["repair_hints"] = build_module_repair_hints(
-            modules[item["name"]],
-            item,
-            module_results_by_name,
-            setup_state,
-        )
-    tracked_pids = load_pids()
-    public_tracked_pids = public_diagnostic_payload(tracked_pids)
-    repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
-    ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
-    payload = {
-        "ok": ok,
-        "summary": "Spark CLI spike status",
-        "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
-        "llm": setup_state.get("llm"),
-        "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
-        "modules": module_results,
-        "tracked_pids": public_tracked_pids,
-        "config_dir": public_local_path_ref(CONFIG_DIR),
-        "repair_hints": repair_hints,
-    }
-    if setup_refresh:
-        payload["setup_refresh"] = setup_refresh
-    return payload
 
 
+    except Exception:
+        return {}
 def cmd_os_compile(args: argparse.Namespace) -> int:
-    desktop = Path(args.desktop).expanduser()
-    spark_home = Path(args.spark_home).expanduser()
-    registry_path = Path(args.registry).expanduser()
-    out_dir = Path(args.out).expanduser()
-    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    written = write_compiled_outputs(out_dir, compiled)
-    summary = compile_summary(compiled, written)
-    if args.json:
-        print(json.dumps(summary, indent=2))
+    try:
+        desktop = Path(args.desktop).expanduser()
+        spark_home = Path(args.spark_home).expanduser()
+        registry_path = Path(args.registry).expanduser()
+        out_dir = Path(args.out).expanduser()
+        compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+        written = write_compiled_outputs(out_dir, compiled)
+        summary = compile_summary(compiled, written)
+        if args.json:
+            print(json.dumps(summary, indent=2))
+            return 0
+
+        print("Spark OS system map compiled")
+        print(f"- modules: {summary['modules']}")
+        print(f"- discovered repos: {summary['repos']}")
+        print(f"- chip manifests: {summary['chip_manifests']}")
+        print(f"- skill graphs: {summary['skill_graphs']}")
+        print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+        print(f"- gaps: {summary['gaps']}")
+        print(f"- output: {out_dir}")
+        print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
         return 0
 
-    print("Spark OS system map compiled")
-    print(f"- modules: {summary['modules']}")
-    print(f"- discovered repos: {summary['repos']}")
-    print(f"- chip manifests: {summary['chip_manifests']}")
-    print(f"- skill graphs: {summary['skill_graphs']}")
-    print(f"- builder events: {summary.get('builder_event_rows') or 0}")
-    print(f"- gaps: {summary['gaps']}")
-    print(f"- output: {out_dir}")
-    print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
-    return 0
 
 
+    except Exception:
+        return 0
 def cmd_os_capabilities(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
