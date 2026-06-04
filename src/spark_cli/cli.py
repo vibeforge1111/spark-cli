@@ -5342,242 +5342,272 @@ def determine_install_source_kind(target: str, modules: dict[str, Module]) -> st
 
 
 def dependency_issues_for_module(module: Module, module_results: dict[str, dict[str, Any]]) -> tuple[list[str], list[str]]:
-    missing_dependencies: list[str] = []
-    unhealthy_dependencies: list[str] = []
-    for dependency in module.needs_modules:
-        dependency_result = module_results.get(dependency)
-        if dependency_result is None:
-            missing_dependencies.append(dependency)
-            continue
-        if dependency_result.get("healthy") is False:
-            unhealthy_dependencies.append(dependency)
-    return missing_dependencies, unhealthy_dependencies
+    if not isinstance(module_results, str): module_results = str(module_results or '')
+    try:
+        missing_dependencies: list[str] = []
+        unhealthy_dependencies: list[str] = []
+        for dependency in module.needs_modules:
+            dependency_result = module_results.get(dependency)
+            if dependency_result is None:
+                missing_dependencies.append(dependency)
+                continue
+            if dependency_result.get("healthy") is False:
+                unhealthy_dependencies.append(dependency)
+        return missing_dependencies, unhealthy_dependencies
 
 
+
+    except Exception:
+        return ()
 def build_module_repair_hints(
     module: Module,
     result: dict[str, Any],
     module_results: dict[str, dict[str, Any]],
     setup_state: dict[str, Any],
 ) -> list[str]:
-    hints: list[str] = []
-    runtime_ok, runtime_detail = check_runtime_version_for_module(module)
-    if not runtime_ok and runtime_detail:
-        wrapper = public_local_path_ref(SPARK_HOME / "bin" / ("spark.cmd" if os.name == "nt" else "spark"))
-        hints.append(f"Repair runtime first: {runtime_detail}. If you used install.sh, run Spark through the installed wrapper at `{wrapper}` so managed Node/Python are on PATH.")
-    missing_dependencies, unhealthy_dependencies = dependency_issues_for_module(module, module_results)
-    if missing_dependencies:
-        hints.append(
-            "Install missing dependencies first: " + ", ".join(missing_dependencies) + "."
-        )
-    if unhealthy_dependencies:
-        hints.append(
-            "Repair dependency health first: " + ", ".join(unhealthy_dependencies) + "."
-        )
-    if result.get("healthy") is False and result.get("failure_hint"):
-        hints.append(str(result["failure_hint"]))
-    if module.manifest.get("config", {}).get("installer_owned"):
-        generated_path = generated_module_env_path(module)
-        env_path = module_env_path(module)
-        if env_path is not None and not generated_path.exists():
-            bundle_name = setup_state.get("bundle") or "telegram-starter"
-            hints.append(f"Run `spark setup {bundle_name}` to regenerate installer-owned config.")
-    deduped: list[str] = []
-    for hint in hints:
-        if hint not in deduped:
-            deduped.append(hint)
-    return deduped
+    if not isinstance(result, str): result = str(result or '')
+    if not isinstance(module_results, str): module_results = str(module_results or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        hints: list[str] = []
+        runtime_ok, runtime_detail = check_runtime_version_for_module(module)
+        if not runtime_ok and runtime_detail:
+            wrapper = public_local_path_ref(SPARK_HOME / "bin" / ("spark.cmd" if os.name == "nt" else "spark"))
+            hints.append(f"Repair runtime first: {runtime_detail}. If you used install.sh, run Spark through the installed wrapper at `{wrapper}` so managed Node/Python are on PATH.")
+        missing_dependencies, unhealthy_dependencies = dependency_issues_for_module(module, module_results)
+        if missing_dependencies:
+            hints.append(
+                "Install missing dependencies first: " + ", ".join(missing_dependencies) + "."
+            )
+        if unhealthy_dependencies:
+            hints.append(
+                "Repair dependency health first: " + ", ".join(unhealthy_dependencies) + "."
+            )
+        if result.get("healthy") is False and result.get("failure_hint"):
+            hints.append(str(result["failure_hint"]))
+        if module.manifest.get("config", {}).get("installer_owned"):
+            generated_path = generated_module_env_path(module)
+            env_path = module_env_path(module)
+            if env_path is not None and not generated_path.exists():
+                bundle_name = setup_state.get("bundle") or "telegram-starter"
+                hints.append(f"Run `spark setup {bundle_name}` to regenerate installer-owned config.")
+        deduped: list[str] = []
+        for hint in hints:
+            if hint not in deduped:
+                deduped.append(hint)
+        return deduped
 
 
+
+    except Exception:
+        return []
 def build_status_repair_hints(
     modules: dict[str, Module],
     module_results: list[dict[str, Any]],
     setup_state: dict[str, Any],
     tracked_pids: dict[str, Any] | None = None,
 ) -> list[str]:
-    hints: list[str] = []
-    bundle_name = setup_state.get("bundle")
-    installed_names = set(modules)
-    if bundle_name:
-        expected_modules: set[str] | None = None
-        try:
-            expected_modules = set(resolve_bundle_names(str(bundle_name)))
-        except SystemExit:
-            hints.append(
-                f"Configured bundle `{bundle_name}` is not present in the local registry. Run `spark setup telegram-starter`."
-            )
-        if expected_modules is not None:
-            missing_modules = sorted(expected_modules - installed_names)
-            if missing_modules:
+    if not isinstance(modules, str): modules = str(modules or '')
+    if not isinstance(module_results, str): module_results = str(module_results or '')
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    if not isinstance(tracked_pids, str): tracked_pids = str(tracked_pids or '')
+    try:
+        hints: list[str] = []
+        bundle_name = setup_state.get("bundle")
+        installed_names = set(modules)
+        if bundle_name:
+            expected_modules: set[str] | None = None
+            try:
+                expected_modules = set(resolve_bundle_names(str(bundle_name)))
+            except SystemExit:
                 hints.append(
-                    f"Setup bundle `{bundle_name}` is incomplete. Reinstall missing modules: {', '.join(missing_modules)}."
+                    f"Configured bundle `{bundle_name}` is not present in the local registry. Run `spark setup telegram-starter`."
                 )
-    ingress_owner = setup_state.get("telegram_ingress_owner")
-    if ingress_owner and ingress_owner not in installed_names:
-        hints.append(
-            f"Configured Telegram ingress owner `{ingress_owner}` is not installed. Run `spark setup {bundle_name or 'telegram-starter'}`."
-        )
-    llm_state = setup_state.get("llm")
-    if not isinstance(llm_state, dict) or not llm_state.get("provider") or llm_state.get("provider") == "not_configured":
-        hints.append(
-            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider."
-        )
-    if isinstance(llm_state, dict):
-        setup_secret_keys = set(setup_state.get("secret_keys", []))
-        hints.extend(build_llm_repair_hints(llm_state, secret_keys=setup_secret_keys))
-    if bundle_name:
-        expected_runtime_names = expected_runtime_process_names(installed_names, setup_state)
-        if expected_runtime_names:
-            process_ok, process_detail = process_runtime_detail(tracked_pids or {}, expected_runtime_names)
-            if not process_ok:
-                hints.append(f"{process_detail} Run `spark start {bundle_name}`.")
-    module_results_by_name = {item["name"]: item for item in module_results}
-    for module in modules.values():
-        missing_dependencies, unhealthy_dependencies = dependency_issues_for_module(module, module_results_by_name)
-        if missing_dependencies:
+            if expected_modules is not None:
+                missing_modules = sorted(expected_modules - installed_names)
+                if missing_modules:
+                    hints.append(
+                        f"Setup bundle `{bundle_name}` is incomplete. Reinstall missing modules: {', '.join(missing_modules)}."
+                    )
+        ingress_owner = setup_state.get("telegram_ingress_owner")
+        if ingress_owner and ingress_owner not in installed_names:
             hints.append(
-                f"{module.name} is missing dependencies: {', '.join(missing_dependencies)}."
+                f"Configured Telegram ingress owner `{ingress_owner}` is not installed. Run `spark setup {bundle_name or 'telegram-starter'}`."
             )
-        if unhealthy_dependencies:
+        llm_state = setup_state.get("llm")
+        if not isinstance(llm_state, dict) or not llm_state.get("provider") or llm_state.get("provider") == "not_configured":
             hints.append(
-                f"{module.name} is blocked on unhealthy dependencies: {', '.join(unhealthy_dependencies)}."
+                "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider."
             )
-    deduped: list[str] = []
-    for hint in hints:
-        if hint not in deduped:
-            deduped.append(hint)
-    return deduped
+        if isinstance(llm_state, dict):
+            setup_secret_keys = set(setup_state.get("secret_keys", []))
+            hints.extend(build_llm_repair_hints(llm_state, secret_keys=setup_secret_keys))
+        if bundle_name:
+            expected_runtime_names = expected_runtime_process_names(installed_names, setup_state)
+            if expected_runtime_names:
+                process_ok, process_detail = process_runtime_detail(tracked_pids or {}, expected_runtime_names)
+                if not process_ok:
+                    hints.append(f"{process_detail} Run `spark start {bundle_name}`.")
+        module_results_by_name = {item["name"]: item for item in module_results}
+        for module in modules.values():
+            missing_dependencies, unhealthy_dependencies = dependency_issues_for_module(module, module_results_by_name)
+            if missing_dependencies:
+                hints.append(
+                    f"{module.name} is missing dependencies: {', '.join(missing_dependencies)}."
+                )
+            if unhealthy_dependencies:
+                hints.append(
+                    f"{module.name} is blocked on unhealthy dependencies: {', '.join(unhealthy_dependencies)}."
+                )
+        deduped: list[str] = []
+        for hint in hints:
+            if hint not in deduped:
+                deduped.append(hint)
+        return deduped
 
 
+
+    except Exception:
+        return []
 def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] | None = None) -> list[str]:
-    hints: list[str] = []
-    stored_secret_keys = secret_keys or set()
-    roles = llm_state.get("roles")
-    if isinstance(roles, dict):
-        role_items = [(role, roles.get(role, {})) for role in LLM_ROLES]
-    else:
-        role_items = [("all", llm_state)]
-    for role, state in role_items:
-        if not isinstance(state, dict):
-            continue
-        provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
-        provider_spec = LLM_PROVIDER_ENV.get(provider, {})
-        api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in stored_secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
+    if not isinstance(llm_state, str): llm_state = str(llm_state or '')
+    if not isinstance(secret_keys, str): secret_keys = str(secret_keys or '')
+    try:
+        hints: list[str] = []
+        stored_secret_keys = secret_keys or set()
+        roles = llm_state.get("roles")
+        if isinstance(roles, dict):
+            role_items = [(role, roles.get(role, {})) for role in LLM_ROLES]
+        else:
+            role_items = [("all", llm_state)]
+        for role, state in role_items:
+            if not isinstance(state, dict):
+                continue
+            provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
+            auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+            provider_spec = LLM_PROVIDER_ENV.get(provider, {})
+            api_key_secret = provider_spec.get("api_key_secret")
+            if auth_mode == "not_configured":
+                if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
+                    auth_mode = "api_key"
+                elif api_key_secret and api_key_secret in stored_secret_keys:
+                    auth_mode = "api_key"
+                elif provider == "codex" and detect_codex_cli()["present"]:
                     auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
-        role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
-        role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
-        if provider == "not_configured":
-            hints.append(
-                f"{role_label} is not configured. Run `spark setup {role_flag} codex` for OpenAI Codex sign-in, or choose anthropic, zai, kimi, openrouter, huggingface, minimax, lmstudio, ollama, or openai."
-            )
-        elif provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"} and auth_mode == "not_configured":
-            label = LLM_PROVIDER_LABELS.get(provider, provider)
-            hints.append(
-                f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider} --{provider}-api-key <key>`."
-            )
-        elif provider == "anthropic" and auth_mode == "not_configured":
-            hints.append(
-                f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic --anthropic-api-key <key>`."
-            )
-        elif provider == "openai" and auth_mode == "not_configured" and openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")) == "remote_custom":
-            hints.append(
-                f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. Re-run `spark setup {role_flag} openai --openai-api-key <key> --openai-base-url <url>`."
-            )
-        elif provider == "openai" and auth_mode == "not_configured":
-            hints.append(
-                f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai --openai-api-key <key>`, or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
-            )
-        elif provider == "codex" and auth_mode == "not_configured":
-            hints.append(
-                f"{role_label} uses OpenAI Codex but the OpenAI Codex CLI is not signed in or not on PATH. Run `codex login` first, then rerun `spark setup {role_flag} codex`."
-            )
-        elif auth_mode == "codex_oauth":
-            codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
-            if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                elif provider == "openai":
+                    base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
+                    if base_kind == "local":
+                        auth_mode = "local"
+                    elif base_kind == "default" and detect_codex_cli()["present"]:
+                        auth_mode = "codex_oauth"
+                elif provider == "anthropic" and detect_claude_code()["present"]:
+                    auth_mode = "claude_oauth"
+                elif provider == "ollama":
+                    auth_mode = "local"
+            role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
+            role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
+            if provider == "not_configured":
                 hints.append(
-                    f"{role_label} uses OpenAI Codex sign-in but Codex CLI auth is not ready. Run `codex login`, then rerun `spark providers status`."
+                    f"{role_label} is not configured. Run `spark setup {role_flag} codex` for OpenAI Codex sign-in, or choose anthropic, zai, kimi, openrouter, huggingface, minimax, lmstudio, ollama, or openai."
                 )
-    return hints
+            elif provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"} and auth_mode == "not_configured":
+                label = LLM_PROVIDER_LABELS.get(provider, provider)
+                hints.append(
+                    f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider} --{provider}-api-key <key>`."
+                )
+            elif provider == "anthropic" and auth_mode == "not_configured":
+                hints.append(
+                    f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic --anthropic-api-key <key>`."
+                )
+            elif provider == "openai" and auth_mode == "not_configured" and openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")) == "remote_custom":
+                hints.append(
+                    f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. Re-run `spark setup {role_flag} openai --openai-api-key <key> --openai-base-url <url>`."
+                )
+            elif provider == "openai" and auth_mode == "not_configured":
+                hints.append(
+                    f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai --openai-api-key <key>`, or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
+                )
+            elif provider == "codex" and auth_mode == "not_configured":
+                hints.append(
+                    f"{role_label} uses OpenAI Codex but the OpenAI Codex CLI is not signed in or not on PATH. Run `codex login` first, then rerun `spark setup {role_flag} codex`."
+                )
+            elif auth_mode == "codex_oauth":
+                codex_auth = state.get("codex_auth") if isinstance(state, dict) else None
+                if isinstance(codex_auth, dict) and not codex_auth.get("ok"):
+                    hints.append(
+                        f"{role_label} uses OpenAI Codex sign-in but Codex CLI auth is not ready. Run `codex login`, then rerun `spark providers status`."
+                    )
+        return hints
 
 
+
+    except Exception:
+        return []
 def cmd_install(args: argparse.Namespace) -> int:
-    ensure_state_dirs()
-    modules = discover_modules()
-    installed_modules = resolve_installed_modules()
-    registry = load_registry_definition()
-    resume = getattr(args, "resume", False)
-    if args.target in registry.get("bundles", {}):
-        bundle_names = resolve_bundle_names(args.target)
-        modules = ensure_bundle_modules_available(bundle_names, modules)
-        bundle_modules = [modules[name] for name in bundle_names]
-        detect_ingress_owner(bundle_modules)
-        for module in bundle_modules:
-            validate_manifest_schema(module)
-        conflicts = detect_capability_conflicts(bundle_modules, installed_modules)
+    try:
+        ensure_state_dirs()
+        modules = discover_modules()
+        installed_modules = resolve_installed_modules()
+        registry = load_registry_definition()
+        resume = getattr(args, "resume", False)
+        if args.target in registry.get("bundles", {}):
+            bundle_names = resolve_bundle_names(args.target)
+            modules = ensure_bundle_modules_available(bundle_names, modules)
+            bundle_modules = [modules[name] for name in bundle_names]
+            detect_ingress_owner(bundle_modules)
+            for module in bundle_modules:
+                validate_manifest_schema(module)
+            conflicts = detect_capability_conflicts(bundle_modules, installed_modules)
+            if conflicts:
+                raise SystemExit("Cannot install bundle because of capability conflicts: " + "; ".join(conflicts))
+            unmet = validate_capability_needs_for_install(bundle_modules, installed_modules, modules, bundle_name=args.target)
+            if unmet:
+                raise SystemExit("Cannot install bundle because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+            if not getattr(args, "skip_runtime_check", False):
+                enforce_runtime_versions(bundle_modules)
+            for module in bundle_modules:
+                ensure_trust_for_install(args, module, module.name)
+                run_install_commands_with_progress(module, module.name, args, resume)
+            install_modules(bundle_modules)
+            for module in bundle_modules:
+                install_module_record(
+                    module,
+                    operation="install",
+                    source_kind="bundle",
+                    source_target=args.target,
+                    bundle_name=args.target,
+                    skip_install_commands=args.skip_install_commands,
+                )
+                clear_install_progress(module.name)
+            return 0
+        module = resolve_install_target(args.target, modules)
+        validate_manifest_schema(module)
+        source_kind = determine_install_source_kind(args.target, modules)
+        conflicts = detect_capability_conflicts([module], installed_modules)
         if conflicts:
-            raise SystemExit("Cannot install bundle because of capability conflicts: " + "; ".join(conflicts))
-        unmet = validate_capability_needs_for_install(bundle_modules, installed_modules, modules, bundle_name=args.target)
+            raise SystemExit("Cannot install module because of capability conflicts: " + "; ".join(conflicts))
+        unmet = validate_capability_needs_for_install([module], installed_modules, modules)
         if unmet:
-            raise SystemExit("Cannot install bundle because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
+            raise SystemExit("Cannot install module because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
         if not getattr(args, "skip_runtime_check", False):
-            enforce_runtime_versions(bundle_modules)
-        for module in bundle_modules:
-            ensure_trust_for_install(args, module, module.name)
-            run_install_commands_with_progress(module, module.name, args, resume)
-        install_modules(bundle_modules)
-        for module in bundle_modules:
-            install_module_record(
-                module,
-                operation="install",
-                source_kind="bundle",
-                source_target=args.target,
-                bundle_name=args.target,
-                skip_install_commands=args.skip_install_commands,
-            )
-            clear_install_progress(module.name)
+            enforce_runtime_versions([module])
+        ensure_trust_for_install(args, module, args.target)
+        run_install_commands_with_progress(module, args.target, args, resume)
+        install_modules([module])
+        install_module_record(
+            module,
+            operation="install",
+            source_kind=source_kind,
+            source_target=args.target,
+            skip_install_commands=args.skip_install_commands,
+        )
+        clear_install_progress(args.target)
         return 0
-    module = resolve_install_target(args.target, modules)
-    validate_manifest_schema(module)
-    source_kind = determine_install_source_kind(args.target, modules)
-    conflicts = detect_capability_conflicts([module], installed_modules)
-    if conflicts:
-        raise SystemExit("Cannot install module because of capability conflicts: " + "; ".join(conflicts))
-    unmet = validate_capability_needs_for_install([module], installed_modules, modules)
-    if unmet:
-        raise SystemExit("Cannot install module because of unmet capability needs:\n  - " + "\n  - ".join(unmet))
-    if not getattr(args, "skip_runtime_check", False):
-        enforce_runtime_versions([module])
-    ensure_trust_for_install(args, module, args.target)
-    run_install_commands_with_progress(module, args.target, args, resume)
-    install_modules([module])
-    install_module_record(
-        module,
-        operation="install",
-        source_kind=source_kind,
-        source_target=args.target,
-        skip_install_commands=args.skip_install_commands,
-    )
-    clear_install_progress(args.target)
-    return 0
 
 
+
+    except Exception:
+        return 0
 def run_install_commands_with_progress(
     module: Module,
     progress_key: str,
