@@ -9305,11 +9305,15 @@ def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
 
 
 def truthy_env(name: Any) -> bool:
-    if not isinstance(name, str):
+    try:
+        if not isinstance(name, str):
+            return False
+        return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+
+    except Exception:
         return False
-    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def runtime_guard_bypassed(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "allow_dirty_runtime", False)) or truthy_env("SPARK_ALLOW_DIRTY_RUNTIME")
 
@@ -9370,22 +9374,27 @@ def dependency_lockfile_errors() -> list[str]:
 
 
 def requirement_line_is_pinned(line: str) -> bool:
-    raw = line.split("#", 1)[0].strip()
-    if not raw:
-        return True
-    if raw.startswith(("-r ", "--requirement ", "-c ", "--constraint ")):
-        return True
-    if raw.startswith(("--index-url", "--extra-index-url", "--find-links", "--trusted-host")):
-        return True
-    if raw.startswith("-e "):
-        return raw.startswith(("-e .", "-e ./", "-e ../")) or re.search(r"@[0-9a-fA-F]{7,40}\b", raw) is not None
-    if raw.startswith(("git+", "http://", "https://")):
-        return re.search(r"@[0-9a-fA-F]{7,40}\b", raw) is not None
-    if " @ " in raw:
-        return True
-    return "==" in raw
+    if not isinstance(line, str): line = str(line or '')
+    try:
+        raw = line.split("#", 1)[0].strip()
+        if not raw:
+            return True
+        if raw.startswith(("-r ", "--requirement ", "-c ", "--constraint ")):
+            return True
+        if raw.startswith(("--index-url", "--extra-index-url", "--find-links", "--trusted-host")):
+            return True
+        if raw.startswith("-e "):
+            return raw.startswith(("-e .", "-e ./", "-e ../")) or re.search(r"@[0-9a-fA-F]{7,40}\b", raw) is not None
+        if raw.startswith(("git+", "http://", "https://")):
+            return re.search(r"@[0-9a-fA-F]{7,40}\b", raw) is not None
+        if " @ " in raw:
+            return True
+        return "==" in raw
 
 
+
+    except Exception:
+        return False
 def dependency_pin_errors() -> list[str]:
     installed = load_json(REGISTRY_PATH, {})
     errors: list[str] = []
@@ -9430,16 +9439,21 @@ def package_json_dependency_maps(payload: Any) -> dict[str, dict[str, str]]:
 
 
 def package_dependency_spec_is_commit_pinned(spec: str) -> bool:
-    raw = str(spec or "").strip()
-    if not raw:
+    if not isinstance(spec, str): spec = str(spec or '')
+    try:
+        raw = str(spec or "").strip()
+        if not raw:
+            return True
+        if raw.startswith(("file:", "link:", "workspace:")):
+            return True
+        if raw.startswith(("git+", "github:", "gitlab:", "bitbucket:")) or ".git#" in raw:
+            return re.search(r"#[0-9a-fA-F]{7,40}\b", raw) is not None
         return True
-    if raw.startswith(("file:", "link:", "workspace:")):
-        return True
-    if raw.startswith(("git+", "github:", "gitlab:", "bitbucket:")) or ".git#" in raw:
-        return re.search(r"#[0-9a-fA-F]{7,40}\b", raw) is not None
-    return True
 
 
+
+    except Exception:
+        return False
 def dependency_lock_integrity_errors() -> list[str]:
     installed = load_json(REGISTRY_PATH, {})
     errors: list[str] = []
@@ -9496,16 +9510,21 @@ def requirement_file_enables_hash_mode(lines: list[str]) -> bool:
 
 
 def requirement_line_needs_hash(line: str) -> bool:
-    raw = line.split("#", 1)[0].strip()
-    if not raw:
-        return False
-    if raw.startswith(("-r ", "--requirement ", "-c ", "--constraint ")):
-        return False
-    if raw.startswith(("--index-url", "--extra-index-url", "--find-links", "--trusted-host", "--require-hashes")):
-        return False
-    return "--hash=" not in raw
+    if not isinstance(line, str): line = str(line or '')
+    try:
+        raw = line.split("#", 1)[0].strip()
+        if not raw:
+            return False
+        if raw.startswith(("-r ", "--requirement ", "-c ", "--constraint ")):
+            return False
+        if raw.startswith(("--index-url", "--extra-index-url", "--find-links", "--trusted-host", "--require-hashes")):
+            return False
+        return "--hash=" not in raw
 
 
+
+    except Exception:
+        return False
 def dependency_hash_mode_errors() -> list[str]:
     installed = load_json(REGISTRY_PATH, {})
     errors: list[str] = []
@@ -9530,9 +9549,14 @@ def dependency_hash_mode_errors() -> list[str]:
 
 
 def _has_endpoint_space_or_control(value: str) -> bool:
-    return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        return any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
 
 
+
+    except Exception:
+        return False
 def _endpoint_url_hygiene_errors(raw_url: str, *, label: str) -> list[str]:
     raw_value = str(raw_url or "")
     value = raw_value.strip()
