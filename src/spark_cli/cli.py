@@ -13849,8 +13849,19 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
     listener_uid = proc_uid_for_pid(listener_pid)
     if listener_uid is not None and listener_uid != os.getuid():
         return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
+    # Security: Re-verify ownership right before kill to mitigate TOCTOU race
+    # where PID could be reused by a different process between check and kill
+    current_pid = listening_pid_for_tcp_port(port)
+    if current_pid != listener_pid:
+        return None  # Process already gone, no need to kill
+    current_uid = proc_uid_for_pid(listener_pid)
+    if current_uid is not None and current_uid != os.getuid():
+        return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
     try:
         os.kill(listener_pid, signal.SIGTERM)
+    except ProcessLookupError:
+        # Process already exited between check and kill (benign race)
+        return None
     except OSError as exc:
         return f"{label} port {port} is already held by pid {listener_pid}, and Spark could not stop it: {exc}"
     deadline = time.monotonic() + 5.0
@@ -13858,8 +13869,14 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
         if not pid_is_running(listener_pid):
             return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
         time.sleep(0.1)
+    # Security: Re-verify PID still holds port before SIGKILL to prevent killing wrong process
+    current_pid = listening_pid_for_tcp_port(port)
+    if current_pid != listener_pid:
+        return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
     try:
         os.kill(listener_pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Process already exited (benign race)
     except OSError:
         pass
     active_listener = listening_pid_for_tcp_port(port)
