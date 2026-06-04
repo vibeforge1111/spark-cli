@@ -14901,58 +14901,79 @@ def running_under_wsl() -> bool:
 
 
 def available_wsl_distros() -> list[str]:
-    result = run_autostart_helper(["wsl.exe", "-l", "-q"])
-    if result.returncode != 0:
+    try:
+        result = run_autostart_helper(["wsl.exe", "-l", "-q"])
+        if result.returncode != 0:
+            return []
+        output = (result.stdout or "").replace("\x00", "")
+        distros: list[str] = []
+        for line in output.splitlines():
+            distro = line.strip().strip("*").strip()
+            if distro and distro.lower() != "windows subsystem for linux distributions:":
+                distros.append(distro)
+        return distros
+
+
+
+    except Exception:
         return []
-    output = (result.stdout or "").replace("\x00", "")
-    distros: list[str] = []
-    for line in output.splitlines():
-        distro = line.strip().strip("*").strip()
-        if distro and distro.lower() != "windows subsystem for linux distributions:":
-            distros.append(distro)
-    return distros
-
-
 def wsl_distro_name() -> str | None:
-    configured = os.environ.get("WSL_DISTRO_NAME", "").strip()
-    if configured:
-        return configured
-    distros = available_wsl_distros()
-    if len(distros) == 1:
-        return distros[0]
-    return None
+    try:
+        configured = os.environ.get("WSL_DISTRO_NAME", "").strip()
+        if configured:
+            return configured
+        distros = available_wsl_distros()
+        if len(distros) == 1:
+            return distros[0]
+        return None
 
 
+
+    except Exception:
+        return ""
 def windows_path_to_wsl_path(path_text: str) -> Path:
-    value = str(path_text or "").strip().strip('"')
-    match = re.match(r"^([A-Za-z]):\\(.*)$", value)
-    if match:
-        drive = match.group(1).lower()
-        tail = match.group(2).replace("\\", "/")
-        return Path(f"/mnt/{drive}/{tail}")
-    return Path(value)
+    if not isinstance(path_text, str): path_text = str(path_text or '')
+    try:
+        value = str(path_text or "").strip().strip('"')
+        match = re.match(r"^([A-Za-z]):\\(.*)$", value)
+        if match:
+            drive = match.group(1).lower()
+            tail = match.group(2).replace("\\", "/")
+            return Path(f"/mnt/{drive}/{tail}")
+        return Path(value)
 
 
+
+    except Exception:
+        return Path(".")
 def wsl_windows_appdata_path() -> Path | None:
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        return windows_path_to_wsl_path(appdata)
-    command = ["cmd.exe", "/d", "/c", "echo", "%APPDATA%"]
-    result = run_autostart_helper(command)
-    if result.returncode != 0:
-        print_helper_failure(command, result)
-        return None
-    output = (result.stdout or "").strip().splitlines()
-    return windows_path_to_wsl_path(output[-1]) if output else None
+    try:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return windows_path_to_wsl_path(appdata)
+        command = ["cmd.exe", "/d", "/c", "echo", "%APPDATA%"]
+        result = run_autostart_helper(command)
+        if result.returncode != 0:
+            print_helper_failure(command, result)
+            return None
+        output = (result.stdout or "").strip().splitlines()
+        return windows_path_to_wsl_path(output[-1]) if output else None
 
 
+
+    except Exception:
+        return Path(".")
 def wsl_windows_startup_script_path() -> Path | None:
-    appdata = wsl_windows_appdata_path()
-    if appdata is None:
-        return None
-    return appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.vbs"
+    try:
+        appdata = wsl_windows_appdata_path()
+        if appdata is None:
+            return None
+        return appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / f"{AUTOSTART_SERVICE_NAME}.vbs"
 
 
+
+    except Exception:
+        return Path(".")
 def render_wsl_windows_startup_script(start_command: str, *, distro_name: str | None = None) -> str:
     resolved_distro = str(distro_name or wsl_distro_name() or "").strip()
     if not resolved_distro:
