@@ -3542,137 +3542,165 @@ def prompt_for_provider_choice(prompt: str, default: str) -> str | None:
 
 
 def prompt_for_provider_choice_from(prompt: str, default: str, options: Iterable[str]) -> str | None:
-    ordered = [provider for provider in options if provider in LLM_PROVIDER_CHOICES]
-    provider_by_number = {str(index): provider for index, provider in enumerate(ordered, start=1)}
+    if not isinstance(prompt, str): prompt = str(prompt or '')
+    if not isinstance(default, str): default = str(default or '')
+    if not isinstance(options, str): options = str(options or '')
     try:
-        answer = input(prompt).strip().lower()
-    except EOFError:
-        return None
-    if not answer:
-        answer = default
-    if answer in {"0", "skip", "none", "not_configured"}:
-        return "not_configured"
-    provider = provider_by_number.get(answer, answer)
-    if provider not in ordered:
-        print(f"  Unknown provider `{answer}`. Pick one of: {', '.join(ordered)}.")
-        return None
-    return provider
+        ordered = [provider for provider in options if provider in LLM_PROVIDER_CHOICES]
+        provider_by_number = {str(index): provider for index, provider in enumerate(ordered, start=1)}
+        try:
+            answer = input(prompt).strip().lower()
+        except EOFError:
+            return None
+        if not answer:
+            answer = default
+        if answer in {"0", "skip", "none", "not_configured"}:
+            return "not_configured"
+        provider = provider_by_number.get(answer, answer)
+        if provider not in ordered:
+            print(f"  Unknown provider `{answer}`. Pick one of: {', '.join(ordered)}.")
+            return None
+        return provider
 
 
+
+    except Exception:
+        return ""
 def prompt_for_provider_role_mode(default_provider: str) -> str:
-    label = LLM_PROVIDER_LABELS.get(default_provider, default_provider)
-    print("")
-    print("How should Spark use this provider?")
-    print("  1. Same provider for Agent and Mission (recommended)")
-    print("     Agent = Telegram chat, runtime reasoning, memory, and recall.")
-    print("     Mission = Spawner/Mission Control builds, research, coding, and longer tracked work.")
-    print(f"     This uses {label} for both.")
-    print("  2. Use this provider for Agent, choose a different Mission provider now.")
-    print("  3. Choose Agent and Mission providers separately.")
+    if not isinstance(default_provider, str): default_provider = str(default_provider or '')
     try:
-        answer = input("Provider layout [1/Same provider]: ").strip().lower()
-    except (EOFError, StopIteration):
-        return "same"
-    if not answer:
-        return "same"
-    if answer in {"1", "same", "default", "all"}:
-        return "same"
-    if answer in {"2", "mission", "split", "different"}:
-        return "mission"
-    if answer in {"3", "both", "custom", "agent"}:
-        return "custom"
-    print(
-        f"  Unknown layout `{answer}`. "
-        "Pick one of: 1/same, 2/mission, 3/custom. "
-        "Using the same provider for Agent and Mission."
-    )
-    return "same"
-
-
-def selected_llm_providers(args: argparse.Namespace, secret_values: dict[str, str]) -> list[str]:
-    providers: list[str] = []
-    for provider in resolve_llm_roles(args, secret_values).values():
-        if provider != "not_configured" and provider not in providers:
-            providers.append(provider)
-    return providers
-
-
-def collect_provider_api_keys(providers: list[str], secret_values: dict[str, str]) -> dict[str, str]:
-    updated = dict(secret_values)
-    for provider in providers:
-        if provider == "not_configured":
-            continue
-        spec = LLM_PROVIDER_ENV[provider]
-        secret_id = spec.get("api_key_secret")
-        if not secret_id or updated.get(secret_id) or not provider_requires_wizard_api_key(provider):
-            continue
-        label = LLM_PROVIDER_LABELS.get(provider, provider)
-        hint = LLM_PROVIDER_AUTH_HINTS.get(provider, "API key")
-        print(f"")
-        print(f"{label} needs {hint} for this setup.")
-        if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
-            print(f"  Endpoint: {spec['base_url_default']}")
-            print(f"  Model: {spec['model_default']} (override with --{provider}-model if needed)")
-        value = prompt_for_secret(
-            str(secret_id),
-            {
-                "prompt": f"{label} API key",
-                "required": True,
-            },
+        label = LLM_PROVIDER_LABELS.get(default_provider, default_provider)
+        print("")
+        print("How should Spark use this provider?")
+        print("  1. Same provider for Agent and Mission (recommended)")
+        print("     Agent = Telegram chat, runtime reasoning, memory, and recall.")
+        print("     Mission = Spawner/Mission Control builds, research, coding, and longer tracked work.")
+        print(f"     This uses {label} for both.")
+        print("  2. Use this provider for Agent, choose a different Mission provider now.")
+        print("  3. Choose Agent and Mission providers separately.")
+        try:
+            answer = input("Provider layout [1/Same provider]: ").strip().lower()
+        except (EOFError, StopIteration):
+            return "same"
+        if not answer:
+            return "same"
+        if answer in {"1", "same", "default", "all"}:
+            return "same"
+        if answer in {"2", "mission", "split", "different"}:
+            return "mission"
+        if answer in {"3", "both", "custom", "agent"}:
+            return "custom"
+        print(
+            f"  Unknown layout `{answer}`. "
+            "Pick one of: 1/same, 2/mission, 3/custom. "
+            "Using the same provider for Agent and Mission."
         )
-        if value:
-            updated[str(secret_id)] = value
-    return updated
+        return "same"
 
 
-def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
-    default_label = LLM_PROVIDER_LABELS.get(default_provider, default_provider)
-    print("")
-    print("Choose the LLM Spark will use")
-    print("How should Spark think?")
-    print("  1. Use my ChatGPT/Codex sign-in")
-    print("  2. Use my Claude sign-in")
-    print("  3. Use an API key")
-    print("  4. Use a local model")
-    print("  5. Skip for now")
+
+    except Exception:
+        return ""
+def selected_llm_providers(args: argparse.Namespace, secret_values: dict[str, str]) -> list[str]:
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
     try:
-        answer = input(f"Provider path [1/{default_label}]: ").strip().lower()
-    except EOFError:
+        providers: list[str] = []
+        for provider in resolve_llm_roles(args, secret_values).values():
+            if provider != "not_configured" and provider not in providers:
+                providers.append(provider)
+        return providers
+
+
+
+    except Exception:
+        return []
+def collect_provider_api_keys(providers: list[str], secret_values: dict[str, str]) -> dict[str, str]:
+    if not isinstance(providers, str): providers = str(providers or '')
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        updated = dict(secret_values)
+        for provider in providers:
+            if provider == "not_configured":
+                continue
+            spec = LLM_PROVIDER_ENV[provider]
+            secret_id = spec.get("api_key_secret")
+            if not secret_id or updated.get(secret_id) or not provider_requires_wizard_api_key(provider):
+                continue
+            label = LLM_PROVIDER_LABELS.get(provider, provider)
+            hint = LLM_PROVIDER_AUTH_HINTS.get(provider, "API key")
+            print(f"")
+            print(f"{label} needs {hint} for this setup.")
+            if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
+                print(f"  Endpoint: {spec['base_url_default']}")
+                print(f"  Model: {spec['model_default']} (override with --{provider}-model if needed)")
+            value = prompt_for_secret(
+                str(secret_id),
+                {
+                    "prompt": f"{label} API key",
+                    "required": True,
+                },
+            )
+            if value:
+                updated[str(secret_id)] = value
+        return updated
+
+
+
+    except Exception:
+        return {}
+def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
+    if not isinstance(default_provider, str): default_provider = str(default_provider or '')
+    try:
+        default_label = LLM_PROVIDER_LABELS.get(default_provider, default_provider)
+        print("")
+        print("Choose the LLM Spark will use")
+        print("How should Spark think?")
+        print("  1. Use my ChatGPT/Codex sign-in")
+        print("  2. Use my Claude sign-in")
+        print("  3. Use an API key")
+        print("  4. Use a local model")
+        print("  5. Skip for now")
+        try:
+            answer = input(f"Provider path [1/{default_label}]: ").strip().lower()
+        except EOFError:
+            return None
+        if not answer:
+            return default_provider
+        if answer in {"1", "codex", "chatgpt", "openai codex"}:
+            return "codex"
+        if answer in {"2", "claude", "anthropic"}:
+            return "anthropic"
+        if answer in {"5", "0", "skip", "none", "not_configured"}:
+            return "not_configured"
+        if answer in {"3", "api", "api key", "key"}:
+            print("")
+            print("API key providers:")
+            api_providers = ("zai", "kimi", "openrouter", "huggingface", "minimax", "openai", "anthropic")
+            for index, provider in enumerate(api_providers, start=1):
+                print(f"  {index}. {describe_llm_provider_setup(provider)}")
+            provider = prompt_for_provider_choice_from("API provider [type number/name]: ", "zai", api_providers)
+            return provider
+        if answer in {"4", "local", "local model"}:
+            print("")
+            print("Local model providers:")
+            local_providers = ("lmstudio", "ollama")
+            for index, provider in enumerate(local_providers, start=1):
+                print(f"  {index}. {describe_llm_provider_setup(provider)}")
+            provider = prompt_for_provider_choice_from("Local provider [type number/name]: ", "lmstudio", local_providers)
+            return provider
+        if answer in LLM_PROVIDER_CHOICES:
+            return answer
+        print(
+            f"  Unknown provider path `{answer}`. "
+            "Pick one of: 1/codex, 2/claude, 3/api, 4/local, 5/skip; "
+            f"or type a provider name directly: {', '.join(LLM_PROVIDER_CHOICES)}."
+        )
         return None
-    if not answer:
-        return default_provider
-    if answer in {"1", "codex", "chatgpt", "openai codex"}:
-        return "codex"
-    if answer in {"2", "claude", "anthropic"}:
-        return "anthropic"
-    if answer in {"5", "0", "skip", "none", "not_configured"}:
-        return "not_configured"
-    if answer in {"3", "api", "api key", "key"}:
-        print("")
-        print("API key providers:")
-        api_providers = ("zai", "kimi", "openrouter", "huggingface", "minimax", "openai", "anthropic")
-        for index, provider in enumerate(api_providers, start=1):
-            print(f"  {index}. {describe_llm_provider_setup(provider)}")
-        provider = prompt_for_provider_choice_from("API provider [type number/name]: ", "zai", api_providers)
-        return provider
-    if answer in {"4", "local", "local model"}:
-        print("")
-        print("Local model providers:")
-        local_providers = ("lmstudio", "ollama")
-        for index, provider in enumerate(local_providers, start=1):
-            print(f"  {index}. {describe_llm_provider_setup(provider)}")
-        provider = prompt_for_provider_choice_from("Local provider [type number/name]: ", "lmstudio", local_providers)
-        return provider
-    if answer in LLM_PROVIDER_CHOICES:
-        return answer
-    print(
-        f"  Unknown provider path `{answer}`. "
-        "Pick one of: 1/codex, 2/claude, 3/api, 4/local, 5/skip; "
-        f"or type a provider name directly: {', '.join(LLM_PROVIDER_CHOICES)}."
-    )
-    return None
 
 
+
+    except Exception:
+        return ""
 def print_selected_provider_status(provider: str) -> None:
     print("")
     print(f"Selected: {LLM_PROVIDER_LABELS.get(provider, provider)}")
