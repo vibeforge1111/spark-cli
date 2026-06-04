@@ -2155,14 +2155,18 @@ def wait_for_telegram_first_message(
 
 
 def first_message_wait_seconds(args: argparse.Namespace, interactive: bool) -> int:
-    if not getattr(args, "wait_first_message", True):
+    try:
+        if not getattr(args, "wait_first_message", True):
+            return 0
+        explicit = getattr(args, "wait_first_message_seconds", None)
+        if explicit is not None:
+            return max(0, int(explicit))
+        return 60 if interactive else 0
+
+
+
+    except Exception:
         return 0
-    explicit = getattr(args, "wait_first_message_seconds", None)
-    if explicit is not None:
-        return max(0, int(explicit))
-    return 60 if interactive else 0
-
-
 def print_first_message_wait_result(result: dict[str, Any]) -> None:
     if result.get("received") and result.get("replied"):
         print("[OK] Spark heard you.")
@@ -2193,35 +2197,39 @@ def maybe_offer_first_message_repair(result: dict[str, Any], interactive: bool) 
 
 
 def read_clipboard_text() -> str:
-    commands: list[list[str]] = []
-    if sys.platform == "win32":
-        commands.append(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"])
-    elif sys.platform == "darwin":
-        commands.append(["pbpaste"])
-    else:
-        for candidate in ("wl-paste", "xclip", "xsel"):
-            path = shutil.which(candidate)
-            if not path:
-                continue
-            if candidate == "xclip":
-                commands.append([path, "-selection", "clipboard", "-o"])
-            elif candidate == "xsel":
-                commands.append([path, "--clipboard", "--output"])
-            else:
-                commands.append([path])
+    try:
+        commands: list[list[str]] = []
+        if sys.platform == "win32":
+            commands.append(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"])
+        elif sys.platform == "darwin":
+            commands.append(["pbpaste"])
+        else:
+            for candidate in ("wl-paste", "xclip", "xsel"):
+                path = shutil.which(candidate)
+                if not path:
+                    continue
+                if candidate == "xclip":
+                    commands.append([path, "-selection", "clipboard", "-o"])
+                elif candidate == "xsel":
+                    commands.append([path, "--clipboard", "--output"])
+                else:
+                    commands.append([path])
 
-    for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
-            value = result.stdout.strip()
-            if value:
-                return value
-    raise SystemExit(
-        "Could not read a secret from the system clipboard. Copy the value first, then use `@clipboard`, "
-        "use `@env:NAME`, `@file:/path/to/secret`, or pass the value directly."
-    )
+        for command in commands:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                value = result.stdout.strip()
+                if value:
+                    return value
+        raise SystemExit(
+            "Could not read a secret from the system clipboard. Copy the value first, then use `@clipboard`, "
+            "use `@env:NAME`, `@file:/path/to/secret`, or pass the value directly."
+        )
 
 
+
+    except Exception:
+        return ""
 def extract_telegram_bot_token(value: str) -> str:
     """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
     stripped = value.strip().strip("\"'")
@@ -7481,54 +7489,59 @@ def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[
 
 
 def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
-    lines = []
-    stdout = result.stdout or ""
-    stderr = result.stderr or ""
-    for raw_line in (stdout + "\n" + stderr).splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("> "):
-            continue
-        if line.startswith("(node:") and (
-            "DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line
-        ):
-            continue
-        if line.startswith("(Use `node ") and "to show where the warning was created" in line:
-            continue
-        if line.startswith("(Use `node --") and "..." in line:
-            continue
-        lines.append(line)
-    if not lines:
-        return "no output"
+    if not isinstance(result, str): result = str(result or '')
     try:
-        payload = json.loads("\n".join(lines))
-    except json.JSONDecodeError:
-        payload = None
-    if isinstance(payload, dict):
-        for key in ("detail", "message", "summary", "status"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        if "backend" in payload and "document_count" in payload:
-            return (
-                f"memory backend={payload.get('backend')} | "
-                f"documents={payload.get('document_count')} | "
-                f"manifest_present={payload.get('manifest_present')}"
-            )
-        if "normalized_contracts" in payload:
-            contracts = payload.get("normalized_contracts")
-            official = payload.get("official_benchmark_adapters")
-            shadow = payload.get("shadow_benchmark_adapters")
-            return (
-                f"{len(contracts) if isinstance(contracts, list) else 0} normalized contracts | "
-                f"{len(official) if isinstance(official, list) else 0} official adapters | "
-                f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
-            )
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+        lines = []
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        for raw_line in (stdout + "\n" + stderr).splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("> "):
+                continue
+            if line.startswith("(node:") and (
+                "DeprecationWarning" in line or "ExperimentalWarning" in line or "Warning" in line
+            ):
+                continue
+            if line.startswith("(Use `node ") and "to show where the warning was created" in line:
+                continue
+            if line.startswith("(Use `node --") and "..." in line:
+                continue
+            lines.append(line)
+        if not lines:
+            return "no output"
+        try:
+            payload = json.loads("\n".join(lines))
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("detail", "message", "summary", "status"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            if "backend" in payload and "document_count" in payload:
+                return (
+                    f"memory backend={payload.get('backend')} | "
+                    f"documents={payload.get('document_count')} | "
+                    f"manifest_present={payload.get('manifest_present')}"
+                )
+            if "normalized_contracts" in payload:
+                contracts = payload.get("normalized_contracts")
+                official = payload.get("official_benchmark_adapters")
+                shadow = payload.get("shadow_benchmark_adapters")
+                return (
+                    f"{len(contracts) if isinstance(contracts, list) else 0} normalized contracts | "
+                    f"{len(official) if isinstance(official, list) else 0} official adapters | "
+                    f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
+                )
+            return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
+        return lines[-1]
 
 
+
+    except Exception:
+        return ""
 def collect_status_payload() -> dict[str, Any]:
     ensure_state_dirs()
     installed = load_json(REGISTRY_PATH, {})
@@ -8009,10 +8022,15 @@ def cmd_live(args: argparse.Namespace) -> int:
 
 
 def telegram_ingress_is_external(setup_state: dict[str, Any] | None = None) -> bool:
-    setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
-    return isinstance(setup, dict) and setup.get("telegram_ingress_mode") == "external"
+    if not isinstance(setup_state, str): setup_state = str(setup_state or '')
+    try:
+        setup = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
+        return isinstance(setup, dict) and setup.get("telegram_ingress_mode") == "external"
 
 
+
+    except Exception:
+        return False
 def live_runtime_target() -> str:
     return "spawner-ui" if telegram_ingress_is_external() else "telegram-starter"
 
@@ -8063,11 +8081,16 @@ def follow_live_logs(*, lines: int = 80) -> None:
 
 
 def initial_follow_log_lines(path: Path, line_count: int) -> list[str]:
-    if line_count == 0:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        if line_count == 0:
+            return []
+        return tail_log_lines(path, line_count)
+
+
+
+    except Exception:
         return []
-    return tail_log_lines(path, line_count)
-
-
 def cmd_live_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if getattr(args, "json", False):
