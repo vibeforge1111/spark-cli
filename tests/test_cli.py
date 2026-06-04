@@ -996,6 +996,8 @@ class SparkCliTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             checks = {check["name"]: check for check in payload["checks"]}
             self.assertTrue(checks["local_ssh_client"]["ok"])
+            self.assertIn("available on PATH", checks["local_ssh_client"]["detail"])
+            self.assertNotIn("C:/Windows/System32/OpenSSH/ssh.exe", json.dumps(payload))
             self.assertTrue(checks["target_record"]["ok"])
             self.assertTrue(checks["identity_file"]["ok"])
             self.assertFalse(checks["host_key_trust"]["ok"])
