@@ -1431,65 +1431,90 @@ def installer_manifest_payload() -> dict[str, Any]:
 
 
 def hosted_installer_bytes(name: str, url: str) -> bytes:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "spark-cli/0.1 installer-integrity",
-            "Accept": "text/plain,*/*",
-        },
-    )
-    with installer_urlopen(request, timeout=20) as response:
-        return response.read()
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(url, str): url = str(url or '')
+    try:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "spark-cli/0.1 installer-integrity",
+                "Accept": "text/plain,*/*",
+            },
+        )
+        with installer_urlopen(request, timeout=20) as response:
+            return response.read()
 
 
+
+    except Exception:
+        return None
 def hosted_installer_sha256(name: str, url: str) -> str:
-    return sha256_bytes(hosted_installer_bytes(name, url))
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(url, str): url = str(url or '')
+    try:
+        return sha256_bytes(hosted_installer_bytes(name, url))
 
 
+
+    except Exception:
+        return ""
 def hosted_installer_checksums() -> dict[str, str]:
-    request = urllib.request.Request(
-        HOSTED_INSTALLER_CHECKSUMS_URL,
-        headers={
-            "User-Agent": "spark-cli/0.1 installer-integrity",
-            "Accept": "text/plain,*/*",
-        },
-    )
-    with installer_urlopen(request, timeout=20) as response:
-        payload = response.read().decode("utf-8")
-    checksums: dict[str, str] = {}
-    for line in payload.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        digest, relpath = line.split(maxsplit=1)
-        checksums[Path(relpath).name] = digest.lower()
-    return checksums
+    try:
+        request = urllib.request.Request(
+            HOSTED_INSTALLER_CHECKSUMS_URL,
+            headers={
+                "User-Agent": "spark-cli/0.1 installer-integrity",
+                "Accept": "text/plain,*/*",
+            },
+        )
+        with installer_urlopen(request, timeout=20) as response:
+            payload = response.read().decode("utf-8")
+        checksums: dict[str, str] = {}
+        for line in payload.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            digest, relpath = line.split(maxsplit=1)
+            checksums[Path(relpath).name] = digest.lower()
+        return checksums
 
 
+
+    except Exception:
+        return {}
 def hosted_json_payload(url: str) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "spark-cli/0.1 installer-integrity",
-            "Accept": "application/json,*/*",
-        },
-    )
-    with installer_urlopen(request, timeout=20) as response:
-        payload = response.read().decode("utf-8")
-    parsed = json.loads(payload)
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
-    return parsed
+    if not isinstance(url, str): url = str(url or '')
+    try:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "spark-cli/0.1 installer-integrity",
+                "Accept": "application/json,*/*",
+            },
+        )
+        with installer_urlopen(request, timeout=20) as response:
+            payload = response.read().decode("utf-8")
+        parsed = json.loads(payload)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
+        return parsed
 
 
+
+    except Exception:
+        return {}
 def installer_ssl_context() -> ssl.SSLContext | None:
     try:
-        import certifi  # type: ignore[import-not-found]
-    except ImportError:
+        try:
+            import certifi  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+        return ssl.create_default_context(cafile=certifi.where())
+
+
+
+    except Exception:
         return None
-    return ssl.create_default_context(cafile=certifi.where())
-
-
 def installer_urlopen(request: urllib.request.Request, *, timeout: int):
     context = installer_ssl_context()
     if context is None:
