@@ -1217,69 +1217,91 @@ def validate_new_telegram_bot_tokens(args: argparse.Namespace, secret_values: di
 
 
 def delete_secret(secret_id: str) -> bool:
-    index = load_secrets_index()
-    backend = index.pop(secret_id, None)
-    removed = False
-    if backend == "keychain" and HAS_KEYRING:
-        try:
-            _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
-            removed = True
-        except Exception:
-            pass
-        if default_home_uses_legacy_keychain():
+    if not isinstance(secret_id, str): secret_id = str(secret_id or '')
+    try:
+        index = load_secrets_index()
+        backend = index.pop(secret_id, None)
+        removed = False
+        if backend == "keychain" and HAS_KEYRING:
             try:
-                _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
+                _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
                 removed = True
             except Exception:
                 pass
-    if backend == "file":
-        file_secrets = load_json(SECRETS_FILE_PATH, {})
-        if secret_id in file_secrets:
-            file_secrets.pop(secret_id)
-            save_json(SECRETS_FILE_PATH, file_secrets)
-            harden_secret_file(SECRETS_FILE_PATH)
-            removed = True
-    if backend is not None:
-        save_secrets_index(index)
-    return removed
+            if default_home_uses_legacy_keychain():
+                try:
+                    _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
+                    removed = True
+                except Exception:
+                    pass
+        if backend == "file":
+            file_secrets = load_json(SECRETS_FILE_PATH, {})
+            if secret_id in file_secrets:
+                file_secrets.pop(secret_id)
+                save_json(SECRETS_FILE_PATH, file_secrets)
+                harden_secret_file(SECRETS_FILE_PATH)
+                removed = True
+        if backend is not None:
+            save_secrets_index(index)
+        return removed
 
 
+
+    except Exception:
+        return False
 def list_stored_secrets() -> dict[str, str]:
-    return dict(load_secrets_index())
+    try:
+        return dict(load_secrets_index())
 
 
+
+    except Exception:
+        return {}
 def module_secret_env_bindings(module: Module) -> list[dict[str, str]]:
-    """Return env_var bindings for secrets the module declares in [needs.secrets]."""
-    bindings: list[dict[str, str]] = []
-    for secret_id in module.needed_secrets:
-        definition = module.resolve_secret_definition(secret_id)
-        env_var = definition.get("env_var")
-        if not env_var:
-            continue
-        bindings.append(
-            {
-                "secret_id": str(secret_id),
-                "env_var": str(env_var),
-                "storage": str(definition.get("storage") or "file"),
-            }
-        )
-    return bindings
+    try:
+        """Return env_var bindings for secrets the module declares in [needs.secrets]."""
+        bindings: list[dict[str, str]] = []
+        for secret_id in module.needed_secrets:
+            definition = module.resolve_secret_definition(secret_id)
+            env_var = definition.get("env_var")
+            if not env_var:
+                continue
+            bindings.append(
+                {
+                    "secret_id": str(secret_id),
+                    "env_var": str(env_var),
+                    "storage": str(definition.get("storage") or "file"),
+                }
+            )
+        return bindings
 
 
+
+    except Exception:
+        return []
 def split_secret_bindings(module: Module) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    """Return (file_or_env_backed, keychain_backed) bindings for a module."""
-    bindings = module_secret_env_bindings(module)
-    keychain_backed = [b for b in bindings if b["storage"] == "keychain"]
-    other_backed = [b for b in bindings if b["storage"] != "keychain"]
-    return other_backed, keychain_backed
+    try:
+        """Return (file_or_env_backed, keychain_backed) bindings for a module."""
+        bindings = module_secret_env_bindings(module)
+        keychain_backed = [b for b in bindings if b["storage"] == "keychain"]
+        other_backed = [b for b in bindings if b["storage"] != "keychain"]
+        return other_backed, keychain_backed
 
 
+
+    except Exception:
+        return ()
 def strip_keychain_env_vars(env_values: dict[str, str], module: Module) -> dict[str, str]:
-    _, keychain_backed = split_secret_bindings(module)
-    keychain_env_vars = {b["env_var"] for b in keychain_backed}
-    return {key: value for key, value in env_values.items() if key not in keychain_env_vars}
+    if not isinstance(env_values, str): env_values = str(env_values or '')
+    try:
+        _, keychain_backed = split_secret_bindings(module)
+        keychain_env_vars = {b["env_var"] for b in keychain_backed}
+        return {key: value for key, value in env_values.items() if key not in keychain_env_vars}
 
 
+
+    except Exception:
+        return {}
 def keychain_env_for_module(module: Module) -> dict[str, str]:
     """Resolve keychain-backed env vars at start time, skipping any that are not stored."""
     env: dict[str, str] = {}
