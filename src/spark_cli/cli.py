@@ -3674,94 +3674,114 @@ def prompt_for_simple_provider_choice(default_provider: str) -> str | None:
 
 
 def print_selected_provider_status(provider: str) -> None:
-    print("")
-    print(f"Selected: {LLM_PROVIDER_LABELS.get(provider, provider)}")
-    if provider == "codex":
-        status = "found on PATH" if detect_codex_cli()["present"] else "not found on PATH"
-        print("Requirement: codex must be installed and signed in")
-        print(f"Status: {status}")
-    elif provider == "anthropic":
-        status = "found on PATH" if detect_claude_code()["present"] else "API key or Claude Code sign-in needed"
-        print("Requirement: Claude Code sign-in or an Anthropic API key")
-        print(f"Status: {status}")
-    elif provider in {"lmstudio", "ollama"}:
-        print("Requirement: local model server must be running when Spark replies")
-        print("Status: checked later by spark providers test")
-    else:
-        print("Requirement: API key")
-        print("Status: Spark will ask for it now if it is not already stored")
+    if not isinstance(provider, str): provider = str(provider or '')
+    try:
+        print("")
+        print(f"Selected: {LLM_PROVIDER_LABELS.get(provider, provider)}")
+        if provider == "codex":
+            status = "found on PATH" if detect_codex_cli()["present"] else "not found on PATH"
+            print("Requirement: codex must be installed and signed in")
+            print(f"Status: {status}")
+        elif provider == "anthropic":
+            status = "found on PATH" if detect_claude_code()["present"] else "API key or Claude Code sign-in needed"
+            print("Requirement: Claude Code sign-in or an Anthropic API key")
+            print(f"Status: {status}")
+        elif provider in {"lmstudio", "ollama"}:
+            print("Requirement: local model server must be running when Spark replies")
+            print("Status: checked later by spark providers test")
+        else:
+            print("Requirement: API key")
+            print("Status: Spark will ask for it now if it is not already stored")
 
 
+
+    except Exception:
+        return None
 def run_llm_provider_wizard(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
-    if setup_has_llm_provider_selection(args):
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        if setup_has_llm_provider_selection(args):
+            return collect_provider_api_keys(selected_llm_providers(args, secret_values), secret_values)
+        recommended_provider = "codex" if detect_codex_cli()["present"] else "openai"
+        provider = prompt_for_simple_provider_choice(recommended_provider)
+        if provider is None:
+            return secret_values
+        if provider == "not_configured":
+            return secret_values
+        setattr(args, "llm_provider", provider)
+        print_selected_provider_status(provider)
+
+        role_mode = prompt_for_provider_role_mode(provider)
+        if role_mode == "mission":
+            mission_provider = prompt_for_provider_choice("Mission provider [type number/name]: ", provider)
+            if mission_provider and mission_provider != "not_configured":
+                setattr(args, "mission_llm_provider", mission_provider)
+        elif role_mode == "custom":
+            agent_provider = prompt_for_provider_choice("Agent provider [Enter to keep default]: ", provider)
+            mission_provider = prompt_for_provider_choice("Mission provider [Enter to keep default]: ", provider)
+            if agent_provider and agent_provider != "not_configured":
+                setattr(args, "agent_llm_provider", agent_provider)
+            if mission_provider and mission_provider != "not_configured":
+                setattr(args, "mission_llm_provider", mission_provider)
+
+        roles = resolve_llm_roles(args, secret_values)
+        print("")
+        print("Spark provider layout selected:")
+        agent_roles = ("chat", "builder", "memory")
+        agent_providers = {roles[role] for role in agent_roles}
+        if len(agent_providers) == 1:
+            agent_provider = next(iter(agent_providers))
+            print(f"  Agent (chat + runtime + memory): {LLM_PROVIDER_LABELS.get(agent_provider, agent_provider)}")
+        else:
+            print("  Agent (expert split):")
+            for role in agent_roles:
+                role_provider = roles[role]
+                print(f"    {role}: {LLM_PROVIDER_LABELS.get(role_provider, role_provider)}")
+        mission_provider = roles["mission"]
+        print(f"  Mission (Spawner builds + tracked work): {LLM_PROVIDER_LABELS.get(mission_provider, mission_provider)}")
+        print("  Tip: rerun `spark setup` anytime to keep one provider, split Agent/Mission, or use expert role flags.")
         return collect_provider_api_keys(selected_llm_providers(args, secret_values), secret_values)
-    recommended_provider = "codex" if detect_codex_cli()["present"] else "openai"
-    provider = prompt_for_simple_provider_choice(recommended_provider)
-    if provider is None:
-        return secret_values
-    if provider == "not_configured":
-        return secret_values
-    setattr(args, "llm_provider", provider)
-    print_selected_provider_status(provider)
-
-    role_mode = prompt_for_provider_role_mode(provider)
-    if role_mode == "mission":
-        mission_provider = prompt_for_provider_choice("Mission provider [type number/name]: ", provider)
-        if mission_provider and mission_provider != "not_configured":
-            setattr(args, "mission_llm_provider", mission_provider)
-    elif role_mode == "custom":
-        agent_provider = prompt_for_provider_choice("Agent provider [Enter to keep default]: ", provider)
-        mission_provider = prompt_for_provider_choice("Mission provider [Enter to keep default]: ", provider)
-        if agent_provider and agent_provider != "not_configured":
-            setattr(args, "agent_llm_provider", agent_provider)
-        if mission_provider and mission_provider != "not_configured":
-            setattr(args, "mission_llm_provider", mission_provider)
-
-    roles = resolve_llm_roles(args, secret_values)
-    print("")
-    print("Spark provider layout selected:")
-    agent_roles = ("chat", "builder", "memory")
-    agent_providers = {roles[role] for role in agent_roles}
-    if len(agent_providers) == 1:
-        agent_provider = next(iter(agent_providers))
-        print(f"  Agent (chat + runtime + memory): {LLM_PROVIDER_LABELS.get(agent_provider, agent_provider)}")
-    else:
-        print("  Agent (expert split):")
-        for role in agent_roles:
-            role_provider = roles[role]
-            print(f"    {role}: {LLM_PROVIDER_LABELS.get(role_provider, role_provider)}")
-    mission_provider = roles["mission"]
-    print(f"  Mission (Spawner builds + tracked work): {LLM_PROVIDER_LABELS.get(mission_provider, mission_provider)}")
-    print("  Tip: rerun `spark setup` anytime to keep one provider, split Agent/Mission, or use expert role flags.")
-    return collect_provider_api_keys(selected_llm_providers(args, secret_values), secret_values)
 
 
+
+    except Exception:
+        return {}
 def resolve_llm_provider(args: argparse.Namespace, secret_values: dict[str, str]) -> str:
-    requested = getattr(args, "llm_provider", None)
-    if requested:
-        return str(requested)
-    explicit_key_providers = [
-        provider
-        for provider, spec in LLM_PROVIDER_ENV.items()
-        if provider != "not_configured"
-        and spec.get("api_key_secret")
-        and getattr(args, str(spec.get("api_key_secret")).split(".")[1] + "_api_key", None)
-    ]
-    if len(explicit_key_providers) == 1:
-        return explicit_key_providers[0]
-    existing_setup = load_json(CONFIG_PATH, {})
-    existing_llm = existing_setup.get("llm") if isinstance(existing_setup, dict) else None
-    existing_provider = existing_llm.get("provider") if isinstance(existing_llm, dict) else None
-    if existing_provider in LLM_PROVIDER_CHOICES:
-        return str(existing_provider)
-    return "not_configured"
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        requested = getattr(args, "llm_provider", None)
+        if requested:
+            return str(requested)
+        explicit_key_providers = [
+            provider
+            for provider, spec in LLM_PROVIDER_ENV.items()
+            if provider != "not_configured"
+            and spec.get("api_key_secret")
+            and getattr(args, str(spec.get("api_key_secret")).split(".")[1] + "_api_key", None)
+        ]
+        if len(explicit_key_providers) == 1:
+            return explicit_key_providers[0]
+        existing_setup = load_json(CONFIG_PATH, {})
+        existing_llm = existing_setup.get("llm") if isinstance(existing_setup, dict) else None
+        existing_provider = existing_llm.get("provider") if isinstance(existing_llm, dict) else None
+        if existing_provider in LLM_PROVIDER_CHOICES:
+            return str(existing_provider)
+        return "not_configured"
 
 
+
+    except Exception:
+        return ""
 def default_mission_llm_provider(default_provider: str) -> str:
-    """Use the user's chosen provider for missions unless they explicitly split roles."""
-    return default_provider
+    if not isinstance(default_provider, str): default_provider = str(default_provider or '')
+    try:
+        """Use the user's chosen provider for missions unless they explicitly split roles."""
+        return default_provider
 
 
+
+    except Exception:
+        return ""
 def openai_base_url_kind(base_url: str | None) -> str:
     if not base_url:
         return "default"
@@ -3777,28 +3797,33 @@ def openai_base_url_kind(base_url: str | None) -> str:
 
 
 def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -> dict[str, str]:
-    default_provider = resolve_llm_provider(args, secret_values)
-    agent_provider = getattr(args, "agent_llm_provider", None)
-    chat_provider = getattr(args, "chat_llm_provider", None)
-    effective_default = (
-        str(chat_provider)
-        if chat_provider and not agent_provider and default_provider == "not_configured"
-        else default_provider
-    )
-    roles: dict[str, str] = {}
-    for role in LLM_ROLES:
-        explicit = getattr(args, f"{role}_llm_provider", None)
-        if explicit:
-            roles[role] = str(explicit)
-        elif role == "mission":
-            roles[role] = default_mission_llm_provider(effective_default)
-        elif agent_provider:
-            roles[role] = str(agent_provider)
-        else:
-            roles[role] = effective_default
-    return roles
+    if not isinstance(secret_values, str): secret_values = str(secret_values or '')
+    try:
+        default_provider = resolve_llm_provider(args, secret_values)
+        agent_provider = getattr(args, "agent_llm_provider", None)
+        chat_provider = getattr(args, "chat_llm_provider", None)
+        effective_default = (
+            str(chat_provider)
+            if chat_provider and not agent_provider and default_provider == "not_configured"
+            else default_provider
+        )
+        roles: dict[str, str] = {}
+        for role in LLM_ROLES:
+            explicit = getattr(args, f"{role}_llm_provider", None)
+            if explicit:
+                roles[role] = str(explicit)
+            elif role == "mission":
+                roles[role] = default_mission_llm_provider(effective_default)
+            elif agent_provider:
+                roles[role] = str(agent_provider)
+            else:
+                roles[role] = effective_default
+        return roles
 
 
+
+    except Exception:
+        return {}
 def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
     if provider == "not_configured":
         return "not_configured"
