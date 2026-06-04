@@ -336,9 +336,12 @@ normalize_path() {
 }
 
 python_is_compatible() {
-  "$1" - <<'PY' >/dev/null 2>&1
+  "$1" - <<PY >/dev/null 2>&1
 import sys
-raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)
+parts = "${SPARK_PYTHON_VERSION:-3.11}".split(".")
+major = int(parts[0])
+minor = int(parts[1] if len(parts) > 1 else 0)
+raise SystemExit(0 if sys.version_info[:2] == (major, minor) else 1)
 PY
 }
 
@@ -600,7 +603,7 @@ preflight() {
   if find_system_python; then
     log "Python runtime: $("$SPARK_PYTHON_BIN" --version 2>/dev/null) at $SPARK_PYTHON_BIN"
   else
-    log "Python runtime: Python >=3.11,<3.14 not found; pinned uv $SPARK_UV_VERSION will be downloaded after confirmation"
+    log "Python runtime: Python $SPARK_PYTHON_VERSION not found; pinned uv $SPARK_UV_VERSION will be downloaded after confirmation"
   fi
   need_cmd git
   need_cmd curl
@@ -661,7 +664,7 @@ Details:
   Node platform:       $SPARK_NODE_PLATFORM
   Node version:        $SPARK_NODE_VERSION
   Python version:      $SPARK_PYTHON_VERSION
-  Python source:       existing Python >=3.11,<3.14 or pinned uv $SPARK_UV_VERSION if needed
+  Python source:       existing Python $SPARK_PYTHON_VERSION or pinned uv $SPARK_PYTHON_VERSION if needed
   Managed Node forced: $SPARK_MANAGED_NODE
   CLI source:          $SPARK_CLI_SOURCE
   CLI release:         $SPARK_CLI_RELEASE_NAME
@@ -686,8 +689,8 @@ Would write:
 
 Would download if needed:
   Node $SPARK_NODE_VERSION from nodejs.org
-  uv $SPARK_UV_VERSION from github.com/astral-sh/uv when Python >=3.11,<3.14 is missing
-  Python $SPARK_PYTHON_VERSION via uv when Python >=3.11,<3.14 is missing
+  uv $SPARK_UV_VERSION from github.com/astral-sh/uv when Python $SPARK_PYTHON_VERSION is missing
+  Python $SPARK_PYTHON_VERSION via uv when Python $SPARK_PYTHON_VERSION is missing
   Spark CLI from $SPARK_CLI_SOURCE at $SPARK_CLI_REF
 
 Expected installer network access:

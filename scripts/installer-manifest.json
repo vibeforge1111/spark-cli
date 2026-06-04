@@ -6,13 +6,13 @@
     "ref": "spark-cli-public-installer-2026-06-03-r24-v2"
   },
   "installers": {
-    "install.sh": {
-      "path": "scripts/install.sh",
-      "sha256": "6f550c552e7d4666a60e1a0124c3354935a3dd78759be959aa49ae6f05fd3192"
-    },
-    "install.ps1": {
-      "path": "scripts/install.ps1",
-      "sha256": "d8a9a0635f6a7bddb83717165d994ad5ff142bb85f509b36f463962de31557b7"
-    }
+        "install.sh": {
+            "path": "scripts/install.sh",
+            "sha256": "2191043da7c098a6cf8d3f50912ed46183156674f48cf502093921f25ac6b3c5"
+        },
+        "install.ps1": {
+            "path": "scripts/install.ps1",
+            "sha256": "2ad9ae96bc8d1db109b5e0c5e668e16a3006ccc3fae996ee6651f51335391411"
+        }
   }
 }

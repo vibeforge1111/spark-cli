@@ -99,17 +99,43 @@ function Require-Command {
     }
 }
 
+function Get-InstallerPythonVersionTuple {
+    $parts = $PythonVersion.Split(".")
+    $major = [int]$parts[0]
+    $minor = if ($parts.Count -gt 1) { [int]$parts[1] } else { 0 }
+    return $major, $minor
+}
+
 function Test-PythonCompatible {
     param([string]$PythonExe)
-    & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
+    $major, $minor = Get-InstallerPythonVersionTuple
+    # browser-use wheels are validated on the pinned installer Python (default 3.11).
+    & $PythonExe -c "import sys; raise SystemExit(0 if sys.version_info[:2] == ($major, $minor) else 1)" 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
 }
 
 function Find-SystemPython {
-    foreach ($name in @("python", "python3")) {
+    $candidates = @()
+    foreach ($name in @("python3.11", "python311")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd -and (Test-PythonCompatible $cmd.Source)) {
-            $Script:PythonExe = $cmd.Source
+        if ($cmd) { $candidates += $cmd.Source }
+    }
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        $py311 = (& py -3.11 -c "import sys; print(sys.executable)" 2>$null)
+        if ($py311) {
+            $py311 = $py311.Trim()
+            if ($py311 -and (Test-Path -LiteralPath $py311)) {
+                $candidates += $py311
+            }
+        }
+    }
+    foreach ($name in @("python3", "python")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { $candidates += $cmd.Source }
+    }
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-PythonCompatible $candidate) {
+            $Script:PythonExe = $candidate
             return $true
         }
     }
@@ -260,7 +286,7 @@ function Invoke-Preflight {
         $versionText = (& $Script:PythonExe --version 2>$null)
         Write-SparkLog "Python runtime: $versionText at $Script:PythonExe"
     } else {
-        Write-SparkLog "Python runtime: Python >=3.11,<3.14 not found; pinned uv $UvVersion will be downloaded after confirmation"
+        Write-SparkLog "Python runtime: Python $PythonVersion not found; pinned uv $UvVersion will be downloaded after confirmation"
     }
     Require-Command git
     Write-SparkLog "Install prefix: $Script:SparkPrefix"
@@ -318,7 +344,7 @@ function Show-DryRunPlan {
     Write-Host "  Node platform:       win-x64"
     Write-Host "  Node version:        $NodeVersion"
     Write-Host "  Python version:      $PythonVersion"
-    Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
+    Write-Host "  Python source:       existing Python $PythonVersion or pinned uv $PythonVersion if needed"
     Write-Host "  Managed Node forced: $ManagedNode"
     Write-Host "  CLI source:          $Source"
     Write-Host "  CLI release:         $SparkCliReleaseName"
@@ -343,8 +369,8 @@ function Show-DryRunPlan {
     Write-Host ""
     Write-Host "Would download if needed:"
     Write-Host "  Node $NodeVersion from nodejs.org"
-    Write-Host "  uv $UvVersion from github.com/astral-sh/uv when Python >=3.11,<3.14 is missing"
-    Write-Host "  Python $PythonVersion via uv when Python >=3.11,<3.14 is missing"
+    Write-Host "  uv $UvVersion from github.com/astral-sh/uv when Python $PythonVersion is missing"
+    Write-Host "  Python $PythonVersion via uv when Python $PythonVersion is missing"
     Write-Host "  Spark CLI from $Source at $Ref"
     Write-Host ""
     Write-Host "Expected installer network access:"
