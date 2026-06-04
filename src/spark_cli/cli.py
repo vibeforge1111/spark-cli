@@ -10732,22 +10732,26 @@ def render_llm_doctor_prompt(context: dict[str, Any]) -> str:
 
 
 def configured_llm_role_state(role: Any) -> dict[str, Any]:
-    setup_state = load_json(CONFIG_PATH, {})
-    llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
-    if not isinstance(llm_state, dict):
+    try:
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
+        if not isinstance(llm_state, dict):
+            return {}
+        roles = llm_state.get("roles")
+        role_str = str(role or "")
+        if isinstance(roles, dict) and isinstance(roles.get(role_str), dict):
+            state = dict(roles[role_str])
+        else:
+            state = dict(llm_state)
+        state.setdefault("provider", llm_state.get("provider"))
+        state.setdefault("model", llm_state.get("model"))
+        state.setdefault("auth_mode", llm_state.get("auth_mode"))
+        return state
+
+
+
+    except Exception:
         return {}
-    roles = llm_state.get("roles")
-    role_str = str(role or "")
-    if isinstance(roles, dict) and isinstance(roles.get(role_str), dict):
-        state = dict(roles[role_str])
-    else:
-        state = dict(llm_state)
-    state.setdefault("provider", llm_state.get("provider"))
-    state.setdefault("model", llm_state.get("model"))
-    state.setdefault("auth_mode", llm_state.get("auth_mode"))
-    return state
-
-
 def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
     requested_provider = getattr(args, "provider", None)
     requested_role = getattr(args, "role", "builder")
@@ -12092,21 +12096,32 @@ def collect_builder_memory_direct_smoke(
 
 
 def env_path_candidates(name: str) -> list[Path]:
-    raw = os.environ.get(name, "")
-    if not raw.strip():
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        raw = os.environ.get(name, "")
+        if not raw.strip():
+            return []
+        return [Path(item).expanduser() for item in raw.split(os.pathsep) if item.strip()]
+
+
+
+    except Exception:
         return []
-    return [Path(item).expanduser() for item in raw.split(os.pathsep) if item.strip()]
-
-
 def env_named_path_candidates(prefix: str, suffix: str) -> list[Path]:
-    candidates: list[Path] = []
-    for name, raw in os.environ.items():
-        if not name.startswith(prefix) or not name.endswith(suffix) or not raw.strip():
-            continue
-        candidates.append(Path(raw).expanduser())
-    return candidates
+    if not isinstance(prefix, str): prefix = str(prefix or '')
+    if not isinstance(suffix, str): suffix = str(suffix or '')
+    try:
+        candidates: list[Path] = []
+        for name, raw in os.environ.items():
+            if not name.startswith(prefix) or not name.endswith(suffix) or not raw.strip():
+                continue
+            candidates.append(Path(raw).expanduser())
+        return candidates
 
 
+
+    except Exception:
+        return []
 def unique_path_candidates(paths: Iterable[Path]) -> list[Path]:
     seen: set[str] = set()
     candidates: list[Path] = []
@@ -12179,28 +12194,33 @@ def specialization_path_is_usable(path: Path) -> bool:
 
 
 def specialization_path_key(path: Path) -> str:
-    for manifest in (
-        path / "specialization-path.json",
-        path / "specialization-path" / "path.manifest.json",
-        path / "path.manifest.json",
-    ):
-        if not manifest.exists():
-            continue
-        try:
-            payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(payload, dict):
-            for key in ("pathKey", "path_key", "key"):
-                raw = payload.get(key)
-                if isinstance(raw, str) and raw.strip():
-                    return raw.strip()
-    name = path.name
-    if name.startswith("specialization-path-"):
-        return name.removeprefix("specialization-path-")
-    return name
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        for manifest in (
+            path / "specialization-path.json",
+            path / "specialization-path" / "path.manifest.json",
+            path / "path.manifest.json",
+        ):
+            if not manifest.exists():
+                continue
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                for key in ("pathKey", "path_key", "key"):
+                    raw = payload.get(key)
+                    if isinstance(raw, str) and raw.strip():
+                        return raw.strip()
+        name = path.name
+        if name.startswith("specialization-path-"):
+            return name.removeprefix("specialization-path-")
+        return name
 
 
+
+    except Exception:
+        return ""
 def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> tuple[list[str], dict[str, str]]:
     python = os.environ.get("SPARK_SWARM_BRIDGE_PYTHON") or sys.executable
     env = dict(os.environ)
@@ -12225,23 +12245,28 @@ def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> t
 
 
 def parse_json_object_from_stdout(stdout: str) -> dict[str, Any] | None:
-    text = stdout.strip()
-    if not text:
-        return None
+    if not isinstance(stdout, str): stdout = str(stdout or '')
     try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
+        text = stdout.strip()
+        if not text:
             return None
         try:
-            payload = json.loads(text[start : end + 1])
+            payload = json.loads(text)
         except json.JSONDecodeError:
-            return None
-    return payload if isinstance(payload, dict) else None
+            start = text.find("{")
+            end = text.rfind("}")
+            if start < 0 or end <= start:
+                return None
+            try:
+                payload = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                return None
+        return payload if isinstance(payload, dict) else None
 
 
+
+    except Exception:
+        return {}
 def validate_specialization_loop_status_packet(packet: dict[str, Any]) -> tuple[bool, list[str]]:
     issues: list[str] = []
     for field in ("schemaId", "pathKey", "decision", "evidenceState", "claimBoundary"):
