@@ -6090,93 +6090,240 @@ def write_browser_use_status(payload: dict[str, Any]) -> None:
 
 
 def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ)
-    env.setdefault("PYTHONIOENCODING", "utf-8")
-    env.setdefault("PYTHONUTF8", "1")
-    return subprocess.run(
-        [cli_path, *parts],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        check=True,
-        env=env,
-    )
+    if not isinstance(cli_path, str): cli_path = str(cli_path or '')
+    try:
+        env = dict(os.environ)
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+        return subprocess.run(
+            [cli_path, *parts],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=True,
+            env=env,
+        )
 
 
+
+    except Exception:
+        return None
 def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
+    if not isinstance(result, str): result = str(result or '')
+    if screenshot_path is not None and not hasattr(screenshot_path, 'resolve'): from pathlib import Path; screenshot_path = Path(str(screenshot_path))
     try:
-        parsed = json.loads(result.stdout.strip())
-        data = parsed.get("data") if isinstance(parsed, dict) else {}
-        encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
-        if not encoded:
-            backend_error = ""
-            if isinstance(parsed, dict):
-                backend_error = str(parsed.get("error") or "").strip()
-            detail = f": {backend_error}" if backend_error else ""
-            raise ValueError(f"missing screenshot data{detail}")
-        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-        screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
-    except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
-        raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
+        try:
+            parsed = json.loads(result.stdout.strip())
+            data = parsed.get("data") if isinstance(parsed, dict) else {}
+            encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
+            if not encoded:
+                backend_error = ""
+                if isinstance(parsed, dict):
+                    backend_error = str(parsed.get("error") or "").strip()
+                detail = f": {backend_error}" if backend_error else ""
+                raise ValueError(f"missing screenshot data{detail}")
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            screenshot_path.write_bytes(base64.b64decode(encoded, validate=True))
+        except (ValueError, json.JSONDecodeError, base64.binascii.Error) as exc:
+            raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
 
 
+
+    except Exception:
+        return None
 def browser_use_probe_payload() -> dict[str, Any]:
-    cli_path = browser_use_cli_path()
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    base_payload: dict[str, Any] = {
-        "backend_kind": "browser_use_adapter",
-        "status_path": str(BROWSER_USE_STATUS_PATH),
-        "package_available": browser_use_package_available(),
-        "cli_available": bool(cli_path),
-        "cli_path": cli_path or "",
-        "checked_at": now,
-        "proofs": [],
-    }
-    if not cli_path:
-        failure = "browser-use CLI is not on PATH."
+    try:
+        cli_path = browser_use_cli_path()
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        base_payload: dict[str, Any] = {
+            "backend_kind": "browser_use_adapter",
+            "status_path": str(BROWSER_USE_STATUS_PATH),
+            "package_available": browser_use_package_available(),
+            "cli_available": bool(cli_path),
+            "cli_path": cli_path or "",
+            "checked_at": now,
+            "proofs": [],
+        }
+        if not cli_path:
+            failure = "browser-use CLI is not on PATH."
+            payload = {
+                **base_payload,
+                "status": "failed",
+                "ready": False,
+                "last_failure_at": now,
+                "last_failure_reason": failure,
+            }
+            write_browser_use_status(payload)
+            return payload
+
+        screenshot_path = BROWSER_USE_STATUS_DIR / "probe-screenshot.png"
+        proofs: list[str] = []
+        try:
+            run_browser_use_command(cli_path, "doctor", timeout=60)
+            proofs.append("doctor")
+            run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90)
+            proofs.append("public_page_open")
+            run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
+            proofs.append("state_read")
+            screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
+            write_browser_use_screenshot(screenshot, screenshot_path)
+            proofs.append("screenshot_capture")
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            failure = browser_use_command_failure_message(exc)
+            payload = {
+                **base_payload,
+                "status": "failed",
+                "ready": False,
+                "proofs": proofs,
+                "last_failure_at": now,
+                "last_failure_reason": failure,
+            }
+            write_browser_use_status(payload)
+            return payload
+        finally:
+            if cli_path:
+                env = dict(os.environ)
+                env.setdefault("PYTHONIOENCODING", "utf-8")
+                env.setdefault("PYTHONUTF8", "1")
+                subprocess.run(
+                    [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                    env=env,
+                )
+
         payload = {
             **base_payload,
-            "status": "failed",
-            "ready": False,
-            "last_failure_at": now,
-            "last_failure_reason": failure,
+            "status": "ready",
+            "ready": True,
+            "last_success_at": now,
+            "proofs": proofs,
+            "probe_url": BROWSER_USE_PROBE_URL,
+            "screenshot_path": str(screenshot_path),
         }
         write_browser_use_status(payload)
         return payload
 
-    screenshot_path = BROWSER_USE_STATUS_DIR / "probe-screenshot.png"
-    proofs: list[str] = []
+
+
+    except Exception:
+        return {}
+def browser_use_public_url(raw_url: str) -> str:
+    if not isinstance(raw_url, str): raw_url = str(raw_url or '')
     try:
-        run_browser_use_command(cli_path, "doctor", timeout=60)
-        proofs.append("doctor")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "open", BROWSER_USE_PROBE_URL, timeout=90)
-        proofs.append("public_page_open")
-        run_browser_use_command(cli_path, "--session", BROWSER_USE_PROBE_SESSION, "state", timeout=45)
-        proofs.append("state_read")
-        screenshot = run_browser_use_command(cli_path, "--json", "--session", BROWSER_USE_PROBE_SESSION, "screenshot", timeout=60)
-        write_browser_use_screenshot(screenshot, screenshot_path)
-        proofs.append("screenshot_capture")
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        failure = browser_use_command_failure_message(exc)
-        payload = {
-            **base_payload,
-            "status": "failed",
-            "ready": False,
-            "proofs": proofs,
-            "last_failure_at": now,
-            "last_failure_reason": failure,
+        value = str(raw_url or "").strip()
+        if not value:
+            raise ValueError("Browser URL is required.")
+        if "://" not in value:
+            value = f"https://{value}"
+        errors = validate_url_safety(
+            value,
+            label="Browser URL",
+            policy=UrlPolicy(allow_local=True, allow_private_networks=True, require_https_for_remote=False),
+        )
+        if errors:
+            raise ValueError(" ".join(errors))
+        parsed = urllib.parse.urlparse(value)
+        return urllib.parse.urlunparse(parsed)
+
+
+
+    except Exception:
+        return ""
+def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
+    if not isinstance(raw_url, str): raw_url = str(raw_url or '')
+    try:
+        cli_path = browser_use_cli_path()
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        try:
+            url = browser_use_public_url(raw_url)
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "status": "blocked",
+                "action": "screenshot" if screenshot else "open",
+                "url": str(raw_url or "").strip(),
+                "checked_at": now,
+                "last_failure_reason": str(exc),
+            }
+        base_payload: dict[str, Any] = {
+            "backend_kind": "browser_use_adapter",
+            "action": "screenshot" if screenshot else "open",
+            "url": url,
+            "checked_at": now,
+            "package_available": browser_use_package_available(),
+            "cli_available": bool(cli_path),
+            "cli_path": cli_path or "",
         }
-        write_browser_use_status(payload)
-        return payload
-    finally:
-        if cli_path:
+        if not cli_path:
+            return {
+                **base_payload,
+                "ok": False,
+                "status": "failed",
+                "last_failure_reason": "browser-use CLI is not on PATH.",
+            }
+
+        session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
+        receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
+        screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+        proofs: list[str] = []
+        try:
+            run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
+            proofs.append("public_url_open")
+            state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
+            proofs.append("state_read")
+            page = browser_use_page_summary(cli_path, session)
+            if screenshot:
+                result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
+                write_browser_use_screenshot(result, screenshot_path)
+                proofs.append("screenshot_capture")
+            payload = {
+                **base_payload,
+                "ok": True,
+                "status": "ready",
+                "session": session,
+                "last_success_at": now,
+                "proofs": proofs,
+                "final_url": str(page.get("url") or url),
+                "title": str(page.get("title") or ""),
+                "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
+                "state_excerpt": browser_use_bounded_text(state.stdout),
+                "screenshot_path": str(screenshot_path) if screenshot else "",
+                "receipt_path": str(receipt_path),
+                "proven_scope": browser_use_action_scope(proofs),
+                "unproven_scope": [
+                    "logged-in pages",
+                    "cookies/profile reuse",
+                    "sensitive click workflows",
+                ],
+            }
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(receipt_path, payload)
+            return payload
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            payload = {
+                **base_payload,
+                "ok": False,
+                "status": "failed",
+                "session": session,
+                "last_failure_at": now,
+                "last_failure_reason": browser_use_command_failure_message(exc),
+                "proofs": proofs,
+                "receipt_path": str(receipt_path),
+            }
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(receipt_path, payload)
+            return payload
+        finally:
             env = dict(os.environ)
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("PYTHONUTF8", "1")
             subprocess.run(
-                [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                [cli_path, "--session", session, "close"],
                 capture_output=True,
                 text=True,
                 timeout=20,
@@ -6184,132 +6331,10 @@ def browser_use_probe_payload() -> dict[str, Any]:
                 env=env,
             )
 
-    payload = {
-        **base_payload,
-        "status": "ready",
-        "ready": True,
-        "last_success_at": now,
-        "proofs": proofs,
-        "probe_url": BROWSER_USE_PROBE_URL,
-        "screenshot_path": str(screenshot_path),
-    }
-    write_browser_use_status(payload)
-    return payload
 
 
-def browser_use_public_url(raw_url: str) -> str:
-    value = str(raw_url or "").strip()
-    if not value:
-        raise ValueError("Browser URL is required.")
-    if "://" not in value:
-        value = f"https://{value}"
-    errors = validate_url_safety(
-        value,
-        label="Browser URL",
-        policy=UrlPolicy(allow_local=True, allow_private_networks=True, require_https_for_remote=False),
-    )
-    if errors:
-        raise ValueError(" ".join(errors))
-    parsed = urllib.parse.urlparse(value)
-    return urllib.parse.urlunparse(parsed)
-
-
-def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dict[str, Any]:
-    cli_path = browser_use_cli_path()
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    try:
-        url = browser_use_public_url(raw_url)
-    except ValueError as exc:
-        return {
-            "ok": False,
-            "status": "blocked",
-            "action": "screenshot" if screenshot else "open",
-            "url": str(raw_url or "").strip(),
-            "checked_at": now,
-            "last_failure_reason": str(exc),
-        }
-    base_payload: dict[str, Any] = {
-        "backend_kind": "browser_use_adapter",
-        "action": "screenshot" if screenshot else "open",
-        "url": url,
-        "checked_at": now,
-        "package_available": browser_use_package_available(),
-        "cli_available": bool(cli_path),
-        "cli_path": cli_path or "",
-    }
-    if not cli_path:
-        return {
-            **base_payload,
-            "ok": False,
-            "status": "failed",
-            "last_failure_reason": "browser-use CLI is not on PATH.",
-        }
-
-    session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
-    receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
-    screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
-    proofs: list[str] = []
-    try:
-        run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
-        proofs.append("public_url_open")
-        state = run_browser_use_command(cli_path, "--session", session, "state", timeout=45)
-        proofs.append("state_read")
-        page = browser_use_page_summary(cli_path, session)
-        if screenshot:
-            result = run_browser_use_command(cli_path, "--json", "--session", session, "screenshot", timeout=60)
-            write_browser_use_screenshot(result, screenshot_path)
-            proofs.append("screenshot_capture")
-        payload = {
-            **base_payload,
-            "ok": True,
-            "status": "ready",
-            "session": session,
-            "last_success_at": now,
-            "proofs": proofs,
-            "final_url": str(page.get("url") or url),
-            "title": str(page.get("title") or ""),
-            "text_excerpt": browser_use_bounded_text(str(page.get("text") or "")),
-            "state_excerpt": browser_use_bounded_text(state.stdout),
-            "screenshot_path": str(screenshot_path) if screenshot else "",
-            "receipt_path": str(receipt_path),
-            "proven_scope": browser_use_action_scope(proofs),
-            "unproven_scope": [
-                "logged-in pages",
-                "cookies/profile reuse",
-                "sensitive click workflows",
-            ],
-        }
-        receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(receipt_path, payload)
-        return payload
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        payload = {
-            **base_payload,
-            "ok": False,
-            "status": "failed",
-            "session": session,
-            "last_failure_at": now,
-            "last_failure_reason": browser_use_command_failure_message(exc),
-            "proofs": proofs,
-            "receipt_path": str(receipt_path),
-        }
-        receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(receipt_path, payload)
-        return payload
-    finally:
-        env = dict(os.environ)
-        env.setdefault("PYTHONIOENCODING", "utf-8")
-        env.setdefault("PYTHONUTF8", "1")
-        subprocess.run(
-            [cli_path, "--session", session, "close"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-            env=env,
-        )
-
-
+    except Exception:
+        return {}
 _PAGE_SUMMARY_TEXT_LIMIT = 2000
 
 
