@@ -99,6 +99,15 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _http_client_upload(lowered: list[str], parts: list[str]) -> bool:
+    first = lowered[0] if lowered else ""
+    if first in {"http", "https"}:
+        return any(re.match(r"^[^=@:]+@[^@]+$", part) for part in parts[1:])
+    if first in {"iwr", "invoke-webrequest", "invoke-restmethod"}:
+        return "-infile" in lowered
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -494,6 +503,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         )
         or _contains_any(parts, {"-F", "-T"})
     ):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "Command may upload local data to a network endpoint.",
+            target_display=parts[0],
+            confirmation_phrase="approve network upload",
+        )
+    if _http_client_upload(lowered, parts):
         return _decision(
             parts,
             ctx,
