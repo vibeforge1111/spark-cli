@@ -3332,6 +3332,7 @@ def builder_high_severity_source_state(
         for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
             threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             count_params = [threshold, *params]
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             total = conn.execute(
                 f"""
                 select count(*)
