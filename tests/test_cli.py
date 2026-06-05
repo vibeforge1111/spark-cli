@@ -1472,6 +1472,47 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_cloud_auth_tokens_and_mutations(self) -> None:
+        token_reveals = [
+            ["gcloud", "auth", "print-access-token"],
+            ["gcloud", "auth", "application-default", "print-access-token"],
+            ["az", "account", "get-access-token"],
+        ]
+        for command in token_reveals:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve cloud token reveal")
+
+        auth_mutations = [
+            ["gcloud", "auth", "login"],
+            ["gcloud", "auth", "activate-service-account", "--key-file", "synthetic-key.json"],
+            ["gcloud", "auth", "application-default", "login"],
+            ["gcloud", "auth", "revoke"],
+            ["az", "login"],
+            ["az", "logout"],
+        ]
+        for command in auth_mutations:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve cloud auth change")
+
+        for command in (
+            ["gcloud", "config", "list"],
+            ["gcloud", "auth", "list"],
+            ["az", "account", "show"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)

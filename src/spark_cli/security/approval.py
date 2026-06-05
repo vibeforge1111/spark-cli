@@ -99,6 +99,30 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _cloud_cli_token_reveal(lowered: list[str]) -> bool:
+    if not lowered:
+        return False
+    if lowered[0] == "gcloud" and lowered[1:3] == ["auth", "print-access-token"]:
+        return True
+    if lowered[0] == "gcloud" and lowered[1:4] == ["auth", "application-default", "print-access-token"]:
+        return True
+    if lowered[0] == "az" and lowered[1:3] == ["account", "get-access-token"]:
+        return True
+    return False
+
+
+def _cloud_cli_auth_mutation(lowered: list[str]) -> bool:
+    if len(lowered) < 2:
+        return False
+    if lowered[0] == "gcloud" and lowered[1] == "auth":
+        if lowered[2:4] in (["application-default", "login"], ["application-default", "revoke"]):
+            return True
+        return len(lowered) > 2 and lowered[2] in {"login", "revoke", "activate-service-account"}
+    if lowered[0] == "az" and lowered[1] in {"login", "logout"}:
+        return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +310,28 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _cloud_cli_token_reveal(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Cloud CLI command can reveal an active access token.",
+            target_display="cloud access token",
+            confirmation_phrase="approve cloud token reveal",
+        )
+
+    if _cloud_cli_auth_mutation(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Cloud CLI auth command can store, replace, or remove local cloud credentials.",
+            target_display="cloud auth credentials",
+            confirmation_phrase="approve cloud auth change",
         )
 
     if first == "aws" and (
