@@ -97,6 +97,8 @@ from spark_cli.cli import (
     pull_module_source,
     remove_tree,
     remove_windows_path_entry,
+    emit_runtime_supply_chain_guard,
+    runtime_guard_bypassed,
     runtime_supply_chain_warnings,
     purge_spark_home,
     print_redacted_console,
@@ -1432,6 +1434,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
 
+    def test_approval_classifier_flags_dirty_runtime_override(self) -> None:
+        decision = approval_required_for_command(["spark", "start", "spawner-ui", "--allow-dirty-runtime"], CommandContext())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "remote_code_execution")
+        self.assertEqual(decision.risk, "high")
+        self.assertEqual(decision.confirmation_phrase, "approve dirty runtime")
+
+        live_decision = approval_required_for_command(["spark", "live", "start", "--allow-dirty-runtime"], CommandContext())
+        self.assertTrue(live_decision.requires_approval)
+        self.assertEqual(live_decision.action_class, "remote_code_execution")
+
     def test_approval_classifier_allows_setup_without_autostart(self) -> None:
         decision = approval_required_for_command(["spark", "setup", "--no-autostart"], CommandContext())
         self.assertFalse(decision.requires_approval)
@@ -1553,6 +1566,7 @@ class SparkCliTests(unittest.TestCase):
                 CommandContext(non_interactive=True),
                 "identity_access_mutation",
             ),
+            (["spark", "start", "spawner-ui", "--allow-dirty-runtime"], CommandContext(), "remote_code_execution"),
         ]
         args = Namespace(command="run")
         for command, context, action_class in cases:
@@ -1638,13 +1652,21 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("approve secret access", stdout.getvalue())
 
     def test_main_runs_sensitive_command_after_exact_phrase(self) -> None:
-        with patch("spark_cli.cli.ensure_state_dirs"), \
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CLI_APPROVAL_LEDGER_DIR", Path(tmp_dir)), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=True), \
              patch("builtins.input", return_value="approve secret access"), \
              patch("spark_cli.cli.cmd_secrets_delete", return_value=0) as delete_secret_command, \
              patch("sys.stdout", new_callable=StringIO):
             self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 0)
+            ledger_files = list(Path(tmp_dir).glob("*.json"))
+            ledger = json.loads(ledger_files[0].read_text(encoding="utf-8")) if ledger_files else {}
         delete_secret_command.assert_called_once()
+        self.assertEqual(len(ledger_files), 1)
+        self.assertEqual(ledger["schema_version"], "tool-call-ledger-v1")
+        self.assertEqual(ledger["tool_name"], "spark-cli.approval.enforced-command")
+        self.assertEqual(ledger["result"]["status"], "success")
 
     def test_validate_init_module_name_rejects_bad_names(self) -> None:
         validate_init_module_name("my-module")
@@ -2517,6 +2539,31 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(any("spawner-ui:" in warning for warning in warnings))
         self.assertFalse(any("spawner-ui-dev" in warning for warning in warnings))
         self.assertFalse(any("domain-chip-memory" in warning for warning in warnings))
+
+    def test_runtime_dirty_bypass_ignores_ambient_env(self) -> None:
+        with patch.dict(os.environ, {"SPARK_ALLOW_DIRTY_RUNTIME": "1"}, clear=False):
+            self.assertFalse(runtime_guard_bypassed(Namespace(allow_dirty_runtime=False)))
+            self.assertTrue(runtime_guard_bypassed(Namespace(allow_dirty_runtime=True)))
+
+    def test_emit_runtime_guard_requires_harness_authority_for_dirty_override(self) -> None:
+        args = Namespace(allow_dirty_runtime=True)
+        with patch("spark_cli.cli.runtime_supply_chain_warnings", return_value=["spawner-ui: installed runtime has local git changes."]), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertFalse(emit_runtime_supply_chain_guard([], args))
+        self.assertIn("--allow-dirty-runtime requires Harness Core approval", stdout.getvalue())
+
+        setattr(
+            args,
+            "_spark_cli_approval_authority",
+            {
+                "decision": Namespace(action_class="remote_code_execution"),
+                "governor_verification": {"allowed": True},
+            },
+        )
+        with patch("spark_cli.cli.runtime_supply_chain_warnings", return_value=["spawner-ui: installed runtime has local git changes."]), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertTrue(emit_runtime_supply_chain_guard([], args))
+        self.assertIn("Harness Core authorized", stdout.getvalue())
 
     def test_cmd_start_warns_but_continues_when_runtime_is_dirty(self) -> None:
         module = Module(

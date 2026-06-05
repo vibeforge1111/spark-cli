@@ -186,6 +186,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
     if first == "spark" and lowered[1:3] == ["providers", "status"]:
         return _decision(parts, ctx, "none", "none", "`spark providers status` is read-only.")
+    if first == "spark" and "--allow-dirty-runtime" in lowered and (
+        second in {"start", "restart"}
+        or (second == "live" and len(lowered) > 2 and lowered[2] in {"start", "run", "restart"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can run installed runtime code that has drifted from verified registry pins.",
+            target_display="spark runtime",
+            confirmation_phrase="approve dirty runtime",
+        )
 
     if first == "spark" and second == "uninstall" and "--purge-home" in lowered:
         return _decision(

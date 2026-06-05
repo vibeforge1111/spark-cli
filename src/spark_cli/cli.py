@@ -119,6 +119,9 @@ VOICE_MODULE_NAME = "spark-voice-comms"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
+CLI_APPROVAL_LEDGER_DIR = STATE_DIR / "approval-ledgers"
+CLI_APPROVAL_TOOL_NAME = "spark-cli.approval.enforced-command"
+CLI_APPROVAL_CAPABILITY_PREFIX = "capability:spark-cli:approval"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_PROBE_URL = "https://example.com"
 BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
@@ -6060,6 +6063,7 @@ def harness_core_source_roots() -> list[Path]:
     env_root = os.environ.get(BROWSER_USE_HARNESS_CORE_SOURCE_ENV)
     if env_root:
         roots.append(Path(env_root).expanduser())
+    roots.append(REPO_ROOT.parent / "spark-harness-core" / "src")
     roots.append(SPARK_HOME / "modules" / "spark-harness-core" / "source" / "src")
     return roots
 
@@ -9574,7 +9578,7 @@ def truthy_env(name: str) -> bool:
 
 
 def runtime_guard_bypassed(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "allow_dirty_runtime", False)) or truthy_env("SPARK_ALLOW_DIRTY_RUNTIME")
+    return bool(getattr(args, "allow_dirty_runtime", False))
 
 
 def runtime_guard_is_strict() -> bool:
@@ -9583,13 +9587,25 @@ def runtime_guard_is_strict() -> bool:
 
 def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Namespace) -> bool:
     """Warn, or fail in strict mode, when Spark would run a dirty managed checkout."""
-    if runtime_guard_bypassed(args):
-        return True
     warnings = runtime_supply_chain_warnings(modules)
     if not warnings:
         return True
 
     strict = runtime_guard_is_strict()
+    if runtime_guard_bypassed(args):
+        if cli_approval_authority_allows(
+            getattr(args, "_spark_cli_approval_authority", None),
+            action_class="remote_code_execution",
+        ):
+            print("Spark runtime hygiene override: Harness Core authorized this dirty runtime run.")
+            for warning in warnings:
+                print(f"  - {warning}")
+            return True
+        print("Spark runtime hygiene blocked: --allow-dirty-runtime requires Harness Core approval for this command.")
+        for warning in warnings:
+            print(f"  - {warning}")
+        return False
+
     marker = "blocked" if strict else "warning"
     print(f"Spark runtime hygiene {marker}: installed runtime code has drifted from the pinned registry.")
     for warning in warnings:
@@ -9601,7 +9617,7 @@ def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Na
     print("  - Test dev servers on another port, for example 5174, then commit/push and run spark update.")
     if strict:
         print("")
-        print("To run anyway for local development, add --allow-dirty-runtime or set SPARK_ALLOW_DIRTY_RUNTIME=1.")
+        print("To run anyway for local development, add --allow-dirty-runtime and approve the Harness Core prompt.")
         return False
     print("")
     print("Continuing for now. To silence this for intentional local runtime testing, add --allow-dirty-runtime.")
@@ -10608,6 +10624,152 @@ def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     return True
 
 
+def cli_approval_spark_id_fragment(value: str) -> str:
+    fragment = re.sub(r"[^a-z0-9_.:-]+", "-", str(value or "").strip().lower()).strip("-")
+    return fragment or "unknown"
+
+
+def cli_approval_capability_id(decision: Any) -> str:
+    return f"{CLI_APPROVAL_CAPABILITY_PREFIX}.{cli_approval_spark_id_fragment(decision.action_class)}"
+
+
+def cli_approval_action_type(decision: Any) -> str:
+    return "run_command"
+
+
+def create_cli_approval_harness_authority(decision: Any, command_argv: list[str]) -> dict[str, Any]:
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    command_digest_ref = f"spark-cli-command-digest:{decision.command_digest}"
+    capability_id = cli_approval_capability_id(decision)
+    action_type = cli_approval_action_type(decision)
+    evidence = [
+        evidence_ref(
+            "fresh_user_intent",
+            "spark-cli.approval",
+            f"Local operator invoked this Spark CLI command with digest {decision.command_digest}.",
+            confidence=1.0,
+        ),
+        evidence_ref(
+            "positive_command",
+            "spark-cli.approval",
+            f"Sensitive Spark CLI command requested with digest {decision.command_digest}.",
+            confidence=0.99,
+        ),
+        evidence_ref(
+            "runtime_state",
+            "spark-cli.approval",
+            f"Approval classifier marked {decision.action_class} risk {decision.risk}.",
+            confidence=0.99,
+        ),
+    ]
+    action = kernel.proposed_action(
+        capability_id=capability_id,
+        action_type=action_type,
+        risk_tier=str(decision.risk),
+        summary=str(decision.reason),
+        args_path=command_digest_ref,
+        requires_confirmation=True,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=f"Run sensitive Spark CLI action {decision.action_class}.",
+        raw_turn_summary="Local operator typed the exact Spark CLI approval phrase.",
+        evidence=evidence,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier=str(decision.risk),
+        confidence=0.99,
+        requires_human_confirmation=False,
+    )
+    approval_ref = evidence_ref(
+        "human_confirmation",
+        "spark-cli.approval",
+        "Operator typed the exact Spark CLI approval phrase for this command digest.",
+        confidence=1.0,
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    pre_execution_ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=CLI_APPROVAL_TOOL_NAME,
+        status="not_started",
+        output_path=command_digest_ref,
+        summary="Sensitive Spark CLI command is approved but has not executed yet.",
+    )
+    governor_decision = kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[pre_execution_ledger],
+    )
+    verification = kernel.verify_governor_execution_authority(
+        governor_decision,
+        expected_capability_id=capability_id,
+        expected_action_type=action_type,
+        tool_name=CLI_APPROVAL_TOOL_NAME,
+        action_id=str(action.get("action_id") or ""),
+    )
+    ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{decision.command_digest[:12]}.json"
+    return {
+        "kernel": kernel,
+        "decision": decision,
+        "command_argv": list(command_argv),
+        "command_digest_ref": command_digest_ref,
+        "envelope": envelope,
+        "action": action,
+        "authorization": authorization,
+        "tool_ledger": pre_execution_ledger,
+        "governor_decision": governor_decision,
+        "governor_verification": verification,
+        "ledger_path": ledger_path,
+    }
+
+
+def cli_approval_authority_allows(authority: Any, *, action_class: str | None = None) -> bool:
+    if not isinstance(authority, dict):
+        return False
+    if action_class is not None:
+        decision = authority.get("decision")
+        if str(getattr(decision, "action_class", "")) != action_class:
+            return False
+    verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
+    return bool(verification.get("allowed"))
+
+
+def finalize_cli_approval_authority(args: argparse.Namespace, exit_code: int) -> dict[str, Any] | None:
+    authority = getattr(args, "_spark_cli_approval_authority", None)
+    if not isinstance(authority, dict):
+        return None
+    kernel = authority.get("kernel")
+    pre_execution_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else None
+    finalizer = getattr(kernel, "finalize_tool_call_ledger", None)
+    if pre_execution_ledger is None or not callable(finalizer):
+        return None
+    status = "success" if exit_code == 0 else "failure"
+    ledger = finalizer(
+        pre_execution_ledger,
+        status=status,
+        output_path=str(authority.get("command_digest_ref") or ""),
+        summary=f"Sensitive Spark CLI command completed with exit code {exit_code}.",
+    )
+    ledger_path = authority.get("ledger_path")
+    if not isinstance(ledger_path, Path):
+        decision = authority.get("decision")
+        digest = str(getattr(decision, "command_digest", "unknown"))[:12]
+        ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{digest}.json"
+    atomic_write_json(ledger_path, ledger)
+    authority["tool_ledger"] = ledger
+    governor = getattr(kernel, "governor_decision", None)
+    if callable(governor):
+        authority["governor_decision"] = governor(
+            authority["envelope"],
+            authorizations=[authority["authorization"]],
+            tool_ledgers=[ledger],
+        )
+    return ledger
+
+
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
     if not approval_enforcement_enabled():
         return None
@@ -10637,6 +10799,19 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
             "at the prompt to proceed."
         )
         return 2
+    try:
+        authority = create_cli_approval_harness_authority(decision, command_argv)
+    except Exception as exc:
+        print("Spark blocked the sensitive action because Harness Core authority could not be verified.")
+        print(f"Reason: {exc}")
+        return 2
+    if not cli_approval_authority_allows(authority):
+        verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
+        reasons = ", ".join(str(reason) for reason in verification.get("reason_codes", []) if str(reason)) or "unknown"
+        print("Spark blocked the sensitive action because Harness Core authority did not allow execution.")
+        print(f"Reason: {reasons}")
+        return 2
+    setattr(args, "_spark_cli_approval_authority", authority)
     return None
 
 
@@ -17407,7 +17582,17 @@ def main(argv: list[str] | None = None) -> int:
     approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
     if approval_exit is not None:
         return approval_exit
-    return int(args.func(args))
+    try:
+        exit_code = int(args.func(args))
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        finalize_cli_approval_authority(args, code)
+        raise
+    except BaseException:
+        finalize_cli_approval_authority(args, 1)
+        raise
+    finalize_cli_approval_authority(args, exit_code)
+    return exit_code
 
 
 if __name__ == "__main__":
