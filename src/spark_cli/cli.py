@@ -10678,11 +10678,14 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
+    "runtime_state_mutation",
+    "configuration_mutation",
+    "high_cost_execution",
 }
 
 
 def approval_enforcement_enabled() -> bool:
-    return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+    return True
 
 
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
@@ -10703,8 +10706,6 @@ def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
     if getattr(args, "command", "") == "approval":
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
-        return False
-    if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
         return False
     return True
 

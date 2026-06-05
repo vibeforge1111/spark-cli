@@ -1608,9 +1608,79 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(live_decision.requires_approval)
         self.assertEqual(live_decision.action_class, "remote_code_execution")
 
-    def test_approval_classifier_allows_setup_without_autostart(self) -> None:
+    def test_approval_classifier_flags_setup_without_autostart(self) -> None:
         decision = approval_required_for_command(["spark", "setup", "--no-autostart"], CommandContext())
-        self.assertFalse(decision.requires_approval)
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "runtime_state_mutation")
+        self.assertEqual(decision.confirmation_phrase, "approve spark setup")
+
+    def test_approval_classifier_flags_setup_secret_and_access_mutations_without_autostart(self) -> None:
+        cases = [
+            (
+                ["spark", "setup", "--no-autostart", "--no-start-now", "--bot-token=123456:abcdefghijklmnopqrstuvwxyz"],
+                "credential_mutation",
+                "approve setup credentials",
+            ),
+            (
+                ["spark", "setup", "--no-autostart", "--no-start-now", "--openai-api-key", "sk-example12345678"],
+                "credential_mutation",
+                "approve setup credentials",
+            ),
+            (
+                ["spark", "setup", "--no-autostart", "--no-start-now", "--admin-telegram-ids", "12345"],
+                "identity_access_mutation",
+                "approve access change",
+            ),
+        ]
+        for command, action_class, phrase in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.confirmation_phrase, phrase)
+
+    def test_approval_classifier_flags_spark_runtime_and_config_mutations(self) -> None:
+        cases = [
+            (["spark", "install", "spark-telegram-bot"], "runtime_state_mutation", "approve spark install"),
+            (["spark", "update", "spark-telegram-bot"], "runtime_state_mutation", "approve runtime state change"),
+            (["spark", "uninstall", "spark-telegram-bot"], "runtime_state_mutation", "approve runtime state change"),
+            (["spark", "stop", "spark-telegram-bot"], "runtime_state_mutation", "approve runtime state change"),
+            (["spark", "live", "stop"], "runtime_state_mutation", "approve runtime state change"),
+            (["spark", "start", "spark-telegram-bot"], "remote_code_execution", "approve runtime execution"),
+            (["spark", "restart", "spark-telegram-bot"], "remote_code_execution", "approve runtime execution"),
+            (["spark", "live", "start"], "remote_code_execution", "approve runtime execution"),
+            (["spark", "live", "run"], "remote_code_execution", "approve runtime execution"),
+            (["spark", "providers", "test", "--role", "chat"], "high_cost_execution", "approve provider test"),
+            (["spark", "providers", "codex", "--model", "gpt-5.4"], "configuration_mutation", "approve provider config change"),
+            (["spark", "config", "set", "codex.model", "gpt-5.4"], "configuration_mutation", "approve config change"),
+            (["spark", "config", "unset", "codex.model"], "configuration_mutation", "approve config change"),
+            (["spark", "browser-use", "install"], "runtime_state_mutation", "approve browser install"),
+            (["spark", "fix", "secrets", "--redact-logs"], "credential_mutation", "approve log redaction"),
+        ]
+        for command, action_class, phrase in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.confirmation_phrase, phrase)
+
+    def test_approval_classifier_keeps_report_only_spark_commands_open(self) -> None:
+        cases = [
+            ["spark", "live", "status"],
+            ["spark", "live", "logs"],
+            ["spark", "providers", "list"],
+            ["spark", "providers", "recommend"],
+            ["spark", "providers", "status"],
+            ["spark", "providers", "codex", "--json"],
+            ["spark", "config", "get", "codex.model"],
+            ["spark", "config", "list"],
+            ["spark", "browser-use", "install", "--dry-run"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
 
     def test_approval_classifier_flags_destructive_delete(self) -> None:
         decision = approval_required_for_command(["rm", "-rf", "/tmp/spark-test"], CommandContext())
@@ -1730,6 +1800,10 @@ class SparkCliTests(unittest.TestCase):
                 "identity_access_mutation",
             ),
             (["spark", "start", "spawner-ui", "--allow-dirty-runtime"], CommandContext(), "remote_code_execution"),
+            (["spark", "setup", "--no-autostart"], CommandContext(), "runtime_state_mutation"),
+            (["spark", "install", "spark-telegram-bot"], CommandContext(), "runtime_state_mutation"),
+            (["spark", "providers", "test", "--role", "chat"], CommandContext(), "high_cost_execution"),
+            (["spark", "providers", "codex", "--service-tier", "fast"], CommandContext(), "configuration_mutation"),
         ]
         args = Namespace(command="run")
         for command, context, action_class in cases:
@@ -1793,6 +1867,16 @@ class SparkCliTests(unittest.TestCase):
         delete_secret_command.assert_not_called()
         self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
 
+    def test_main_ignores_approval_enforcement_env_bypass(self) -> None:
+        with patch.dict(os.environ, {"SPARK_APPROVAL_ENFORCE": "0"}), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch("spark_cli.cli.cmd_secrets_delete", return_value=0) as delete_secret_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 2)
+        delete_secret_command.assert_not_called()
+        self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+
     def test_main_blocks_level5_access_setup_in_non_interactive_shell(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=False), \
@@ -1801,6 +1885,25 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(main(["access", "setup", "--level", "5", "--enable-high-agency"]), 2)
         access_command.assert_not_called()
         self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+
+    def test_main_blocks_setup_install_and_provider_mutations_in_non_interactive_shell(self) -> None:
+        cases = [
+            (["setup", "--no-autostart"], "cmd_setup"),
+            (["install", "spark-telegram-bot"], "cmd_install"),
+            (["providers", "codex", "--model", "gpt-5.4"], "cmd_providers"),
+            (["providers", "test", "--role", "chat"], "cmd_providers"),
+            (["config", "set", "codex.model", "gpt-5.4"], "cmd_config_set"),
+            (["browser-use", "install"], "cmd_browser_use"),
+        ]
+        for command, handler_name in cases:
+            with self.subTest(command=command), \
+                 patch("spark_cli.cli.ensure_state_dirs"), \
+                 patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+                 patch(f"spark_cli.cli.{handler_name}", return_value=0) as handler, \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(main(command), 2)
+                handler.assert_not_called()
+                self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
 
     def test_main_requires_exact_phrase_for_sensitive_command(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \

@@ -14,6 +14,8 @@ ApprovalClass = Literal[
     "credential_mutation",
     "external_publish",
     "process_autostart_mutation",
+    "runtime_state_mutation",
+    "configuration_mutation",
     "network_exfiltration",
     "remote_code_execution",
     "container_privilege_escalation",
@@ -62,6 +64,10 @@ def _lower_parts(argv: list[str]) -> list[str]:
 
 def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
+
+
+def _has_any_option(parts: list[str], option_names: set[str]) -> bool:
+    return any(part in option_names or any(part.startswith(f"{name}=") for name in option_names) for part in parts)
 
 
 def _target_after(parts: list[str], command_names: set[str]) -> str:
@@ -184,8 +190,14 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         return _decision(parts, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
-    if first == "spark" and lowered[1:3] == ["providers", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark providers status` is read-only.")
+    if first == "spark" and lowered[1:3] in (["providers", "status"], ["providers", "list"], ["providers", "recommend"]):
+        return _decision(parts, ctx, "none", "none", f"`spark providers {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] in (["config", "get"], ["config", "list"]):
+        return _decision(parts, ctx, "none", "none", f"`spark config {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] in (["live", "status"], ["live", "logs"]):
+        return _decision(parts, ctx, "none", "none", f"`spark live {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] == ["autostart", "status"]:
+        return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
     if first == "spark" and "--allow-dirty-runtime" in lowered and (
         second in {"start", "restart"}
         or (second == "live" and len(lowered) > 2 and lowered[2] in {"start", "run", "restart"})
@@ -209,6 +221,169 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete the local Spark home, including state, logs, generated config, and installed module checkouts.",
             target_display="SPARK_HOME",
             confirmation_phrase="delete spark home",
+        )
+
+    if first == "spark" and second == "install":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command installs or updates Spark module source, dependency commands, hooks, registry state, and generated runtime config.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve spark install",
+        )
+    if first == "spark" and second == "setup":
+        if _has_any_option(lowered, {"--bot-token", "--zai-api-key", "--openai-api-key", "--anthropic-api-key", "--openrouter-api-key", "--kimi-api-key", "--huggingface-api-key", "--minimax-api-key", "--elevenlabs-api-key"}):
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "high",
+                "Command can store or rotate Spark provider, voice, or Telegram credentials during setup.",
+                target_display="spark setup",
+                confirmation_phrase="approve setup credentials",
+            )
+        if _has_any_option(lowered, {"--admin-telegram-ids", "--external-telegram-ingress", "--access"}):
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Command changes Telegram, ingress, or operator access configuration during setup.",
+                target_display="spark setup",
+                confirmation_phrase="approve access change",
+            )
+        if "--no-autostart" not in lowered:
+            return _decision(
+                parts,
+                ctx,
+                "process_autostart_mutation",
+                "medium",
+                "`spark setup` installs OS login autostart by default.",
+                target_display="spark setup",
+                confirmation_phrase="approve autostart change",
+            )
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command writes Spark setup, installed-module, registry, generated config, and optional runtime state.",
+            target_display="spark setup",
+            confirmation_phrase="approve spark setup",
+        )
+    if first == "spark" and second in {"update", "onboard"}:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command can refresh installed runtime source, installed state, generated config, or running Spark services.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second == "uninstall":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command removes Spark modules from installed state, generated config, autostart hooks, or runtime process tracking.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second in {"start", "restart"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "medium",
+            "Command starts installed Spark runtime code.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime execution",
+        )
+    if first == "spark" and second == "stop":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command stops tracked Spark runtime processes.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second == "live" and len(lowered) > 2 and lowered[2] in {"start", "run", "restart"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "medium",
+            "Command starts Spark Live runtime code.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime execution",
+        )
+    if first == "spark" and lowered[1:3] == ["live", "stop"]:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command stops Spark Live runtime processes.",
+            target_display="spark live stop",
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and lowered[1:3] in (["config", "set"], ["config", "unset"]):
+        return _decision(
+            parts,
+            ctx,
+            "configuration_mutation",
+            "medium",
+            "Command changes persistent Spark CLI configuration.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve config change",
+        )
+    if first == "spark" and lowered[1:3] == ["providers", "codex"] and _has_any_option(lowered, {"--model", "--reasoning-effort", "--service-tier"}):
+        return _decision(
+            parts,
+            ctx,
+            "configuration_mutation",
+            "medium",
+            "Command changes Codex provider model, reasoning, or service-tier configuration.",
+            target_display="spark providers codex",
+            confirmation_phrase="approve provider config change",
+        )
+    if first == "spark" and lowered[1:3] == ["providers", "test"]:
+        return _decision(
+            parts,
+            ctx,
+            "high_cost_execution",
+            "medium",
+            "Command can call a configured LLM provider for a live probe.",
+            target_display="spark providers test",
+            confirmation_phrase="approve provider test",
+        )
+    if first == "spark" and lowered[1:3] == ["browser-use", "install"] and "--dry-run" in lowered:
+        return _decision(parts, ctx, "none", "none", "`spark browser-use install --dry-run` is report-only.")
+    if first == "spark" and lowered[1:3] == ["browser-use", "install"]:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command installs browser-use dependencies and browser runtime components.",
+            target_display="spark browser-use install",
+            confirmation_phrase="approve browser install",
+        )
+    if first == "spark" and lowered[1:4] == ["fix", "secrets", "--redact-logs"]:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "medium",
+            "Command rewrites local Spark logs to redact credential-like values.",
+            target_display="spark fix secrets --redact-logs",
+            confirmation_phrase="approve log redaction",
         )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
@@ -457,18 +632,6 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve publish",
         )
 
-    if first == "spark" and lowered[1:3] == ["autostart", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
-    if first == "spark" and second == "setup" and "--no-autostart" not in lowered:
-        return _decision(
-            parts,
-            ctx,
-            "process_autostart_mutation",
-            "medium",
-            "`spark setup` installs OS login autostart by default.",
-            target_display="spark setup",
-            confirmation_phrase="approve autostart change",
-        )
     if first == "spark" and second == "autostart":
         return _decision(
             parts,
