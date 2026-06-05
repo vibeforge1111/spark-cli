@@ -9,6 +9,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from spark_cli.cli import build_parser, cmd_access, print_access_payload
@@ -37,6 +38,165 @@ DOCKER_READY = {
     "capabilities": {},
     "next": "Run `spark access setup --with docker` for Docker-backed Level 4 tasks.",
 }
+
+
+def _fake_level5_evidence_ref(
+    kind: str,
+    source: str,
+    summary: str,
+    *,
+    confidence: float = 1.0,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "source": source,
+        "summary": summary,
+        "confidence": confidence,
+    }
+
+
+class _FakeLevel5HarnessKernel:
+    def __init__(self, *, surface: str) -> None:
+        self.surface = surface
+
+    def proposed_action(
+        self,
+        *,
+        capability_id: str,
+        action_type: str,
+        risk_tier: str,
+        summary: str,
+        args_path: str,
+        requires_confirmation: bool,
+    ) -> dict[str, Any]:
+        return {
+            "action_id": "action:test-level5-access",
+            "capability_id": capability_id,
+            "action_type": action_type,
+            "risk_tier": risk_tier,
+            "summary": summary,
+            "args_ref": {"uri": args_path},
+            "requires_confirmation": requires_confirmation,
+        }
+
+    def create_envelope(
+        self,
+        *,
+        selected_move: str,
+        intent_summary: str,
+        raw_turn_summary: str,
+        evidence: list[dict[str, Any]],
+        proposed_actions: list[dict[str, Any]],
+        authority_state: str,
+        risk_tier: str,
+        confidence: float,
+        requires_human_confirmation: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "turn_id": "turn:test-level5-access",
+            "surface": self.surface,
+            "selected_move": selected_move,
+            "intent_summary": intent_summary,
+            "raw_turn_summary": raw_turn_summary,
+            "evidence": evidence,
+            "proposed_actions": proposed_actions,
+            "action_authority": {"state": authority_state},
+            "risk_tier": risk_tier,
+            "confidence": confidence,
+            "requires_human_confirmation": requires_human_confirmation,
+        }
+
+    def authorize(
+        self,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        *,
+        approval_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "decision_id": "decision:test-level5-access",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
+            "verdict": "allow",
+            "approval": {"required": True, "status": "approved", "approval_ref": approval_ref},
+        }
+
+    def record_tool_call(
+        self,
+        *,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+        tool_name: str,
+        status: str,
+        output_path: str,
+        summary: str,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "tool-call-ledger-v1",
+            "ledger_id": "ledger:test-level5-access",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
+            "tool_name": tool_name,
+            "authorization": authorization,
+            "result": {"status": status, "summary": summary, "sanitized_output_ref": {"uri": output_path}},
+        }
+
+    def governor_decision(
+        self,
+        envelope: dict[str, Any],
+        *,
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+        **_: Any,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "governor-decision-v1",
+            "decision_id": "governor:test-level5-access",
+            "outcome": "execute",
+            "envelope": envelope,
+            "authorizations": authorizations,
+            "tool_ledgers": tool_ledgers,
+        }
+
+
+def _fake_level5_verify_governor_tool_authority(
+    governor_decision: dict[str, Any] | None,
+    *,
+    tool_name: str,
+    owner_system: str,
+    mutation_class: str,
+    require_pre_execution_ledger: bool = True,
+) -> dict[str, Any]:
+    if not isinstance(governor_decision, dict):
+        return {"allowed": False, "reason_codes": ["missing_governor_decision"]}
+    reason_codes: list[str] = []
+    if governor_decision.get("outcome") != "execute":
+        reason_codes.append(f"governor_outcome_{governor_decision.get('outcome') or 'missing'}")
+    envelope = governor_decision.get("envelope") if isinstance(governor_decision.get("envelope"), dict) else {}
+    action = {}
+    proposed_actions = envelope.get("proposed_actions")
+    if isinstance(proposed_actions, list) and proposed_actions and isinstance(proposed_actions[0], dict):
+        action = proposed_actions[0]
+    if not str(action.get("capability_id") or "").startswith(f"capability:{owner_system}:"):
+        reason_codes.append("owner_system_mismatch")
+    if mutation_class != "writes_files" or action.get("action_type") != "edit_file":
+        reason_codes.append("mutation_class_mismatch")
+    authorizations = governor_decision.get("authorizations")
+    authorization = authorizations[0] if isinstance(authorizations, list) and authorizations else {}
+    if not isinstance(authorization, dict) or authorization.get("verdict") != "allow":
+        reason_codes.append("governor_missing_matching_authorization")
+    elif authorization.get("action_id") != action.get("action_id"):
+        reason_codes.append("authorization_action_mismatch")
+    ledgers = governor_decision.get("tool_ledgers")
+    ledger = ledgers[0] if isinstance(ledgers, list) and ledgers else {}
+    if require_pre_execution_ledger and (not isinstance(ledger, dict) or ledger.get("tool_name") != tool_name):
+        reason_codes.append("governor_missing_pre_execution_tool_ledger")
+    elif isinstance(ledger, dict) and ledger.get("action_id") != action.get("action_id"):
+        reason_codes.append("tool_ledger_action_mismatch")
+    return {"allowed": not reason_codes, "reason_codes": reason_codes}
 
 
 class AccessSetupTests(unittest.TestCase):
@@ -78,6 +238,14 @@ class AccessSetupTests(unittest.TestCase):
         with patch.dict(os.environ, env_values, clear=False), \
              patch("spark_cli.sandbox.access.collect_docker_doctor_payload", return_value=DOCKER_NOT_READY), \
              patch("spark_cli.sandbox.access.modal_sdk_available", return_value=False), \
+             patch(
+                 "spark_cli.cli.load_harness_core_symbols",
+                 return_value=(_FakeLevel5HarnessKernel, _fake_level5_evidence_ref),
+             ), \
+             patch(
+                 "spark_cli.sandbox.access._load_verify_governor_tool_authority",
+                 return_value=_fake_level5_verify_governor_tool_authority,
+             ), \
              redirect_stdout(stdout):
             exit_code = cmd_access(args)
         return exit_code, json.loads(stdout.getvalue())

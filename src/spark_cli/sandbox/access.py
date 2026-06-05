@@ -148,6 +148,10 @@ def require_level5_access_authority(
     *,
     tool_name: str,
 ) -> dict[str, Any]:
+    if not isinstance(governor_decision, dict):
+        raise RuntimeError(
+            "Level 5 access mutation requires GovernorDecisionV1 authority: missing_governor_decision"
+        )
     verifier = _load_verify_governor_tool_authority()
     verification = verifier(
         governor_decision,
