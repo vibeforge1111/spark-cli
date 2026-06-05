@@ -16866,18 +16866,23 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
-    secrets_set_parser.add_argument("secret_id")
+    secrets_set_parser.add_argument("secret_id", help="Stable id used to look the secret up later (e.g. TELEGRAM_BOT_TOKEN, OPENAI_API_KEY)")
     secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
-    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
+    secrets_set_parser.add_argument(
+        "--backend",
+        choices=["keychain", "file"],
+        default="keychain",
+        help="Storage backend: keychain (OS keychain / Windows Credential Manager, the default) or file (encrypted file fallback under ~/.spark)",
+    )
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
-    secrets_get_parser.add_argument("secret_id")
+    secrets_get_parser.add_argument("secret_id", help="Stable id of the secret to read")
     secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
-    secrets_delete_parser.add_argument("secret_id")
+    secrets_delete_parser.add_argument("secret_id", help="Stable id of the secret to remove")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
