@@ -3042,6 +3042,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                         for column in group_columns
                     ]
                     group_by = ", ".join(f'"{column}"' for column in group_columns)
+                    # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                     rows = conn.execute(
                         f"""
                         select {", ".join(expressions)}, count(*) as event_count
