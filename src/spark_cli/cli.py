@@ -4270,7 +4270,9 @@ def remove_managed_env_block(path: Path) -> None:
     while lines and not lines[-1].strip():
         lines.pop()
     output = "\n".join(lines).strip()
-    path.write_text((output + "\n") if output else "", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text((output + "\n") if output else "", encoding="utf-8")
+    tmp.replace(path)
 
 
 def cmd_list(_: argparse.Namespace) -> int:
