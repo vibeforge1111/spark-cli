@@ -2673,6 +2673,7 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
             out["created_at_min"] = conn.execute("select min(created_at) from builder_events").fetchone()[0]
             out["created_at_max"] = conn.execute("select max(created_at) from builder_events").fetchone()[0]
             for column in ("event_type", "truth_kind", "target_surface", "component", "evidence_lane", "severity", "status"):
+                # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                 rows = conn.execute(
                     f'select "{column}" as value, count(*) as n from builder_events group by "{column}" order by n desc limit 40'
                 ).fetchall()
