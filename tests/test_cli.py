@@ -1463,6 +1463,30 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_private_key_generation(self) -> None:
+        for command in (
+            ["openssl", "genrsa", "-out", "private.pem", "2048"],
+            ["openssl", "genpkey", "-algorithm", "RSA", "-out", "private.pem"],
+            ["openssl", "ecparam", "-genkey", "-name", "prime256v1", "-out", "private.pem"],
+            ["openssl", "req", "-newkey", "rsa:2048", "-keyout", "private.pem"],
+            ["age-keygen", "-o", "key.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve private key generation")
+
+    def test_approval_classifier_allows_benign_openssl_commands(self) -> None:
+        for command in (
+            ["openssl", "version"],
+            ["openssl", "x509", "-in", "cert.pem", "-noout", "-text"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
