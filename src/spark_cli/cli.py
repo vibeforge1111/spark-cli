@@ -38,6 +38,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
+SPARK_CLI_VERIFY_PINNED_COMMIT_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 PRIVATE_FILE_MODE = 0o600
@@ -511,6 +513,8 @@ def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed
         git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
+
+    timeout=SPARK_CLI_VERIFY_PINNED_COMMIT_TIMEOUT_SECONDS,
     )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
