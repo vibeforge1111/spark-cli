@@ -1235,7 +1235,10 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     )
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
-    parsed = json.loads(payload)
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return {}  # malformed JSON, return safe default
     return parsed if isinstance(parsed, dict) else {}
 
 
