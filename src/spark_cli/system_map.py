@@ -401,7 +401,10 @@ def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list
         except OSError:
             children = []
         for child in children:
-            if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
+            if not child.is_dir():
+                continue
+            child_name_lower = child.name.lower()
+            if any(hint in child_name_lower for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
 
     for payload in as_dict(installed).values():
@@ -723,7 +726,8 @@ def count_safe_jsonl(path: Path) -> dict[str, Any]:
                     continue
                 for key, value in payload.items():
                     key_name = str(key)
-                    if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
+                    key_name_lower = key_name.lower()
+                    if any(hint in key_name_lower for hint in SENSITIVE_KEY_NAME_HINTS):
                         redacted_key_name_count += 1
                         continue
                     key_counts[key_name] += 1
@@ -780,7 +784,8 @@ def inspect_safe_jsonl_samples(
                     continue
                 for key in payload:
                     key_name = str(key)
-                    if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
+                    key_name_lower = key_name.lower()
+                    if any(hint in key_name_lower for hint in SENSITIVE_KEY_NAME_HINTS):
                         redacted_key_name_count += 1
                         continue
                     key_counts[key_name] += 1
