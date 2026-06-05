@@ -1522,6 +1522,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_prune_commands(self) -> None:
+        for command in (
+            ["docker", "system", "prune", "-af"],
+            ["docker", "image", "prune", "-af"],
+            ["docker", "container", "prune", "-f"],
+            ["docker", "volume", "prune", "-f"],
+            ["docker", "network", "prune", "-f"],
+            ["docker", "builder", "prune", "-af"],
+            ["docker", "buildx", "prune", "-af"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker prune")
+
+    def test_approval_classifier_allows_docker_read_only_inventory(self) -> None:
+        for command in (
+            ["docker", "ps"],
+            ["docker", "images"],
+            ["docker", "system", "df"],
+            ["docker", "volume", "ls"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)

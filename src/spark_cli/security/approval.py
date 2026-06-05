@@ -375,6 +375,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
         )
+    if first == "docker" and (
+        lowered[1:3] in [["system", "prune"], ["image", "prune"], ["container", "prune"], ["volume", "prune"], ["network", "prune"], ["builder", "prune"]]
+        or lowered[1:3] == ["buildx", "prune"]
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Docker prune commands can delete containers, images, volumes, networks, or build cache data.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve docker prune",
+        )
 
     if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
