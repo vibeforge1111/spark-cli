@@ -95,8 +95,52 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+SENSITIVE_FILE_READ_BINS = {"cat", "less", "more", "head", "tail", "type", "get-content", "gc"}
+SENSITIVE_FILE_NAME_PATTERN = re.compile(
+    r"""(?ix)(?:
+        (^|[/\\])\.env(?:\.|$)|
+        (^|[/\\])id_(?:rsa|dsa|ecdsa|ed25519)(?:$|[.\s])|
+        (^|[/\\])\.aws[/\\](?:credentials|config)$|
+        (^|[/\\])\.kube[/\\]config$|
+        (^|[/\\])\.docker[/\\]config\.json$|
+        (^|[/\\])(?:credentials|credentials\.json|service[-_]?account(?:\.json)?)$|
+        (^|[/\\])(?:secrets?|tokens?|api[-_]?keys?)(?:\.[A-Za-z0-9_-]+)?$
+    )"""
+)
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+
+
+def _normalize_pathish(value: str) -> str:
+    value = value.strip().strip("'\"")
+    value = value.replace("\\", "/")
+    value = re.sub(r"^file://", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"^~(?=/|$)", "~", value)
+    return value.rstrip("/")
+
+
+def _looks_like_sensitive_file(value: str) -> bool:
+    normalized = _normalize_pathish(value).lower()
+    if not normalized or normalized.startswith("-"):
+        return False
+    return bool(SENSITIVE_FILE_NAME_PATTERN.search(normalized))
+
+
+def _sensitive_file_read_target(parts: list[str]) -> str:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        if part not in SENSITIVE_FILE_READ_BINS:
+            continue
+        for candidate in parts[index + 1 :]:
+            if candidate == "--":
+                continue
+            if candidate.startswith("-"):
+                continue
+            if _looks_like_sensitive_file(candidate):
+                return candidate
+    return ""
 
 
 def _decision(
@@ -261,6 +305,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command stops Spark, rotates local control keys, removes local secrets, and writes incident state.",
             target_display="spark security revoke-all",
             confirmation_phrase="revoke spark access",
+        )
+
+    sensitive_file_target = _sensitive_file_read_target(parts)
+    if sensitive_file_target:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Command can print local secret-bearing files such as private keys, dotenv files, or cloud credential stores.",
+            target_display=sensitive_file_target,
+            confirmation_phrase="approve local secret file reveal",
         )
 
     if first in {"printenv", "set"} and (
