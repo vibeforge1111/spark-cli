@@ -1463,6 +1463,23 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_cloud_secret_reads(self) -> None:
+        cases = [
+            ["gcloud", "secrets", "versions", "access", "latest", "--secret", "spark"],
+            ["az", "keyvault", "secret", "show", "--vault-name", "spark", "--name", "api-key"],
+            ["az", "keyvault", "secret", "download", "--vault-name", "spark", "--name", "api-key", "--file", "out"],
+            ["doppler", "secrets", "get", "API_KEY", "--plain"],
+            ["doppler", "secrets", "download", "--no-file", "--format", "json"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve cloud secret reveal")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
@@ -1559,6 +1576,11 @@ class SparkCliTests(unittest.TestCase):
             (["env", "TOKEN=redacted", "gh", "auth", "token"], "credential_mutation", "critical"),
             (["printenv"], "credential_mutation", "high"),
             (["aws", "secretsmanager", "get-secret-value", "--secret-id", "spark"], "credential_mutation", "critical"),
+            (["gcloud", "secrets", "versions", "access", "latest", "--secret", "spark"], "credential_mutation", "critical"),
+            (["az", "keyvault", "secret", "show", "--vault-name", "spark", "--name", "api-key"], "credential_mutation", "critical"),
+            (["az", "keyvault", "secret", "download", "--vault-name", "spark", "--name", "api-key", "--file", "out"], "credential_mutation", "critical"),
+            (["doppler", "secrets", "get", "API_KEY", "--plain"], "credential_mutation", "critical"),
+            (["doppler", "secrets", "download", "--no-file", "--format", "json"], "credential_mutation", "critical"),
             (["kubectl", "get", "secret", "spark-token"], "credential_mutation", "critical"),
             (["docker", "login", "ghcr.io"], "credential_mutation", "high"),
             (["find", ".", "-name", "*.sh", "-exec", "sh", "{}", ";"], "remote_code_execution", "high"),

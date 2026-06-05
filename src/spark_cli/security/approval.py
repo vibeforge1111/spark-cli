@@ -302,6 +302,22 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if (
+        (first == "gcloud" and lowered[1:4] == ["secrets", "versions", "access"])
+        or (first == "az" and lowered[1:4] == ["keyvault", "secret", "show"])
+        or (first == "az" and lowered[1:4] == ["keyvault", "secret", "download"])
+        or (first == "doppler" and lowered[1:3] in [["secrets", "get"], ["secrets", "download"]])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Command can reveal cloud secret-manager values.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloud secret reveal",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
