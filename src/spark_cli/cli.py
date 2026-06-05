@@ -9233,7 +9233,9 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     if getattr(args, "prompt_out", None):
         prompt_path = Path(args.prompt_out).expanduser()
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text(prompt, encoding="utf-8")
+        tmp = prompt_path.with_suffix(prompt_path.suffix + ".tmp")
+        tmp.write_text(prompt, encoding="utf-8")
+        tmp.replace(prompt_path)
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
     target = resolve_llm_doctor_target(args)
