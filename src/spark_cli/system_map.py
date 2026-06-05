@@ -1346,7 +1346,13 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
         )
 
     out["parse_errors"] = parse_errors
-    candidates.sort(key=lambda item: str(item.get("latest_ts") or ""), reverse=True)
+    candidates.sort(
+        key=lambda item: (
+            str(item.get("latest_ts") or ""),
+            str(item.get("candidate_id") or ""),
+        ),
+        reverse=True,
+    )
     items = candidates[:20]
     out["counts"] = {
         "candidate_count": len(candidates),
