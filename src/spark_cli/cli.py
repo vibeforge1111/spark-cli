@@ -16843,16 +16843,16 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = config_parser.add_subparsers(dest="config_command", required=True)
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
-    config_get_parser.add_argument("key")
+    config_get_parser.add_argument("key", help="Dotted config key to read (e.g. providers.default, telegram.primary_profile)")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
-    config_set_parser.add_argument("key")
-    config_set_parser.add_argument("value")
+    config_set_parser.add_argument("key", help="Dotted config key to write")
+    config_set_parser.add_argument("value", help="Value to store; JSON-parsed when possible so numbers, booleans, lists, and objects round-trip")
     config_set_parser.set_defaults(func=cmd_config_set)
 
     config_unset_parser = config_sub.add_parser("unset", help="Remove a config value by dotted key")
-    config_unset_parser.add_argument("key")
+    config_unset_parser.add_argument("key", help="Dotted config key to remove")
     config_unset_parser.set_defaults(func=cmd_config_unset)
 
     config_list_parser = config_sub.add_parser("list", help="Dump full user config as JSON")
