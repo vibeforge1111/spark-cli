@@ -1942,6 +1942,7 @@ def atomic_write_json(path: Path, payload: Any) -> None:
     assert_no_linked_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    assert_no_linked_write_path(temp_path)
     try:
         temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         try:
