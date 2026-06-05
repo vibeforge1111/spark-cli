@@ -442,6 +442,169 @@ def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
     return modules
 
 
+def _fake_cli_approval_evidence_ref(
+    kind: str,
+    source: str,
+    summary: str,
+    *,
+    confidence: float = 1.0,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "source": source,
+        "summary": summary,
+        "confidence": confidence,
+    }
+
+
+class FakeCliApprovalHarnessKernel:
+    def __init__(self, *, surface: str) -> None:
+        self.surface = surface
+
+    def proposed_action(
+        self,
+        *,
+        capability_id: str,
+        action_type: str,
+        risk_tier: str,
+        summary: str,
+        args_path: str,
+        requires_confirmation: bool,
+    ) -> dict[str, Any]:
+        return {
+            "action_id": "action:test-cli-approval",
+            "capability_id": capability_id,
+            "action_type": action_type,
+            "risk_tier": risk_tier,
+            "summary": summary,
+            "args_ref": {"uri": args_path},
+            "requires_confirmation": requires_confirmation,
+        }
+
+    def create_envelope(
+        self,
+        *,
+        selected_move: str,
+        intent_summary: str,
+        raw_turn_summary: str,
+        evidence: list[dict[str, Any]],
+        proposed_actions: list[dict[str, Any]],
+        authority_state: str,
+        risk_tier: str,
+        confidence: float,
+        requires_human_confirmation: bool,
+    ) -> dict[str, Any]:
+        return {
+            "turn_id": "turn:test-cli-approval",
+            "surface": self.surface,
+            "selected_move": selected_move,
+            "intent_summary": intent_summary,
+            "raw_turn_summary": raw_turn_summary,
+            "evidence": evidence,
+            "proposed_actions": proposed_actions,
+            "action_authority": {"state": authority_state},
+            "risk_tier": risk_tier,
+            "confidence": confidence,
+            "requires_human_confirmation": requires_human_confirmation,
+        }
+
+    def authorize(
+        self,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        *,
+        approval_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "decision_id": "decision:test-cli-approval",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
+            "verdict": "allow",
+            "approval": {"required": True, "status": "approved", "approval_ref": approval_ref},
+        }
+
+    def record_tool_call(
+        self,
+        *,
+        envelope: dict[str, Any],
+        action: dict[str, Any],
+        authorization: dict[str, Any],
+        tool_name: str,
+        status: str,
+        output_path: str,
+        summary: str,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "tool-call-ledger-v1",
+            "ledger_id": "ledger:test-cli-approval",
+            "turn_id": envelope["turn_id"],
+            "action_id": action["action_id"],
+            "capability_id": action["capability_id"],
+            "tool_name": tool_name,
+            "authorization": authorization,
+            "result": {"status": status, "summary": summary, "sanitized_output_ref": {"uri": output_path}},
+        }
+
+    def governor_decision(
+        self,
+        envelope: dict[str, Any],
+        *,
+        authorizations: list[dict[str, Any]],
+        tool_ledgers: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "decision_id": "governor:test-cli-approval",
+            "outcome": "execute",
+            "envelope": envelope,
+            "authorizations": authorizations,
+            "tool_ledgers": tool_ledgers,
+        }
+
+    def verify_governor_execution_authority(
+        self,
+        governor_decision: dict[str, Any] | None,
+        *,
+        expected_capability_id: str,
+        expected_action_type: str | None = None,
+        tool_name: str | None = None,
+        action_id: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        if not isinstance(governor_decision, dict):
+            return {"allowed": False, "reason_codes": ["missing_governor_decision"]}
+        authorizations = governor_decision.get("authorizations") or []
+        ledgers = governor_decision.get("tool_ledgers") or []
+        authorization = authorizations[0] if authorizations else {}
+        ledger = ledgers[0] if ledgers else {}
+        action = (governor_decision.get("envelope") or {}).get("proposed_actions", [{}])[0]
+        mismatches: list[str] = []
+        if authorization.get("verdict") != "allow":
+            mismatches.append("authorization")
+        if authorization.get("capability_id") != expected_capability_id:
+            mismatches.append("capability_id")
+        if expected_action_type is not None and action.get("action_type") != expected_action_type:
+            mismatches.append("action_type")
+        if tool_name is not None and ledger.get("tool_name") != tool_name:
+            mismatches.append("tool_name")
+        if action_id is not None and authorization.get("action_id") != action_id:
+            mismatches.append("action_id")
+        return {"allowed": not mismatches, "reason_codes": mismatches}
+
+    def finalize_tool_call_ledger(
+        self,
+        ledger: dict[str, Any],
+        *,
+        status: str,
+        output_path: str,
+        summary: str,
+        **_: Any,
+    ) -> dict[str, Any]:
+        updated = dict(ledger)
+        updated["result"] = {"status": status, "summary": summary, "sanitized_output_ref": {"uri": output_path}}
+        return updated
+
+
 class SparkCliTests(unittest.TestCase):
     def test_sandbox_capability_manifest_serializes_stable_payload(self) -> None:
         manifest = CapabilityManifest(
@@ -1657,6 +1820,10 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=True), \
              patch("builtins.input", return_value="approve secret access"), \
+             patch(
+                 "spark_cli.cli.load_harness_core_symbols",
+                 return_value=(FakeCliApprovalHarnessKernel, _fake_cli_approval_evidence_ref),
+             ), \
              patch("spark_cli.cli.cmd_secrets_delete", return_value=0) as delete_secret_command, \
              patch("sys.stdout", new_callable=StringIO):
             self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 0)
@@ -1667,6 +1834,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(ledger["schema_version"], "tool-call-ledger-v1")
         self.assertEqual(ledger["tool_name"], "spark-cli.approval.enforced-command")
         self.assertEqual(ledger["result"]["status"], "success")
+
+    def test_main_blocks_sensitive_command_when_harness_core_is_missing(self) -> None:
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=True), \
+             patch("builtins.input", return_value="approve secret access"), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_secrets_delete", return_value=0) as delete_secret_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["secrets", "delete", "telegram.bot_token"]), 2)
+        delete_secret_command.assert_not_called()
+        self.assertIn("Harness Core authority could not be verified", stdout.getvalue())
 
     def test_validate_init_module_name_rejects_bad_names(self) -> None:
         validate_init_module_name("my-module")
