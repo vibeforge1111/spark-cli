@@ -99,6 +99,23 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _provider_auth_credential_mutation(lowered: list[str]) -> bool:
+    first = lowered[0] if lowered else ""
+    second = lowered[1] if len(lowered) > 1 else ""
+    third = lowered[2] if len(lowered) > 2 else ""
+    if first == "huggingface-cli" and second in {"login", "logout"}:
+        return True
+    if first == "hf" and lowered[1:3] in (["auth", "login"], ["auth", "logout"]):
+        return True
+    if first == "wandb" and second in {"login", "logout"}:
+        return True
+    if first == "modal" and lowered[1:3] == ["token", "set"]:
+        return True
+    if first == "modal" and second == "token" and third in {"delete", "remove", "clear"}:
+        return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +303,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _provider_auth_credential_mutation(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Provider auth command can store, replace, or remove local service credentials.",
+            target_display="provider auth credentials",
+            confirmation_phrase="approve provider auth change",
         )
 
     if first == "aws" and (

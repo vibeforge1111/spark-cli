@@ -1472,6 +1472,36 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_provider_auth_credential_mutation(self) -> None:
+        cases = [
+            ["huggingface-cli", "login", "--token", "placeholder-token"],
+            ["huggingface-cli", "logout"],
+            ["hf", "auth", "login", "--token", "placeholder-token"],
+            ["hf", "auth", "logout"],
+            ["wandb", "login", "placeholder-token"],
+            ["wandb", "logout"],
+            ["modal", "token", "set", "placeholder-id", "placeholder-secret"],
+            ["modal", "token", "delete"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve provider auth change")
+
+        for command in (
+            ["huggingface-cli", "whoami"],
+            ["hf", "auth", "whoami"],
+            ["wandb", "status"],
+            ["modal", "profile", "current"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)
