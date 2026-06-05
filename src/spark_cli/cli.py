@@ -1084,19 +1084,21 @@ def allow_insecure_file_secrets() -> bool:
 def harden_secret_file(path: Path) -> None:
     try:
         os.chmod(path, 0o600)
-    except OSError:
-        pass
+    except OSError as exc:
+        sys.stderr.write(f"Warning: failed to set permissions on {path}: {exc.__class__.__name__}\n")
     if os.name != "nt" or not path.exists():
         return
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
             check=False,
             capture_output=True,
             text=True,
         )
-    except OSError:
-        pass
+        if result.returncode != 0:
+            sys.stderr.write(f"Warning: icacls failed for {path}: {result.stderr.strip()}\n")
+    except OSError as exc:
+        sys.stderr.write(f"Warning: icacls error for {path}: {exc.__class__.__name__}\n")
 
 
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
