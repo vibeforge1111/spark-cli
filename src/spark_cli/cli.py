@@ -13125,10 +13125,12 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         if scope == "user":
             xdg_path = linux_xdg_autostart_path()
             xdg_path.parent.mkdir(parents=True, exist_ok=True)
-            xdg_path.write_text(
+            _xdg_tmp = xdg_path.with_suffix(xdg_path.suffix + ".tmp")
+            _xdg_tmp.write_text(
                 render_linux_xdg_autostart_entry(start_command=start_command),
                 encoding="utf-8",
             )
+            _xdg_tmp.replace(xdg_path)
             xdg_path.chmod(0o600)
             print(f"Installed Linux desktop autostart fallback: {xdg_path}")
         for command in (
