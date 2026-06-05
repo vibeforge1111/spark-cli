@@ -16038,7 +16038,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "/recall <query>", "use": "Search your Spark memory when available." },
             { "command": "/run <goal>", "use": "Create a Spawner mission from Telegram." },
             { "command": "/board", "use": "Show current mission board/status." },
-            { "command": "/access <1|2|3|4>", "use": "Adjust what Spark may do in this Telegram chat." },
+            { "command": "/access <1|2|3|4|5>", "use": "Adjust what Spark may do in this Telegram chat." },
             { "command": "/mission status <id>", "use": "Inspect a mission." },
             { "command": "normal message", "use": "Ask Spark to answer through the configured LLM provider." },
         ],
@@ -16157,7 +16157,7 @@ def cmd_guide(args: argparse.Namespace) -> int:
         print("")
     print("What you can say in Telegram")
     for item in payload["telegram_commands"]:
-        if item["command"] in {"/start", "/myid", "/diagnose", "/remember <note>", "/recall <query>", "/run <goal>", "/board", "/access <1|2|3|4>"}:
+        if item["command"] in {"/start", "/myid", "/diagnose", "/remember <note>", "/recall <query>", "/run <goal>", "/board", "/access <1|2|3|4|5>"}:
             print(f"   {item['command']}: {item['use']}")
     print("")
     print("If something feels stuck")
@@ -16184,7 +16184,7 @@ def cmd_guide(args: argparse.Namespace) -> int:
             print(f"   - {item['about']}")
         if access:
             print(f"   - {access['level5']}")
-        print("   Change it in Telegram with /access <1|2|3|4>.")
+        print("   Change it in Telegram with /access <1|2|3|4|5>.")
         print("")
         print("How the modules work together")
         for item in payload["starter_bundle"]:

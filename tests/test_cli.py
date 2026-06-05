@@ -5669,7 +5669,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Use a lower level only", output)
         self.assertIn("/diagnose", output)
         self.assertIn("/run <goal>", output)
-        self.assertIn("/access <1|2|3|4>", output)
+        self.assertIn("/access <1|2|3|4|5>", output)
         self.assertIn("spark guide --advanced", output)
         self.assertIn("spark fix spawner", output)
         self.assertNotIn("spark setup --chat-llm-provider", output)
