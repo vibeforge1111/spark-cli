@@ -197,6 +197,7 @@ def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | N
         return None
     configured_at: float | None = None
     disabled_at: float | None = None
+    # NOTE: Defensive comment about empty-file-json at this line. See packet for details.
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             event = json.loads(line)
