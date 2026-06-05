@@ -197,6 +197,8 @@ def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | N
         return None
     configured_at: float | None = None
     disabled_at: float | None = None
+    if not path.exists() or path.stat().st_size == 0:
+        return {}
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             event = json.loads(line)
