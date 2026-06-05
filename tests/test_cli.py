@@ -1463,6 +1463,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_credential_file_reads(self) -> None:
+        for command in (
+            ["cat", "~/.aws/credentials"],
+            ["cat", "~/.ssh/id_rsa"],
+            ["head", "-n", "5", ".env"],
+            ["tail", "~/.docker/config.json"],
+            ["grep", "token", "~/.npmrc"],
+            ["rg", "client_secret", "~/.config/gcloud/application_default_credentials.json"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve credential file read")
+
+    def test_approval_classifier_allows_ordinary_file_reads(self) -> None:
+        for command in (
+            ["cat", "README.md"],
+            ["head", "-n", "5", "CHANGELOG.md"],
+            ["grep", "token", "docs/security.md"],
+            ["rg", "credential", "docs/"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
