@@ -38,6 +38,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
+SPARK_CLI_RUN_AUTOSTART_HELPER_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 PRIVATE_FILE_MODE = 0o600
@@ -11983,7 +11985,9 @@ def windows_cmd_c(command: str) -> str:
 
 
 def run_autostart_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    return subprocess.run(command, check=False, capture_output=True, text=True
+    timeout=SPARK_CLI_RUN_AUTOSTART_HELPER_TIMEOUT_SECONDS,
+    )
 
 
 def print_helper_failure(command: list[str], result: subprocess.CompletedProcess[str]) -> None:
