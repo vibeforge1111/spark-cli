@@ -8533,7 +8533,10 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        try:
+            payload = json.loads(response.read().decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}  # malformed JSON, return safe default
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
