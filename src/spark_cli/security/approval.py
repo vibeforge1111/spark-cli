@@ -95,6 +95,37 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_option_value_prefix(parts: list[str], option_names: set[str], suspicious_prefixes: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        value = ""
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if name not in option_names:
+                continue
+        elif part in option_names and index + 1 < len(lowered):
+            value = lowered[index + 1]
+        else:
+            continue
+        normalized = value.strip().lower()
+        if any(normalized == prefix or normalized.startswith(prefix + "=") for prefix in suspicious_prefixes):
+            return True
+    return False
+
+
+def _has_docker_isolation_bypass(parts: list[str]) -> bool:
+    lowered = _lower_parts(parts)
+    if _has_option_value_prefix(lowered, {"--cap-add"}, {"sys_admin"}):
+        return True
+    if _has_option_value(lowered, {"--device"}, {"/dev/kvm", "/dev/fuse", "/dev/mem", "/dev/net/tun"}):
+        return True
+    if _has_option_value_prefix(lowered, {"--pid", "--ipc", "--cgroupns"}, {"host"}):
+        return True
+    if _has_option_value_prefix(lowered, {"--security-opt"}, {"seccomp=unconfined", "apparmor=unconfined", "label=disable"}):
+        return True
+    return False
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
@@ -365,6 +396,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "--network=host" in lowered
         or ("--network" in lowered and "host" in lowered)
         or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
+        or _has_docker_isolation_bypass(lowered)
     ):
         return _decision(
             parts,
