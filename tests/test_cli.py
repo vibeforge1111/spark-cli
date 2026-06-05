@@ -1434,6 +1434,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.risk, "critical")
         self.assertEqual(decision.target_display, "/tmp/spark-test")
 
+    def test_approval_classifier_flags_risky_permission_mutations(self) -> None:
+        for command in (
+            ["chmod", "-R", "755", "project"],
+            ["chmod", "777", "project"],
+            ["chmod", "a+w", "project"],
+            ["chmod", "o+rx", "project"],
+            ["chown", "-R", "user:group", "project"],
+            ["chgrp", "-R", "staff", "project"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve permission change")
+
+    def test_approval_classifier_allows_narrow_permission_and_stat_commands(self) -> None:
+        for command in (
+            ["chmod", "600", "config.json"],
+            ["chmod", "+x", "script.sh"],
+            ["chmod", "--reference=template", "target"],
+            ["chown", "user:group", "file.txt"],
+            ["ls", "-l", "project"],
+            ["stat", "project"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_git_history_mutation(self) -> None:
         decision = approval_required_for_command(["git", "push", "--force-with-lease"], CommandContext())
         self.assertTrue(decision.requires_approval)
