@@ -99,6 +99,18 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _has_short_flag(parts: list[str], flag: str) -> bool:
+    letter = flag.lstrip("-")
+    for part in parts:
+        if part == "--":
+            return False
+        if part.startswith("--") or not part.startswith("-"):
+            continue
+        if letter in part[1:]:
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +298,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if first == "ssh-keygen" and (_has_short_flag(parts[1:], "-p") or _has_short_flag(parts[1:], "-y")):
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "ssh-keygen command can read private keys or mutate SSH key passphrases.",
+            target_display="ssh-keygen private key",
+            confirmation_phrase="approve ssh key access",
         )
 
     if first == "aws" and (
