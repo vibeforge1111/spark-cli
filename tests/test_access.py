@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import build_parser, cmd_access, print_access_payload
 from spark_cli.cli import cmd_sandbox
-from spark_cli.sandbox.access import _parse_utc_timestamp, read_env_file
+from spark_cli.sandbox.access import _parse_utc_timestamp, disable_level5_guardrails, persist_level5_guardrails, read_env_file
 from spark_cli.sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
 
 
@@ -200,6 +200,17 @@ class AccessSetupTests(unittest.TestCase):
         self.assertFalse(payload["level5"]["configured"])
         self.assertEqual(payload["next"], "spark access setup --level 5 --enable-high-agency")
 
+    def test_level5_guardrail_leaf_requires_governor_before_env_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            with self.assertRaisesRegex(RuntimeError, "missing_governor_decision"):
+                persist_level5_guardrails(home=spark_home)
+
+            module_env = spark_home / "config" / "modules"
+            self.assertFalse((module_env / "spawner-ui.env").exists())
+            self.assertFalse((module_env / "spark-telegram-bot.env").exists())
+            self.assertFalse((spark_home / "logs" / "remote" / "access" / "level5.jsonl").exists())
+
     def test_access_setup_level5_writes_guardrail_env_and_requires_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             spark_home = Path(tmpdir) / "spark-home"
@@ -353,6 +364,20 @@ class AccessSetupTests(unittest.TestCase):
         self.assertNotIn("SPARK_ALLOW_HIGH_AGENCY_WORKERS", telegram_env)
         self.assertNotIn("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS", telegram_env)
         self.assertNotIn("SPARK_CODEX_SANDBOX", telegram_env)
+
+    def test_disable_level5_leaf_requires_governor_before_env_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            module_env = spark_home / "config" / "modules"
+            module_env.mkdir(parents=True)
+            spawner_env_path = module_env / "spawner-ui.env"
+            spawner_env_path.write_text("SPARK_ALLOW_HIGH_AGENCY_WORKERS=1\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "missing_governor_decision"):
+                disable_level5_guardrails(home=spark_home)
+
+            self.assertIn("SPARK_ALLOW_HIGH_AGENCY_WORKERS=1", spawner_env_path.read_text(encoding="utf-8"))
+            self.assertFalse((spark_home / "logs" / "remote" / "access" / "level5.jsonl").exists())
 
     def test_access_setup_can_recommend_docker_when_requested_and_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

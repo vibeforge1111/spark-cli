@@ -10360,11 +10360,85 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print(f"Next: {payload.get('next')}")
 
 
+def create_level5_access_governor_decision(*, tool_name: str, summary: str) -> dict[str, Any]:
+    from .sandbox.access import (
+        LEVEL5_ACTION_TYPE,
+        LEVEL5_DISABLE_CAPABILITY_ID,
+        LEVEL5_DISABLE_TOOL_NAME,
+        LEVEL5_ENABLE_CAPABILITY_ID,
+        LEVEL5_ENABLE_TOOL_NAME,
+    )
+
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    if tool_name == LEVEL5_ENABLE_TOOL_NAME:
+        capability_id = LEVEL5_ENABLE_CAPABILITY_ID
+        args_path = "spark-cli-access://level5/enable"
+    elif tool_name == LEVEL5_DISABLE_TOOL_NAME:
+        capability_id = LEVEL5_DISABLE_CAPABILITY_ID
+        args_path = "spark-cli-access://level5/disable"
+    else:
+        raise RuntimeError(f"Unsupported Level 5 access tool: {tool_name}")
+    evidence = [
+        evidence_ref(
+            "fresh_user_intent",
+            "spark-cli.access",
+            "Local operator invoked an explicit Spark CLI Level 5 access command.",
+            confidence=1.0,
+        ),
+        evidence_ref(
+            "human_confirmation",
+            "spark-cli.access",
+            "The command line includes the explicit Level 5 access operation.",
+            confidence=1.0,
+        ),
+    ]
+    action = kernel.proposed_action(
+        capability_id=capability_id,
+        action_type=LEVEL5_ACTION_TYPE,
+        risk_tier="high",
+        summary=summary,
+        args_path=args_path,
+        requires_confirmation=True,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=summary,
+        raw_turn_summary="Local operator typed an explicit Spark CLI Level 5 access command.",
+        evidence=evidence,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier="high",
+        confidence=1.0,
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=evidence[1])
+    ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=args_path,
+        summary="Level 5 access mutation is authorized but not started.",
+    )
+    return kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[ledger],
+        reply_style="compact_status",
+        reply_instruction=summary,
+    )
+
+
 def cmd_access(args: argparse.Namespace) -> int:
-    from .sandbox.access import access_lane_payload, level5_disable_payload
+    from .sandbox.access import LEVEL5_DISABLE_TOOL_NAME, LEVEL5_ENABLE_TOOL_NAME, access_lane_payload, level5_disable_payload
 
     if getattr(args, "access_command", "") == "disable-level5":
-        payload = level5_disable_payload()
+        governor_decision = create_level5_access_governor_decision(
+            tool_name=LEVEL5_DISABLE_TOOL_NAME,
+            summary="Disable persisted Spark Level 5 access guardrails.",
+        )
+        payload = level5_disable_payload(governor_decision=governor_decision)
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
@@ -10377,11 +10451,22 @@ def cmd_access(args: argparse.Namespace) -> int:
     goal = str(getattr(args, "goal", "") or "")
     if requested_lane and requested_lane not in goal.lower():
         goal = f"{goal} {requested_lane}".strip()
+    governor_decision = None
+    if (
+        getattr(args, "access_command", "") == "setup"
+        and int(getattr(args, "level", 4) or 4) >= 5
+        and bool(getattr(args, "enable_high_agency", False))
+    ):
+        governor_decision = create_level5_access_governor_decision(
+            tool_name=LEVEL5_ENABLE_TOOL_NAME,
+            summary="Persist Spark Level 5 high-agency access guardrails.",
+        )
     payload = access_lane_payload(
         level=int(getattr(args, "level", 4) or 4),
         goal=goal,
         setup=getattr(args, "access_command", "") == "setup",
         enable_high_agency=bool(getattr(args, "enable_high_agency", False)),
+        governor_decision=governor_decision,
     )
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
