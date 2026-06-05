@@ -1451,6 +1451,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "git_history_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
 
+    def test_approval_classifier_flags_git_reflog_and_prune_recovery_data_deletion(self) -> None:
+        for command in (
+            ["git", "reflog", "expire", "--expire=now", "--all"],
+            ["git", "reflog", "delete", "HEAD@{1}"],
+            ["git", "gc", "--prune=now"],
+            ["git", "gc", "--prune", "now"],
+            ["git", "prune"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "git_history_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_allows_read_only_git_recovery_inspection(self) -> None:
+        for command in (
+            ["git", "reflog"],
+            ["git", "reflog", "show"],
+            ["git", "fsck"],
+            ["git", "gc"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)

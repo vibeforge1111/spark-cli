@@ -219,13 +219,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "--force-with-lease" in lowered
         or "-f" in lowered and second in {"push", "tag"}
         or second in {"rebase", "reset"}
+        or lowered[1:3] in (["reflog", "expire"], ["reflog", "delete"])
+        or second == "prune"
+        or (second == "gc" and any(part == "--prune" or part.startswith("--prune=") for part in lowered[2:]))
     ):
         return _decision(
             parts,
             ctx,
             "git_history_mutation",
             "critical",
-            "Command can rewrite published history or discard local work.",
+            "Command can rewrite history, discard local work, or remove Git recovery data.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve git history mutation",
         )
