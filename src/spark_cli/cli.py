@@ -13665,7 +13665,8 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
 
     spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
     healthcheck_command = "python -c \"print('ok')\"" if kind == "python" else "node -e \"console.log('ok')\""
-    readme.write_text(
+    _readme_tmp = readme.with_suffix(readme.suffix + ".tmp")
+    _readme_tmp.write_text(
         INIT_README_TEMPLATE.format(
             name=name,
             description=description,
@@ -13674,6 +13675,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
+    _readme_tmp.replace(readme)
     gitignore.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
