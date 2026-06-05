@@ -3192,6 +3192,7 @@ def builder_trace_missing_source_state(
 
     where_sql, params = builder_trace_group_where(group_columns, values)
     order_column = "created_at" if "created_at" in columns else "rowid"
+    # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
     latest = conn.execute(
         f"""
         select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
