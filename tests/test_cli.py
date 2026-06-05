@@ -1472,6 +1472,33 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_aws_credential_mutations(self) -> None:
+        for command in (
+            ["aws", "configure", "set", "aws_access_key_id", "placeholder-value"],
+            ["aws", "configure", "set", "aws_secret_access_key", "placeholder-value"],
+            ["aws", "configure", "set", "aws_session_token", "placeholder-value"],
+            ["aws", "configure", "import-sso", "--sso-session", "demo"],
+            ["aws", "configure", "sso", "--profile", "demo"],
+            ["aws", "sso", "login", "--sso-session", "demo"],
+            ["aws", "sso", "logout"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve cloud credential change")
+
+    def test_approval_classifier_allows_benign_aws_config_commands(self) -> None:
+        for command in (
+            ["aws", "configure", "list"],
+            ["aws", "configure", "get", "region"],
+            ["aws", "configure", "set", "region", "us-east-1"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)
