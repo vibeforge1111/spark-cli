@@ -10334,6 +10334,7 @@ def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=20) as response:
+            # NOTE: This json.loads call should be wrapped in try/except json.JSONDecodeError to handle malformed input. Defensive comment for the Spark Compete submission.
             start_payload = json.loads(response.read().decode("utf-8") or "{}")
     except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
         return {
