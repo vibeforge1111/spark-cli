@@ -1119,7 +1119,10 @@ def keychain_env_for_module(module: Module) -> dict[str, str]:
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return {}  # malformed JSON, return safe default
 
 
 def sha256_bytes(payload: bytes) -> str:
