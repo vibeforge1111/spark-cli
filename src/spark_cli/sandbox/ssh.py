@@ -475,11 +475,11 @@ def trust_ssh_target_host_key(
             if raw_line.strip() and not raw_line.startswith(f"{alias} "):
                 lines.append(raw_line)
     lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fd = os.open(str(known_hosts), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        known_hosts.chmod(0o600)
-    except OSError:
-        pass
+        os.write(fd, ("\n".join(lines) + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
     trusted = SshTarget(
         **{
             **target.to_dict(),
