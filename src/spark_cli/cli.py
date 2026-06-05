@@ -16515,9 +16515,10 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
         default="telegram",
+        help="Repair area: telegram (bot connection), secrets (stored values), spawner (mission control), providers (LLM wiring), memory (Builder bridge), live (Spark Live runtime), update (managed clone refresh), or autostart (OS login hook). Defaults to 'telegram'.",
     )
     fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
-    fix_parser.add_argument("--json", action="store_true")
+    fix_parser.add_argument("--json", action="store_true", help="Emit the repair plan as structured JSON instead of plain text")
     fix_parser.set_defaults(func=cmd_fix)
 
     providers_parser = subparsers.add_parser("providers", help="Inspect Spark LLM provider choices and role wiring")
