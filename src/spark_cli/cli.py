@@ -12261,9 +12261,11 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
             service_path.unlink()
             print(f"Removed Spark autostart service: {service_path}")
         xdg_path = linux_xdg_autostart_path()
-        if xdg_path.exists():
+        try:
             xdg_path.unlink()
             print(f"Removed Linux desktop autostart fallback: {xdg_path}")
+        except FileNotFoundError:
+            pass
         reload_command = systemctl_command(scope, "daemon-reload")
         result = run_autostart_helper(reload_command)
         if result.returncode != 0:
