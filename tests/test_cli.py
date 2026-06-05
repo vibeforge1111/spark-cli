@@ -2780,6 +2780,16 @@ class SparkCliTests(unittest.TestCase):
                 errors = validate_url_safety(url, label="provider endpoint")
                 self.assertTrue(any("cloud metadata service" in error for error in errors), errors)
 
+    def test_url_policy_rejects_malformed_ipv6_hosts_without_crashing(self) -> None:
+        cases = [
+            "http://[::1",
+            "http://[not-ip]/",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                errors = validate_url_safety(url, label="provider endpoint")
+                self.assertTrue(any("not a valid URL" in error for error in errors), errors)
+
     def test_url_policy_allows_local_provider_targets_by_default(self) -> None:
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
