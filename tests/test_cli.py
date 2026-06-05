@@ -1513,6 +1513,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_public_file_server_binds(self) -> None:
+        for command in (
+            ["python", "-m", "http.server", "--bind", "0.0.0.0", "8000"],
+            ["python3.12", "-m", "http.server", "-b", "::", "8000"],
+            ["php", "-S", "0.0.0.0:8000"],
+            ["httpd", "-f", "-p", "[::]:8000"],
+            ["busybox", "httpd", "-f", "-p", "0.0.0.0:8000"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.confirmation_phrase, "approve public file server")
+
+    def test_approval_classifier_allows_local_file_server_binds(self) -> None:
+        for command in (
+            ["python", "-m", "http.server", "--bind", "127.0.0.1", "8000"],
+            ["python", "-m", "http.server", "--bind=localhost", "8000"],
+            ["php", "-S", "localhost:8000"],
+            ["busybox", "httpd", "-f", "-p", "127.0.0.1:8000"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
