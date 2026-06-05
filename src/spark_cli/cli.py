@@ -8562,7 +8562,10 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        try:
+            payload = json.loads(response.read().decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}  # malformed JSON, return safe default
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
