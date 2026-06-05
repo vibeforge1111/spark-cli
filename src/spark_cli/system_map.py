@@ -2977,6 +2977,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             out["row_count"] = total
             for column in ("trace_ref", "request_id", "parent_event_id"):
                 if column in columns:
+                    # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                     missing = conn.execute(
                         f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
                     ).fetchone()[0]
