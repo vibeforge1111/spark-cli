@@ -99,6 +99,25 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _remote_copy_upload(parts: list[str], lowered: list[str]) -> bool:
+    first = lowered[0] if lowered else ""
+    if first not in {"scp", "rsync"}:
+        return False
+    operands = [part for part in parts[1:] if not part.startswith("-")]
+    if len(operands) < 2:
+        return False
+    return _looks_remote_copy_target(operands[-1]) and not all(_looks_remote_copy_target(part) for part in operands[:-1])
+
+
+def _looks_remote_copy_target(value: str) -> bool:
+    if "://" in value or re.match(r"^[A-Za-z]:[\\/]", value):
+        return False
+    host, separator, target = value.partition(":")
+    if not separator or not host or not target or "/" in host or "\\" in host:
+        return False
+    return "@" in host or "." in host
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -500,6 +519,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "network_exfiltration",
             "medium",
             "Command may upload local data to a network endpoint.",
+            target_display=parts[0],
+            confirmation_phrase="approve network upload",
+        )
+    if _remote_copy_upload(parts, lowered):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "Remote copy command may upload local files to another host.",
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )
