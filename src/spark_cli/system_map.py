@@ -2678,6 +2678,7 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
                 ).fetchall()
                 out[f"{column}_counts"] = {str(row["value"]): int(row["n"]) for row in rows}
             for column in ("trace_ref", "request_id", "correlation_id", "parent_event_id"):
+                # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                 missing = conn.execute(
                     f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
                 ).fetchone()[0]
