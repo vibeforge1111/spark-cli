@@ -1491,6 +1491,20 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_package_runner_execution(self) -> None:
+        for command in (
+            ["npx", "--yes", "cowsay@latest", "hello"],
+            ["npm", "exec", "--yes", "cowsay@latest", "--", "hello"],
+            ["pnpm", "dlx", "cowsay@latest", "hello"],
+            ["yarn", "dlx", "cowsay@latest", "hello"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+
     def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
         for command in (
             ["curl", "-f", "https://example.test/health"],
