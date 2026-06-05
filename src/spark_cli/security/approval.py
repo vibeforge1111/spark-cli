@@ -99,6 +99,19 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _package_manager_auth_mutation(lowered: list[str]) -> bool:
+    if len(lowered) < 2:
+        return False
+    first, second = lowered[:2]
+    if first in {"npm", "pnpm"}:
+        if second in {"login", "logout", "adduser"}:
+            return True
+        return len(lowered) > 2 and lowered[1:3] in (["token", "create"], ["token", "revoke"], ["token", "delete"])
+    if first == "yarn" and len(lowered) > 2 and lowered[1] == "npm":
+        return lowered[2] in {"login", "logout"}
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +299,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _package_manager_auth_mutation(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Package manager auth command can store, remove, create, or revoke registry credentials.",
+            target_display="package manager auth",
+            confirmation_phrase="approve package auth change",
         )
 
     if first == "aws" and (
