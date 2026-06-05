@@ -12898,8 +12898,10 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         for process_key in process_keys:
             stop_tracked_process_key(process_key)
         generated_path = generated_module_env_path(module)
-        if generated_path.exists():
+        try:
             generated_path.unlink()
+        except FileNotFoundError:
+            pass
         env_path = module_env_path(module)
         if env_path is not None:
             remove_managed_env_block(env_path)
