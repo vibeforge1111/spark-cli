@@ -99,6 +99,16 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _has_input_redirection(parts: list[str]) -> bool:
+    return "<" in parts or any(part.startswith("<") and len(part) > 1 for part in parts)
+
+
+def _socat_uploads_file_to_network(lowered: list[str]) -> bool:
+    has_file_source = any(part.startswith(("file:", "open:")) for part in lowered[1:])
+    has_network_target = any(part.startswith(("tcp:", "tcp4:", "tcp6:", "ssl:", "tls:", "udp:", "udp4:", "udp6:")) for part in lowered[1:])
+    return has_file_source and has_network_target
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -500,6 +510,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "network_exfiltration",
             "medium",
             "Command may upload local data to a network endpoint.",
+            target_display=parts[0],
+            confirmation_phrase="approve network upload",
+        )
+    if (
+        (first in {"nc", "netcat", "ncat"} and _has_input_redirection(parts[1:]))
+        or (first == "socat" and _socat_uploads_file_to_network(lowered))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "Command may stream local file data to a raw socket endpoint.",
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )
