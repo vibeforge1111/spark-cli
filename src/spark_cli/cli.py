@@ -1961,6 +1961,25 @@ def atomic_write_json(path: Path, payload: Any) -> None:
             pass
 
 
+def atomic_write_text(path: Path, content: str) -> None:
+    assert_no_linked_write_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    try:
+        temp_path.write_text(content, encoding="utf-8")
+        try:
+            os.chmod(temp_path, PRIVATE_FILE_MODE)
+        except OSError:
+            pass
+        os.replace(temp_path, path)
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
+
+
 def save_json(path: Path, payload: Any) -> None:
     atomic_write_json(path, payload)
 
@@ -3134,8 +3153,7 @@ def spark_builder_home() -> Path:
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
     lines = [f"{key}={value}" for key, value in values.items()]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
