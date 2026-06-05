@@ -99,6 +99,26 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _contains_upload_verb(parts: list[str]) -> bool:
+    upload_verbs = {"put", "mput", "send", "append", "reput"}
+    for part in parts:
+        if part.startswith("-"):
+            continue
+        tokens = [token for token in re.split(r"[^A-Za-z0-9_-]+", part.lower()) if token]
+        if any(token in upload_verbs for token in tokens):
+            return True
+    return False
+
+
+def _contains_lftp_reverse_mirror(parts: list[str]) -> bool:
+    has_mirror = any(
+        "mirror" in {token for token in re.split(r"[^A-Za-z0-9_-]+", part.lower()) if token}
+        for part in parts
+        if not part.startswith("-")
+    )
+    return has_mirror and _contains_any(_lower_parts(parts), {"-r", "--reverse"})
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -500,6 +520,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "network_exfiltration",
             "medium",
             "Command may upload local data to a network endpoint.",
+            target_display=parts[0],
+            confirmation_phrase="approve network upload",
+        )
+    if (
+        (first == "ftp" and (_contains_any(lowered, {"-u", "--upload-file"}) or _contains_upload_verb(parts[1:])))
+        or (first == "lftp" and (_contains_upload_verb(parts[1:]) or _contains_lftp_reverse_mirror(parts[1:])))
+        or (first == "sftp" and (_contains_any(lowered, {"-b", "-bb", "-batchfile"}) or _contains_upload_verb(parts[1:])))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "FTP client command may upload local data to a remote endpoint.",
             target_display=parts[0],
             confirmation_phrase="approve network upload",
         )

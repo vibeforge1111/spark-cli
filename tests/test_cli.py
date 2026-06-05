@@ -1513,6 +1513,33 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_ftp_client_upload_forms(self) -> None:
+        for command in (
+            ["ftp", "-u", "ftp://example.test/incoming/report.txt", "report.txt"],
+            ["ftp", "put", "report.txt"],
+            ["lftp", "-e", "put report.txt; bye", "ftp://example.test"],
+            ["lftp", "mirror", "-R", "dist", "ftp://example.test/dist"],
+            ["sftp", "-b", "upload.batch", "user@example.test"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_allows_read_only_ftp_client_forms(self) -> None:
+        for command in (
+            ["ftp", "ftp://example.test"],
+            ["ftp", "ls"],
+            ["lftp", "-e", "ls; bye", "ftp://example.test"],
+            ["lftp", "mirror", "ftp://example.test/public", "public"],
+            ["sftp", "user@example.test"],
+            ["sftp", "-h"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
