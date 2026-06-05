@@ -3287,6 +3287,7 @@ def builder_high_severity_source_state(
         identity_columns = [column for column in ("component", "event_type") if column in columns]
     where_sql, params = builder_trace_group_where(identity_columns, values)
     order_column = "created_at" if "created_at" in columns else "rowid"
+    # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
     latest = conn.execute(
         f"""
         select status, severity, trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
