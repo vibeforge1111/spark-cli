@@ -1434,6 +1434,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.risk, "critical")
         self.assertEqual(decision.target_display, "/tmp/spark-test")
 
+    def test_approval_classifier_flags_file_wipe_and_zero_truncation(self) -> None:
+        for command in (
+            ["shred", "-u", "report.txt"],
+            ["srm", "report.txt"],
+            ["wipe", "-r", "workspace"],
+            ["truncate", "-s", "0", "report.txt"],
+            ["truncate", "--size=0", "report.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve file wipe")
+
+    def test_approval_classifier_allows_nonzero_truncate_size(self) -> None:
+        decision = approval_required_for_command(["truncate", "-s", "1M", "report.img"], CommandContext(non_interactive=True))
+        self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_git_history_mutation(self) -> None:
         decision = approval_required_for_command(["git", "push", "--force-with-lease"], CommandContext())
         self.assertTrue(decision.requires_approval)
