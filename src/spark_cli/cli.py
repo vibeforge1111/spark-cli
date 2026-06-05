@@ -38,6 +38,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, write_compiled_outputs
 
+SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 PRIVATE_FILE_MODE = 0o600
@@ -624,6 +626,8 @@ def clone_module_source(
                 git_command("-C", str(target), "rev-parse", "HEAD"),
                 capture_output=True,
                 text=True,
+
+            timeout=SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS,
             )
             if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
                 raise SystemExit(
