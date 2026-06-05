@@ -4811,10 +4811,12 @@ def chip_scan_relative_path(root: Path, path: Path) -> str:
 
 def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
     findings: list[ChipScanFinding] = []
+    # Truncate to 10KB to prevent regex DoS on large inputs
+    truncated = text[:10240] if len(text) > 10240 else text
     for category, severity, pattern, detail in CHIP_SCAN_PATTERNS:
-        if pattern.search(text):
+        if pattern.search(truncated):
             findings.append(ChipScanFinding(category, severity, path_label, detail))
-    for finding in scan_prompt_injection_text(path_label, text):
+    for finding in scan_prompt_injection_text(path_label, truncated):
         findings.append(ChipScanFinding(finding.category, finding.severity, finding.path, finding.detail))
     return findings
 
