@@ -13,6 +13,7 @@ from ..env_files import normalize_env_file_value
 from .audit import sandbox_audit_ref, write_audit_event
 from .docker import collect_docker_doctor_payload
 from .modal import modal_auth_markers, modal_sdk_available
+from .paths import os_family as access_os_family
 from .ssh import load_ssh_targets
 
 
@@ -49,17 +50,6 @@ LOWER_ACCESS_PROFILES: dict[int, dict[str, str]] = {
         "next": "Use `/access 4` when Spark should prepare a safe local workspace.",
     },
 }
-
-
-def access_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
 
 
 def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
