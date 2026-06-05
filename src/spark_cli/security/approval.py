@@ -99,6 +99,27 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _package_install_target(parts: list[str], lowered: list[str]) -> str:
+    first = lowered[0] if lowered else ""
+    second = lowered[1] if len(lowered) > 1 else ""
+    third = lowered[2] if len(lowered) > 2 else ""
+    if first in {"python", "python3", "py"} and second == "-m" and third == "pip" and len(lowered) > 3:
+        action = lowered[3]
+        if action == "install":
+            return "python -m pip install"
+    if first == "uv" and second == "pip" and third == "install":
+        return "uv pip install"
+    if first in {"pip", "pip3", "pipx"} and second == "install":
+        return f"{parts[0]} install"
+    if first in {"npm", "pnpm", "bun"} and second in {"install", "i", "add", "ci"}:
+        return f"{parts[0]} {parts[1]}"
+    if first == "yarn" and second in {"install", "add"}:
+        return f"{parts[0]} {parts[1]}"
+    if first in {"poetry", "pipenv"} and second in {"install", "add"}:
+        return f"{parts[0]} {parts[1]}"
+    return ""
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -358,6 +379,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Git submodule commands can add or fetch executable code from another repository.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve submodule code fetch",
+        )
+
+    package_install_target = _package_install_target(parts, lowered)
+    if package_install_target:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Package manager install commands can fetch packages and run lifecycle or setup code.",
+            target_display=package_install_target,
+            confirmation_phrase="approve package install",
         )
 
     if first == "docker" and (

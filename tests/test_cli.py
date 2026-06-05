@@ -1491,6 +1491,41 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_package_manager_installs(self) -> None:
+        for command in (
+            ["pip", "install", "example-package"],
+            ["python", "-m", "pip", "install", "example-package"],
+            ["uv", "pip", "install", "example-package"],
+            ["npm", "install", "example-package"],
+            ["npm", "ci"],
+            ["pnpm", "add", "example-package"],
+            ["yarn", "install"],
+            ["bun", "add", "example-package"],
+            ["poetry", "install"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve package install")
+
+    def test_approval_classifier_allows_package_metadata_commands(self) -> None:
+        for command in (
+            ["pip", "index", "versions", "example-package"],
+            ["pip", "show", "example-package"],
+            ["npm", "view", "example-package", "version"],
+            ["npm", "ls", "--depth", "0"],
+            ["pnpm", "list"],
+            ["yarn", "info", "example-package"],
+            ["bun", "pm", "ls"],
+            ["poetry", "show"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
         for command in (
             ["curl", "-f", "https://example.test/health"],
