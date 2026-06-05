@@ -14876,6 +14876,14 @@ def print_helper_failure(command: list[str], result: subprocess.CompletedProcess
 
 
 def install_windows_fallback_autostart(start_command: str) -> tuple[Path, bool]:
+    # Validate start_command does not contain shell metacharacters to prevent injection
+    _SHELL_METACHARS = {"&", "|", ";", ">", "<", "`"}
+    for i, ch in enumerate(start_command):
+        if ch in _SHELL_METACHARS:
+            raise ValueError(
+                f"start_command contains shell metacharacter {ch!r} at position {i}: "
+                f"refusing to write autostart script"
+            )
     startup_path = windows_startup_script_path()
     write_windows_startup_script(startup_path, start_command)
     legacy_cmd_path = windows_startup_legacy_cmd_path()
