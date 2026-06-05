@@ -1101,7 +1101,10 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
     repair_command = telegram_token_repair_command(secret_id)
     try:
         with urllib.request.urlopen(url, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            try:
+                payload = json.loads(response.read().decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"Telegram returned a non-JSON response for {secret_id}: {exc}") from exc
     except urllib.error.HTTPError as error:
         if error.code in {401, 404}:
             raise SystemExit(
