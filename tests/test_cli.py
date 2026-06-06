@@ -1491,6 +1491,37 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "remote_code_execution")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_deno_remote_or_permissioned_run(self) -> None:
+        cases = [
+            ["deno", "run", "https://example.test/install.ts"],
+            ["deno", "run", "jsr:@example/tool"],
+            ["deno", "run", "npm:@example/tool"],
+            ["deno", "run", "--allow-all", "script.ts"],
+            ["deno", "run", "-A", "script.ts"],
+            ["deno", "run", "--allow-net=example.test", "https://example.test/tool.ts"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve deno execution")
+
+    def test_approval_classifier_allows_deno_report_and_format_commands(self) -> None:
+        cases = [
+            ["deno", "--version"],
+            ["deno", "fmt", "mod.ts"],
+            ["deno", "cache", "https://example.test/tool.ts"],
+            ["deno", "run", "script.ts"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
         for command in (
             ["curl", "-f", "https://example.test/health"],

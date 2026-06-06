@@ -64,6 +64,10 @@ def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
+def _looks_like_remote_spec(value: str) -> bool:
+    return bool(re.match(r"(?i)^(?:https?://|jsr:|npm:)", value))
+
+
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
         if part.lower() in command_names and index + 1 < len(parts):
@@ -336,6 +340,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command appears to download remote code and execute it.",
             target_display=parts[0],
             confirmation_phrase="approve remote code execution",
+        )
+
+    if first == "deno" and second == "run" and (
+        any(_looks_like_remote_spec(part) for part in lowered[2:])
+        or any(part == "-a" or part.startswith("--allow-") for part in lowered[2:])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Deno command can fetch remote code or run code with explicit runtime permissions.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve deno execution",
         )
 
     if first == "find" and any(part in {"-exec", "-execdir"} for part in lowered):
