@@ -64,6 +64,27 @@ def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
+def _contains_command_after_options(parts: list[str], command_names: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    index = 1
+    options_with_values = {"-n", "--namespace", "--context", "--kubeconfig"}
+    while index < len(lowered):
+        part = lowered[index]
+        if part in command_names:
+            return True
+        if part in options_with_values:
+            index += 2
+            continue
+        if any(part.startswith(f"{option}=") for option in options_with_values):
+            index += 1
+            continue
+        if part.startswith("-"):
+            index += 1
+            continue
+        return False
+    return False
+
+
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
         if part.lower() in command_names and index + 1 < len(parts):
@@ -409,6 +430,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can mutate repository secrets/variables, merge PRs, or publish releases.",
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
+        )
+    if first == "kubectl" and _contains_command_after_options(lowered, {"port-forward", "proxy"}):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "high",
+            "Kubernetes command can expose cluster services or the API proxy through a local network listener.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes network exposure",
         )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
