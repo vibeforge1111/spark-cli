@@ -10814,7 +10814,7 @@ def create_cli_approval_harness_authority(decision: Any, command_argv: list[str]
     }
 
 
-def command_is_harness_core_bootstrap_install(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
+def command_is_harness_core_bootstrap_mutation(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
     if str(getattr(decision, "action_class", "")) != "runtime_state_mutation":
         return False
     if str(getattr(args, "target", "")) != "spark-harness-core":
@@ -10822,7 +10822,12 @@ def command_is_harness_core_bootstrap_install(args: argparse.Namespace, decision
     if not bool(getattr(args, "skip_install_commands", False)):
         return False
     normalized = [str(part) for part in command_argv]
-    return len(normalized) >= 3 and normalized[0] == "spark" and normalized[1] == "install" and normalized[2] == "spark-harness-core"
+    return (
+        len(normalized) >= 3
+        and normalized[0] == "spark"
+        and normalized[1] in {"install", "update"}
+        and normalized[2] == "spark-harness-core"
+    )
 
 
 def create_cli_approval_bootstrap_authority(
@@ -10849,26 +10854,32 @@ def create_cli_approval_bootstrap_authority(
             "requires_exact_phrase": True,
             "requires_interactive_tty": True,
             "requires_skip_install_commands": True,
-            "authority_limit": "install spark-harness-core only; all later sensitive commands require Harness Core authority",
+            "authority_limit": "install/update spark-harness-core only; all later sensitive commands require Harness Core authority",
         },
     }
 
 
-def cli_harness_core_is_importable() -> bool:
+def cli_harness_core_authority_ready() -> bool:
     try:
-        load_harness_core_symbols()
-        return True
+        HarnessKernel, _ = load_harness_core_symbols()
     except Exception:
         return False
+    required_methods = (
+        "governor_decision",
+        "verify_governor_execution_authority",
+        "record_tool_call",
+        "finalize_tool_call_ledger",
+    )
+    return all(callable(getattr(HarnessKernel, method, None)) for method in required_methods)
 
 
 def bootstrap_digest_approval_allows(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
-    if not command_is_harness_core_bootstrap_install(args, decision, command_argv):
+    if not command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
         return False
     provided = os.environ.get(CLI_APPROVAL_BOOTSTRAP_DIGEST_ENV, "").strip().lower()
     if not provided or provided != str(getattr(decision, "command_digest", "")).strip().lower():
         return False
-    return not cli_harness_core_is_importable()
+    return not cli_harness_core_authority_ready()
 
 
 def cli_approval_authority_allows(authority: Any, *, action_class: str | None = None) -> bool:
@@ -10911,7 +10922,7 @@ def finalize_cli_approval_authority(args: argparse.Namespace, exit_code: int) ->
             "result": {
                 "status": "success" if exit_code == 0 else "failure",
                 "exit_code": exit_code,
-                "summary": "Harness Core bootstrap install completed; subsequent sensitive commands require Harness Core authority.",
+                "summary": "Harness Core bootstrap mutation completed; subsequent sensitive commands require Harness Core authority.",
             },
         }
         atomic_write_json(ledger_path, ledger)
@@ -10958,7 +10969,7 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
             args,
             decision,
             command_argv,
-            reason="Harness Core missing during digest-bound bootstrap install.",
+            reason="Harness Core authority API missing during digest-bound bootstrap mutation.",
         )
         setattr(args, "_spark_cli_approval_authority", authority)
         return None
@@ -10987,12 +10998,12 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     try:
         authority = create_cli_approval_harness_authority(decision, command_argv)
     except Exception as exc:
-        if command_is_harness_core_bootstrap_install(args, decision, command_argv):
+        if command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
             authority = create_cli_approval_bootstrap_authority(
                 args,
                 decision,
                 command_argv,
-                reason=f"Harness Core missing during explicit bootstrap install: {exc}",
+                reason=f"Harness Core authority API missing during explicit bootstrap mutation: {exc}",
             )
             setattr(args, "_spark_cli_approval_authority", authority)
             return None

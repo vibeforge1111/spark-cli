@@ -2036,6 +2036,31 @@ class SparkCliTests(unittest.TestCase):
         install_command.assert_not_called()
         self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
 
+    def test_main_allows_digest_bound_harness_core_update_when_authority_api_is_missing(self) -> None:
+        class MissingGovernorHarnessKernel:
+            pass
+
+        command = ["spark", "update", "spark-harness-core", "--skip-install-commands"]
+        decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch.dict(os.environ, {"SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST": decision.command_digest}), \
+             patch("spark_cli.cli.CLI_APPROVAL_LEDGER_DIR", Path(tmp_dir)), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch(
+                 "spark_cli.cli.load_harness_core_symbols",
+                 return_value=(MissingGovernorHarnessKernel, _fake_cli_approval_evidence_ref),
+             ), \
+             patch("spark_cli.cli.cmd_update", return_value=0) as update_command, \
+             patch("sys.stdout", new_callable=StringIO):
+            self.assertEqual(main(["update", "spark-harness-core", "--skip-install-commands"]), 0)
+            ledger_files = list(Path(tmp_dir).glob("*.json"))
+            ledger = json.loads(ledger_files[0].read_text(encoding="utf-8")) if ledger_files else {}
+        update_command.assert_called_once()
+        self.assertEqual(ledger["schema_version"], "spark-cli-approval-bootstrap-ledger-v1")
+        self.assertEqual(ledger["target"], "spark-harness-core")
+        self.assertEqual(ledger["result"]["status"], "success")
+
     def test_validate_init_module_name_rejects_bad_names(self) -> None:
         validate_init_module_name("my-module")
         validate_init_module_name("m1")
