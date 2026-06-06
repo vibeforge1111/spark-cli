@@ -1513,6 +1513,36 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_public_tunnels(self) -> None:
+        for command in (
+            ["ngrok", "http", "8000"],
+            ["ngrok", "tcp", "22"],
+            ["ngrok", "start", "demo"],
+            ["cloudflared", "tunnel", "--url", "http://127.0.0.1:8000"],
+            ["cloudflared", "tunnel", "run", "demo-tunnel"],
+            ["lt", "--port", "8000"],
+            ["localtunnel", "--port", "8000"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve public tunnel")
+
+    def test_approval_classifier_allows_public_tunnel_status_commands(self) -> None:
+        for command in (
+            ["ngrok", "version"],
+            ["ngrok", "--help"],
+            ["cloudflared", "version"],
+            ["cloudflared", "tunnel", "list"],
+            ["localtunnel", "--help"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
