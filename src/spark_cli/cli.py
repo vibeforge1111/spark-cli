@@ -121,6 +121,7 @@ BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
 CLI_APPROVAL_LEDGER_DIR = STATE_DIR / "approval-ledgers"
 CLI_APPROVAL_TOOL_NAME = "spark-cli.approval.enforced-command"
+CLI_APPROVAL_BOOTSTRAP_TOOL_NAME = "spark-cli.approval.harness-core-bootstrap"
 CLI_APPROVAL_CAPABILITY_PREFIX = "capability:spark-cli:approval"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_PROBE_URL = "https://example.com"
@@ -10812,9 +10813,56 @@ def create_cli_approval_harness_authority(decision: Any, command_argv: list[str]
     }
 
 
+def command_is_harness_core_bootstrap_install(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
+    if str(getattr(decision, "action_class", "")) != "runtime_state_mutation":
+        return False
+    if str(getattr(args, "target", "")) != "spark-harness-core":
+        return False
+    if not bool(getattr(args, "skip_install_commands", False)):
+        return False
+    normalized = [str(part) for part in command_argv]
+    return len(normalized) >= 3 and normalized[0] == "spark" and normalized[1] == "install" and normalized[2] == "spark-harness-core"
+
+
+def create_cli_approval_bootstrap_authority(
+    args: argparse.Namespace,
+    decision: Any,
+    command_argv: list[str],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    command_digest_ref = f"spark-cli-command-digest:{decision.command_digest}"
+    ledger_path = CLI_APPROVAL_LEDGER_DIR / (
+        f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-bootstrap-{decision.command_digest[:12]}.json"
+    )
+    return {
+        "schema_version": "spark-cli-approval-bootstrap-authority-v1",
+        "decision": decision,
+        "command_argv": list(command_argv),
+        "command_digest_ref": command_digest_ref,
+        "ledger_path": ledger_path,
+        "bootstrap": {
+            "allowed": True,
+            "reason": reason,
+            "target": str(getattr(args, "target", "")),
+            "requires_exact_phrase": True,
+            "requires_interactive_tty": True,
+            "requires_skip_install_commands": True,
+            "authority_limit": "install spark-harness-core only; all later sensitive commands require Harness Core authority",
+        },
+    }
+
+
 def cli_approval_authority_allows(authority: Any, *, action_class: str | None = None) -> bool:
     if not isinstance(authority, dict):
         return False
+    if authority.get("schema_version") == "spark-cli-approval-bootstrap-authority-v1":
+        if action_class is not None:
+            decision = authority.get("decision")
+            if str(getattr(decision, "action_class", "")) != action_class:
+                return False
+        bootstrap = authority.get("bootstrap") if isinstance(authority.get("bootstrap"), dict) else {}
+        return bool(bootstrap.get("allowed"))
     if action_class is not None:
         decision = authority.get("decision")
         if str(getattr(decision, "action_class", "")) != action_class:
@@ -10827,6 +10875,30 @@ def finalize_cli_approval_authority(args: argparse.Namespace, exit_code: int) ->
     authority = getattr(args, "_spark_cli_approval_authority", None)
     if not isinstance(authority, dict):
         return None
+    if authority.get("schema_version") == "spark-cli-approval-bootstrap-authority-v1":
+        decision = authority.get("decision")
+        ledger_path = authority.get("ledger_path")
+        if not isinstance(ledger_path, Path):
+            digest = str(getattr(decision, "command_digest", "unknown"))[:12]
+            ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-bootstrap-{digest}.json"
+        ledger = {
+            "schema_version": "spark-cli-approval-bootstrap-ledger-v1",
+            "tool_name": CLI_APPROVAL_BOOTSTRAP_TOOL_NAME,
+            "command_digest_ref": str(authority.get("command_digest_ref") or ""),
+            "command_argv": authority.get("command_argv") or [],
+            "action_class": str(getattr(decision, "action_class", "")),
+            "risk": str(getattr(decision, "risk", "")),
+            "target": authority.get("bootstrap", {}).get("target") if isinstance(authority.get("bootstrap"), dict) else "",
+            "bootstrap": authority.get("bootstrap") if isinstance(authority.get("bootstrap"), dict) else {},
+            "result": {
+                "status": "success" if exit_code == 0 else "failure",
+                "exit_code": exit_code,
+                "summary": "Harness Core bootstrap install completed; subsequent sensitive commands require Harness Core authority.",
+            },
+        }
+        atomic_write_json(ledger_path, ledger)
+        authority["tool_ledger"] = ledger
+        return ledger
     kernel = authority.get("kernel")
     pre_execution_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else None
     finalizer = getattr(kernel, "finalize_tool_call_ledger", None)
@@ -10888,6 +10960,15 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     try:
         authority = create_cli_approval_harness_authority(decision, command_argv)
     except Exception as exc:
+        if command_is_harness_core_bootstrap_install(args, decision, command_argv):
+            authority = create_cli_approval_bootstrap_authority(
+                args,
+                decision,
+                command_argv,
+                reason=f"Harness Core missing during explicit bootstrap install: {exc}",
+            )
+            setattr(args, "_spark_cli_approval_authority", authority)
+            return None
         print("Spark blocked the sensitive action because Harness Core authority could not be verified.")
         print(f"Reason: {exc}")
         return 2

@@ -1950,6 +1950,47 @@ class SparkCliTests(unittest.TestCase):
         delete_secret_command.assert_not_called()
         self.assertIn("Harness Core authority could not be verified", stdout.getvalue())
 
+    def test_main_allows_explicit_harness_core_bootstrap_install_when_harness_core_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CLI_APPROVAL_LEDGER_DIR", Path(tmp_dir)), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=True), \
+             patch("builtins.input", return_value="approve spark install"), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO):
+            self.assertEqual(main(["install", "spark-harness-core", "--skip-install-commands"]), 0)
+            ledger_files = list(Path(tmp_dir).glob("*.json"))
+            ledger = json.loads(ledger_files[0].read_text(encoding="utf-8")) if ledger_files else {}
+        install_command.assert_called_once()
+        self.assertEqual(len(ledger_files), 1)
+        self.assertEqual(ledger["schema_version"], "spark-cli-approval-bootstrap-ledger-v1")
+        self.assertEqual(ledger["tool_name"], "spark-cli.approval.harness-core-bootstrap")
+        self.assertEqual(ledger["target"], "spark-harness-core")
+        self.assertEqual(ledger["result"]["status"], "success")
+
+    def test_main_blocks_non_harness_bootstrap_install_when_harness_core_is_missing(self) -> None:
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=True), \
+             patch("builtins.input", return_value="approve spark install"), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["install", "spark-skill-graphs", "--skip-install-commands"]), 2)
+        install_command.assert_not_called()
+        self.assertIn("Harness Core authority could not be verified", stdout.getvalue())
+
+    def test_main_blocks_harness_core_bootstrap_without_skip_install_commands(self) -> None:
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=True), \
+             patch("builtins.input", return_value="approve spark install"), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["install", "spark-harness-core"]), 2)
+        install_command.assert_not_called()
+        self.assertIn("Harness Core authority could not be verified", stdout.getvalue())
+
     def test_validate_init_module_name_rejects_bad_names(self) -> None:
         validate_init_module_name("my-module")
         validate_init_module_name("m1")
