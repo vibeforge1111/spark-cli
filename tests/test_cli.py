@@ -1522,6 +1522,37 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_context_routing_mutations(self) -> None:
+        cases = [
+            ["docker", "context", "use", "prod"],
+            ["docker", "context", "create", "prod", "--docker", "host=ssh://user@example.test"],
+            ["docker", "context", "update", "prod", "--docker", "host=tcp://example.test:2376"],
+            ["docker", "context", "rm", "prod"],
+            ["docker", "context", "remove", "prod"],
+            ["docker", "context", "import", "prod", "context.tar"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker context change")
+
+    def test_approval_classifier_allows_docker_context_inspection(self) -> None:
+        cases = [
+            ["docker", "context", "ls"],
+            ["docker", "context", "list"],
+            ["docker", "context", "show"],
+            ["docker", "context", "inspect", "default"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
