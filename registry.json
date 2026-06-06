@@ -76,7 +76,8 @@
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "52bb7e9f5f65be53106bd4df4d8f23cf4993d8d5",
+      "commit": "c0162d3cb5ece6a2bba2d6d025d4bc75b1345a37",
+      "verify_ref": "refs/heads/codex/genesis-harness-core-20260602",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -84,7 +85,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "52bb7e9f5f65be53106bd4df4d8f23cf4993d8d5"
+        "commit": "c0162d3cb5ece6a2bba2d6d025d4bc75b1345a37"
       }
     },
     "spark-skill-graphs": {
