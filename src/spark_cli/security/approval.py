@@ -313,6 +313,27 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
+    if first == "kubectl" and lowered[1:3] == ["auth", "reconcile"]:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Kubernetes command can reconcile RBAC permissions against the live cluster.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes access change",
+        )
+    if first == "kubectl" and lowered[1:2] == ["certificate"] and len(lowered) > 2 and lowered[2] in {"approve", "deny"}:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Kubernetes command can approve or deny certificate signing requests.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes access change",
+        )
+
     if first == "docker" and second == "login":
         return _decision(
             parts,

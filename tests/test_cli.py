@@ -1528,6 +1528,31 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_kubectl_access_mutation(self) -> None:
+        for command in (
+            ["kubectl", "auth", "reconcile", "-f", "rbac.yml"],
+            ["kubectl", "certificate", "approve", "spark-csr"],
+            ["kubectl", "certificate", "deny", "spark-csr"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes access change")
+
+    def test_approval_classifier_allows_kubectl_access_inspection(self) -> None:
+        for command in (
+            ["kubectl", "auth", "can-i", "get", "pods"],
+            ["kubectl", "auth", "whoami"],
+            ["kubectl", "get", "certificatesigningrequests"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
