@@ -1463,6 +1463,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_aws_ssm_remote_execution(self) -> None:
+        cases = [
+            ["aws", "ssm", "send-command", "--instance-ids", "i-123", "--document-name", "AWS-RunShellScript"],
+            ["aws", "ssm", "start-session", "--target", "i-123"],
+            ["aws", "ssm", "resume-session", "--session-id", "demo"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssm remote execution")
+
+    def test_approval_classifier_allows_aws_ssm_report_commands(self) -> None:
+        cases = [
+            ["aws", "ssm", "describe-instance-information"],
+            ["aws", "ssm", "list-command-invocations"],
+            ["aws", "ssm", "get-command-invocation", "--command-id", "demo"],
+            ["aws", "ssm", "terminate-session", "--session-id", "demo"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
