@@ -99,6 +99,12 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _tar_runs_command(lowered: list[str]) -> bool:
+    if lowered[0] != "tar":
+        return False
+    return any(part == "--to-command" or part.startswith("--to-command=") or part.startswith("--checkpoint-action=exec=") for part in lowered[1:])
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -347,6 +353,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command runs another command through find over matched filesystem paths.",
             target_display="find -exec",
             confirmation_phrase="approve find execution",
+        )
+
+    if _tar_runs_command(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Tar command can run another command while processing archive entries.",
+            target_display="tar command execution",
+            confirmation_phrase="approve tar execution",
         )
 
     if first == "git" and lowered[1:3] in [["submodule", "add"], ["submodule", "update"]]:
