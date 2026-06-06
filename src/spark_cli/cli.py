@@ -1056,6 +1056,11 @@ def dpapi_unprotect(value: str) -> str:
         return base64.b64decode(encoded).decode("utf-8")
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
+    if os.name != "nt":
+        raise OSError(
+            "DPAPI-protected secret cannot be decrypted on non-Windows. "
+            "Re-enter the secret on this platform to store it without DPAPI encryption."
+        )
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
     buffer = ctypes.create_string_buffer(protected)
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -7344,15 +7349,28 @@ def resolve_install_executable(name: str) -> str:
     )
 
 
+def _reject_custom_pip_index(args: list[str]) -> None:
+    for arg in args:
+        if arg.startswith("--index-url") or arg.startswith("--extra-index-url"):
+            raise SystemExit(
+                "Install commands must not specify custom package index URLs (--index-url / --extra-index-url). "
+                "Only the default PyPI index is allowed."
+            )
+
+
 def install_command_argv(command: str) -> list[str]:
     parts = split_single_argv_command(command, "Install command")
     executable = parts[0].lower()
     if executable in {"python", "python3"}:
         return [str(Path(sys.executable)), *parts[1:]]
     if executable in {"pip", "pip3"}:
-        return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
+        pip_args = parts[1:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
-        return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
+        pip_args = parts[2:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "npm":
         return [resolve_install_executable("npm"), *parts[1:]]
     raise SystemExit(
