@@ -313,6 +313,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
+    if first == "kubectl" and second in {"debug", "attach"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Kubernetes command can attach to a live process or start an ephemeral debug container in a cluster workload.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes remote process",
+        )
+
     if first == "docker" and second == "login":
         return _decision(
             parts,
