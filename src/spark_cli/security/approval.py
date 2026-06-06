@@ -49,6 +49,27 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
+KUBECTL_VALUE_FLAGS = {
+    "-c",
+    "-n",
+    "-s",
+    "--as",
+    "--as-group",
+    "--cache-dir",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--cluster",
+    "--container",
+    "--context",
+    "--kubeconfig",
+    "--namespace",
+    "--request-timeout",
+    "--retries",
+    "--server",
+    "--token",
+    "--user",
+}
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -97,6 +118,43 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
 
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+
+
+def _kubectl_command_index(parts: list[str], command: str) -> int:
+    index = 1
+    while index < len(parts):
+        part = parts[index]
+        if part == command:
+            return index
+        if part.startswith("-"):
+            name = part.split("=", 1)[0]
+            index += 1 if "=" in part or name not in KUBECTL_VALUE_FLAGS else 2
+            continue
+        return -1
+    return -1
+
+
+def _kubectl_cp_positionals(parts: list[str], cp_index: int) -> list[str]:
+    positionals: list[str] = []
+    index = cp_index + 1
+    while index < len(parts):
+        part = parts[index]
+        if part == "--":
+            index += 1
+            continue
+        if part.startswith("-"):
+            name = part.split("=", 1)[0]
+            index += 1 if "=" in part or name not in KUBECTL_VALUE_FLAGS else 2
+            continue
+        positionals.append(part)
+        if len(positionals) == 2:
+            break
+        index += 1
+    return positionals
+
+
+def _is_kubectl_remote_copy_spec(value: str) -> bool:
+    return ":" in value and not re.match(r"^[A-Za-z]:[\\/]", value)
 
 
 def _decision(
@@ -312,6 +370,25 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve kubernetes secret reveal",
         )
+
+    if first == "kubectl":
+        kubectl_cp_index = _kubectl_command_index(lowered, "cp")
+        if kubectl_cp_index > 0:
+            cp_positionals = _kubectl_cp_positionals(parts, kubectl_cp_index)
+            if (
+                len(cp_positionals) >= 2
+                and not _is_kubectl_remote_copy_spec(cp_positionals[0])
+                and _is_kubectl_remote_copy_spec(cp_positionals[1])
+            ):
+                return _decision(
+                    parts,
+                    ctx,
+                    "external_publish",
+                    "high",
+                    "Kubernetes copy command can upload local files into a cluster workload.",
+                    target_display="kubectl cp",
+                    confirmation_phrase="approve kubernetes file upload",
+                )
 
     if first == "docker" and second == "login":
         return _decision(
