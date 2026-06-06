@@ -99,6 +99,17 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _is_secret_decrypt_command(lowered: list[str]) -> bool:
+    first = lowered[0]
+    if first == "sops" and _contains_any(lowered[1:], {"-d", "--decrypt"}):
+        return True
+    if first == "gpg" and _contains_any(lowered[1:], {"-d", "--decrypt"}):
+        return True
+    if first == "age" and _contains_any(lowered[1:], {"-d", "--decrypt"}):
+        return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -300,6 +311,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "AWS command can reveal cloud secrets or decrypted parameters.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
+        )
+
+    if _is_secret_decrypt_command(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can decrypt protected secret material.",
+            target_display="encrypted secret",
+            confirmation_phrase="approve secret decrypt",
         )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:

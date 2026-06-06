@@ -1513,6 +1513,35 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_secret_decrypt_commands(self) -> None:
+        for command in (
+            ["sops", "-d", "secrets.enc.yaml"],
+            ["sops", "--decrypt", "secrets.enc.yaml"],
+            ["gpg", "--decrypt", "secrets.gpg"],
+            ["gpg", "-d", "secrets.gpg"],
+            ["age", "-d", "secrets.age"],
+            ["age", "--decrypt", "secrets.age"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.target_display, "encrypted secret")
+                self.assertEqual(decision.confirmation_phrase, "approve secret decrypt")
+
+    def test_approval_classifier_allows_secret_encrypt_and_verify_commands(self) -> None:
+        for command in (
+            ["sops", "--encrypt", "secrets.yaml"],
+            ["gpg", "--verify", "release.sig"],
+            ["gpg", "--list-keys"],
+            ["age", "--encrypt", "public.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
