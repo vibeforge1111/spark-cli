@@ -1423,6 +1423,29 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
 
+    def test_approval_classifier_flags_pm2_persistence_commands(self) -> None:
+        cases = [
+            ["pm2", "startup"],
+            ["pm2", "unstartup"],
+            ["pm2", "save"],
+            ["pm2", "resurrect"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "process_autostart_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve pm2 startup change")
+
+    def test_approval_classifier_allows_pm2_status_commands(self) -> None:
+        for command in (["pm2", "status"], ["pm2", "list"], ["pm2", "ls"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_allows_setup_without_autostart(self) -> None:
         decision = approval_required_for_command(["spark", "setup", "--no-autostart"], CommandContext())
         self.assertFalse(decision.requires_approval)

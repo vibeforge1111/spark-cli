@@ -476,6 +476,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve system startup change",
         )
+    if first == "pm2" and second in {"startup", "unstartup", "save", "resurrect"}:
+        return _decision(
+            parts,
+            ctx,
+            "process_autostart_mutation",
+            "high",
+            "PM2 command can install startup hooks or persist process resurrection state.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve pm2 startup change",
+        )
 
     if first == "spark" and second == "doctor" and "--include-logs" in lowered:
         return _decision(
