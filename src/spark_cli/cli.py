@@ -5383,8 +5383,13 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
                 base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
                 if base_kind == "local":
                     auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
+                # NOTE: do NOT promote openai+default-base to codex_oauth here.
+                # `spark setup` (provider_auth_mode) never applies that fallback for
+                # the openai chat role, so the persisted auth_mode stays
+                # not_configured and `providers test` (resolve_llm_doctor_target)
+                # cannot route it through codex. Re-deriving codex_oauth would make
+                # `providers status` / `doctor llm` report READY while `providers
+                # test` fails for the same role.
             elif provider == "anthropic" and detect_claude_code()["present"]:
                 auth_mode = "claude_oauth"
             elif provider == "ollama":
@@ -11645,8 +11650,13 @@ def provider_status_payload() -> dict[str, Any]:
                 base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
                 if base_kind == "local":
                     auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
+                # NOTE: do NOT promote openai+default-base to codex_oauth here.
+                # `spark setup` (provider_auth_mode) never applies that fallback for
+                # the openai chat role, so the persisted auth_mode stays
+                # not_configured and `providers test` (resolve_llm_doctor_target)
+                # cannot route it through codex. Re-deriving codex_oauth would make
+                # `providers status` / `doctor llm` report READY while `providers
+                # test` fails for the same role.
             elif provider == "anthropic" and detect_claude_code()["present"]:
                 auth_mode = "claude_oauth"
             elif provider == "ollama":
