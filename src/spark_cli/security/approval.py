@@ -410,6 +410,28 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
+    if first == "kubectl" and lowered[1:2] == ["config"]:
+        config_action = lowered[2] if len(lowered) > 2 else ""
+        if config_action == "set-credentials":
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "high",
+                "Kubernetes config command can change stored user credentials for future cluster access.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve kubernetes credential change",
+            )
+        if config_action in {"use-context", "set-context", "set-cluster", "delete-context", "rename-context", "unset"}:
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Kubernetes config command can change cluster, context, or user routing for future kubectl operations.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve kubernetes context change",
+            )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,

@@ -1528,6 +1528,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_kubeconfig_routing_mutations(self) -> None:
+        cases = [
+            ["kubectl", "config", "use-context", "prod"],
+            ["kubectl", "config", "set-context", "prod", "--cluster", "prod-cluster", "--user", "prod-user"],
+            ["kubectl", "config", "set-cluster", "prod", "--server", "https://example.test"],
+            ["kubectl", "config", "delete-context", "prod"],
+            ["kubectl", "config", "rename-context", "old", "prod"],
+            ["kubectl", "config", "unset", "contexts.prod"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes context change")
+
+    def test_approval_classifier_flags_kubeconfig_credential_mutation(self) -> None:
+        decision = approval_required_for_command(
+            ["kubectl", "config", "set-credentials", "prod-user", "--token", "redacted-token"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "credential_mutation")
+        self.assertEqual(decision.risk, "high")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.confirmation_phrase, "approve kubernetes credential change")
+
+    def test_approval_classifier_allows_kubeconfig_inspection(self) -> None:
+        cases = [
+            ["kubectl", "config", "current-context"],
+            ["kubectl", "config", "get-contexts"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
