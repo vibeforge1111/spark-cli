@@ -1522,6 +1522,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_build_credential_forwarding(self) -> None:
+        cases = [
+            ["docker", "build", "--secret", "id=demo,src=demo.env", "."],
+            ["docker", "build", "--secret=id=demo,src=demo.env", "."],
+            ["docker", "buildx", "build", "--ssh", "default", "."],
+            ["docker", "buildx", "build", "--secret", "id=demo,env=DEMO_TOKEN", "."],
+            ["docker", "builder", "build", "--ssh=default", "."],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker build credential forwarding")
+
+    def test_approval_classifier_allows_plain_docker_build_inspection(self) -> None:
+        cases = [
+            ["docker", "build", "."],
+            ["docker", "buildx", "build", "."],
+            ["docker", "buildx", "ls"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
