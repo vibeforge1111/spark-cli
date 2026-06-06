@@ -1528,6 +1528,39 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_kubectl_resource_mutation(self) -> None:
+        for command in (
+            ["kubectl", "replace", "-f", "deployment.yml"],
+            ["kubectl", "edit", "deployment/spark"],
+            ["kubectl", "expose", "deployment", "spark", "--port=80"],
+            ["kubectl", "autoscale", "deployment", "spark", "--min=2", "--max=5"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes resource change")
+
+    def test_approval_classifier_allows_kubectl_resource_dry_run(self) -> None:
+        for command in (
+            ["kubectl", "replace", "-f", "deployment.yml", "--dry-run=client", "-o", "yaml"],
+            ["kubectl", "expose", "deployment", "spark", "--port=80", "--dry-run", "client"],
+            ["kubectl", "autoscale", "deployment", "spark", "--min=2", "--max=5", "--dry-run=server"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
+    def test_approval_classifier_allows_kubectl_resource_inspection(self) -> None:
+        for command in (["kubectl", "get", "deployment/spark"], ["kubectl", "describe", "deployment/spark"], ["kubectl", "logs", "deployment/spark"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
