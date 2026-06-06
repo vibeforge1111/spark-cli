@@ -198,6 +198,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="delete spark home",
         )
 
+    docker_compose_rmi = any(part == "--rmi" or part.startswith("--rmi=") for part in lowered)
+    if (
+        (first == "docker" and second == "rmi")
+        or (first == "docker" and lowered[1:3] in (["image", "rm"], ["image", "remove"]))
+        or (first == "docker" and lowered[1:3] == ["compose", "down"] and docker_compose_rmi)
+        or (first == "docker-compose" and second == "down" and docker_compose_rmi)
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Docker command can remove local container images.",
+            target_display="Docker images",
+            confirmation_phrase="approve docker image removal",
+        )
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
