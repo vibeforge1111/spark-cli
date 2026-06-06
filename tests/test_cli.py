@@ -1912,6 +1912,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(context["safety"]["logs_included"])
         self.assertNotIn("logs", context)
 
+    def test_collect_llm_doctor_context_log_tails_redact_home_paths_and_private_ips(self) -> None:
+        # --include-logs ships module log tails to an external LLM provider. Those tails
+        # must use share-grade redaction so the operator's username, home-directory layout
+        # and private network addresses never leave the machine. Synthetic markers only.
+        log_line = "boot: loaded /Users/spark-audit-user/Desktop/x from 10.1.2.3:8443"
+        with patch("spark_cli.cli.collect_status_payload", return_value={"ok": False, "modules": [{"name": "spark-telegram-bot"}]}), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_verify_payload", return_value={"ok": False}), \
+             patch("spark_cli.cli.module_log_path", return_value=Path("/tmp/does-not-matter.log")), \
+             patch("spark_cli.cli.tail_log_lines", return_value=[log_line]):
+            context = collect_llm_doctor_context("Telegram is quiet", include_logs=True)
+        self.assertTrue(context["safety"]["logs_included"])
+        serialized = json.dumps(context)
+        # The raw username, home path and private IP must not survive into the LLM payload.
+        self.assertNotIn("spark-audit-user", serialized)
+        self.assertNotIn("/Users/spark-audit-user/Desktop/x", serialized)
+        self.assertNotIn("10.1.2.3", serialized)
+        # Share-grade redaction leaves recognizable placeholders behind.
+        self.assertIn("[PRIVATE_IP_REDACTED]", serialized)
+        self.assertIn("$HOME", serialized)
+
     def test_llm_doctor_prompt_prefers_spark_repair_commands_over_raw_token_calls(self) -> None:
         prompt = render_llm_doctor_prompt({"problem": "Telegram is quiet", "status": {"ok": False}})
         self.assertIn("Do not suggest raw provider API calls that require tokens", prompt)
