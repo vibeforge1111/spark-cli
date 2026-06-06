@@ -14427,6 +14427,11 @@ def stop_module(name: str, pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
         try:
+            os.kill(pid, 0)
+        except OSError:
+            print(f"{name} (pid {pid}) is not running")
+            return
+        try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
@@ -14522,7 +14527,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
                 profile=profile,
             ):
                 start_code = 1
-            return start_code or stop_code
+            return start_code
     restart_modules = (
         resolve_restart_modules(args.target, installed_modules, load_pids())
         if getattr(args, "cascade", False)
@@ -14547,7 +14552,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
             continue
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
             start_code = 1
-    return start_code or stop_code
+    return start_code
 
 
 def spark_invocation_args() -> list[str]:

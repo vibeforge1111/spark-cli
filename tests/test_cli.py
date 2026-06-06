@@ -847,14 +847,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(store_payload["targets"]["odyssey-vps"]["identity_file"], str(key.resolve()))
             self.assertNotIn("PRIVATE KEY MATERIAL", store_text)
 
-    def test_ssh_target_store_malformed_json_raises_bounded_error(self) -> None:
+    def test_ssh_target_store_corrupt_json_raises_valueerror(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = Path(tmpdir) / "config"
-            config.mkdir(parents=True)
-            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "not valid JSON"):
-                load_ssh_targets(home=Path(tmpdir))
+            home = Path(tmpdir)
+            targets_path = home / "config" / "ssh_targets.json"
+            targets_path.parent.mkdir(parents=True, exist_ok=True)
+            targets_path.write_text("NOT VALID JSON{{{{", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_ssh_targets(home=home)
+            self.assertIn("corrupt or not valid JSON", str(ctx.exception))
 
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
@@ -8391,16 +8392,19 @@ class SparkCliTests(unittest.TestCase):
 
     def test_stop_module_terminates_posix_process_group(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.kill", create=True) as kill, \
              patch("spark_cli.cli.os.killpg", create=True) as killpg, \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
 
+        kill.assert_any_call(12345, 0)
         killpg.assert_called_once_with(12345, signal.SIGTERM)
         run.assert_not_called()
 
     def test_stop_module_falls_back_to_single_posix_pid(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.kill", side_effect=[None, ProcessLookupError(), ProcessLookupError()], create=True) as kill, \
              patch("spark_cli.cli.os.killpg", side_effect=ProcessLookupError(), create=True), \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
@@ -8438,6 +8442,17 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(killpg.call_count, 2)
             killpg.assert_any_call(12345, sigkill)
             run.assert_not_called()
+
+    def test_stop_module_skips_kill_when_process_not_running(self) -> None:
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.kill", side_effect=ProcessLookupError(), create=True), \
+             patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.subprocess.run") as run, \
+             patch("sys.stdout", new_callable=StringIO):
+            stop_module("spawner-ui", 12345)
+
+        killpg.assert_not_called()
+        run.assert_not_called()
 
     def test_required_runtimes_for_modules_dedups_across_bundle(self) -> None:
         python_module = Module(
