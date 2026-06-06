@@ -368,6 +368,14 @@ class BrowserUseCliTests(unittest.TestCase):
         self.assertEqual(payload["status"], "blocked")
         self.assertIn("metadata service", payload["last_failure_reason"])
 
+    def test_open_blocks_backslash_metadata_parser_differential(self) -> None:
+        host = ".".join(["169", "254", "169", "254"])
+        payload = cli.browser_use_action_payload(f"http://{host}\\@example.com/latest/meta-data")
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("backslash URL syntax", payload["last_failure_reason"])
+
     def test_task_runs_browser_use_agent_and_writes_receipt(self) -> None:
         async def fake_agent(
             goal: str,

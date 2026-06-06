@@ -59,6 +59,8 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
     parsed = _parse_url(value)
     if parsed.scheme not in {"http", "https"}:
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
+    if "\\" in value:
+        errors.append(f"{label} contains backslash URL syntax that browsers normalize as path separators.")
 
     host = (parsed.hostname or "").strip().lower().rstrip(".")
     if not host:
