@@ -313,6 +313,21 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
+    if first == "kubectl":
+        kubectl_workload_mutation = second in {"scale", "patch", "annotate", "label"}
+        kubectl_rollout_mutation = lowered[1:2] == ["rollout"] and len(lowered) > 2 and lowered[2] in {"restart", "undo", "pause", "resume"}
+        kubectl_set_mutation = lowered[1:2] == ["set"] and len(lowered) > 2 and lowered[2] in {"image", "env", "resources", "selector", "serviceaccount"}
+        if kubectl_workload_mutation or kubectl_rollout_mutation or kubectl_set_mutation:
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "high",
+                "Kubernetes command can mutate live workload configuration or rollout state.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve kubernetes workload change",
+            )
+
     if first == "docker" and second == "login":
         return _decision(
             parts,

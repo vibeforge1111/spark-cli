@@ -1528,6 +1528,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_kubectl_workload_mutation(self) -> None:
+        for command in (
+            ["kubectl", "scale", "deployment/spark", "--replicas=3"],
+            ["kubectl", "patch", "deployment/spark", "-p", "{}"],
+            ["kubectl", "rollout", "restart", "deployment/spark"],
+            ["kubectl", "set", "image", "deployment/spark", "app=spark:next"],
+            ["kubectl", "annotate", "deployment/spark", "owner=spark"],
+            ["kubectl", "label", "deployment/spark", "tier=agent"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes workload change")
+
+    def test_approval_classifier_allows_kubectl_workload_inspection(self) -> None:
+        for command in (
+            ["kubectl", "rollout", "status", "deployment/spark"],
+            ["kubectl", "get", "deployment/spark"],
+            ["kubectl", "describe", "deployment/spark"],
+            ["kubectl", "logs", "deployment/spark"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
