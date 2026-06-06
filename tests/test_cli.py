@@ -1528,6 +1528,45 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_helm_repo_routing_changes(self) -> None:
+        cases = [
+            ["helm", "repo", "add", "spark", "https://charts.example.test"],
+            ["helm", "repo", "add", "spark", "https://charts.example.test", "--username", "demo", "--password", "redacted"],
+            ["helm", "repo", "remove", "spark"],
+            ["helm", "repo", "rm", "spark"],
+            ["helm", "repo", "update"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve helm repo change")
+
+    def test_approval_classifier_flags_helm_registry_login(self) -> None:
+        decision = approval_required_for_command(
+            ["helm", "registry", "login", "registry.example.test"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "credential_mutation")
+        self.assertEqual(decision.risk, "high")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.confirmation_phrase, "approve helm registry credential change")
+
+    def test_approval_classifier_allows_helm_repo_inspection(self) -> None:
+        cases = [
+            ["helm", "repo", "list"],
+            ["helm", "search", "repo", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

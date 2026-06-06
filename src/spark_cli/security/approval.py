@@ -198,6 +198,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="delete spark home",
         )
 
+    if first == "helm" and lowered[1:2] == ["repo"]:
+        repo_action = lowered[2] if len(lowered) > 2 else ""
+        if repo_action in {"add", "remove", "rm", "update"}:
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Helm repo command can change chart source routing or refresh configured external chart indexes.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve helm repo change",
+            )
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
@@ -409,6 +422,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can mutate repository secrets/variables, merge PRs, or publish releases.",
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
+        )
+    if first == "helm" and lowered[1:3] == ["registry", "login"]:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Helm registry command can store or change OCI registry credentials.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve helm registry credential change",
         )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
