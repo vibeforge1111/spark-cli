@@ -1582,6 +1582,37 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_terraform_state_mutations(self) -> None:
+        cases = [
+            ["terraform", "import", "aws_instance.spark", "i-1234567890abcdef0"],
+            ["terraform", "state", "push", "state.tfstate"],
+            ["terraform", "state", "mv", "aws_instance.old", "aws_instance.new"],
+            ["terraform", "state", "replace-provider", "registry.example.test/old", "registry.example.test/new"],
+            ["terraform", "taint", "aws_instance.spark"],
+            ["terraform", "untaint", "aws_instance.spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve terraform state change")
+
+    def test_approval_classifier_allows_terraform_state_reports(self) -> None:
+        cases = [
+            ["terraform", "plan"],
+            ["terraform", "show", "plan.out"],
+            ["terraform", "state", "list"],
+            ["terraform", "state", "pull"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)

@@ -410,6 +410,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
+    if first == "terraform" and (
+        second in {"import", "taint", "untaint"}
+        or (second == "state" and len(lowered) > 2 and lowered[2] in {"mv", "push", "replace-provider"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Terraform command can mutate resource bindings, lifecycle state, or remote backend state.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve terraform state change",
+        )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,
