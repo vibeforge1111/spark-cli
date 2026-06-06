@@ -1528,6 +1528,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_pulumi_credentials(self) -> None:
+        for command in (["pulumi", "login"], ["pulumi", "login", "s3://state-bucket"], ["pulumi", "logout"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve pulumi credential change")
+
+    def test_approval_classifier_flags_pulumi_stack_routing(self) -> None:
+        for command in (["pulumi", "stack", "select", "prod"], ["pulumi", "stack", "init", "prod"], ["pulumi", "stack", "rm", "prod"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve pulumi stack change")
+
+    def test_approval_classifier_allows_pulumi_stack_inspection(self) -> None:
+        for command in (["pulumi", "stack", "ls"], ["pulumi", "stack", "history"], ["pulumi", "preview"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
