@@ -847,14 +847,15 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(store_payload["targets"]["odyssey-vps"]["identity_file"], str(key.resolve()))
             self.assertNotIn("PRIVATE KEY MATERIAL", store_text)
 
-    def test_ssh_target_store_malformed_json_raises_bounded_error(self) -> None:
+    def test_ssh_target_store_corrupt_json_raises_valueerror(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = Path(tmpdir) / "config"
-            config.mkdir(parents=True)
-            (config / "ssh_targets.json").write_text("{not valid private-ish target json", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "not valid JSON"):
-                load_ssh_targets(home=Path(tmpdir))
+            home = Path(tmpdir)
+            targets_path = home / "config" / "ssh_targets.json"
+            targets_path.parent.mkdir(parents=True, exist_ok=True)
+            targets_path.write_text("NOT VALID JSON{{{{", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_ssh_targets(home=home)
+            self.assertIn("corrupt or not valid JSON", str(ctx.exception))
 
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
