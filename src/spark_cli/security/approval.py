@@ -302,6 +302,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "sam" and second in {"deploy", "delete", "sync"}:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if second == "delete" else "high",
+            "AWS SAM command can deploy, delete, or sync cloud application infrastructure.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve sam infrastructure change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

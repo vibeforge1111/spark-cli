@@ -1463,6 +1463,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_aws_sam_infrastructure_mutations(self) -> None:
+        cases = [
+            (["sam", "deploy", "--stack-name", "spark"], "high"),
+            (["sam", "deploy", "--guided"], "high"),
+            (["sam", "sync", "--stack-name", "spark"], "high"),
+            (["sam", "delete", "--stack-name", "spark", "--no-prompts"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve sam infrastructure change")
+
+    def test_approval_classifier_allows_aws_sam_local_and_report_commands(self) -> None:
+        cases = [
+            ["sam", "build"],
+            ["sam", "validate"],
+            ["sam", "package"],
+            ["sam", "local", "invoke"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
