@@ -313,14 +313,14 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
-    if first == "docker" and second == "login":
+    if first in {"docker", "podman"} and second == "login":
         return _decision(
             parts,
             ctx,
             "credential_mutation",
             "high",
-            "Docker command can store or change registry credentials.",
-            target_display="docker login",
+            "Container registry login command can store or change registry credentials.",
+            target_display=f"{parts[0]} login",
             confirmation_phrase="approve docker credential change",
         )
 
