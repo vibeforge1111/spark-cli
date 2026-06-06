@@ -279,7 +279,11 @@ from spark_cli.cli import (
     autostart_telegram_profiles,
     autostart_shell_command,
     autostart_shell_commands,
+    available_wsl_distros,
+    install_wsl_windows_login_bridge,
+    wsl_distro_name,
     windows_path_to_wsl_path,
+    normalize_wsl_distro_name,
     windows_cmd_c,
     windows_run_key_command,
     windows_run_key_installed,
@@ -5329,6 +5333,41 @@ class SparkCliTests(unittest.TestCase):
             windows_path_to_wsl_path(r"C:\Users\Example\AppData\Roaming"),
             Path("/mnt/c/Users/Example/AppData/Roaming"),
         )
+
+    def test_normalize_wsl_distro_name_removes_console_artifacts(self) -> None:
+        self.assertEqual(normalize_wsl_distro_name("\ufeff* Ubuntu\x00\r"), "Ubuntu")
+
+    def test_available_wsl_distros_strips_bom_nul_and_headers(self) -> None:
+        def fake_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(command, ["wsl.exe", "-l", "-q"])
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                "\ufeffWindows Subsystem for Linux Distributions:\r\n\ufeff* Ubuntu\x00\r\n\x00",
+                "",
+            )
+
+        with patch("spark_cli.cli.run_autostart_helper", side_effect=fake_helper):
+            self.assertEqual(available_wsl_distros(), ["Ubuntu"])
+
+    def test_wsl_distro_name_normalizes_environment_value(self) -> None:
+        with patch.dict(os.environ, {"WSL_DISTRO_NAME": "\ufeffUbuntu\r"}):
+            self.assertEqual(wsl_distro_name(), "Ubuntu")
+
+    def test_install_wsl_windows_login_bridge_normalizes_distro_before_ascii_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            startup_script = Path(tmp_dir) / "spark-telegram-agent.vbs"
+            with patch("spark_cli.cli.wsl_windows_startup_script_path", return_value=startup_script), \
+                 patch.dict(os.environ, {"WSL_DISTRO_NAME": "\ufeffUbuntu\r"}):
+                self.assertEqual(
+                    install_wsl_windows_login_bridge("/home/example/.spark/bin/spark start telegram-starter"),
+                    (startup_script, True),
+                )
+
+            content = startup_script.read_text(encoding="ascii")
+            self.assertIn("-d Ubuntu", content)
+            self.assertNotIn("\ufeff", content)
+            self.assertNotIn("\x00", content)
 
     def test_render_wsl_windows_startup_script_runs_hidden_wsl_command(self) -> None:
         script = render_wsl_windows_startup_script(
