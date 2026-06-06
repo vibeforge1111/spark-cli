@@ -376,6 +376,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve container privilege",
         )
 
+    if (
+        (first == "docker" and second == "compose" and len(lowered) > 2 and lowered[2] in {"up", "start", "restart"})
+        or (first == "docker-compose" and second in {"up", "start", "restart"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Docker Compose command can start or restart service containers defined by project configuration.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve compose service start",
+        )
+
     if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
             parts,
