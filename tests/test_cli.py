@@ -223,6 +223,7 @@ from spark_cli.cli import (
     discover_runtime_pid,
     generated_module_env_path,
     listening_pid_for_tcp_port,
+    LOCAL_REGISTRY_PATH,
     remove_managed_env_block,
     pid_is_running,
     pid_registry_errors,
@@ -5197,6 +5198,18 @@ class SparkCliTests(unittest.TestCase):
                 "bundles": {},
             }
         )
+
+    def test_committed_registry_matches_public_schema(self) -> None:
+        try:
+            import jsonschema
+        except ModuleNotFoundError:
+            self.skipTest("jsonschema is not installed")
+
+        registry = json.loads(LOCAL_REGISTRY_PATH.read_text(encoding="utf-8"))
+        schema_path = LOCAL_REGISTRY_PATH.parent / "schemas" / "registry.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        jsonschema.Draft202012Validator(schema).validate(registry)
 
     def test_module_provenance_report_requires_attestations_for_blessed_modules(self) -> None:
         registry = {
