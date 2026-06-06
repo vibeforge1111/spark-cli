@@ -95,6 +95,16 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_dry_run_value(parts: list[str], values: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        if part.startswith("--dry-run="):
+            return part.split("=", 1)[1] in values
+        if part == "--dry-run" and index + 1 < len(lowered):
+            return lowered[index + 1] in values
+    return False
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
@@ -311,6 +321,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Kubernetes command can reveal cluster secrets.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve kubernetes secret reveal",
+        )
+
+    if first == "kubectl" and second == "run":
+        if _has_dry_run_value(parts, {"client", "server"}):
+            return _decision(parts, ctx, "none", "none", "`kubectl run --dry-run` is report-only.")
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Kubernetes run command can create a live pod and start container code in a cluster.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes run",
         )
 
     if first == "docker" and second == "login":
