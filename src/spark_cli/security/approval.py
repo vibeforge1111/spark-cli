@@ -428,7 +428,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or (first == "gem" and second == "push")
         or (first == "nuget" and second == "push")
         or (first == "helm" and second == "push")
-        or (first == "docker" and second == "push")
+        or (first in {"docker", "podman"} and second == "push")
         or (first == "prisma" and lowered[1:3] == ["migrate", "deploy"])
         or (first == "alembic" and second in {"upgrade", "downgrade"})
         or (first in {"az", "gcloud", "supabase"} and _contains_any(lowered, {"deploy", "push", "up"}))
