@@ -99,6 +99,15 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _ssh_has_forwarding_option(parts: list[str]) -> bool:
+    for part in parts[1:]:
+        if part in {"-L", "-R", "-D", "-W"}:
+            return True
+        if any(part.startswith(option) and len(part) > 2 for option in ("-L", "-R", "-D", "-W")):
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -374,6 +383,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Docker command can expose the host, Docker socket, host network, or privileged container capabilities.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
+        )
+
+    if first == "ssh" and _ssh_has_forwarding_option(parts):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "high",
+            "SSH command can expose or tunnel network services through a remote host.",
+            target_display="ssh tunnel",
+            confirmation_phrase="approve ssh tunnel",
         )
 
     if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):

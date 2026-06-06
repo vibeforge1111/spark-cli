@@ -1513,6 +1513,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_ssh_tunnels(self) -> None:
+        for command in (
+            ["ssh", "-L", "127.0.0.1:8080:127.0.0.1:80", "user@example.test"],
+            ["ssh", "-R", "0.0.0.0:8080:127.0.0.1:80", "user@example.test"],
+            ["ssh", "-D", "1080", "user@example.test"],
+            ["ssh", "-W", "target.example.test:443", "user@example.test"],
+            ["ssh", "-L127.0.0.1:8080:127.0.0.1:80", "user@example.test"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh tunnel")
+
+    def test_approval_classifier_allows_plain_ssh_commands(self) -> None:
+        for command in (
+            ["ssh", "user@example.test", "echo", "ok"],
+            ["ssh", "-l", "user", "example.test", "echo", "ok"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
