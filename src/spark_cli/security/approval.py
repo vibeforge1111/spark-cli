@@ -95,6 +95,24 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _option_values(parts: list[str], option_names: set[str]) -> list[str]:
+    lowered = _lower_parts(parts)
+    values: list[str] = []
+    for index, part in enumerate(lowered):
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if name in option_names:
+                values.append(value)
+        elif part in option_names and index + 1 < len(lowered):
+            values.append(lowered[index + 1])
+    return values
+
+
+def _has_truthy_flag(parts: list[str], flag: str) -> bool:
+    lowered = _lower_parts(parts)
+    return any(part == flag or part in {f"{flag}=1", f"{flag}=true", f"{flag}=yes"} for part in lowered)
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
@@ -409,6 +427,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can mutate repository secrets/variables, merge PRs, or publish releases.",
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
+        )
+    if first == "docker" and lowered[1:3] in (["buildx", "build"], ["builder", "build"]) and (
+        _has_truthy_flag(lowered, "--push")
+        or any("type=registry" in value or "push=true" in value for value in _option_values(lowered, {"--output", "-o"}))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Docker Buildx command can publish built images to a container registry.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve docker build publish",
         )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
