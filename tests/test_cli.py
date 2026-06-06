@@ -1991,6 +1991,51 @@ class SparkCliTests(unittest.TestCase):
         install_command.assert_not_called()
         self.assertIn("Harness Core authority could not be verified", stdout.getvalue())
 
+    def test_main_allows_digest_bound_harness_core_bootstrap_when_harness_core_is_missing(self) -> None:
+        command = ["spark", "install", "spark-harness-core", "--skip-install-commands"]
+        decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch.dict(os.environ, {"SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST": decision.command_digest}), \
+             patch("spark_cli.cli.CLI_APPROVAL_LEDGER_DIR", Path(tmp_dir)), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO):
+            self.assertEqual(main(["install", "spark-harness-core", "--skip-install-commands"]), 0)
+            ledger_files = list(Path(tmp_dir).glob("*.json"))
+            ledger = json.loads(ledger_files[0].read_text(encoding="utf-8")) if ledger_files else {}
+        install_command.assert_called_once()
+        self.assertEqual(ledger["schema_version"], "spark-cli-approval-bootstrap-ledger-v1")
+        self.assertEqual(ledger["target"], "spark-harness-core")
+
+    def test_main_blocks_digest_bound_bootstrap_with_wrong_digest(self) -> None:
+        with patch.dict(os.environ, {"SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST": "wrong"}), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch("spark_cli.cli.load_harness_core_symbols", side_effect=RuntimeError("missing harness")), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["install", "spark-harness-core", "--skip-install-commands"]), 2)
+        install_command.assert_not_called()
+        self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+
+    def test_main_blocks_digest_bound_bootstrap_when_harness_core_is_importable(self) -> None:
+        command = ["spark", "install", "spark-harness-core", "--skip-install-commands"]
+        decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+        with patch.dict(os.environ, {"SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST": decision.command_digest}), \
+             patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch(
+                 "spark_cli.cli.load_harness_core_symbols",
+                 return_value=(FakeCliApprovalHarnessKernel, _fake_cli_approval_evidence_ref),
+             ), \
+             patch("spark_cli.cli.cmd_install", return_value=0) as install_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["install", "spark-harness-core", "--skip-install-commands"]), 2)
+        install_command.assert_not_called()
+        self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+
     def test_validate_init_module_name_rejects_bad_names(self) -> None:
         validate_init_module_name("my-module")
         validate_init_module_name("m1")

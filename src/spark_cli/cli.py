@@ -122,6 +122,7 @@ BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
 CLI_APPROVAL_LEDGER_DIR = STATE_DIR / "approval-ledgers"
 CLI_APPROVAL_TOOL_NAME = "spark-cli.approval.enforced-command"
 CLI_APPROVAL_BOOTSTRAP_TOOL_NAME = "spark-cli.approval.harness-core-bootstrap"
+CLI_APPROVAL_BOOTSTRAP_DIGEST_ENV = "SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST"
 CLI_APPROVAL_CAPABILITY_PREFIX = "capability:spark-cli:approval"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_PROBE_URL = "https://example.com"
@@ -10853,6 +10854,23 @@ def create_cli_approval_bootstrap_authority(
     }
 
 
+def cli_harness_core_is_importable() -> bool:
+    try:
+        load_harness_core_symbols()
+        return True
+    except Exception:
+        return False
+
+
+def bootstrap_digest_approval_allows(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
+    if not command_is_harness_core_bootstrap_install(args, decision, command_argv):
+        return False
+    provided = os.environ.get(CLI_APPROVAL_BOOTSTRAP_DIGEST_ENV, "").strip().lower()
+    if not provided or provided != str(getattr(decision, "command_digest", "")).strip().lower():
+        return False
+    return not cli_harness_core_is_importable()
+
+
 def cli_approval_authority_allows(authority: Any, *, action_class: str | None = None) -> bool:
     if not isinstance(authority, dict):
         return False
@@ -10934,6 +10952,15 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     context = approval_context_for_args(args)
     decision = approval_required_for_command(command_argv, context)
     if not should_enforce_approval(args, decision):
+        return None
+    if bootstrap_digest_approval_allows(args, decision, command_argv):
+        authority = create_cli_approval_bootstrap_authority(
+            args,
+            decision,
+            command_argv,
+            reason="Harness Core missing during digest-bound bootstrap install.",
+        )
+        setattr(args, "_spark_cli_approval_authority", authority)
         return None
     if decision.approval_mode == "blocked":
         print("Spark blocked a sensitive action because this shell is non-interactive.")
