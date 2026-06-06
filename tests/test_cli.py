@@ -1528,6 +1528,31 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_docker_compose_command_execution(self) -> None:
+        risky_cases = [
+            ["docker", "compose", "exec", "app", "sh"],
+            ["docker", "compose", "run", "--rm", "app", "sh"],
+            ["docker-compose", "exec", "app", "sh"],
+            ["docker-compose", "run", "--rm", "app", "sh"],
+        ]
+        for command in risky_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve compose command execution")
+
+        safe_cases = [
+            ["docker", "compose", "ps"],
+            ["docker-compose", "ps"],
+        ]
+        for command in safe_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

@@ -360,6 +360,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve submodule code fetch",
         )
 
+    if (first == "docker" and lowered[1:3] in (["compose", "exec"], ["compose", "run"])) or (
+        first == "docker-compose" and second in {"exec", "run"}
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Docker Compose command can run commands inside a Compose service container.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve compose command execution",
+        )
+
     if first == "docker" and (
         "--privileged" in lowered
         or "--network=host" in lowered
