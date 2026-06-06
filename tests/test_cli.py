@@ -1528,6 +1528,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_podman_prune_commands(self) -> None:
+        risky_cases = [
+            (["podman", "system", "prune", "-af"], "critical"),
+            (["podman", "image", "prune", "-a"], "high"),
+            (["podman", "container", "prune", "-f"], "high"),
+            (["podman", "volume", "prune", "-f"], "critical"),
+            (["podman", "builder", "prune", "-f"], "high"),
+        ]
+        for command, risk in risky_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve podman prune")
+
+        safe_cases = [
+            ["podman", "system", "df"],
+            ["podman", "images"],
+            ["podman", "volume", "ls"],
+        ]
+        for command in safe_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
