@@ -1522,6 +1522,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_container_copy_uploads(self) -> None:
+        risky_cases = [
+            ["docker", "cp", "report.txt", "spark-container:/tmp/report.txt"],
+            ["docker", "container", "cp", "-a", "payload", "spark-container:/tmp/payload"],
+            ["docker", "compose", "cp", "report.txt", "app:/tmp/report.txt"],
+            ["docker", "compose", "cp", "--index", "1", "payload", "app:/tmp/payload"],
+            ["docker-compose", "cp", "report.txt", "app:/tmp/report.txt"],
+        ]
+        for command in risky_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve container file upload")
+
+        safe_cases = [
+            ["docker", "cp", "spark-container:/tmp/report.txt", "report.txt"],
+            ["docker", "compose", "cp", "app:/tmp/report.txt", "report.txt"],
+            ["docker-compose", "cp", "app:/tmp/report.txt", "report.txt"],
+            ["docker", "compose", "ps"],
+        ]
+        for command in safe_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)

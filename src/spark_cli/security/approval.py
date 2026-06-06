@@ -99,6 +99,37 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _looks_like_container_copy_path(value: str) -> bool:
+    if re.match(r"^[A-Za-z]:[\\/]", value):
+        return False
+    name, separator, path = value.partition(":")
+    return bool(separator and name and path.startswith(("/", "~")))
+
+
+def _copy_operands(parts: list[str], start: int, value_options: set[str] | None = None) -> list[str]:
+    options_with_values = value_options or set()
+    operands: list[str] = []
+    index = start
+    while index < len(parts):
+        part = parts[index]
+        lowered = part.lower()
+        if part == "--":
+            operands.extend(parts[index + 1 :])
+            break
+        if lowered in options_with_values:
+            index += 2
+            continue
+        if any(lowered.startswith(option + "=") for option in options_with_values):
+            index += 1
+            continue
+        if part.startswith("-"):
+            index += 1
+            continue
+        operands.append(part)
+        index += 1
+    return operands
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -358,6 +389,46 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Git submodule commands can add or fetch executable code from another repository.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve submodule code fetch",
+        )
+
+    docker_cp_operands: list[str] = []
+    if first == "docker" and second == "cp":
+        docker_cp_operands = _copy_operands(parts, 2)
+    elif first == "docker" and lowered[1:3] == ["container", "cp"]:
+        docker_cp_operands = _copy_operands(parts, 3)
+    if (
+        len(docker_cp_operands) >= 2
+        and not _looks_like_container_copy_path(docker_cp_operands[-2])
+        and _looks_like_container_copy_path(docker_cp_operands[-1])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Docker copy command can upload local files into a running container.",
+            target_display="container filesystem",
+            confirmation_phrase="approve container file upload",
+        )
+
+    compose_cp_operands: list[str] = []
+    if first == "docker" and lowered[1:3] == ["compose", "cp"]:
+        compose_cp_operands = _copy_operands(parts, 3, {"--index"})
+    elif first == "docker-compose" and second == "cp":
+        compose_cp_operands = _copy_operands(parts, 2, {"--index"})
+    if (
+        len(compose_cp_operands) >= 2
+        and not _looks_like_container_copy_path(compose_cp_operands[-2])
+        and _looks_like_container_copy_path(compose_cp_operands[-1])
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Docker Compose copy command can upload local files into a service container.",
+            target_display="compose service filesystem",
+            confirmation_phrase="approve container file upload",
         )
 
     if first == "docker" and (
