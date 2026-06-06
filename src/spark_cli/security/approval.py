@@ -198,6 +198,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="delete spark home",
         )
 
+    if first == "podman" and (second == "rmi" or lowered[1:3] in (["image", "rm"], ["image", "remove"])):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Podman image removal command can delete local container images.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve podman image removal",
+        )
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
