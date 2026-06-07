@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -2701,6 +2702,44 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(seen["received"])
         self.assertTrue(seen["replied"])
         self.assertEqual(seen["chat_id"], 7)
+
+    def test_wait_for_telegram_first_message_invokes_progress_callback_between_polls(self) -> None:
+        ticks: list[float] = []
+        seen_calls = {"count": 0}
+
+        def fake_seen(session: str, path: object) -> dict[str, object]:
+            seen_calls["count"] += 1
+            # First three polls report no event; fourth one reports the event arrived.
+            if seen_calls["count"] >= 4:
+                return {"received": True, "replied": True, "session": session}
+            return {"received": False, "replied": False, "session": session}
+
+        def fake_progress() -> None:
+            ticks.append(time.monotonic())
+
+        with patch("spark_cli.cli.telegram_first_message_seen", side_effect=fake_seen):
+            result = wait_for_telegram_first_message(
+                "ember-3333",
+                10,
+                poll_seconds=0.05,
+                progress_callback=fake_progress,
+                progress_interval_seconds=0.05,
+            )
+
+        self.assertTrue(result["received"])
+        self.assertGreaterEqual(len(ticks), 1)
+        self.assertEqual(seen_calls["count"], 4)
+
+    def test_wait_for_telegram_first_message_skips_progress_callback_when_none(self) -> None:
+        # Default-None callback preserves the existing silent contract -- no callback,
+        # no progress side-channel, no behavior change for callers that pre-date this PR.
+        with patch(
+            "spark_cli.cli.telegram_first_message_seen",
+            return_value={"received": True, "replied": True, "session": "ember-4444"},
+        ):
+            result = wait_for_telegram_first_message("ember-4444", 0, poll_seconds=0.1)
+        self.assertTrue(result["received"])
+        self.assertTrue(result["replied"])
 
     def test_endpoint_security_errors_flag_metadata_service_url(self) -> None:
         provider_payload = {
