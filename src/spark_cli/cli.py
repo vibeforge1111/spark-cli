@@ -7620,7 +7620,12 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         "redaction": authority.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        output_path = getattr(args, "output", None)
+        if output_path:
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, indent=2))
+        else:
+            print(json.dumps(payload, indent=2))
         return 0
 
     print("Spark OS authority")
@@ -16437,6 +16442,7 @@ def build_parser() -> argparse.ArgumentParser:
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
+    os_authority_parser.add_argument("--output", "-o", metavar="FILE", default=None, help="write JSON output to FILE instead of stdout (requires --json)")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
     os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
