@@ -664,7 +664,13 @@ def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
             continue
         try:
             text = candidate.read_text(encoding="utf-8")
-        except Exception as exc:
+        except OSError as exc:
+            # Narrow from bare Exception so programmer bugs (e.g. an
+            # AttributeError from a typo'd Path-like wrapper) propagate as
+            # actual tracebacks instead of being silently swallowed into a
+            # {"error": ...} dict. Disk-side failures (permission denied,
+            # IsADirectoryError, FileNotFoundError after a TOCTOU race) are
+            # all OSError subclasses and remain caught.
             return {"exists": True, "path": str(candidate), "error": f"{type(exc).__name__}: {exc}"}
         statuses = Counter(re.findall(r"(?m)^\s*status:\s*([a-zA-Z0-9_.-]+)\s*$", text))
         schema_match = re.search(r"(?m)^\s*schema(?:_version)?:\s*([a-zA-Z0-9_.-]+)\s*$", text)
@@ -3504,7 +3510,12 @@ def read_text_or_none(path: Path) -> str | None:
         return None
     try:
         return path.read_text(encoding="utf-8-sig")
-    except Exception:
+    except OSError:
+        # Narrow from bare Exception so programmer bugs (e.g. an
+        # AttributeError from a typo'd Path-like wrapper) propagate as
+        # actual tracebacks instead of being silently swallowed into None.
+        # Disk-side failures (permission denied, IsADirectoryError, etc.)
+        # are all OSError subclasses and remain caught.
         return None
 
 
