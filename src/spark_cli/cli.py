@@ -15708,6 +15708,11 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_delete(args: argparse.Namespace) -> int:
+    if getattr(args, "dry_run", False):
+        # This prints only the secret label (the secret_id), not its value.
+        # codeql[py/clear-text-logging-sensitive-data]
+        print(f"Would delete: {args.secret_id}")
+        return 0
     if delete_secret(args.secret_id):
         # This prints only the secret label after deletion.
         # codeql[py/clear-text-logging-sensitive-data]
@@ -16878,6 +16883,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
     secrets_delete_parser.add_argument("secret_id")
+    secrets_delete_parser.add_argument("--dry-run", action="store_true", help="Print what would be deleted without removing it")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
