@@ -302,6 +302,35 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "sns" and len(lowered) > 2:
+        sns_mutation_prefixes = (
+            "add-",
+            "confirm-",
+            "create-",
+            "delete-",
+            "opt-",
+            "publish",
+            "remove-",
+            "set-",
+            "subscribe",
+            "tag-",
+            "unsubscribe",
+            "untag-",
+            "verify-",
+        )
+        if lowered[2].startswith(sns_mutation_prefixes):
+            sns_action = lowered[2]
+            critical_prefixes = ("delete-", "remove-", "unsubscribe")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if sns_action.startswith(critical_prefixes) else "high",
+                "AWS SNS command can publish notifications or mutate topics, subscriptions, attributes, permissions, SMS settings, or tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve sns change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
