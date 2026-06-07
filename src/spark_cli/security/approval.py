@@ -140,6 +140,114 @@ def parse_command_text(command: str) -> list[str]:
         return command.split()
 
 
+_SHELL_INLINE_COMMANDS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
+_POWERSHELL_INLINE_COMMANDS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_CMD_INLINE_COMMANDS = {"cmd", "cmd.exe"}
+_INTERPRETER_INLINE_COMMANDS = {"python", "python3", "python.exe", "node", "node.exe", "ruby", "ruby.exe", "perl", "perl.exe"}
+
+
+def _shell_inline_payload_index(lowered: list[str]) -> int | None:
+    for index, part in enumerate(lowered[1:], start=1):
+        if part in {"-c", "--command"} and index + 1 < len(lowered):
+            return index + 1
+        if part.startswith("-") and not part.startswith("--") and "c" in part[1:] and index + 1 < len(lowered):
+            return index + 1
+    return None
+
+
+def _option_payload_index(lowered: list[str], option_names: set[str]) -> int | None:
+    for index, part in enumerate(lowered[1:], start=1):
+        if part in option_names and index + 1 < len(lowered):
+            return index + 1
+    return None
+
+
+def _inline_payload_decision(parts: list[str], lowered: list[str], ctx: CommandContext) -> ApprovalDecision | None:
+    first = lowered[0] if lowered else ""
+    if first in _SHELL_INLINE_COMMANDS:
+        payload_index = _shell_inline_payload_index(lowered)
+        if payload_index is None:
+            return None
+        payload = parts[payload_index]
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline shell payload.",
+            target_display=f"{parts[0]} -c",
+            confirmation_phrase="approve inline shell",
+        )
+
+    if first in _POWERSHELL_INLINE_COMMANDS:
+        if _option_payload_index(lowered, {"-encodedcommand", "-enc"}) is not None:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "critical",
+                "Command runs an opaque encoded PowerShell payload.",
+                target_display=parts[0],
+                confirmation_phrase="approve encoded powershell",
+            )
+        payload_index = _option_payload_index(lowered, {"-c", "-command", "/c", "/command"})
+        if payload_index is None:
+            return None
+        payload = " ".join(parts[payload_index:])
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline PowerShell payload.",
+            target_display=f"{parts[0]} -Command",
+            confirmation_phrase="approve inline powershell",
+        )
+
+    if first in _CMD_INLINE_COMMANDS:
+        payload_index = _option_payload_index(lowered, {"/c", "/k"})
+        if payload_index is None:
+            return None
+        payload = " ".join(parts[payload_index:])
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline cmd.exe payload.",
+            target_display=f"{parts[0]} /c",
+            confirmation_phrase="approve inline cmd",
+        )
+
+    if first in _INTERPRETER_INLINE_COMMANDS:
+        payload_index = _option_payload_index(lowered, {"-c", "-e"})
+        if payload_index is None:
+            return None
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs inline interpreter code.",
+            target_display=f"{parts[0]} {parts[payload_index - 1]}",
+            confirmation_phrase="approve inline code",
+        )
+
+    return None
+
+
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
     parts = [part for part in argv if part != "--"]
@@ -150,6 +258,10 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+
+    inline_decision = _inline_payload_decision(parts, lowered, ctx)
+    if inline_decision is not None:
+        return inline_decision
 
     if first in {"sudo", "doas"}:
         nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
