@@ -1239,7 +1239,7 @@ def delete_secret(secret_id: str) -> bool:
             save_json(SECRETS_FILE_PATH, file_secrets)
             harden_secret_file(SECRETS_FILE_PATH)
             removed = True
-    if backend is not None:
+    if backend is not None and removed:
         save_secrets_index(index)
     return removed
 
