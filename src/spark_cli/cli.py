@@ -7786,9 +7786,9 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
             f"({next_review.get('reason_code')})"
         )
         if operator_paths:
-            print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
-            print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
-            print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
+            print(f"- provenance path: {'available' if operator_paths.get('provenance_drilldown') else 'unavailable'}")
+            print(f"- stale/current gate: {'available' if operator_paths.get('stale_current_adjudication') else 'unavailable'}")
+            print(f"- purge path: {'available' if operator_paths.get('purge_or_decay_path') else 'unavailable'}")
     print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
     return 0
 
@@ -7900,7 +7900,7 @@ def cmd_live(args: argparse.Namespace) -> int:
                 for line in tail_log_lines(path, getattr(args, "lines", 80)):
                     write_console_text(line if line.endswith("\n") else line + "\n")
             else:
-                print(f"No logs yet at {path}")
+                print("No logs yet for this target")
         if getattr(args, "follow", False):
             follow_live_logs(lines=0)
         return 0
