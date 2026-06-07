@@ -726,7 +726,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     if status.returncode != 0:
         return False, summarize_command_output(status)
     if status.stdout.strip():
