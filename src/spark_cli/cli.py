@@ -4209,7 +4209,7 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
     save_json(CONFIG_PATH, setup_state)
 
     print(f"Telegram profile configured: {profile}")
-    print(f"Profile env: {generated_module_env_path(gateway, profile)}")
+    print(f"Profile env: {gateway} (profile {profile})")
     print(f"Secret {profile_secret_id} -> {backend}")
     if bot_identity and bot_identity.get("username"):
         print(f"Connected Telegram bot: @{bot_identity['username']}")
@@ -4288,7 +4288,7 @@ def initialize_builder_runtime_home(
             researcher_config = researcher.path / "spark-researcher.project.json"
             if researcher_config.exists():
                 config_manager.set_path("spark.researcher.config_path", str(researcher_config))
-            notes.append(f"connected spark-researcher at {researcher.path}")
+            notes.append(f"connected spark-researcher")
 
         memory = modules_by_name.get("domain-chip-memory")
         if memory is not None:
@@ -4298,7 +4298,7 @@ def initialize_builder_runtime_home(
             config_manager.set_path("spark.memory.sdk_module", "domain_chip_memory")
             activate_chip(config_manager, chip_key="domain-chip-memory")
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated domain-chip-memory at {memory.path}")
+            notes.append(f"activated domain-chip-memory")
 
             sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
             graphiti_state = sidecar_state.get("graphiti") if isinstance(sidecar_state, dict) else None
@@ -4313,7 +4313,7 @@ def initialize_builder_runtime_home(
                     "spark.memory.sidecars.graphiti.group_id",
                     str(graphiti_state.get("group_id") or DEFAULT_GRAPHITI_GROUP_ID),
                 )
-                notes.append(f"enabled Graphiti {backend} memory sidecar at {db_path}")
+                notes.append(f"enabled Graphiti {backend} memory sidecar")
             elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
                 config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
                 notes.append("disabled optional Graphiti memory sidecar")
@@ -4325,7 +4325,7 @@ def initialize_builder_runtime_home(
             config_manager.set_path("spark.voice.comms_root", str(voice.path))
             activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
+            notes.append(f"activated {VOICE_MODULE_NAME}")
 
         setup_secrets = secret_values or {}
         telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
@@ -4597,7 +4597,7 @@ def cmd_list(_: argparse.Namespace) -> int:
         blessed = "yes" if metadata.get("blessed") else "no"
         installed_marker = "installed" if module.name in installed else "available"
         print(
-            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.path}"
+            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.name}"
         )
     return 0
 
@@ -5070,7 +5070,7 @@ def print_install_summary(modules: list[Module]) -> None:
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
     for module in modules:
-        print(f"Installed {module.name} from {module.path}")
+        print(f"Installed {module.name}")
         if "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
