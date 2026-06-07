@@ -1582,6 +1582,69 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_dynamodb_mutations(self) -> None:
+        cases = [
+            (["aws", "dynamodb", "put-item", "--table-name", "spark-table", "--item", "{}"], "high"),
+            (
+                [
+                    "aws",
+                    "dynamodb",
+                    "update-item",
+                    "--table-name",
+                    "spark-table",
+                    "--key",
+                    "{}",
+                    "--update-expression",
+                    "SET demo = :v",
+                ],
+                "high",
+            ),
+            (["aws", "dynamodb", "delete-item", "--table-name", "spark-table", "--key", "{}"], "critical"),
+            (["aws", "dynamodb", "batch-write-item", "--request-items", "{}"], "high"),
+            (
+                [
+                    "aws",
+                    "dynamodb",
+                    "create-table",
+                    "--table-name",
+                    "spark-table",
+                    "--attribute-definitions",
+                    "[]",
+                    "--key-schema",
+                    "[]",
+                    "--billing-mode",
+                    "PAY_PER_REQUEST",
+                ],
+                "high",
+            ),
+            (["aws", "dynamodb", "update-table", "--table-name", "spark-table", "--billing-mode", "PAY_PER_REQUEST"], "high"),
+            (["aws", "dynamodb", "delete-table", "--table-name", "spark-table"], "critical"),
+            (["aws", "dynamodb", "transact-write-items", "--transact-items", "[]"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve dynamodb change")
+
+    def test_approval_classifier_allows_aws_dynamodb_report_commands(self) -> None:
+        cases = [
+            ["aws", "dynamodb", "describe-table", "--table-name", "spark-table"],
+            ["aws", "dynamodb", "list-tables"],
+            ["aws", "dynamodb", "query", "--table-name", "spark-table", "--key-condition-expression", "pk = :pk"],
+            ["aws", "dynamodb", "scan", "--table-name", "spark-table", "--limit", "1"],
+            ["aws", "dynamodb", "get-item", "--table-name", "spark-table", "--key", "{}"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
