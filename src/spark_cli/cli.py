@@ -13660,8 +13660,10 @@ def resolve_start_modules(target: str | None, installed_modules: dict[str, Modul
         needed_names.add(name)
         missing_dependencies = [dependency for dependency in module.needs_modules if dependency not in installed_modules]
         if missing_dependencies:
+            install_commands = " ".join(f"`spark install {dep}`" for dep in missing_dependencies)
             raise SystemExit(
-                f"Cannot start {module.name} because required modules are not installed: {', '.join(missing_dependencies)}"
+                f"Cannot start {module.name} because required modules are not installed: "
+                f"{', '.join(missing_dependencies)}. Install with: {install_commands}."
             )
         stack.extend(module.needs_modules)
     selected_modules = {name: installed_modules[name] for name in needed_names}
