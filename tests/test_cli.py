@@ -1582,6 +1582,61 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_eventbridge_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "events", "put-events", "--entries", "Source=spark,DetailType=demo,Detail={}"],
+                "external_publish",
+                "high",
+            ),
+            (
+                ["aws", "events", "put-rule", "--name", "spark-rule", "--schedule-expression", "rate(5 minutes)"],
+                "external_publish",
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "events",
+                    "put-targets",
+                    "--rule",
+                    "spark-rule",
+                    "--targets",
+                    "Id=demo,Arn=arn:aws:lambda:us-east-1:000000000000:function:spark",
+                ],
+                "external_publish",
+                "high",
+            ),
+            (["aws", "events", "start-replay", "--replay-name", "spark-replay"], "external_publish", "high"),
+            (["aws", "events", "enable-rule", "--name", "spark-rule"], "external_publish", "high"),
+            (["aws", "events", "disable-rule", "--name", "spark-rule"], "external_publish", "high"),
+            (["aws", "events", "remove-targets", "--rule", "spark-rule", "--ids", "demo"], "external_publish", "critical"),
+            (["aws", "events", "delete-rule", "--name", "spark-rule"], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve eventbridge change")
+
+    def test_approval_classifier_allows_aws_eventbridge_report_commands(self) -> None:
+        cases = [
+            ["aws", "events", "describe-rule", "--name", "spark-rule"],
+            ["aws", "events", "list-rules"],
+            ["aws", "events", "list-targets-by-rule", "--rule", "spark-rule"],
+            ["aws", "events", "list-event-buses"],
+            ["aws", "events", "test-event-pattern", "--event-pattern", "{}", "--event", "{}"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)

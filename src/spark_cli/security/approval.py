@@ -302,6 +302,35 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "events" and len(lowered) > 2:
+        eventbridge_mutation_prefixes = (
+            "activate-",
+            "cancel-",
+            "create-",
+            "deactivate-",
+            "delete-",
+            "disable-",
+            "enable-",
+            "put-",
+            "remove-",
+            "start-",
+            "tag-",
+            "untag-",
+            "update-",
+        )
+        if lowered[2].startswith(eventbridge_mutation_prefixes):
+            eventbridge_action = lowered[2]
+            critical_prefixes = ("delete-", "remove-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if eventbridge_action.startswith(critical_prefixes) else "high",
+                "AWS EventBridge command can publish events or mutate event buses, rules, targets, permissions, archives, or replays.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve eventbridge change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
