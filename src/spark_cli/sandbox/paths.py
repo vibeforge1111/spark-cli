@@ -43,9 +43,15 @@ def ssh_known_hosts_path(home: Path | None = None) -> Path:
 def validate_target_name(name: str) -> str:
     value = str(name or "").strip()
     if not TARGET_NAME_PATTERN.fullmatch(value):
-        raise ValueError("Target name must be 2-40 chars: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit.")
+        raise ValueError(
+            f"Target name {value!r} is not valid. "
+            "Target name must be 2-40 chars: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit."
+        )
     if is_windows_reserved_name(value):
-        raise ValueError("Target name must not use a Windows reserved device name.")
+        raise ValueError(
+            f"Target name {value!r} uses a Windows reserved device name. "
+            "Pick a different target name (avoid con, nul, prn, aux, com1-com9, lpt1-lpt9)."
+        )
     return value
 
 
