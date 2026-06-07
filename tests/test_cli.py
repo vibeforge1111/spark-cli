@@ -1582,6 +1582,56 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_sts_credential_issuance(self) -> None:
+        role_arn = "arn:aws:iam::000000000000:role/spark-synthetic"
+        cases = [
+            ["aws", "sts", "assume-role", "--role-arn", role_arn, "--role-session-name", "spark"],
+            [
+                "aws",
+                "sts",
+                "assume-role-with-web-identity",
+                "--role-arn",
+                role_arn,
+                "--role-session-name",
+                "spark",
+                "--web-identity-token",
+                "placeholder",
+            ],
+            [
+                "aws",
+                "sts",
+                "assume-role-with-saml",
+                "--role-arn",
+                role_arn,
+                "--principal-arn",
+                "arn:aws:iam::000000000000:saml-provider/spark",
+                "--saml-assertion",
+                "placeholder",
+            ],
+            ["aws", "sts", "get-session-token", "--duration-seconds", "900"],
+            ["aws", "sts", "get-federation-token", "--name", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve sts credential issuance")
+
+    def test_approval_classifier_allows_aws_sts_report_commands(self) -> None:
+        cases = [
+            ["aws", "sts", "get-caller-identity"],
+            ["aws", "sts", "decode-authorization-message", "--encoded-message", "placeholder"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
