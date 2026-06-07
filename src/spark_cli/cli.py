@@ -1970,11 +1970,11 @@ def load_module(path: Path) -> Module:
     try:
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+        raise SystemExit("Module manifest not found: module manifest") from exc
     except PermissionError as exc:
-        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+        raise SystemExit("Permission denied reading module manifest: module manifest") from exc
     except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
+        raise SystemExit(f"Invalid TOML in module manifest: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
