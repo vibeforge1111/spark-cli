@@ -27,7 +27,7 @@
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
       "commit": "657505234cfec40474773c02d520b14c24776a03",
-      "verify_ref": "refs/heads/main",
+      "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
@@ -76,7 +76,7 @@
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "c0162d3cb5ece6a2bba2d6d025d4bc75b1345a37",
+      "commit": "d6eade53dff81c62caa4c57aac658ae343fd6b3c",
       "verify_ref": "refs/heads/codex/genesis-harness-core-20260602",
       "visibility": "private",
       "require_signed_commit": false,
@@ -85,7 +85,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "c0162d3cb5ece6a2bba2d6d025d4bc75b1345a37"
+        "commit": "d6eade53dff81c62caa4c57aac658ae343fd6b3c"
       }
     },
     "spark-skill-graphs": {
