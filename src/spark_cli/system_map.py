@@ -908,15 +908,20 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
     return out
 
 
+_BUILDER_OVERLAP_PROBE_CAP = 500
+
+
 def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_request_id_count": len(request_ids),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; request id values omitted",
     }
     if not request_ids or not db_path.exists():
+        out["sampled_request_id_count"] = 0
         out["matched_builder_request_id_count"] = 0
         return out
     try:
@@ -925,14 +930,17 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
             columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
             if "request_id" not in columns:
                 out["request_id_column_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
+            candidates = sorted(request_ids)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_request_id_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -956,9 +964,11 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_trace_ref_count": len(trace_refs),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; trace ref values omitted",
     }
     if not trace_refs or not db_path.exists():
+        out["sampled_trace_ref_count"] = 0
         out["matched_builder_trace_ref_count"] = 0
         return out
     try:
@@ -967,14 +977,17 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
             columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
+            candidates = sorted(trace_refs)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_trace_ref_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
