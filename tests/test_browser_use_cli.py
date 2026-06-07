@@ -204,6 +204,25 @@ class BrowserUseCliTests(unittest.TestCase):
         lines = [str(call.args[0]) for call in printed.call_args_list if call.args]
         self.assertTrue(any("pip install -e" in line for line in lines))
 
+    def test_install_emits_step_counter_for_each_subprocess_stage(self) -> None:
+        # The browser-use install runs three sequential silent subprocess stages
+        # (pip install -> browser-use install -> browser-use doctor) for up to
+        # ~240 seconds total. The step counter tells the operator which stage
+        # the install is on.
+        with patch("spark_cli.cli.subprocess.run") as run, \
+             patch("spark_cli.cli.browser_use_cli_path", return_value="/fake/bin/browser-use"), \
+             patch("spark_cli.cli.run_browser_use_command") as run_buc, \
+             patch("builtins.print") as printed:
+            exit_code = cli.cmd_browser_use(Namespace(browser_use_command="install", dry_run=False))
+
+        self.assertEqual(exit_code, 0)
+        run.assert_called_once()
+        self.assertEqual(run_buc.call_count, 2)
+        lines = [str(call.args[0]) for call in printed.call_args_list if call.args]
+        self.assertTrue(any("Step 1/3" in line for line in lines))
+        self.assertTrue(any("Step 2/3" in line for line in lines))
+        self.assertTrue(any("Step 3/3" in line for line in lines))
+
     def test_task_rejects_non_positive_max_steps(self) -> None:
         parser = cli.build_parser()
 
