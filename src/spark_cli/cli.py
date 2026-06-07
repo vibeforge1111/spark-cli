@@ -15124,11 +15124,15 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
     raise SystemExit(f"Autostart is not supported on this platform yet: {sys.platform}")
 
 
-def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
+def cmd_autostart_uninstall(args: argparse.Namespace) -> int:
+    dry_run = getattr(args, "dry_run", False)
     failures = 0
     if sys.platform.startswith("linux") and running_under_wsl():
         startup_path = wsl_windows_startup_script_path()
         if startup_path is not None and startup_path.exists():
+            if dry_run:
+                print(f"Would remove WSL Windows-login fallback: {startup_path}")
+                return 0
             startup_path.unlink()
             print(f"Removed WSL Windows-login fallback: {startup_path}")
         return 0
@@ -15137,6 +15141,13 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         scope = linux_autostart_scope()
         service_path = linux_autostart_path(scope)
         disable_command = systemctl_command(scope, "disable", "--now", service_path.name)
+        if dry_run:
+            print(f"Would run: {' '.join(disable_command)}")
+            print(f"Would remove: {service_path}")
+            xdg_path = linux_xdg_autostart_path()
+            if xdg_path.exists():
+                print(f"Would remove: {xdg_path}")
+            return 0
         result = run_autostart_helper(disable_command)
         if result.returncode != 0:
             failures += 1
@@ -16807,8 +16818,10 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_on_parser.add_argument("--now", action="store_true", help="Start Spark immediately after installing autostart")
     autostart_on_parser.set_defaults(func=cmd_autostart_install)
     autostart_uninstall_parser = autostart_subparsers.add_parser("uninstall", help="Remove OS login autostart")
+    autostart_uninstall_parser.add_argument("--dry-run", action="store_true", help="Print what would be removed without executing")
     autostart_uninstall_parser.set_defaults(func=cmd_autostart_uninstall)
     autostart_off_parser = autostart_subparsers.add_parser("off", help="Remove OS login autostart")
+    autostart_off_parser.add_argument("--dry-run", action="store_true", help="Print what would be removed without executing")
     autostart_off_parser.set_defaults(func=cmd_autostart_uninstall)
     autostart_profile_parser = autostart_subparsers.add_parser(
         "profile",
