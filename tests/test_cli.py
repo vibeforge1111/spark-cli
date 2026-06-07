@@ -1528,6 +1528,42 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_config_mutations(self) -> None:
+        cases = [
+            (["aws", "configservice", "put-configuration-recorder", "--configuration-recorder", "{}"], "high"),
+            (["aws", "configservice", "start-configuration-recorder", "--configuration-recorder-name", "spark"], "high"),
+            (["aws", "configservice", "stop-configuration-recorder", "--configuration-recorder-name", "spark"], "critical"),
+            (["aws", "configservice", "delete-configuration-recorder", "--configuration-recorder-name", "spark"], "critical"),
+            (["aws", "configservice", "put-delivery-channel", "--delivery-channel", "{}"], "high"),
+            (["aws", "configservice", "delete-delivery-channel", "--delivery-channel-name", "spark"], "critical"),
+            (["aws", "configservice", "put-config-rule", "--config-rule", "{}"], "high"),
+            (["aws", "configservice", "delete-config-rule", "--config-rule-name", "spark"], "critical"),
+            (["aws", "configservice", "put-remediation-configuration", "--remediation-configuration", "{}"], "high"),
+            (["aws", "configservice", "delete-remediation-configuration", "--config-rule-name", "spark"], "critical"),
+            (["aws", "configservice", "tag-resource", "--resource-arn", "arn:aws:config:us-east-1:000000000000:config-rule/spark"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve aws config change")
+
+    def test_approval_classifier_allows_aws_config_report_commands(self) -> None:
+        for command in (
+            ["aws", "configservice", "describe-configuration-recorders"],
+            ["aws", "configservice", "describe-delivery-channels"],
+            ["aws", "configservice", "describe-config-rules"],
+            ["aws", "configservice", "get-compliance-details-by-config-rule", "--config-rule-name", "spark"],
+            ["aws", "configservice", "select-resource-config", "--expression", "SELECT resourceId WHERE resourceType = 'AWS::EC2::Instance'"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

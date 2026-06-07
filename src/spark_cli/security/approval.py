@@ -302,6 +302,31 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "configservice":
+        config_action = lowered[2]
+        mutating_prefixes = (
+            "batch-delete-",
+            "batch-put-",
+            "delete-",
+            "deliver-",
+            "put-",
+            "start-",
+            "stop-",
+            "tag-",
+            "untag-",
+        )
+        if config_action.startswith(mutating_prefixes):
+            critical_prefixes = ("batch-delete-", "delete-", "stop-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if config_action.startswith(critical_prefixes) else "high",
+                "AWS Config command can change configuration recording, delivery, compliance rules, remediation, or resource tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve aws config change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
