@@ -8226,7 +8226,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
-    print(f"[OK] Wrote local redacted support bundle: {path}")
+    print("[OK] Wrote local redacted support bundle.")
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
@@ -8758,7 +8758,7 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
         print(f"{marker} {label}: {detail}")
     if payload.get("support_bundle_path"):
         print("")
-        print(f"Redacted support bundle: {payload['support_bundle_path']}")
+        print("Redacted support bundle saved locally.")
     print("")
     print("Remote cleanup still to do where applicable:")
     for item in payload.get("manual_remote_revocations") or []:
@@ -9921,7 +9921,7 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print("Spark access setup")
     print(f"Access level: {payload.get('access_level')}")
     print(f"OS: {payload.get('os_family')}")
-    print(f"Workspace: {payload.get('workspace_path')}")
+    print("Workspace: (configured)")
     print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
     if recommended.get("user_message"):
         print(str(recommended["user_message"]))
@@ -10961,7 +10961,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         prompt_path = Path(args.prompt_out).expanduser()
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
         prompt_path.write_text(prompt, encoding="utf-8")
-        print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
+        print("Wrote redacted Spark Doctor prompt.")
         return 0
     target = resolve_llm_doctor_target(args)
     response = call_llm_doctor(target, prompt)
@@ -10978,7 +10978,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     )
     if getattr(args, "save_report", False):
         path = write_doctor_report(report)
-        print(f"Saved Spark Doctor report: {path}")
+        print("Saved Spark Doctor report.")
     if getattr(args, "upstream_report", False):
         upstream = render_upstream_pr_candidate(problem, report)
         upstream_out = getattr(args, "upstream_out", None)
@@ -10988,7 +10988,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
             upstream_path.write_text(upstream, encoding="utf-8")
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
-        print(f"Saved sanitized upstream PR candidate: {upstream_path}")
+        print("Saved sanitized upstream PR candidate.")
         print("Review the checklist before opening a PR. Spark did not upload anything.")
     print(report)
     return 0
