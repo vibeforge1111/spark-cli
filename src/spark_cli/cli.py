@@ -907,7 +907,11 @@ def ensure_state_dirs() -> None:
         try:
             os.chmod(path, 0o700)
         except OSError:
-            pass
+            sys.stderr.write(
+                f"spark-cli: chmod failed on {path} "
+                f"(filesystem may not support permissions); "
+                f"directory may be world-readable.\n"
+            )
 
 
 def keychain_available() -> bool:
@@ -1085,7 +1089,11 @@ def harden_secret_file(path: Path) -> None:
     try:
         os.chmod(path, 0o600)
     except OSError:
-        pass
+        sys.stderr.write(
+            f"spark-cli: chmod failed on secret file {path} "
+            f"(filesystem may not support permissions); "
+            f"file may remain world-readable.\n"
+        )
     if os.name != "nt" or not path.exists():
         return
     try:
@@ -1947,12 +1955,20 @@ def atomic_write_json(path: Path, payload: Any) -> None:
         try:
             os.chmod(temp_path, PRIVATE_FILE_MODE)
         except OSError:
-            pass
+            sys.stderr.write(
+                f"spark-cli: chmod failed on {temp_path} "
+                f"(filesystem may not support permissions); "
+                f"temp secret file may be world-readable.\n"
+            )
         os.replace(temp_path, path)
         try:
             os.chmod(path, PRIVATE_FILE_MODE)
         except OSError:
-            pass
+            sys.stderr.write(
+                f"spark-cli: chmod failed on {path} "
+                f"(filesystem may not support permissions); "
+                f"secret file may be world-readable.\n"
+            )
     finally:
         try:
             if temp_path.exists():
@@ -10520,12 +10536,20 @@ def atomic_write_text(path: Path, content: str) -> None:
         try:
             os.chmod(temp_path, PRIVATE_FILE_MODE)
         except OSError:
-            pass
+            sys.stderr.write(
+                f"spark-cli: chmod failed on {temp_path} "
+                f"(filesystem may not support permissions); "
+                f"temp secret file may be world-readable.\n"
+            )
         os.replace(temp_path, path)
         try:
             os.chmod(path, PRIVATE_FILE_MODE)
         except OSError:
-            pass
+            sys.stderr.write(
+                f"spark-cli: chmod failed on {path} "
+                f"(filesystem may not support permissions); "
+                f"secret file may be world-readable.\n"
+            )
     finally:
         try:
             if temp_path.exists():
