@@ -810,7 +810,7 @@ class SparkCliTests(unittest.TestCase):
             "recommend": "llms, providers",
             "access": "status, guide, setup, disable-level5",
             "sandbox": "docker, ssh, modal",
-            "approval": "classify",
+            "approval": "classify, ledger",
             "telegram": "connect",
             "autostart": "status, install, on, uninstall, off, profile",
             "config": "get, set, unset, list",
