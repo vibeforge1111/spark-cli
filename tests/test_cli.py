@@ -1778,6 +1778,7 @@ class SparkCliTests(unittest.TestCase):
     def test_approval_classifier_blocks_opaque_or_interpreter_inline_code(self) -> None:
         cases = [
             (["python", "-c", "import os; os.system('rm -rf /')"], "approve inline code"),
+            (["py", "-c", "import os; os.system('rm -rf /')"], "approve inline code"),
             (["node", "-e", "require('child_process').execSync('rm -rf /')"], "approve inline code"),
             (["pwsh", "-EncodedCommand", "SQBFAFgA"], "approve encoded powershell"),
         ]
@@ -1883,6 +1884,32 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
+
+    def test_approval_classifier_flags_remote_shell_and_package_bootstrap(self) -> None:
+        cases = [
+            (["ssh", "host", "rm -rf /"], "remote_code_execution", "high", "approve ssh remote command"),
+            (["plink", "host", "cat ~/.ssh/id_rsa"], "remote_code_execution", "high", "approve ssh remote command"),
+            (["npx", "create-spark-app"], "remote_code_execution", "high", "approve package execution"),
+            (["npm", "install", "left-pad"], "remote_code_execution", "high", "approve package execution"),
+            (["pnpm", "dlx", "create-vite"], "remote_code_execution", "high", "approve package execution"),
+            (["yarn", "add", "some-package"], "remote_code_execution", "high", "approve package execution"),
+            (["bunx", "some-tool"], "remote_code_execution", "high", "approve package execution"),
+            (["pip", "install", "spark-plugin"], "remote_code_execution", "high", "approve python package execution"),
+            (["pipx", "run", "spark-tool"], "remote_code_execution", "high", "approve python package execution"),
+            (
+                ["python", "-m", "pip", "install", "spark-plugin"],
+                "remote_code_execution",
+                "high",
+                "approve python package execution",
+            ),
+        ]
+        for command, action_class, risk, phrase in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, phrase)
 
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))

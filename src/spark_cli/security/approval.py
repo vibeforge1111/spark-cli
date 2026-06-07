@@ -159,7 +159,7 @@ def parse_command_text(command: str) -> list[str]:
 _SHELL_INLINE_COMMANDS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 _POWERSHELL_INLINE_COMMANDS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
 _CMD_INLINE_COMMANDS = {"cmd", "cmd.exe"}
-_INTERPRETER_INLINE_COMMANDS = {"python", "python3", "python.exe", "node", "node.exe", "ruby", "ruby.exe", "perl", "perl.exe"}
+_INTERPRETER_INLINE_COMMANDS = {"python", "python3", "py", "python.exe", "py.exe", "node", "node.exe", "ruby", "ruby.exe", "perl", "perl.exe"}
 
 
 def _shell_inline_payload_index(lowered: list[str]) -> int | None:
@@ -576,6 +576,43 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve network file transfer",
         )
 
+    if first in {"ssh", "ssh.exe", "plink", "plink.exe"}:
+        target = parts[1] if len(parts) > 1 else parts[0]
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can execute a shell or command on a remote host.",
+            target_display=target,
+            confirmation_phrase="approve ssh remote command",
+        )
+
+    if first in {"npx", "bunx", "uvx"} or (
+        first in {"npm", "pnpm", "yarn", "bun"}
+        and second in {"install", "add", "i", "ci", "update", "upgrade", "exec", "dlx", "create"}
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can fetch packages and run package-manager lifecycle or executable code.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve package execution",
+        )
+
+    if first in {"pip", "pip3", "pip.exe", "pip3.exe", "pipx"} and second in {"install", "download", "run"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can fetch Python packages and execute package installation hooks.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve python package execution",
+        )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "filter-branch" in lowered
@@ -894,5 +931,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark verify --deep",
             confirmation_phrase="approve deep verification",
         )
+
+    if first in {"python", "python3", "py", "python.exe", "py.exe"} and len(lowered) > 3:
+        if lowered[1:4] == ["-m", "pip", "install"] or lowered[1:4] == ["-m", "pip", "download"]:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "high",
+                "Command can fetch Python packages and execute package installation hooks.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve python package execution",
+            )
 
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
