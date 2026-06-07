@@ -2574,6 +2574,8 @@ def detect_runtime_binary(name: str) -> dict[str, Any]:
             [path, "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
