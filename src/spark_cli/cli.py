@@ -5902,7 +5902,10 @@ def browser_use_latest_action_receipt() -> dict[str, Any]:
         return {}
     for path in candidates:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise ValueError("Invalid JSON (cli.py)") from exc
         except (OSError, json.JSONDecodeError):
             continue
         if not isinstance(payload, dict):
