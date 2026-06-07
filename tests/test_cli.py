@@ -1528,6 +1528,42 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_batch_job_mutations(self) -> None:
+        cases = [
+            (["aws", "batch", "submit-job", "--job-name", "spark-job", "--job-queue", "spark-queue"], "remote_code_execution", "high"),
+            (["aws", "batch", "cancel-job", "--job-id", "job-123", "--reason", "synthetic"], "external_publish", "critical"),
+            (["aws", "batch", "terminate-job", "--job-id", "job-123", "--reason", "synthetic"], "external_publish", "critical"),
+            (["aws", "batch", "create-compute-environment", "--compute-environment-name", "spark-env"], "external_publish", "high"),
+            (["aws", "batch", "update-compute-environment", "--compute-environment", "spark-env"], "external_publish", "high"),
+            (["aws", "batch", "delete-compute-environment", "--compute-environment", "spark-env"], "external_publish", "critical"),
+            (["aws", "batch", "register-job-definition", "--job-definition-name", "spark-def", "--type", "container"], "external_publish", "high"),
+            (["aws", "batch", "deregister-job-definition", "--job-definition", "spark-def"], "external_publish", "critical"),
+            (["aws", "batch", "create-job-queue", "--job-queue-name", "spark-queue"], "external_publish", "high"),
+            (["aws", "batch", "update-job-queue", "--job-queue", "spark-queue"], "external_publish", "high"),
+            (["aws", "batch", "delete-job-queue", "--job-queue", "spark-queue"], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve batch job change")
+
+    def test_approval_classifier_allows_aws_batch_report_commands(self) -> None:
+        for command in (
+            ["aws", "batch", "describe-jobs", "--jobs", "job-123"],
+            ["aws", "batch", "describe-job-queues"],
+            ["aws", "batch", "describe-compute-environments"],
+            ["aws", "batch", "describe-job-definitions"],
+            ["aws", "batch", "list-jobs", "--job-queue", "spark-queue"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
