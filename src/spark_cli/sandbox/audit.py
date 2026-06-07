@@ -37,6 +37,9 @@ def _redact_value(value: Any) -> Any:
     return value
 
 
+CANONICAL_AUDIT_FIELDS = ("schema_version", "timestamp", "backend", "target")
+
+
 def write_audit_event(
     backend: str,
     target: str,
@@ -46,12 +49,19 @@ def write_audit_event(
 ) -> Path:
     path = sandbox_audit_path(backend, target, home=home)
     path.parent.mkdir(parents=True, exist_ok=True)
+    redacted_event = _redact_value(event)
+    if isinstance(redacted_event, dict):
+        redacted_event = {
+            key: value
+            for key, value in redacted_event.items()
+            if key not in CANONICAL_AUDIT_FIELDS
+        }
     payload = {
         "schema_version": AUDIT_SCHEMA_VERSION,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "backend": validate_target_name(backend),
         "target": validate_target_name(target),
-        **_redact_value(event),
+        **(redacted_event if isinstance(redacted_event, dict) else {}),
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
