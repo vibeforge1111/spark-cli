@@ -15869,13 +15869,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         failures += cmd_autostart_uninstall(argparse.Namespace())
 
     if not modules:
-        print("No installed Spark modules recorded.")
+        named_target = args.target if not getattr(args, "all", False) else None
+        if named_target:
+            print(f"Unknown installed module: {named_target}. No modules are installed; run `spark install` first.")
+        else:
+            print("No installed Spark modules recorded.")
         if getattr(args, "remove_user_path", False):
             removed = remove_spark_bin_from_windows_user_path()
             print("Removed Spark bin from Windows user PATH." if removed else "Spark bin was not present in Windows user PATH.")
         if getattr(args, "purge_home", False):
             removed_home = purge_spark_home()
             print(f"Removed Spark home: {SPARK_HOME}" if removed_home else f"Spark home was not present: {SPARK_HOME}")
+        if named_target:
+            return 1
         return 1 if failures else 0
     removed_names: list[str] = []
     for module in modules:
