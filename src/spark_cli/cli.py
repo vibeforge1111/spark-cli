@@ -7701,7 +7701,12 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         "redaction": trace_index.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        output_path = getattr(args, "output", None)
+        if output_path:
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, indent=2))
+        else:
+            print(json.dumps(payload, indent=2))
         return 0
 
     cross_system = payload["cross_system_trace"]
@@ -16443,6 +16448,7 @@ def build_parser() -> argparse.ArgumentParser:
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
+    os_trace_parser.add_argument("--output", "-o", metavar="FILE", default=None, help="write JSON output to FILE instead of stdout (requires --json)")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
     os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
