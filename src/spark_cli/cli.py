@@ -15377,7 +15377,11 @@ def dotted_get(config: dict[str, Any], key: str, default: Any = None) -> Any:
 
 def validate_config_key(key: str) -> None:
     if not key or any(not part for part in key.split(".")):
-        raise ValueError("config key must contain non-empty dot-separated segments")
+        raise ValueError(
+            f"config key {key!r} is not valid: it must contain non-empty dot-separated segments "
+            "(e.g. 'telegram.bot_token' or 'llm.role.builder.model'). "
+            "Empty segments like '.foo', 'foo.', or 'foo..bar' are not allowed."
+        )
 
 
 def dotted_set(config: dict[str, Any], key: str, value: Any) -> None:
