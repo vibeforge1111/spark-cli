@@ -6015,7 +6015,10 @@ def run_browser_use_command(cli_path: str, *parts: str, timeout: int = 45) -> su
 
 def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], screenshot_path: Path) -> None:
     try:
-        parsed = json.loads(result.stdout.strip())
+        try:
+            parsed = json.loads(result.stdout.strip())
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
         data = parsed.get("data") if isinstance(parsed, dict) else {}
         encoded = str(data.get("screenshot") or "") if isinstance(data, dict) else ""
         if not encoded:
