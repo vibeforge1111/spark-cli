@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "657505234cfec40474773c02d520b14c24776a03",
+      "commit": "c1d66e9aa532ffb82ad3909d545c7c1bc0e1c308",
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,12 +34,12 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "657505234cfec40474773c02d520b14c24776a03"
+        "commit": "c1d66e9aa532ffb82ad3909d545c7c1bc0e1c308"
       }
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "d00761fc5e8f7a1ce4e278ded4200c53cb956529",
+      "commit": "352744970625d3277c0eb9bb8c0197dc85a82d5c",
       "verify_ref": "refs/heads/codex/retire-builder-route-firewall-wording-20260607",
       "require_signed_commit": false,
       "blessed": true,
@@ -47,7 +47,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "d00761fc5e8f7a1ce4e278ded4200c53cb956529"
+        "commit": "352744970625d3277c0eb9bb8c0197dc85a82d5c"
       }
     },
     "domain-chip-memory": {
