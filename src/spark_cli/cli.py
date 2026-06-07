@@ -4376,10 +4376,14 @@ def discover_modules() -> dict[str, Module]:
 
 def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]:
     registry = load_registry_definition()
-    bundle = registry.get("bundles", {}).get(bundle_name, {})
+    bundles = registry.get("bundles", {})
+    bundle = bundles.get(bundle_name, {})
     names = bundle.get("modules")
     if not names:
-        raise SystemExit(f"Unknown bundle: {bundle_name}")
+        known = sorted(name for name, item in bundles.items() if item.get("modules"))
+        if known:
+            raise SystemExit(f"Unknown bundle: {bundle_name}. Known bundles: {', '.join(known)}.")
+        raise SystemExit(f"Unknown bundle: {bundle_name}. No bundles are defined in the active registry.")
     missing = [name for name in names if name not in modules]
     if missing:
         raise SystemExit(f"Bundle {bundle_name} is missing local module manifests: {', '.join(missing)}")
