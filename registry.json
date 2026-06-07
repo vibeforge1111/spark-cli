@@ -39,7 +39,7 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "b578508605cf293b503cb13ad61e34c74593f043",
+      "commit": "db556d50088b3c9054c734de4dbed1d22ebb34e5",
       "verify_ref": "refs/heads/codex/retire-builder-route-firewall-wording-20260607",
       "require_signed_commit": false,
       "blessed": true,
@@ -47,7 +47,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "b578508605cf293b503cb13ad61e34c74593f043"
+        "commit": "db556d50088b3c9054c734de4dbed1d22ebb34e5"
       }
     },
     "domain-chip-memory": {
