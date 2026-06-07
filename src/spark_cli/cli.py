@@ -764,7 +764,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
 
