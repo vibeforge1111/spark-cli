@@ -3462,6 +3462,8 @@ SPARK_TERMINAL_COLORS = {
 def terminal_supports_color() -> bool:
     if os.environ.get("NO_COLOR"):
         return False
+    if os.environ.get("TERM") == "dumb":
+        return False
     try:
         return bool(sys.stdout.isatty())
     except (AttributeError, ValueError):
