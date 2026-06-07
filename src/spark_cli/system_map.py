@@ -1142,8 +1142,10 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                     group["file_count"] = payload.get("fileCount")
                 if isinstance(payload.get("taskCount"), int):
                     group["task_count"] = payload.get("taskCount")
-                if isinstance(payload.get("ts"), str):
-                    group["latest_ts"] = payload.get("ts")
+                payload_ts = payload.get("ts")
+                if isinstance(payload_ts, str):
+                    current_ts = group.get("latest_ts")
+                    group["latest_ts"] = payload_ts if not isinstance(current_ts, str) else max(current_ts, payload_ts)
                 if event == "authority_verdict_evaluated":
                     verdict = as_dict(payload.get("authorityVerdict"))
                     group["authority_verdict"] = {
