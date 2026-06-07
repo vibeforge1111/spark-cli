@@ -1528,6 +1528,51 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_stepfunctions_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "stepfunctions", "start-execution", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"],
+                "remote_code_execution",
+                "high",
+            ),
+            (
+                ["aws", "stepfunctions", "redrive-execution", "--execution-arn", "arn:aws:states:us-east-1:000000000000:execution:spark:demo"],
+                "remote_code_execution",
+                "high",
+            ),
+            (
+                ["aws", "stepfunctions", "stop-execution", "--execution-arn", "arn:aws:states:us-east-1:000000000000:execution:spark:demo"],
+                "external_publish",
+                "critical",
+            ),
+            (["aws", "stepfunctions", "create-state-machine", "--name", "spark", "--definition", "{}"], "external_publish", "high"),
+            (["aws", "stepfunctions", "update-state-machine", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"], "external_publish", "high"),
+            (["aws", "stepfunctions", "delete-state-machine", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"], "external_publish", "critical"),
+            (["aws", "stepfunctions", "publish-state-machine-version", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"], "external_publish", "high"),
+            (["aws", "states", "start-execution", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"], "remote_code_execution", "high"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve step functions change")
+
+    def test_approval_classifier_allows_aws_stepfunctions_report_commands(self) -> None:
+        for command in (
+            ["aws", "stepfunctions", "describe-state-machine", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"],
+            ["aws", "stepfunctions", "describe-execution", "--execution-arn", "arn:aws:states:us-east-1:000000000000:execution:spark:demo"],
+            ["aws", "stepfunctions", "list-executions", "--state-machine-arn", "arn:aws:states:us-east-1:000000000000:stateMachine:spark"],
+            ["aws", "stepfunctions", "get-execution-history", "--execution-arn", "arn:aws:states:us-east-1:000000000000:execution:spark:demo"],
+            ["aws", "states", "list-state-machines"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

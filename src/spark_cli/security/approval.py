@@ -302,6 +302,32 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second in {"stepfunctions", "states"} and len(lowered) > 2:
+        states_action = lowered[2]
+        states_mutation_prefixes = (
+            "create-",
+            "delete-",
+            "publish-",
+            "redrive-",
+            "start-",
+            "stop-",
+            "tag-",
+            "untag-",
+            "update-",
+        )
+        if states_action.startswith(states_mutation_prefixes):
+            destructive = states_action.startswith(("delete-", "stop-"))
+            remote_execution = states_action.startswith(("redrive-", "start-"))
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution" if remote_execution else "external_publish",
+                "critical" if destructive else "high",
+                "AWS Step Functions command can start workflow executions or mutate live state machines and aliases.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve step functions change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
