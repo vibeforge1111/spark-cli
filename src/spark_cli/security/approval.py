@@ -301,6 +301,30 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] in {"apigateway", "apigatewayv2"}:
+        api_gateway_action = lowered[2]
+        if api_gateway_action.startswith(
+            (
+                "create-",
+                "delete-",
+                "flush-",
+                "import-",
+                "put-",
+                "reset-",
+                "tag-",
+                "untag-",
+                "update-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if api_gateway_action.startswith("delete-") else "high",
+                "AWS API Gateway command can deploy, route, expose, delete, or reconfigure public API Gateway resources, stages, methods, integrations, authorizers, or tags.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve api gateway change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(

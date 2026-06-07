@@ -1582,6 +1582,72 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_api_gateway_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "apigateway", "create-deployment", "--rest-api-id", "abc123", "--stage-name", "prod"],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "apigateway",
+                    "update-stage",
+                    "--rest-api-id",
+                    "abc123",
+                    "--stage-name",
+                    "prod",
+                    "--patch-operations",
+                    "op=replace,path=/cacheClusterEnabled,value=true",
+                ],
+                "high",
+            ),
+            (["aws", "apigateway", "delete-rest-api", "--rest-api-id", "abc123"], "critical"),
+            (
+                [
+                    "aws",
+                    "apigateway",
+                    "put-method",
+                    "--rest-api-id",
+                    "abc123",
+                    "--resource-id",
+                    "res",
+                    "--http-method",
+                    "GET",
+                    "--authorization-type",
+                    "NONE",
+                ],
+                "high",
+            ),
+            (["aws", "apigateway", "flush-stage-cache", "--rest-api-id", "abc123", "--stage-name", "prod"], "high"),
+            (["aws", "apigatewayv2", "create-api", "--name", "spark-api", "--protocol-type", "HTTP"], "high"),
+            (["aws", "apigatewayv2", "update-stage", "--api-id", "api123", "--stage-name", "prod", "--auto-deploy"], "high"),
+            (["aws", "apigatewayv2", "delete-api", "--api-id", "api123"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve api gateway change")
+
+    def test_approval_classifier_allows_aws_api_gateway_report_commands(self) -> None:
+        cases = [
+            ["aws", "apigateway", "get-rest-apis"],
+            ["aws", "apigateway", "get-stage", "--rest-api-id", "abc123", "--stage-name", "prod"],
+            ["aws", "apigateway", "get-method", "--rest-api-id", "abc123", "--resource-id", "res", "--http-method", "GET"],
+            ["aws", "apigatewayv2", "get-apis"],
+            ["aws", "apigatewayv2", "get-stage", "--api-id", "api123", "--stage-name", "prod"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
