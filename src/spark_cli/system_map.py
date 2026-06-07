@@ -6337,6 +6337,13 @@ def repo_risk_class(name: str, release_eligibility: str) -> str:
     return "low"
 
 
+def normalize_repo_path(value: Any) -> str:
+    try:
+        return str(Path(str(value)).resolve()).lower()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return str(value or "").lower()
+
+
 def repo_by_name(system_map: dict[str, Any], name: str) -> dict[str, Any]:
     for repo in as_list(system_map.get("discovered_repos")):
         repo = as_dict(repo)
@@ -6867,7 +6874,13 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
 
 def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     registry_modules = set(as_dict(system_map.get("registry", {}).get("modules")).keys())
-    installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
+    installed_module_docs = as_dict(system_map.get("installed_modules"))
+    installed_modules = set(installed_module_docs.keys())
+    installed_runtime_paths = {
+        normalize_repo_path(as_dict(doc).get("path") or as_dict(doc).get("source"))
+        for doc in installed_module_docs.values()
+        if as_dict(doc).get("path") or as_dict(doc).get("source")
+    }
     rows: list[dict[str, Any]] = []
 
     for repo in as_list(system_map.get("discovered_repos")):
@@ -6876,12 +6889,21 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         ids = repo_ids(repo)
         registry_present = bool(ids & registry_modules)
         installed_present = bool(ids & installed_modules)
-        git = git_board_status(Path(str(repo.get("path") or "")))
+        repo_path = Path(str(repo.get("path") or ""))
+        actual_installed_runtime_root = normalize_repo_path(repo_path) in installed_runtime_paths
+        release_scope = actual_installed_runtime_root or name == "spark-cli"
+        git = git_board_status(repo_path)
         manifest = repo_manifest_presence(repo)
         release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
         risk_class = repo_risk_class(name, release_eligibility)
         agents_ruleset_present = bool(manifest.get("agents_md"))
         agents_ruleset_required = (
+            release_scope
+            and bool(git.get("available"))
+            and release_eligibility != "not_release_candidate"
+            and risk_class in {"critical", "high"}
+        )
+        all_discovered_agents_ruleset_required = (
             bool(git.get("available"))
             and release_eligibility != "not_release_candidate"
             and risk_class in {"critical", "high"}
@@ -6902,28 +6924,48 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
                 "manifest_presence": manifest,
                 "registry_present": registry_present,
                 "installed_present": installed_present,
+                "actual_installed_runtime_root": actual_installed_runtime_root,
+                "release_scope": release_scope,
+                "release_scope_reason": (
+                    "installed_runtime_root"
+                    if actual_installed_runtime_root
+                    else "spark_cli_release_owner"
+                    if name == "spark-cli"
+                    else "all_discovered_hygiene_only"
+                ),
                 "module_ids": sorted(ids),
                 "owner_surface": repo_owner_surface(name),
                 "release_eligibility": release_eligibility,
                 "risk_class": risk_class,
                 "agents_ruleset_present": agents_ruleset_present,
                 "agents_ruleset_required": agents_ruleset_required,
+                "all_discovered_agents_ruleset_required": all_discovered_agents_ruleset_required,
                 "agents_ruleset_release_blocker": agents_ruleset_release_blocker,
                 "next_safe_action": next_safe_action,
                 "do_not_merge_reason": do_not_merge_reason,
             }
         )
 
+    release_rows = [row for row in rows if row["release_scope"]]
     summary = {
         "repo_count": len(rows),
         "git_repo_count": sum(1 for row in rows if row["git_available"]),
-        "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
-        "repo_blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+        "release_scope_repo_count": len(release_rows),
+        "all_discovered_dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
+        "all_discovered_repo_blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+        "dirty_repo_count": sum(1 for row in release_rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
+        "repo_blocked_release_count": sum(1 for row in release_rows if row["release_eligibility"] == "blocked"),
         "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
         "agents_ruleset_present_count": sum(1 for row in rows if row["agents_ruleset_present"]),
         "agents_ruleset_missing_count": sum(1 for row in rows if not row["agents_ruleset_present"]),
-        "agents_ruleset_required_count": sum(1 for row in rows if row["agents_ruleset_required"]),
-        "agents_ruleset_release_blocker_count": sum(1 for row in rows if row["agents_ruleset_release_blocker"]),
+        "all_discovered_agents_ruleset_required_count": sum(1 for row in rows if row["all_discovered_agents_ruleset_required"]),
+        "all_discovered_agents_ruleset_release_blocker_count": sum(
+            1
+            for row in rows
+            if row["all_discovered_agents_ruleset_required"] and not row["agents_ruleset_present"]
+        ),
+        "agents_ruleset_required_count": sum(1 for row in release_rows if row["agents_ruleset_required"]),
+        "agents_ruleset_release_blocker_count": sum(1 for row in release_rows if row["agents_ruleset_release_blocker"]),
     }
     duplicate_truths = build_duplicate_truths(system_map)
     summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
