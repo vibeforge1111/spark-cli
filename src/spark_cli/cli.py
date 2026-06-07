@@ -674,6 +674,8 @@ def clone_module_source(
                 git_command("-C", str(target), "rev-parse", "HEAD"),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
                 raise SystemExit(
@@ -699,6 +701,8 @@ def clone_module_source(
         git_command("clone", "--depth=1", url, str(target)),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
