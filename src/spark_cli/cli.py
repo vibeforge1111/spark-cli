@@ -7869,7 +7869,7 @@ def collect_status_payload() -> dict[str, Any]:
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
     payload = {
         "ok": ok,
-        "summary": "Spark CLI spike status",
+        "summary": "Spark CLI status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
@@ -17254,7 +17254,7 @@ def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
