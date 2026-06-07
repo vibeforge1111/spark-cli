@@ -7562,6 +7562,10 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
 
     print("Spark OS capabilities")
     print(f"- cards: {payload['card_count']}")
+    if payload["card_count"] == 0:
+        print("- run `spark os compile` first; capability cards are produced by the system-map compile step.")
+        print("Redaction: commands, packet bodies, logs, and raw evidence are omitted.")
+        return 0
     for surface, count in payload["surface_counts"].items():
         print(f"- {surface}: {count}")
     for status, count in payload["status_counts"].items():
