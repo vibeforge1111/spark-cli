@@ -15648,7 +15648,11 @@ def cmd_search(args: argparse.Namespace) -> int:
         return 0
 
     if not hits:
-        print("No matching modules." if query else "Registry has no modules.")
+        if query:
+            print(f"No registry modules match {query!r}.")
+            print("Try `spark search` with no query to list everything, or check the spelling.")
+        else:
+            print("Registry has no modules.")
         return 1 if query else 0
 
     for name, summary, blessed, installed_flag in sorted(hits):
