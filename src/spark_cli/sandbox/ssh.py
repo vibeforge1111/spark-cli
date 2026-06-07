@@ -211,9 +211,15 @@ def validate_ssh_host(host: str) -> str:
 def validate_ssh_user(user: str) -> str:
     value = str(user or "").strip()
     if value == "root":
-        raise ValueError("SSH sandbox targets must use a non-root user.")
+        raise ValueError(
+            f"SSH user {value!r} is not allowed: SSH sandbox targets must use a non-root user. "
+            "Pick a different account name on the remote host."
+        )
     if not SSH_USER_PATTERN.fullmatch(value):
-        raise ValueError("SSH user must be a simple non-root account name.")
+        raise ValueError(
+            f"SSH user {value!r} is not valid: must be a simple non-root account name "
+            "(letters, digits, dashes, underscores; start with a letter)."
+        )
     return value
 
 
