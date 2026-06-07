@@ -16787,7 +16787,7 @@ def build_parser() -> argparse.ArgumentParser:
     live_stop_parser = live_subparsers.add_parser("stop", help="Stop Spark Live")
     live_stop_parser.set_defaults(func=cmd_live)
     live_logs_parser = live_subparsers.add_parser("logs", help="Show Spark Live logs")
-    live_logs_parser.add_argument("-n", "--lines", type=int, default=80)
+    live_logs_parser.add_argument("-n", "--lines", type=int, default=80, help="Lines of history to show before tailing (default: 80, 0 = all)")
     live_logs_parser.add_argument("-f", "--follow", action="store_true", help="Keep watching combined Spark Live logs")
     live_logs_parser.set_defaults(func=cmd_live)
     live_verify_parser = live_subparsers.add_parser("verify", help="Run the hosted Spark Live release gate")
