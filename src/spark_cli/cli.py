@@ -15729,12 +15729,15 @@ def cmd_logs(args: argparse.Namespace) -> int:
     else:
         profile = normalize_telegram_profile(requested_profile)
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
-        raise SystemExit("--profile only applies to spark-telegram-bot logs.")
+        raise SystemExit(
+            f"--profile only applies to spark-telegram-bot logs; got target {args.target!r} with profile {profile!r}. "
+            "Drop --profile, or rerun against spark-telegram-bot."
+        )
     path = module_log_path(args.target, profile)
     if not path.exists():
         display_name = module_process_key(args.target, profile)
         print(f"No logs yet for {display_name} at {path}")
-        print("Start the module first with `spark start`.")
+        print(f"Start the module first with `spark start {args.target}`.")
         return 1
     for line in tail_log_lines(path, args.lines):
         write_console_text(line if line.endswith("\n") else line + "\n")
