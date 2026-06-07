@@ -2104,7 +2104,10 @@ def read_telegram_first_message_events(path: Path | None = None) -> list[dict[st
             if not raw:
                 continue
             try:
-                event = json.loads(raw)
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("Invalid JSON (cli.py)") from exc
             except json.JSONDecodeError:
                 continue
             if isinstance(event, dict):
