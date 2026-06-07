@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -63,6 +64,16 @@ def runtime_command_argv(command: str) -> list[str]:
     )
 
 
+def _is_npm_argv(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    head = Path(argv[0]).name.lower()
+    if head in {"npm", "npm.cmd", "npm.exe"}:
+        return True
+    # Windows wrapper form: [node, npm-cli.js, ...]
+    return len(argv) >= 2 and head in {"node", "node.exe"} and Path(argv[1]).name.lower() == "npm-cli.js"
+
+
 def run_runtime_command(
     command: str,
     cwd: Path,
@@ -71,6 +82,19 @@ def run_runtime_command(
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = runtime_command_argv(command)
+    effective_env = (env if env is not None else os.environ).copy()
+    npm_logs_tempdir: tempfile.TemporaryDirectory[str] | None = None
+    if _is_npm_argv(argv):
+        # Healthchecks like `npm run health:spark` are read-only probes from
+        # the operator's perspective. Without these env overrides npm writes
+        # `_logs/*-debug-0.log` and an `_update-notifier-last-checked` file
+        # into the caller's $HOME on every invocation, polluting state on
+        # what users see as a `spark doctor`/`spark status` read.
+        npm_logs_tempdir = tempfile.TemporaryDirectory(prefix="spark-npm-")
+        effective_env.setdefault("NPM_CONFIG_UPDATE_NOTIFIER", "false")
+        effective_env.setdefault("NPM_CONFIG_FUND", "false")
+        effective_env.setdefault("NPM_CONFIG_AUDIT", "false")
+        effective_env["NPM_CONFIG_LOGS_DIR"] = npm_logs_tempdir.name
     try:
         return subprocess.run(
             argv,
@@ -80,7 +104,7 @@ def run_runtime_command(
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=env or os.environ.copy(),
+            env=effective_env,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as error:
@@ -95,3 +119,6 @@ def run_runtime_command(
             stdout="",
             stderr=f"Could not start runtime command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
         )
+    finally:
+        if npm_logs_tempdir is not None:
+            npm_logs_tempdir.cleanup()
