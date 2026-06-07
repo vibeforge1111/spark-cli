@@ -15666,7 +15666,8 @@ def cmd_secrets_list(_: argparse.Namespace) -> int:
     if not index:
         print("No stored secrets.")
         return 0
-    print(f"{len(index)} secret(s) stored:")
+    noun = "secret" if len(index) == 1 else "secrets"
+    print(f"{len(index)} {noun} stored:")
     for secret_id, backend in sorted(index.items()):
         print(f"  {secret_id}\t[{backend}]")
     return 0
