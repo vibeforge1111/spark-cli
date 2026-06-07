@@ -6709,11 +6709,11 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Browser-use is ready for the probed scope.")
             print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
             print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
-            print(f"Status file: {status_payload['status_path']}")
+            print("Status file has been written.")
             return 0
         print("Browser-use probe failed.")
         print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
-        print(f"Status file: {status_payload['status_path']}")
+        print("Status file has been written.")
         return 1
 
     if action in {"open", "screenshot"}:
@@ -6732,7 +6732,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print(str(payload["text_excerpt"]))
             if payload.get("screenshot_path"):
                 print("")
-                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+                print("Screenshot has been saved to disk.")
             return 0
         print(f"Browser-use {action} failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -6756,7 +6756,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print("")
                 print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
             print("")
-            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
+            print("Receipt has been saved to disk.")
             return 0
         print("Browser-use task failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
