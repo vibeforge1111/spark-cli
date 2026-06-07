@@ -10303,6 +10303,17 @@ def cmd_security(args: argparse.Namespace) -> int:
 
 
 def cmd_approval(args: argparse.Namespace) -> int:
+    if args.approval_command == "ledger":
+        payload = query_cli_approval_ledgers(
+            limit=int(getattr(args, "limit", 20) or 20),
+            turn_id=str(getattr(args, "turn_id", "") or "") or None,
+            ledger_dir=CLI_APPROVAL_LEDGER_DIR,
+        )
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print_cli_approval_ledger_query(payload)
+        return 0 if payload.get("ok") else 1
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
     command = list(args.command or [])
@@ -10978,6 +10989,101 @@ def finalize_cli_approval_authority(args: argparse.Namespace, exit_code: int) ->
             tool_ledgers=[ledger],
         )
     return ledger
+
+
+def summarize_cli_approval_ledger(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
+    raw_ref = arguments.get("raw_ref") if isinstance(arguments.get("raw_ref"), dict) else {}
+    sanitized_ref = arguments.get("sanitized_ref") if isinstance(arguments.get("sanitized_ref"), dict) else {}
+    output_ref = result.get("sanitized_output_ref") if isinstance(result.get("sanitized_output_ref"), dict) else {}
+    command_digest_ref = (
+        str(payload.get("command_digest_ref") or "")
+        or str(raw_ref.get("path_or_uri") or "")
+        or str(sanitized_ref.get("path_or_uri") or "")
+        or str(output_ref.get("path_or_uri") or "")
+    )
+    stat_result = path.stat()
+    return {
+        "path": str(path),
+        "schema_version": str(payload.get("schema_version") or ""),
+        "ledger_id": str(payload.get("ledger_id") or ""),
+        "turn_id": str(payload.get("turn_id") or ""),
+        "action_id": str(payload.get("action_id") or ""),
+        "capability_id": str(payload.get("capability_id") or ""),
+        "tool_name": str(payload.get("tool_name") or ""),
+        "status": str(result.get("status") or payload.get("status") or ""),
+        "exit_code": result.get("exit_code"),
+        "action_class": str(payload.get("action_class") or ""),
+        "risk": str(payload.get("risk") or ""),
+        "target": str(payload.get("target") or ""),
+        "command_digest_ref": command_digest_ref,
+        "updated_at": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "size_bytes": stat_result.st_size,
+    }
+
+
+def query_cli_approval_ledgers(
+    *,
+    limit: int = 20,
+    turn_id: str | None = None,
+    ledger_dir: Path = CLI_APPROVAL_LEDGER_DIR,
+) -> dict[str, Any]:
+    normalized_limit = max(1, min(int(limit or 20), 200))
+    if not ledger_dir.exists():
+        return {
+            "ok": True,
+            "ledger_dir": str(ledger_dir),
+            "count": 0,
+            "ledgers": [],
+            "errors": [],
+            "redaction": "raw command argv omitted; use command_digest_ref for correlation",
+        }
+    ledgers: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for path in sorted(ledger_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append({"path": str(path), "error": str(exc)})
+            continue
+        if not isinstance(payload, dict):
+            errors.append({"path": str(path), "error": "ledger payload is not a JSON object"})
+            continue
+        summary = summarize_cli_approval_ledger(path, payload)
+        if turn_id and summary["turn_id"] != turn_id:
+            continue
+        ledgers.append(summary)
+        if len(ledgers) >= normalized_limit:
+            break
+    return {
+        "ok": not errors,
+        "ledger_dir": str(ledger_dir),
+        "count": len(ledgers),
+        "ledgers": ledgers,
+        "errors": errors,
+        "redaction": "raw command argv omitted; use command_digest_ref for correlation",
+    }
+
+
+def print_cli_approval_ledger_query(payload: dict[str, Any]) -> None:
+    print("Spark approval ledgers")
+    print(f"Store: {payload['ledger_dir']}")
+    print(f"Rows: {payload['count']}")
+    print(f"Redaction: {payload['redaction']}")
+    for row in payload.get("ledgers", []):
+        if not isinstance(row, dict):
+            continue
+        status = row.get("status") or "unknown"
+        turn_id = row.get("turn_id") or "none"
+        ledger_id = row.get("ledger_id") or Path(str(row.get("path") or "")).name
+        tool_name = row.get("tool_name") or "unknown"
+        print(f"- {status} {tool_name} turn={turn_id} ledger={ledger_id}")
+    for error in payload.get("errors", []):
+        if isinstance(error, dict):
+            print(f"- error {error.get('path')}: {error.get('error')}")
 
 
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
@@ -17015,6 +17121,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark security audit", "use": "Audit local security posture." },
             { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
             { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
+            { "command": "spark approval ledger [--turn-id <id>]", "use": "Query redacted local approval tool-call ledgers." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
             { "command": "spark uninstall [target]", "use": "Remove installed modules and generated config." },
@@ -17606,7 +17713,12 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
-    _wrap_subgroup_help(approval_parser, ["classify"])
+    approval_ledger_parser = approval_subparsers.add_parser("ledger", help="Query local approval tool-call ledgers")
+    approval_ledger_parser.add_argument("--json", action="store_true", help="Emit machine-readable ledger summaries")
+    approval_ledger_parser.add_argument("--limit", type=int, default=20, help="Maximum ledgers to show (1-200)")
+    approval_ledger_parser.add_argument("--turn-id", help="Filter to one Harness Core turn_id")
+    approval_ledger_parser.set_defaults(func=cmd_approval)
+    _wrap_subgroup_help(approval_parser, ["classify", "ledger"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)

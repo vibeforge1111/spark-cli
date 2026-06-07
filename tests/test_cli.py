@@ -1885,6 +1885,63 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["decision"]["action_class"], "destructive_filesystem")
         self.assertTrue(payload["decision"]["requires_approval"])
 
+    def test_approval_ledger_cli_outputs_redacted_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ledger_dir = Path(tmp_dir)
+            (ledger_dir / "one.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "tool-call-ledger-v1",
+                        "ledger_id": "ledger:one",
+                        "turn_id": "turn:one",
+                        "action_id": "action:one",
+                        "capability_id": "capability:spark-cli:approval:filesystem",
+                        "tool_name": "spark-cli.approval.enforced-command",
+                        "command_argv": ["rm", "-rf", "secret-path"],
+                        "arguments": {
+                            "raw_ref": {
+                                "path_or_uri": "spark-cli-command-digest:abc123",
+                            }
+                        },
+                        "result": {"status": "success", "exit_code": 0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (ledger_dir / "two.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "tool-call-ledger-v1",
+                        "ledger_id": "ledger:two",
+                        "turn_id": "turn:two",
+                        "action_id": "action:two",
+                        "capability_id": "capability:spark-cli:approval:filesystem",
+                        "tool_name": "spark-cli.approval.enforced-command",
+                        "command_argv": ["rm", "-rf", "other-secret-path"],
+                        "arguments": {
+                            "sanitized_ref": {
+                                "path_or_uri": "spark-cli-command-digest:def456",
+                            }
+                        },
+                        "result": {"status": "failure", "exit_code": 2},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["approval", "ledger", "--json", "--turn-id", "turn:one"])
+            with patch("spark_cli.cli.CLI_APPROVAL_LEDGER_DIR", ledger_dir), patch(
+                "sys.stdout", new_callable=StringIO
+            ) as stdout:
+                self.assertEqual(args.func(args), 0)
+            output = stdout.getvalue()
+        payload = json.loads(output)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["ledgers"][0]["turn_id"], "turn:one")
+        self.assertEqual(payload["ledgers"][0]["ledger_id"], "ledger:one")
+        self.assertEqual(payload["ledgers"][0]["command_digest_ref"], "spark-cli-command-digest:abc123")
+        self.assertNotIn("command_argv", payload["ledgers"][0])
+        self.assertNotIn("secret-path", output)
+
     def test_main_blocks_sensitive_command_in_non_interactive_shell(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=False), \
@@ -6360,6 +6417,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark autostart off", output)
         self.assertIn("Full command reference", output)
         self.assertIn("spark approval classify -- <command>", output)
+        self.assertIn("spark approval ledger [--turn-id <id>]", output)
         self.assertIn("explicit no-secret Modal smoke", output)
 
     def test_guide_json_is_agent_readable(self) -> None:
@@ -6402,6 +6460,7 @@ class SparkCliTests(unittest.TestCase):
         }
         self.assertEqual(parser_commands - documented_top_level, set())
         self.assertIn("spark approval classify -- <command>", command_reference)
+        self.assertIn("spark approval ledger [--turn-id <id>]", command_reference)
         self.assertIn("spark autostart install|on|uninstall|off|profile|status", command_reference)
         self.assertIn("spark verify [--onboarding|--deep|--installers|--sandboxes]", command_reference)
         sandbox_entry = next(item for item in payload["command_reference"] if item["command"] == "spark sandbox docker|ssh|modal")
