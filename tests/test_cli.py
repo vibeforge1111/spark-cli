@@ -1582,6 +1582,63 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_sqs_mutations(self) -> None:
+        queue_url = "https://sqs.us-east-1.amazonaws.com/000000000000/spark-queue"
+        cases = [
+            (["aws", "sqs", "send-message", "--queue-url", queue_url, "--message-body", "demo"], "external_publish", "high"),
+            (["aws", "sqs", "send-message-batch", "--queue-url", queue_url, "--entries", "[]"], "external_publish", "high"),
+            (["aws", "sqs", "create-queue", "--queue-name", "spark-queue"], "external_publish", "high"),
+            (
+                ["aws", "sqs", "set-queue-attributes", "--queue-url", queue_url, "--attributes", "VisibilityTimeout=30"],
+                "external_publish",
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "sqs",
+                    "add-permission",
+                    "--queue-url",
+                    queue_url,
+                    "--label",
+                    "spark",
+                    "--aws-account-ids",
+                    "000000000000",
+                    "--actions",
+                    "SendMessage",
+                ],
+                "external_publish",
+                "high",
+            ),
+            (["aws", "sqs", "change-message-visibility", "--queue-url", queue_url, "--receipt-handle", "demo"], "external_publish", "high"),
+            (["aws", "sqs", "purge-queue", "--queue-url", queue_url], "external_publish", "critical"),
+            (["aws", "sqs", "delete-message", "--queue-url", queue_url, "--receipt-handle", "demo"], "external_publish", "critical"),
+            (["aws", "sqs", "delete-queue", "--queue-url", queue_url], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve sqs change")
+
+    def test_approval_classifier_allows_aws_sqs_report_commands(self) -> None:
+        queue_url = "https://sqs.us-east-1.amazonaws.com/000000000000/spark-queue"
+        cases = [
+            ["aws", "sqs", "list-queues"],
+            ["aws", "sqs", "get-queue-url", "--queue-name", "spark-queue"],
+            ["aws", "sqs", "get-queue-attributes", "--queue-url", queue_url, "--attribute-names", "All"],
+            ["aws", "sqs", "list-queue-tags", "--queue-url", queue_url],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
