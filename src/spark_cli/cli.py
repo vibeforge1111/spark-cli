@@ -561,6 +561,8 @@ def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed
         git_command("-C", str(target), "verify-commit", commit),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
