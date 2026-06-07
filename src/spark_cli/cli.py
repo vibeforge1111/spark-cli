@@ -16600,17 +16600,26 @@ def build_parser() -> argparse.ArgumentParser:
     access_parser = subparsers.add_parser("access", help="Prepare Spark's local access lanes without technical sandbox choices")
     access_subparsers = access_parser.add_subparsers(dest="access_command", required=True)
     access_status_parser = access_subparsers.add_parser("status", help="Show the current recommended access lane")
-    access_status_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
+    access_status_parser.add_argument(
+        "--level", type=int, choices=[1, 2, 3, 4, 5], default=4,
+        help="Sandbox safety level (1=read-only, 2=guided, 3=ssh, 4=workspace, 5=whole-computer; default: 4)",
+    )
     access_status_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
     access_status_parser.add_argument("--json", action="store_true")
     access_status_parser.set_defaults(func=cmd_access)
     access_guide_parser = access_subparsers.add_parser("guide", help="Explain Spark's safe access path in plain language")
-    access_guide_parser.add_argument("--level", type=int, choices=[1, 2, 3, 4, 5], default=4)
+    access_guide_parser.add_argument(
+        "--level", type=int, choices=[1, 2, 3, 4, 5], default=4,
+        help="Sandbox safety level to explain (1=read-only, 2=guided, 3=ssh, 4=workspace, 5=whole-computer; default: 4)",
+    )
     access_guide_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
     access_guide_parser.add_argument("--json", action="store_true")
     access_guide_parser.set_defaults(func=cmd_access)
     access_setup_parser = access_subparsers.add_parser("setup", help="Create the safe Level 4 workspace and show optional lanes")
-    access_setup_parser.add_argument("--level", type=int, choices=[4, 5], default=4)
+    access_setup_parser.add_argument(
+        "--level", type=int, choices=[4, 5], default=4,
+        help="Setup safety level (4=safe workspace, 5=whole-computer operator mode; default: 4)",
+    )
     access_setup_parser.add_argument("--goal", default="", help="Optional task goal used to recommend Docker, SSH, Modal, or workspace")
     access_setup_parser.add_argument("--with", dest="with_lane", choices=["docker", "ssh", "modal"], help="Prefer a guided optional lane after the workspace is ready")
     access_setup_parser.add_argument(
