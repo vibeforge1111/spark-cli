@@ -26,7 +26,7 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "c1d66e9aa532ffb82ad3909d545c7c1bc0e1c308",
+      "commit": "b500b063e24ffe407ad942ec2aa51f6e0eac7888",
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
       "require_signed_commit": false,
       "blessed": true,
@@ -34,7 +34,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "c1d66e9aa532ffb82ad3909d545c7c1bc0e1c308"
+        "commit": "b500b063e24ffe407ad942ec2aa51f6e0eac7888"
       }
     },
     "spark-intelligence-builder": {
