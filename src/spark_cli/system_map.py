@@ -76,6 +76,8 @@ AUTHORITY_SOURCE_SCAN_SKIP_PARTS = {
 }
 AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO = 1500
 AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES = 256 * 1024
+BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS = 10_000
+BUILDER_TRACE_JOIN_MAX_ROWS = 10_000
 AUTHORITY_SOURCE_SCAN_PATTERNS = (
     ("mission_execution", re.compile(r"\b(?:runGoal|launchMission|startMission|executeMissionControlAction|runMissionControlRegression)\b")),
     ("memory_mutation", re.compile(r"\b(?:write_profile_fact_to_memory|delete_profile_fact_from_memory|write_structured_evidence_to_memory|archive_structured_evidence_from_memory|archive_raw_episode_from_memory|archive_belief_from_memory)\b")),
@@ -1712,6 +1714,14 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
+            row_count = int(conn.execute("select count(*) from builder_events").fetchone()[0] or 0)
+            out["builder_events_row_count"] = row_count
+            if row_count > BUILDER_TRACE_JOIN_MAX_ROWS:
+                out["matched_builder_request_id_count"] = 0
+                out["join_skipped"] = True
+                out["join_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_candidate_lookup"
+                out["join_row_limit"] = BUILDER_TRACE_JOIN_MAX_ROWS
+                return out
             candidates = sorted(request_ids)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
@@ -1753,6 +1763,14 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
+                return out
+            row_count = int(conn.execute("select count(*) from builder_events").fetchone()[0] or 0)
+            out["builder_events_row_count"] = row_count
+            if row_count > BUILDER_TRACE_JOIN_MAX_ROWS:
+                out["matched_builder_trace_ref_count"] = 0
+                out["join_skipped"] = True
+                out["join_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_candidate_lookup"
+                out["join_row_limit"] = BUILDER_TRACE_JOIN_MAX_ROWS
                 return out
             candidates = sorted(trace_refs)[:500]
             placeholders = ",".join("?" for _ in candidates)
@@ -3923,6 +3941,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                                     group_columns=group_columns,
                                     values=values,
                                     columns=columns,
+                                    total_rows=total,
                                 ),
                             }
                         )
@@ -4091,18 +4110,18 @@ def builder_trace_missing_source_state(
     group_columns: list[str],
     values: dict[str, str],
     columns: list[str],
+    total_rows: int | None = None,
 ) -> dict[str, Any]:
     if "trace_ref" not in columns:
         return {}
 
     where_sql, params = builder_trace_group_where(group_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by rowid desc
         limit 1
         """,
         params,
@@ -4121,7 +4140,11 @@ def builder_trace_missing_source_state(
         if "created_at" in columns:
             out["latest_event_created_at"] = str(latest[2] or "")
 
-    if "created_at" in columns:
+    recent_counts_allowed = (
+        "created_at" in columns
+        and (total_rows is None or total_rows <= BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS)
+    )
+    if recent_counts_allowed:
         now = datetime.now(timezone.utc)
         for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
             threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -4147,6 +4170,12 @@ def builder_trace_missing_source_state(
             ).fetchone()[0]
             out[f"recent_{label}_row_count"] = int(total or 0)
             out[f"recent_{label}_missing_trace_ref_count"] = int(missing or 0)
+    elif "created_at" in columns:
+        out["recent_window_counts_skipped"] = True
+        out["recent_window_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_group_scan"
+        out["recent_window_row_limit"] = BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS
+        if total_rows is not None:
+            out["builder_events_row_count"] = int(total_rows)
 
     latest_clean = bool(out.get("latest_event_trace_ref_present"))
     recent_24h_missing = int(out.get("recent_24h_missing_trace_ref_count") or 0)
