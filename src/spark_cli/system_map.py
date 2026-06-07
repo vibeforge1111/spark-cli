@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import hashlib
 import ast
 import json
@@ -4596,18 +4597,22 @@ def spawner_state_source_audit(path: Path) -> dict[str, Any]:
         root = path / root_name
         if not root.exists():
             continue
-        for candidate in root.rglob("*"):
-            if not candidate.is_file():
-                continue
-            if any(part in {"node_modules", ".git", "dist", "build", ".svelte-kit"} for part in candidate.parts):
-                continue
-            try:
-                text = candidate.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if any(needle in text for needle in reference_needles):
-                file_count += 1
-                family_counts[root_name] += 1
+        for current_dir, dir_names, file_names in os.walk(root, followlinks=False):
+            dir_names[:] = [
+                name for name in dir_names
+                if name not in {"node_modules", ".git", "dist", "build", ".svelte-kit"}
+            ]
+            for file_name in file_names:
+                candidate = Path(current_dir) / file_name
+                if not candidate.is_file():
+                    continue
+                try:
+                    text = candidate.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if any(needle in text for needle in reference_needles):
+                    file_count += 1
+                    family_counts[root_name] += 1
 
     state_helper = path / "src" / "lib" / "server" / "spawner-state.ts"
     helper_text = ""
