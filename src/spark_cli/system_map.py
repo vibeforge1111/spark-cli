@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -5423,8 +5424,25 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
 
 def write_json(path: Path, payload: Any) -> None:
+    """Write JSON atomically: sibling temp file, then os.replace.
+
+    The compiled outputs (system-map.json, authority-view.json, etc.) are
+    persistent state files read by Builder's AOC panel and downstream
+    consumers. A torn write (process killed between truncate and final
+    flush) would leave a half-written JSON on disk, breaking the next
+    reader with a JSONDecodeError. os.replace is atomic on POSIX.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(str(tmp), str(path))
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
