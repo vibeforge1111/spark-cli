@@ -11124,6 +11124,18 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
             "at the prompt to proceed."
         )
         return 2
+    if command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
+        authority = create_cli_approval_bootstrap_authority(
+            args,
+            decision,
+            command_argv,
+            reason=(
+                "Harness Core self-install/update uses digest-bound bootstrap authority after the exact "
+                "approval phrase so the CLI does not consult a stale authority package while replacing it."
+            ),
+        )
+        setattr(args, "_spark_cli_approval_authority", authority)
+        return None
     try:
         authority = create_cli_approval_harness_authority(decision, command_argv)
     except Exception as exc:
