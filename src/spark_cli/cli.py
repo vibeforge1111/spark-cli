@@ -14250,6 +14250,12 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
         if not pid_is_running(listener_pid):
             return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
         time.sleep(0.1)
+    # Revalidate before SIGKILL: if the listener exited during the
+    # 5s wait the kernel may have recycled the PID for an unrelated
+    # user-owned process.  Only SIGKILL if the port is still held by
+    # the original listener_pid.
+    if listening_pid_for_tcp_port(port) != listener_pid:
+        return f"Stopped stale {label} listener on port {port} (pid {listener_pid})."
     try:
         os.kill(listener_pid, signal.SIGKILL)
     except OSError:
