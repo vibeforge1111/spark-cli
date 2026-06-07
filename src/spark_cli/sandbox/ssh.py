@@ -475,11 +475,21 @@ def trust_ssh_target_host_key(
             if raw_line.strip() and not raw_line.startswith(f"{alias} "):
                 lines.append(raw_line)
     lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic write: write to a temp file in the same directory, then os.replace
+    # into place.  A plain write_text() can be interrupted mid-flush, producing a
+    # truncated or zero-byte known_hosts that breaks all SSH host-key trust.
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{known_hosts.name}.", suffix=".tmp", dir=str(known_hosts.parent))
     try:
-        known_hosts.chmod(0o600)
-    except OSError:
-        pass
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+        os.replace(tmp_name, known_hosts)
+        try:
+            known_hosts.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
     trusted = SshTarget(
         **{
             **target.to_dict(),
