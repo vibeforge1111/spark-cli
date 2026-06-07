@@ -16242,7 +16242,10 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
-    install_parser.add_argument("target")
+    install_parser.add_argument(
+        "target",
+        help="Module to install — a registry name (e.g. `spark-telegram-bot`) or a local repo path",
+    )
     install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
