@@ -302,6 +302,41 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "kms" and len(lowered) > 2:
+        kms_credential_actions = {"decrypt", "generate-data-key", "generate-data-key-pair", "generate-mac", "sign"}
+        kms_mutation_prefixes = (
+            "cancel-",
+            "connect-",
+            "create-",
+            "delete-",
+            "disable-",
+            "disconnect-",
+            "enable-",
+            "import-",
+            "put-",
+            "replicate-",
+            "retire-",
+            "revoke-",
+            "rotate-",
+            "schedule-",
+            "tag-",
+            "untag-",
+            "update-",
+        )
+        kms_action = lowered[2]
+        if kms_action in kms_credential_actions or kms_action.startswith(kms_mutation_prefixes):
+            critical_actions = {"decrypt", "delete-", "disable-", "put-key-policy", "revoke-", "schedule-key-deletion"}
+            is_critical = kms_action in critical_actions or any(kms_action.startswith(prefix) for prefix in critical_actions if prefix.endswith("-"))
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "critical" if is_critical else "high",
+                "AWS KMS command can decrypt data, generate plaintext key material, or mutate key lifecycle, policy, grants, aliases, rotation, or tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve kms change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
