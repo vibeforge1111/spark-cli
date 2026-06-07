@@ -16573,11 +16573,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     recommend_parser = subparsers.add_parser("recommend", help="Recommend Spark setup choices")
     recommend_sub = recommend_parser.add_subparsers(dest="recommend_command", required=True)
-    recommend_llms_parser = recommend_sub.add_parser("llms", help="Recommend LLM providers for Spark")
-    recommend_llms_parser.add_argument("--json", action="store_true")
+    recommend_llms_parser = recommend_sub.add_parser("llms", help="Recommend LLM providers for Spark (paid, API-key, and local paths)")
+    recommend_llms_parser.add_argument("--json", action="store_true", help="Emit the recommendation as structured JSON")
     recommend_llms_parser.set_defaults(func=cmd_recommend)
-    recommend_providers_parser = recommend_sub.add_parser("providers", help="Recommend LLM providers for Spark")
-    recommend_providers_parser.add_argument("--json", action="store_true")
+    recommend_providers_parser = recommend_sub.add_parser("providers", help="Alias of `recommend llms`; recommends LLM providers for Spark")
+    recommend_providers_parser.add_argument("--json", action="store_true", help="Emit the recommendation as structured JSON")
     recommend_providers_parser.set_defaults(func=cmd_recommend)
     _wrap_subgroup_help(recommend_parser, ["llms", "providers"])
 
