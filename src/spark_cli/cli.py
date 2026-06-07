@@ -14570,16 +14570,28 @@ def shell_join(args: list[str]) -> str:
     return " ".join(shlex.quote(str(arg)) for arg in args)
 
 
+def _safe_normalize_telegram_profile(profile: object) -> str | None:
+    if not isinstance(profile, str):
+        return None
+    try:
+        return normalize_telegram_profile(profile)
+    except SystemExit:
+        return None
+
+
 def autostart_telegram_profiles() -> list[str]:
     setup_state = load_json(CONFIG_PATH, {})
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if not isinstance(profiles, dict):
         return []
-    return sorted(
-        normalize_telegram_profile(profile)
-        for profile, profile_state in profiles.items()
-        if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)
-    )
+    collected: list[str] = []
+    for profile, profile_state in profiles.items():
+        if not (isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)):
+            continue
+        normalized = _safe_normalize_telegram_profile(profile)
+        if normalized is not None:
+            collected.append(normalized)
+    return sorted(collected)
 
 
 def manual_telegram_profiles() -> list[str]:
@@ -14592,11 +14604,14 @@ def configured_telegram_profiles() -> list[str]:
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     if not isinstance(profiles, dict):
         return []
-    return sorted(
-        normalize_telegram_profile(profile)
-        for profile, profile_state in profiles.items()
-        if isinstance(profile_state, dict)
-    )
+    collected: list[str] = []
+    for profile, profile_state in profiles.items():
+        if not isinstance(profile_state, dict):
+            continue
+        normalized = _safe_normalize_telegram_profile(profile)
+        if normalized is not None:
+            collected.append(normalized)
+    return sorted(collected)
 
 
 def telegram_profiles_to_start_by_default() -> list[str]:
