@@ -13608,7 +13608,10 @@ def unknown_installed_module_message(name: str, installed: dict[str, Module] | l
     else:
         names = sorted(installed)
     if not names:
-        return f"Unknown installed module: {name}. No modules are installed; run `spark install` first."
+        return (
+            f"Unknown installed module: {name}. "
+            f"No modules are installed yet; try `spark install {name}` or `spark search` to discover registry modules."
+        )
     return f"Unknown installed module: {name}. Installed: {', '.join(names)}."
 
 
