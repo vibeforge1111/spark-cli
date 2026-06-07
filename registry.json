@@ -39,7 +39,7 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "cdb59d5a2301d8bb78c229b9f5afd87e000a3db3",
+      "commit": "a11bef20915012a29704db0a78ae86a0c99e994a",
       "verify_ref": "refs/heads/codex/harness-authority-cleanup-20260607",
       "require_signed_commit": false,
       "blessed": true,
@@ -47,7 +47,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "cdb59d5a2301d8bb78c229b9f5afd87e000a3db3"
+        "commit": "a11bef20915012a29704db0a78ae86a0c99e994a"
       }
     },
     "domain-chip-memory": {
