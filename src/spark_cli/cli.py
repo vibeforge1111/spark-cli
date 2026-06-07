@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import base64
 import ctypes
 import getpass
@@ -25,7 +24,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -6342,6 +6340,8 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             atomic_write_json(receipt_path, payload)
             return payload
     try:
+        import asyncio
+
         result = asyncio.run(run_browser_use_agent_task(cleaned_goal, start_url=url, max_steps=steps, history_path=history_path, start_page=start_page))
         completed = browser_use_task_completed(result)
         payload = {
@@ -8206,6 +8206,8 @@ def write_support_bundle(payload: dict[str, Any]) -> Path:
         "Review it before sharing. Secrets, token-looking values, and local home paths are redacted best-effort.\n"
         "If sharing upstream, include only the smallest relevant excerpt and never include raw logs without review.\n"
     )
+    import zipfile
+
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("README.txt", readme)
         archive.writestr("support.json", json.dumps(payload, indent=2, sort_keys=True))
