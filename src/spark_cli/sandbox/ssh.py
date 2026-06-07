@@ -222,9 +222,14 @@ def validate_remote_workspace(path: str) -> str:
     if not value:
         raise ValueError("SSH remote workspace is required.")
     if not SSH_REMOTE_WORKSPACE_PATTERN.fullmatch(value):
-        raise ValueError("SSH remote workspace must be an absolute or home-relative path without spaces or shell metacharacters.")
+        raise ValueError(
+            f"SSH remote workspace {value!r} is not valid: must be an absolute path (e.g. /home/user/work) "
+            "or a home-relative path (e.g. ~/work), without spaces or shell metacharacters."
+        )
     if "/../" in value or value.endswith("/..") or value == "..":
-        raise ValueError("SSH remote workspace must not traverse parent directories.")
+        raise ValueError(
+            f"SSH remote workspace {value!r} must not traverse parent directories with `..` segments."
+        )
     return value
 
 
