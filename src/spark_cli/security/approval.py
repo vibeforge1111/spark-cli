@@ -301,6 +301,32 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "logs":
+        logs_action = lowered[2]
+        if logs_action.startswith(
+            (
+                "associate-",
+                "cancel-",
+                "create-",
+                "delete-",
+                "disassociate-",
+                "put-",
+                "start-",
+                "stop-",
+                "tag-",
+                "untag-",
+                "update-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if logs_action.startswith(("delete-", "disassociate-")) else "high",
+                "AWS CloudWatch Logs command can write log events, mutate log groups or streams, change retention/resource policies, export logs, or retag log resources.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve cloudwatch logs change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(

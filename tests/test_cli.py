@@ -1582,6 +1582,44 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_cloudwatch_logs_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "logs", "put-log-events", "--log-group-name", "spark", "--log-stream-name", "demo", "--log-events", "[]"],
+                "high",
+            ),
+            (["aws", "logs", "create-log-group", "--log-group-name", "spark"], "high"),
+            (["aws", "logs", "delete-log-group", "--log-group-name", "spark"], "critical"),
+            (["aws", "logs", "put-retention-policy", "--log-group-name", "spark", "--retention-in-days", "1"], "high"),
+            (["aws", "logs", "delete-retention-policy", "--log-group-name", "spark"], "critical"),
+            (["aws", "logs", "put-resource-policy", "--policy-name", "spark", "--policy-document", "{}"], "high"),
+            (["aws", "logs", "tag-log-group", "--log-group-name", "spark", "--tags", "team=spark"], "high"),
+            (["aws", "logs", "start-live-tail", "--log-group-identifiers", "arn:aws:logs:us-east-1:000000000000:log-group:spark"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve cloudwatch logs change")
+
+    def test_approval_classifier_allows_aws_cloudwatch_logs_report_commands(self) -> None:
+        cases = [
+            ["aws", "logs", "describe-log-groups"],
+            ["aws", "logs", "describe-log-streams", "--log-group-name", "spark"],
+            ["aws", "logs", "filter-log-events", "--log-group-name", "spark"],
+            ["aws", "logs", "get-log-events", "--log-group-name", "spark", "--log-stream-name", "demo"],
+            ["aws", "logs", "get-resource-policy", "--policy-name", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
