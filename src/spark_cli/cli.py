@@ -339,14 +339,31 @@ CHIP_SCAN_PATTERNS = (
     ),
 )
 
-try:  # keyring is an optional runtime dep; we degrade gracefully without it.
-    import keyring as _keyring
-    import keyring.errors as _keyring_errors
+_keyring: Any | None = None
+_keyring_errors: Any | None = None
+HAS_KEYRING: bool | None = None
+
+
+def _load_keyring() -> Any | None:
+    """Import keyring only when a secret operation actually needs it."""
+    global HAS_KEYRING, _keyring, _keyring_errors
+    if _keyring is not None:
+        HAS_KEYRING = True
+        return _keyring
+    if HAS_KEYRING is False:
+        return None
+    try:  # keyring is an optional runtime dep; we degrade gracefully without it.
+        import keyring
+        import keyring.errors as keyring_errors
+    except ImportError:  # pragma: no cover - exercised only on minimal installs
+        _keyring = None
+        _keyring_errors = None
+        HAS_KEYRING = False
+        return None
+    _keyring = keyring
+    _keyring_errors = keyring_errors
     HAS_KEYRING = True
-except ImportError:  # pragma: no cover - exercised only on minimal installs
-    _keyring = None
-    _keyring_errors = None
-    HAS_KEYRING = False
+    return _keyring
 
 
 @dataclass
@@ -917,10 +934,11 @@ def ensure_state_dirs() -> None:
 
 
 def keychain_available() -> bool:
-    if not HAS_KEYRING:
+    keyring = _load_keyring()
+    if keyring is None:
         return False
     try:
-        _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
+        keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
     except Exception:
         return False
     return True
@@ -1110,8 +1128,11 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
     ensure_state_dirs()
     index = load_secrets_index()
     if preferred == "keychain" and keychain_available():
+        keyring = _load_keyring()
+        if keyring is None:
+            raise AssertionError("keychain_available returned true without a keyring backend")
         try:
-            _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
+            keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
@@ -1141,13 +1162,14 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
 def fetch_secret(secret_id: str) -> str | None:
     index = load_secrets_index()
     backend = index.get(secret_id)
-    if backend == "keychain" and HAS_KEYRING:
+    keyring = _load_keyring() if backend == "keychain" else None
+    if backend == "keychain" and keyring is not None:
         try:
-            value = _keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
+            value = keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             if value is not None:
                 return value
             if default_home_uses_legacy_keychain():
-                return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
+                return keyring.get_password(KEYCHAIN_SERVICE, secret_id)
             return None
         except Exception:
             return None
@@ -1226,15 +1248,16 @@ def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
     backend = index.pop(secret_id, None)
     removed = False
-    if backend == "keychain" and HAS_KEYRING:
+    keyring = _load_keyring() if backend == "keychain" else None
+    if backend == "keychain" and keyring is not None:
         try:
-            _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
+            keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
         except Exception:
             pass
         if default_home_uses_legacy_keychain():
             try:
-                _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
+                keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
                 removed = True
             except Exception:
                 pass
