@@ -970,7 +970,7 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     repo_root = REPO_ROOT.resolve()
     root = Path(resolved.anchor).resolve()
     if resolved == root or resolved == home or resolved == repo_root:
-        raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+        raise SystemExit("Refusing to purge unsafe Spark home path. The configured Spark home resolves to a system-critical directory.")
     return resolved
 
 
