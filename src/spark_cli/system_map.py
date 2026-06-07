@@ -26,6 +26,7 @@ REPO_BOARD_SCHEMA = "spark.repo_board.compiled.v0"
 VOICE_SURFACE_SCHEMA = "spark.voice_surface_view.compiled.v0"
 OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
+LATEST_SPAWNER_JOB_SCHEMA = "spark.latest_spawner_job_evidence.v1"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
@@ -4289,6 +4290,55 @@ def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, A
     }
 
 
+def build_latest_spawner_job(spawner_prd_samples: dict[str, Any]) -> dict[str, Any]:
+    """Build the latest Spawner job evidence block that the Builder
+    self-awareness read model (`_latest_spawner_job_context`) and the
+    route confidence gate (`build_route_confidence_gate`) already expect.
+
+    The Builder reads `trace_index["latest_spawner_job"]` and looks for a
+    `spark.latest_spawner_job_evidence.v1` payload with provider / model /
+    freshness fields. The compiler had no producer for this key, so every
+    `spark self route-confidence-gate` call answered `decision=ask` with
+    the `latest_spawner_job_evidence_missing` blocker even right after a
+    successful `spark os compile`. This emits a metadata-only evidence
+    block derived from the PRD auto-trace samples already collected, so
+    the Builder sees a real `status` instead of falling through to the
+    missing branch.
+    """
+    samples = as_list(spawner_prd_samples.get("samples")) if isinstance(spawner_prd_samples, dict) else []
+    base: dict[str, Any] = {
+        "schema_version": LATEST_SPAWNER_JOB_SCHEMA,
+        "generated_at": utc_now(),
+        "redaction": "metadata only; no raw prompt, mission body, provider output, chat id, or trace ref values emitted",
+        "joined_sources": ["spawner-prd-trace"],
+        "missing_sources": ["mission-control", "agent-events"],
+        "blockers": [],
+        "verification_command": "spark os trace --json",
+    }
+    if not samples:
+        base.update({
+            "status": "missing",
+            "provider": None,
+            "model": None,
+            "provider_source": None,
+            "freshness": "unknown",
+            "confidence": "blocked",
+            "blockers": ["spawner_prd_auto_trace_empty"],
+        })
+        return base
+    latest = as_dict(samples[-1])
+    provider = latest.get("provider") if isinstance(latest.get("provider"), str) else None
+    base.update({
+        "status": "present",
+        "provider": provider or None,
+        "model": None,
+        "provider_source": "spawner-prd-auto-trace",
+        "freshness": "current" if provider else "unknown",
+        "confidence": "medium" if provider else "low",
+    })
+    return base
+
+
 def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
     spawner_state = spark_home / "state" / "spawner-ui"
     telegram_state = spark_home / "state" / "spark-telegram-bot"
@@ -4326,6 +4376,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
             "Emit Telegram request_id or trace_ref join keys from final-answer gate checks.",
         ],
     }
+    trace_index["latest_spawner_job"] = build_latest_spawner_job(trace_index.get("spawner_prd_auto_trace_samples", {}))
     trace_index["trace_current_health"] = build_trace_current_health(trace_index)
     trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
     trace_index["builder_trace_repair_cards"] = build_builder_trace_repair_cards(trace_index)
