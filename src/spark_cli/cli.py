@@ -699,7 +699,7 @@ def clone_module_source(
         git_command("clone", "--depth=1", url, str(target)),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git clone failed for {name}: {detail}")
