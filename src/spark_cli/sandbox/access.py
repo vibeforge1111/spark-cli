@@ -93,13 +93,58 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
+        values[key.strip().lstrip("\ufeff")] = _unescape_control_chars(normalize_env_file_value(value))
     return values
+
+
+def _escape_control_chars(value: str) -> str:
+    """Escape control characters for line-oriented configuration storage.
+
+    Backslashes are escaped first (so we do not double-translate a literal
+    \\n the operator wrote intentionally), then CR and LF are turned into
+    their two-character escapes. A bare newline in a value would otherwise
+    inject a new key=value record on the next line.
+    """
+    return value.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _unescape_control_chars(value: str) -> str:
+    """Inverse of _escape_control_chars; processed left-to-right so a doubled
+    backslash sequence cannot be mistaken for an escaped CR/LF on the next pass.
+
+    Round-trip guarantee: _unescape_control_chars(_escape_control_chars(v)) == v
+    for any v containing backslashes, CR, or LF.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        ch = value[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = value[i + 1]
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "r":
+                out.append("\r")
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+    path.write_text(
+        "\n".join(f"{key}={_escape_control_chars(value)}" for key, value in values.items()) + "\n",
+        encoding="utf-8",
+    )
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
