@@ -13514,6 +13514,69 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark autostart off", script)
         self.assertIn("spark autostart on telegram-starter --now", script)
 
+    def test_openai_compatible_empty_response_messages_name_provider_model_and_recovery(self) -> None:
+        # Regression: the four empty-response SystemExit messages in the doctor
+        # LLM call path used to be opaque ("LLM provider returned no choices.").
+        # They now name the provider, the model, and the two recovery commands
+        # so the operator can save the redacted prompt and verify the provider
+        # without leaving the shell.
+        from spark_cli.cli import openai_compatible_chat_completion, ollama_chat_completion
+
+        class FakeResponse:
+            def __init__(self, payload: dict) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self) -> bytes:
+                return self._body
+
+        # Case A: choices=[] -> no choices branch names provider + model.
+        target = {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-test",
+            "base_url": "https://example.invalid",
+        }
+        with patch("spark_cli.cli.urllib.request.urlopen", return_value=FakeResponse({"choices": []})):
+            with self.assertRaises(SystemExit) as captured:
+                openai_compatible_chat_completion(target, "p")
+        self.assertIn("provider=openai", str(captured.exception))
+        self.assertIn("model=gpt-4o-mini", str(captured.exception))
+        self.assertIn("spark doctor llm --prompt-out", str(captured.exception))
+        self.assertIn("spark providers status", str(captured.exception))
+
+        # Case B: choices=[{"message":{"content":""}}] -> empty content branch.
+        with patch(
+            "spark_cli.cli.urllib.request.urlopen",
+            return_value=FakeResponse({"choices": [{"message": {"content": ""}}]}),
+        ):
+            with self.assertRaises(SystemExit) as captured:
+                openai_compatible_chat_completion(target, "p")
+        self.assertIn("provider=openai", str(captured.exception))
+        self.assertIn("model=gpt-4o-mini", str(captured.exception))
+        self.assertIn("spark doctor llm --prompt-out", str(captured.exception))
+
+        # Case C: Ollama empty content names model + base_url.
+        ollama_target = {
+            "provider": "ollama",
+            "model": "llama3",
+            "base_url": "http://localhost:11434",
+        }
+        with patch(
+            "spark_cli.cli.urllib.request.urlopen",
+            return_value=FakeResponse({"message": {"content": ""}}),
+        ):
+            with self.assertRaises(SystemExit) as captured:
+                ollama_chat_completion(ollama_target, "p")
+        self.assertIn("model=llama3", str(captured.exception))
+        self.assertIn("base_url=http://localhost:11434", str(captured.exception))
+        self.assertIn("spark doctor llm --prompt-out", str(captured.exception))
+
     def test_readme_does_not_recommend_piping_remote_installers_to_shell(self) -> None:
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
         compact_readme = " ".join(readme.split())

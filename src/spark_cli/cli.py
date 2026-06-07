@@ -10730,12 +10730,22 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
     )
     payload = read_llm_provider_json(request, "LLM provider")
     choices = payload.get("choices")
+    provider_id = str(target.get("provider") or "openai-compatible")
+    model_id = str(target.get("model") or "default")
     if not choices:
-        raise SystemExit("LLM provider returned no choices.")
+        raise SystemExit(
+            f"LLM provider returned no choices (provider={provider_id}, model={model_id}). "
+            "Try `spark doctor llm --prompt-out spark-doctor-prompt.txt` to save the redacted prompt for offline review, "
+            "or `spark providers status` to verify the configured provider."
+        )
     message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
     content = message.get("content")
     if not content:
-        raise SystemExit("LLM provider returned an empty doctor response.")
+        raise SystemExit(
+            f"LLM provider returned an empty doctor response (provider={provider_id}, model={model_id}). "
+            "Try `spark doctor llm --prompt-out spark-doctor-prompt.txt` to save the redacted prompt for offline review, "
+            "or `spark providers status` to verify the configured provider."
+        )
     return str(content)
 
 
@@ -10760,7 +10770,12 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
-        raise SystemExit("Ollama returned an empty doctor response.")
+        model_id = str(target.get("model") or "default")
+        raise SystemExit(
+            f"Ollama returned an empty doctor response (model={model_id}, base_url={base_url}). "
+            "Try `spark doctor llm --prompt-out spark-doctor-prompt.txt` to save the redacted prompt for offline review, "
+            "or `spark providers status` to verify Ollama is reachable."
+        )
     return str(content)
 
 
@@ -10826,7 +10841,12 @@ def codex_cli_completion(target: dict[str, Any], prompt: str) -> str:
         detail = summarize_command_output(result) or f"codex exited with code {result.returncode}"
         raise SystemExit(detail)
     if not output:
-        raise SystemExit("Codex CLI returned an empty response.")
+        model_id = str(target.get("model") or "default")
+        raise SystemExit(
+            f"Codex CLI returned an empty response (model={model_id}, cli={codex_path}). "
+            "Try `spark doctor llm --prompt-out spark-doctor-prompt.txt` to save the redacted prompt for offline review, "
+            "or `spark providers status` to verify Codex CLI is signed in."
+        )
     return output
 
 
@@ -10866,7 +10886,12 @@ def claude_cli_completion(target: dict[str, Any], prompt: str) -> str:
         detail = summarize_command_output(result) or f"claude exited with code {result.returncode}"
         raise SystemExit(detail)
     if not output:
-        raise SystemExit("Claude CLI returned an empty response.")
+        model_id = str(target.get("model") or "default")
+        raise SystemExit(
+            f"Claude CLI returned an empty response (model={model_id}, cli={claude_path}). "
+            "Try `spark doctor llm --prompt-out spark-doctor-prompt.txt` to save the redacted prompt for offline review, "
+            "or `spark providers status` to verify Claude CLI is signed in."
+        )
     return output
 
 
