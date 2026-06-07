@@ -1528,6 +1528,41 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_s3_storage_mutations(self) -> None:
+        cases = [
+            (["aws", "s3", "rb", "s3://example-bucket", "--force"], "critical"),
+            (["aws", "s3api", "create-bucket", "--bucket", "example-bucket"], "high"),
+            (["aws", "s3api", "put-object", "--bucket", "example-bucket", "--key", "report.txt", "--body", "report.txt"], "high"),
+            (["aws", "s3api", "copy-object", "--bucket", "example-bucket", "--key", "copy.txt"], "high"),
+            (["aws", "s3api", "delete-object", "--bucket", "example-bucket", "--key", "report.txt"], "critical"),
+            (["aws", "s3api", "delete-bucket", "--bucket", "example-bucket"], "critical"),
+            (["aws", "s3api", "put-bucket-policy", "--bucket", "example-bucket", "--policy", "{}"], "critical"),
+            (["aws", "s3api", "delete-public-access-block", "--bucket", "example-bucket"], "critical"),
+            (["aws", "s3api", "put-bucket-acl", "--bucket", "example-bucket", "--acl", "private"], "critical"),
+            (["aws", "s3api", "restore-object", "--bucket", "example-bucket", "--key", "archive.txt"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve s3 storage change")
+
+    def test_approval_classifier_allows_aws_s3_report_commands(self) -> None:
+        for command in (
+            ["aws", "s3", "ls", "s3://example-bucket"],
+            ["aws", "s3", "cp", "s3://example-bucket/report.txt", "."],
+            ["aws", "s3api", "list-objects-v2", "--bucket", "example-bucket"],
+            ["aws", "s3api", "head-object", "--bucket", "example-bucket", "--key", "report.txt"],
+            ["aws", "s3api", "get-bucket-policy", "--bucket", "example-bucket"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

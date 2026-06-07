@@ -302,6 +302,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and len(lowered) > 2 and (
+        (second == "s3" and lowered[2] == "rb")
+        or (second == "s3api" and lowered[2].startswith(("abort-", "copy-", "create-", "delete-", "put-", "restore-")))
+    ):
+        s3_action = lowered[2]
+        access_policy_related = any(term in s3_action for term in {"acl", "ownership", "policy", "public-access"})
+        destructive = s3_action.startswith(("abort-", "delete-")) or s3_action == "rb"
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if destructive or access_policy_related else "high",
+            "AWS S3 command can create, delete, copy, restore, or change access policy for cloud storage.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve s3 storage change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
