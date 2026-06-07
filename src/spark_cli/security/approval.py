@@ -79,6 +79,22 @@ def _target_after(parts: list[str], command_names: set[str]) -> str:
     return ""
 
 
+def _last_non_option(parts: list[str]) -> str:
+    for part in reversed(parts[1:]):
+        if not part.startswith("-"):
+            return part
+    return ""
+
+
+def _assignment_value(parts: list[str], names: set[str]) -> str:
+    for part in parts[1:]:
+        lowered = part.lower()
+        for name in names:
+            if lowered.startswith(f"{name.lower()}="):
+                return part.split("=", 1)[1]
+    return ""
+
+
 def _has_option_value(parts: list[str], option_names: set[str], suspicious_values: set[str]) -> bool:
     lowered = _lower_parts(parts)
     for index, part in enumerate(lowered):
@@ -510,6 +526,54 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+
+    if first == "dd":
+        target = _assignment_value(parts, {"of"})
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "critical",
+            "Command can overwrite local files, devices, or disks.",
+            target_display=target,
+            confirmation_phrase=f"overwrite {target}".strip().lower()[:80] if target else "approve dd overwrite",
+        )
+
+    if first in {"mv", "move", "ren", "rename"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can move, rename, or overwrite local files and directories.",
+            target_display=target,
+            confirmation_phrase=f"move {target}".strip().lower()[:80] if target else "approve file move",
+        )
+
+    if first in {"chmod", "chown", "icacls", "takeown", "attrib"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can change file permissions, ownership, or access controls.",
+            target_display=target,
+            confirmation_phrase=f"change permissions {target}".strip().lower()[:80] if target else "approve permission change",
+        )
+
+    if first in {"scp", "rsync", "sftp"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "high",
+            "Command can copy local data across a network boundary.",
+            target_display=target,
+            confirmation_phrase="approve network file transfer",
         )
 
     if first == "git" and (

@@ -1690,6 +1690,21 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.risk, "critical")
         self.assertEqual(decision.target_display, "/tmp/spark-test")
 
+    def test_approval_classifier_flags_filesystem_and_transfer_mutations(self) -> None:
+        cases = [
+            (["dd", "if=/dev/zero", "of=/tmp/spark-test"], "destructive_filesystem", "critical", "/tmp/spark-test"),
+            (["chmod", "777", "secrets.txt"], "destructive_filesystem", "high", "secrets.txt"),
+            (["mv", "important.txt", "/tmp/important.txt"], "destructive_filesystem", "high", "/tmp/important.txt"),
+            (["scp", "secret.txt", "host:/tmp/secret.txt"], "network_exfiltration", "high", "host:/tmp/secret.txt"),
+        ]
+        for command, action_class, risk, target in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.target_display, target)
+
     def test_approval_classifier_flags_git_history_mutation(self) -> None:
         decision = approval_required_for_command(["git", "push", "--force-with-lease"], CommandContext())
         self.assertTrue(decision.requires_approval)
