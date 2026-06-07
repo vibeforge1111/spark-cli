@@ -726,6 +726,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if status.returncode != 0:
         return False, summarize_command_output(status)
@@ -736,6 +738,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if current.returncode != 0:
         return False, summarize_command_output(current)
@@ -747,6 +751,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
@@ -756,6 +762,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
             git_command("-C", str(module.path), "verify-commit", pinned_commit),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
@@ -764,6 +772,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
@@ -772,6 +782,8 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if resolved.returncode != 0:
         return False, summarize_command_output(resolved)
