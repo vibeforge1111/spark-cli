@@ -183,8 +183,8 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "owner_repo": "spark-telegram-bot",
         "mutation_class": "launches_mission",
         "risk": "high_agency",
-        "files": ("src/index.ts", "src/harnessContract.ts", "src/routeFirewall.ts"),
-        "legacy_markers": ("deterministicRouteAllowed", "mission", "Spawner"),
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/telegramActionAuthority.ts"),
+        "legacy_markers": ("authorizeTelegramAction", "mission", "Spawner"),
     },
     {
         "id": "telegram.memory_write",
@@ -237,7 +237,7 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
         "owner_repo": "spark-telegram-bot",
         "mutation_class": "changes_access",
         "risk": "high_agency",
-        "files": ("src/index.ts", "src/harnessContract.ts", "src/routeFirewall.ts"),
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/telegramActionAuthority.ts"),
         "legacy_markers": ("access.change", "setSparkAccessProfile", "parseNaturalAccessChangeIntent"),
     },
     {
@@ -305,7 +305,7 @@ CONTRACT_COVERAGE_ACTION_EDGES = (
             "src/harnessContract.ts",
             "src/telegramActionAuthority.ts",
             "src/telegramCommandAuthority.ts",
-            "src/routeFirewall.ts",
+            "src/routeTypes.ts",
         ),
         "legacy_markers": (
             "route.probe",

@@ -77,7 +77,7 @@ Telegram owns ingress and user-facing chat, not global authority.
 
 Required proof:
 
-- route firewall tests
+- Harness Core action authority tests
 - Telegram action authority tests
 - `tests/turnIntent350Matrix.test.ts`
 - full `npm test`

@@ -1855,7 +1855,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
             )
             (telegram_src / "index.ts").write_text(
                 "buildTelegramTurnIntentEnvelope();\n"
-                "if (deterministicRouteAllowed('mission')) launchMission();\n"
+                "if (telegramActionAuthorityAllowed('mission')) launchMission();\n"
                 "authorizeRouteProbeCommand(ctx, text, ['spark_browser']);\n"
                 "recordTelegramHarnessCoreExecution(authorization, { toolName: 'route.probe' });\n",
                 encoding="utf-8",
@@ -1873,8 +1873,8 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
                 "buildTelegramTurnIntentEnvelope(); route: 'route.probe';\n",
                 encoding="utf-8",
             )
-            (telegram_src / "routeFirewall.ts").write_text(
-                "'route.probe'; evaluateDeterministicRoute(route, text);\n",
+            (telegram_src / "routeTypes.ts").write_text(
+                "export type TelegramRouteId = 'route.probe';\n",
                 encoding="utf-8",
             )
             (builder_telegram / "runtime.py").write_text(
@@ -2086,13 +2086,13 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
         self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
         self.assertFalse(by_id["harness_core.self_evolution_runner"]["release_blocker"])
-        self.assertEqual(by_id["telegram.mission_launch"]["status"], "legacy_local_gate")
-        self.assertEqual(by_id["telegram.mission_launch"]["legacy_plane_classification"], "blocked")
+        self.assertEqual(by_id["telegram.mission_launch"]["status"], "envelope_verified")
+        self.assertEqual(by_id["telegram.mission_launch"]["legacy_plane_classification"], "retired")
         self.assertEqual(
             by_id["telegram.mission_launch"]["legacy_plane_reason_code"],
-            "high_agency_or_network_edge_still_depends_on_local_legacy_authority",
+            "no_local_legacy_authority_marker_observed_on_this_action_edge",
         )
-        self.assertTrue(by_id["telegram.mission_launch"]["release_blocker"])
+        self.assertFalse(by_id["telegram.mission_launch"]["release_blocker"])
         self.assertEqual(by_id["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
         self.assertEqual(
             by_id["spawner.spark_run"]["legacy_plane_reason_code"],
@@ -2130,7 +2130,7 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertFalse(legacy_inventory["release_gate"]["ready_for_readiness_promotion"])
         self.assertEqual(
             inventory_planes_by_edge["telegram.mission_launch"]["disposition"],
-            "release_blocker",
+            "removed",
         )
         self.assertEqual(inventory_planes_by_edge["telegram.mission_launch"]["surface"], "telegram")
         self.assertEqual(
@@ -2151,10 +2151,6 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(coverage["summary"]["uncovered_authority_source_count"], 0)
         self.assertEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 0)
         self.assertEqual(coverage["uncovered_authority_sources"], [])
-        self.assertEqual(cleanup_queue[0]["edge_id"], "telegram.mission_launch")
-        self.assertEqual(cleanup_queue[0]["priority"], "critical")
-        self.assertTrue(cleanup_queue[0]["release_blocker"])
-        self.assertEqual(cleanup_queue[0]["legacy_plane_classification"], "blocked")
         self.assertEqual(cleanup_by_edge["spawner.spark_run"]["priority"], "high")
         self.assertFalse(cleanup_by_edge["spawner.spark_run"]["release_blocker"])
         self.assertEqual(cleanup_by_edge["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
