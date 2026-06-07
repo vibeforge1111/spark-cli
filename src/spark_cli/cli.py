@@ -10771,6 +10771,23 @@ def read_llm_provider_json(request: urllib.request.Request, provider_label: str)
     except urllib.error.HTTPError as exc:
         body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
         suffix = f": {body[:300]}" if body else ""
+        if exc.code == 404:
+            raise SystemExit(
+                f"{provider_label} returned HTTP 404 (not found){suffix}. "
+                "The configured base URL or model name does not exist at the provider. "
+                "Run `spark providers status` to check the active base URL, then `spark setup` to re-pick a valid model name."
+            ) from exc
+        if exc.code in {401, 403}:
+            raise SystemExit(
+                f"{provider_label} returned HTTP {exc.code} ({exc.reason}){suffix}. "
+                "The provider rejected the API key. "
+                "Run `spark secrets list` to confirm the active key is set, then `spark setup` to rotate it."
+            ) from exc
+        if exc.code == 429:
+            raise SystemExit(
+                f"{provider_label} returned HTTP 429 (rate limited){suffix}. "
+                "The provider throttled the request. Wait a minute, then retry; or run `spark providers status` to switch to a less-loaded provider."
+            ) from exc
         raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
     except urllib.error.URLError as exc:
         reason = redact_sensitive_text(str(exc.reason))
