@@ -2277,7 +2277,7 @@ def resolve_secret_input(value: str) -> str:
         try:
             return path.expanduser().read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+            raise SystemExit("Could not read secret file. Ensure the file exists and is accessible.") from exc
     return value
 
 
