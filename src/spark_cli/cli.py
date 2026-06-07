@@ -15862,7 +15862,11 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         installed_modules = resolve_installed_modules()
         blockers = detect_uninstall_blockers(modules, installed_modules)
         if blockers and not args.force:
-            raise SystemExit("Cannot uninstall because other installed modules depend on it: " + "; ".join(blockers))
+            raise SystemExit(
+                "Cannot uninstall because other installed modules depend on it: "
+                + "; ".join(blockers)
+                + ". Rerun with --force to uninstall anyway, or uninstall the dependents first."
+            )
 
     failures = 0
     if getattr(args, "remove_autostart", False):
