@@ -14853,13 +14853,20 @@ def vbs_string(value: str) -> str:
 def write_windows_startup_script(path: Path, start_command: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     hidden_command = f"%ComSpec% /d /s /c {start_command}"
-    path.write_text(
+    script = (
         "Set shell = CreateObject(\"WScript.Shell\")\r\n"
         f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
         f"shell.Environment(\"PROCESS\")(\"SPARK_HOME\") = {vbs_string(str(SPARK_HOME))}\r\n"
-        f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n",
-        encoding="ascii",
+        f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n"
     )
+    # WScript reliably parses both ASCII and UTF-16 LE BOM .vbs files; prefer ASCII
+    # for the common case but fall back to UTF-16 LE when SPARK_HOME contains
+    # non-ASCII characters (e.g., Users\Müller\.spark on a localized Windows install)
+    # so the writer does not crash with UnicodeEncodeError mid-autostart-install.
+    try:
+        path.write_text(script, encoding="ascii")
+    except UnicodeEncodeError:
+        path.write_text(script, encoding="utf-16")
 
 
 def windows_cmd_c(command: str) -> str:
