@@ -11439,7 +11439,8 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Spark log redaction")
             print("")
             if changed:
-                print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
+                noun = "log file" if len(changed) == 1 else "log files"
+                print(f"[OK] Redacted secret-like values in {len(changed)} {noun}.")
                 for path in changed:
                     print(f"      {path}")
             else:
