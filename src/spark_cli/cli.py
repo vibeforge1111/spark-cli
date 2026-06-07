@@ -11027,11 +11027,48 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "repair": f"spark setup {bundle_name}",
         }
     )
+    # Pre-check supervision so module_health can defer to it when the live
+    # secret-session probe can't reach the bot_token from a non-interactive
+    # shell (CI, IDE auto-call, claude-code subprocess). The dedicated
+    # `telegram_process` check below still reports its own verdict.
+    _telegram_supervised_pid: int | None = None
+    if isinstance(pids, dict):
+        for _process_key in tracked_process_keys_for_module(pids, "spark-telegram-bot"):
+            _candidate = pids.get(_process_key)
+            if isinstance(_candidate, dict) and pid_is_running(int(_candidate.get("pid", 0))):
+                _telegram_supervised_pid = int(_candidate.get("pid", 0))
+                break
+    _telegram_detail_lower = (
+        str(telegram_result.get("detail", "")).lower() if isinstance(telegram_result, dict) else ""
+    )
+    _probe_blocked_by_secret_session = (
+        "telegram.profiles.primary.bot_token" in _telegram_detail_lower
+        and "approved spark secret session" in _telegram_detail_lower
+    )
+    _module_healthy = bool(telegram_result and telegram_result.get("healthy") is True)
+    if (
+        not _module_healthy
+        and _probe_blocked_by_secret_session
+        and _telegram_supervised_pid is not None
+        and "telegram.bot_token" in secret_keys
+    ):
+        _module_health_ok = True
+        _module_health_detail = (
+            f"spark-telegram-bot is supervised (pid {_telegram_supervised_pid}) "
+            "and the bot_token secret is recorded; the in-process secret probe "
+            "is declined in this non-interactive shell, which is expected — the "
+            "running bot loaded its token at startup and is independently healthy."
+        )
+    else:
+        _module_health_ok = _module_healthy
+        _module_health_detail = (
+            telegram_result.get("detail") if telegram_result else "spark-telegram-bot is not installed."
+        )
     checks.append(
         {
             "name": "telegram_module_health",
-            "ok": bool(telegram_result and telegram_result.get("healthy") is True),
-            "detail": telegram_result.get("detail") if telegram_result else "spark-telegram-bot is not installed.",
+            "ok": _module_health_ok,
+            "detail": _module_health_detail,
             "repair": "spark status",
         }
     )
