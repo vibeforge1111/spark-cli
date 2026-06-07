@@ -1582,6 +1582,52 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_cloudtrail_mutations(self) -> None:
+        cases = [
+            (["aws", "cloudtrail", "create-trail", "--name", "spark-trail", "--s3-bucket-name", "spark-bucket"], "high"),
+            (["aws", "cloudtrail", "delete-trail", "--name", "spark-trail"], "critical"),
+            (["aws", "cloudtrail", "start-logging", "--name", "spark-trail"], "high"),
+            (["aws", "cloudtrail", "stop-logging", "--name", "spark-trail"], "critical"),
+            (["aws", "cloudtrail", "put-event-selectors", "--trail-name", "spark-trail", "--event-selectors", "[]"], "high"),
+            (["aws", "cloudtrail", "put-insight-selectors", "--trail-name", "spark-trail", "--insight-selectors", "[]"], "high"),
+            (["aws", "cloudtrail", "update-trail", "--name", "spark-trail", "--is-multi-region-trail"], "high"),
+            (
+                [
+                    "aws",
+                    "cloudtrail",
+                    "add-tags",
+                    "--resource-id",
+                    "arn:aws:cloudtrail:us-east-1:000000000000:trail/spark-trail",
+                    "--tags-list",
+                    "Key=team,Value=spark",
+                ],
+                "high",
+            ),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve cloudtrail change")
+
+    def test_approval_classifier_allows_aws_cloudtrail_report_commands(self) -> None:
+        cases = [
+            ["aws", "cloudtrail", "describe-trails"],
+            ["aws", "cloudtrail", "get-trail-status", "--name", "spark-trail"],
+            ["aws", "cloudtrail", "get-event-selectors", "--trail-name", "spark-trail"],
+            ["aws", "cloudtrail", "lookup-events", "--max-results", "1"],
+            ["aws", "cloudtrail", "list-tags", "--resource-list", "arn:aws:cloudtrail:us-east-1:000000000000:trail/spark-trail"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
