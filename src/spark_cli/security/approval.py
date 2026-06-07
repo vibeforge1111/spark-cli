@@ -301,6 +301,31 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "cloudfront":
+        cloudfront_action = lowered[2]
+        if cloudfront_action.startswith(
+            (
+                "associate-",
+                "copy-",
+                "create-",
+                "delete-",
+                "disable-",
+                "enable-",
+                "publish-",
+                "tag-",
+                "untag-",
+                "update-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if cloudfront_action.startswith(("delete-", "disable-")) else "high",
+                "AWS CloudFront command can change CDN distributions, cache state, edge functions, origins, policies, aliases, or resource tags.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve cloudfront change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(

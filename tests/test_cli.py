@@ -1582,6 +1582,88 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_cloudfront_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "cloudfront", "create-invalidation", "--distribution-id", "EDFDVBD632BHDS5", "--paths", "/index.html"],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "cloudfront",
+                    "update-distribution",
+                    "--id",
+                    "EDFDVBD632BHDS5",
+                    "--distribution-config",
+                    "{}",
+                    "--if-match",
+                    "ETAG",
+                ],
+                "high",
+            ),
+            (["aws", "cloudfront", "create-distribution", "--distribution-config", "{}"], "high"),
+            (["aws", "cloudfront", "delete-distribution", "--id", "EDFDVBD632BHDS5", "--if-match", "ETAG"], "critical"),
+            (
+                [
+                    "aws",
+                    "cloudfront",
+                    "create-cloud-front-origin-access-identity",
+                    "--cloud-front-origin-access-identity-config",
+                    "{}",
+                ],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "cloudfront",
+                    "update-response-headers-policy",
+                    "--id",
+                    "policy",
+                    "--response-headers-policy-config",
+                    "{}",
+                    "--if-match",
+                    "ETAG",
+                ],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "cloudfront",
+                    "tag-resource",
+                    "--resource",
+                    "arn:aws:cloudfront::000000000000:distribution/EDFDVBD632BHDS5",
+                    "--tags",
+                    "Items=[]",
+                ],
+                "high",
+            ),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve cloudfront change")
+
+    def test_approval_classifier_allows_aws_cloudfront_report_commands(self) -> None:
+        cases = [
+            ["aws", "cloudfront", "list-distributions"],
+            ["aws", "cloudfront", "get-distribution", "--id", "EDFDVBD632BHDS5"],
+            ["aws", "cloudfront", "get-invalidation", "--distribution-id", "EDFDVBD632BHDS5", "--id", "I0000000000000"],
+            ["aws", "cloudfront", "list-tags-for-resource", "--resource", "arn:aws:cloudfront::000000000000:distribution/EDFDVBD632BHDS5"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
