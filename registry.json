@@ -2,14 +2,14 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "44743cacee7646823d2addf8aa188f2f51364955",
+      "commit": "972b1679e1b736741107c74822e3c15892ab4bd5",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "44743cacee7646823d2addf8aa188f2f51364955"
+        "commit": "972b1679e1b736741107c74822e3c15892ab4bd5"
       }
     },
     "spark-character": {
@@ -39,26 +39,26 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "7442cb476f72a4deedf2a90fc4407bb0b78110df",
+      "commit": "22cebe0bd83e785ed3f32c98495c0fbd13c9eec5",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "7442cb476f72a4deedf2a90fc4407bb0b78110df"
+        "commit": "22cebe0bd83e785ed3f32c98495c0fbd13c9eec5"
       }
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "aae23128776a129decefb4fca98ad6915bf179f8",
+      "commit": "3ef975db30bd3b1c0e51b251683669147c6884d1",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-memory",
-        "commit": "aae23128776a129decefb4fca98ad6915bf179f8"
+        "commit": "3ef975db30bd3b1c0e51b251683669147c6884d1"
       }
     },
     "domain-chip-spark-qa-evidence-lane": {
@@ -115,7 +115,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "3a9458dfb67adee7e2a0e1e503d68317bd0af8bd",
+      "commit": "4e81ed21a4e14c735312f56b54f340c9f59ffffa",
       "verify_ref": "refs/heads/main",
       "require_signed_commit": false,
       "blessed": true,
@@ -123,7 +123,7 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "3a9458dfb67adee7e2a0e1e503d68317bd0af8bd"
+        "commit": "4e81ed21a4e14c735312f56b54f340c9f59ffffa"
       }
     }
   },
