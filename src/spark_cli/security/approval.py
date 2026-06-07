@@ -302,6 +302,49 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "ec2" and len(lowered) > 2:
+        ec2_action = lowered[2]
+        ec2_mutation_prefixes = (
+            "accept-",
+            "allocate-",
+            "assign-",
+            "associate-",
+            "attach-",
+            "authorize-",
+            "cancel-",
+            "create-",
+            "delete-",
+            "detach-",
+            "disable-",
+            "disassociate-",
+            "enable-",
+            "import-",
+            "modify-",
+            "reboot-",
+            "register-",
+            "release-",
+            "replace-",
+            "reset-",
+            "revoke-",
+            "run-",
+            "start-",
+            "stop-",
+            "terminate-",
+            "unassign-",
+        )
+        if ec2_action.startswith(ec2_mutation_prefixes):
+            destructive = ec2_action.startswith(("delete-", "disable-", "release-", "terminate-"))
+            network_access = any(term in ec2_action for term in {"security-group", "route", "address", "acl", "vpc", "subnet"})
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if destructive or network_access else "high",
+                "AWS EC2 command can create, delete, start, stop, attach, or change live compute and network infrastructure.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve ec2 infrastructure change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

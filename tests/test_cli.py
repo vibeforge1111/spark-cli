@@ -1528,6 +1528,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_ec2_infrastructure_mutations(self) -> None:
+        cases = [
+            (["aws", "ec2", "run-instances", "--image-id", "ami-synthetic", "--instance-type", "t3.micro"], "high"),
+            (["aws", "ec2", "start-instances", "--instance-ids", "i-00000000000000000"], "high"),
+            (["aws", "ec2", "stop-instances", "--instance-ids", "i-00000000000000000"], "high"),
+            (["aws", "ec2", "reboot-instances", "--instance-ids", "i-00000000000000000"], "high"),
+            (["aws", "ec2", "terminate-instances", "--instance-ids", "i-00000000000000000"], "critical"),
+            (["aws", "ec2", "authorize-security-group-ingress", "--group-id", "sg-00000000", "--protocol", "tcp"], "critical"),
+            (["aws", "ec2", "revoke-security-group-egress", "--group-id", "sg-00000000", "--protocol", "tcp"], "critical"),
+            (["aws", "ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "10"], "high"),
+            (["aws", "ec2", "attach-volume", "--volume-id", "vol-00000000", "--instance-id", "i-00000000000000000"], "high"),
+            (["aws", "ec2", "modify-instance-attribute", "--instance-id", "i-00000000000000000"], "high"),
+            (["aws", "ec2", "create-vpc", "--cidr-block", "10.0.0.0/16"], "critical"),
+            (["aws", "ec2", "delete-subnet", "--subnet-id", "subnet-00000000"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ec2 infrastructure change")
+
+    def test_approval_classifier_allows_aws_ec2_report_commands(self) -> None:
+        for command in (
+            ["aws", "ec2", "describe-instances"],
+            ["aws", "ec2", "describe-security-groups"],
+            ["aws", "ec2", "describe-volumes"],
+            ["aws", "ec2", "get-console-output", "--instance-id", "i-00000000000000000"],
+            ["aws", "ec2", "describe-vpcs"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
