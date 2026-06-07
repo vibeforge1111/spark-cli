@@ -302,6 +302,31 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "acm" and len(lowered) > 2:
+        acm_mutation_actions = {
+            "add-tags-to-certificate",
+            "delete-certificate",
+            "export-certificate",
+            "import-certificate",
+            "put-account-configuration",
+            "remove-tags-from-certificate",
+            "renew-certificate",
+            "request-certificate",
+            "resend-validation-email",
+            "update-certificate-options",
+        }
+        if lowered[2] in acm_mutation_actions:
+            critical_actions = {"delete-certificate", "export-certificate", "import-certificate", "remove-tags-from-certificate"}
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "critical" if lowered[2] in critical_actions else "high",
+                "AWS ACM command can export/import certificate material or mutate certificate lifecycle, validation, account configuration, options, or tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve acm change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
