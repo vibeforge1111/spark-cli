@@ -1528,6 +1528,44 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_eks_infrastructure_mutations(self) -> None:
+        cases = [
+            (["aws", "eks", "create-cluster", "--name", "spark"], "high"),
+            (["aws", "eks", "update-cluster-config", "--name", "spark"], "high"),
+            (["aws", "eks", "update-cluster-version", "--name", "spark"], "high"),
+            (["aws", "eks", "delete-cluster", "--name", "spark"], "critical"),
+            (["aws", "eks", "create-nodegroup", "--cluster-name", "spark", "--nodegroup-name", "workers"], "high"),
+            (["aws", "eks", "update-nodegroup-config", "--cluster-name", "spark", "--nodegroup-name", "workers"], "high"),
+            (["aws", "eks", "delete-nodegroup", "--cluster-name", "spark", "--nodegroup-name", "workers"], "critical"),
+            (["aws", "eks", "create-addon", "--cluster-name", "spark", "--addon-name", "coredns"], "high"),
+            (["aws", "eks", "update-addon", "--cluster-name", "spark", "--addon-name", "coredns"], "high"),
+            (["aws", "eks", "delete-addon", "--cluster-name", "spark", "--addon-name", "coredns"], "critical"),
+            (["aws", "eks", "associate-identity-provider-config", "--cluster-name", "spark"], "high"),
+            (["aws", "eks", "deregister-cluster", "--name", "spark"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve eks infrastructure change")
+
+    def test_approval_classifier_allows_aws_eks_report_commands(self) -> None:
+        for command in (
+            ["aws", "eks", "describe-cluster", "--name", "spark"],
+            ["aws", "eks", "list-clusters"],
+            ["aws", "eks", "describe-nodegroup", "--cluster-name", "spark", "--nodegroup-name", "workers"],
+            ["aws", "eks", "list-nodegroups", "--cluster-name", "spark"],
+            ["aws", "eks", "describe-addon", "--cluster-name", "spark", "--addon-name", "coredns"],
+            ["aws", "eks", "list-addons", "--cluster-name", "spark"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
