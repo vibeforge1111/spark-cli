@@ -14320,6 +14320,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
+        except OSError as exc:
+            log_handle.close()
+            safe_detail = redact_shareable_text(str(exc))
+            print(f"Failed to start {display_name}: {safe_detail}")
+            append_process_log(module.name, f"spawn failed detail={safe_detail}", profile=profile)
+            return False
         finally:
             log_handle.close()
         pids[process_key] = {
