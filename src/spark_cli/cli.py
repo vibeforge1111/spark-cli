@@ -13810,7 +13810,8 @@ def pid_is_running(pid: int) -> bool:
                 return exit_code.value == still_active
             finally:
                 ctypes.windll.kernel32.CloseHandle(handle)
-        except Exception:
+        except Exception as _e:
+            import logging as _log; _log.getLogger(__name__).warning("Suppressed: %s", _e, exc_info=True)
             return False
     try:
         os.kill(pid, 0)
