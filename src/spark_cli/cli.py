@@ -13945,7 +13945,7 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
         return None
     try:
         script_parts = split_single_argv_command(script, "Package script")
-    except SystemExit:
+    except (SystemExit, ValueError):
         return None
     if not script_parts:
         return None
