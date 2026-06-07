@@ -302,6 +302,45 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second in {"ecr", "ecr-public"} and len(lowered) > 2:
+        ecr_action = lowered[2]
+        ecr_mutations = {
+            "batch-delete-image",
+            "complete-layer-upload",
+            "create-pull-through-cache-rule",
+            "create-repository",
+            "delete-lifecycle-policy",
+            "delete-pull-through-cache-rule",
+            "delete-registry-policy",
+            "delete-repository",
+            "delete-repository-policy",
+            "initiate-layer-upload",
+            "put-image",
+            "put-image-scanning-configuration",
+            "put-image-tag-mutability",
+            "put-lifecycle-policy",
+            "put-registry-policy",
+            "put-registry-scanning-configuration",
+            "replicate-image",
+            "set-repository-policy",
+            "start-image-scan",
+            "tag-resource",
+            "untag-resource",
+            "upload-layer-part",
+        }
+        if ecr_action in ecr_mutations:
+            destructive = ecr_action.startswith("delete-") or ecr_action == "batch-delete-image"
+            access_policy_related = "policy" in ecr_action or "pull-through-cache" in ecr_action
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if destructive or access_policy_related else "high",
+                "AWS ECR command can create, delete, publish, or change access policy for container registry artifacts.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve ecr registry change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

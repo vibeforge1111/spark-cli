@@ -1528,6 +1528,39 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_ecr_registry_mutations(self) -> None:
+        cases = [
+            (["aws", "ecr", "create-repository", "--repository-name", "spark"], "high"),
+            (["aws", "ecr", "delete-repository", "--repository-name", "spark", "--force"], "critical"),
+            (["aws", "ecr", "put-image", "--repository-name", "spark", "--image-tag", "latest", "--image-manifest", "{}"], "high"),
+            (["aws", "ecr", "batch-delete-image", "--repository-name", "spark", "--image-ids", "imageTag=latest"], "critical"),
+            (["aws", "ecr", "set-repository-policy", "--repository-name", "spark", "--policy-text", "{}"], "critical"),
+            (["aws", "ecr", "put-lifecycle-policy", "--repository-name", "spark", "--lifecycle-policy-text", "{}"], "critical"),
+            (["aws", "ecr", "put-image-tag-mutability", "--repository-name", "spark", "--image-tag-mutability", "IMMUTABLE"], "high"),
+            (["aws", "ecr-public", "create-repository", "--repository-name", "spark"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ecr registry change")
+
+    def test_approval_classifier_allows_aws_ecr_report_commands(self) -> None:
+        for command in (
+            ["aws", "ecr", "describe-repositories"],
+            ["aws", "ecr", "describe-images", "--repository-name", "spark"],
+            ["aws", "ecr", "list-images", "--repository-name", "spark"],
+            ["aws", "ecr", "get-repository-policy", "--repository-name", "spark"],
+            ["aws", "ecr-public", "describe-repositories"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
