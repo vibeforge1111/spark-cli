@@ -11441,7 +11441,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             if changed:
                 print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
                 for path in changed:
-                    print(f"      {path}")
+                    print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
             print("")
@@ -11485,7 +11485,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print(f"  - {hook.get('name')}: installed={installed_text}")
                 for warning in hook.get("warnings", []):
                     print(f"      warning: {warning}")
         print("")
@@ -12080,8 +12080,7 @@ def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> t
     if swarm_root:
         bridge_src = swarm_root / "apps" / "bridge" / "src"
         if bridge_src.exists():
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
+            prepend_pythonpath(env, [bridge_src])
     return (
         [
             python,
