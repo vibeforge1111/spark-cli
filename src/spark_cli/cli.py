@@ -15621,7 +15621,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"  {path}")
     print("")
     print("Next:")
-    print(f"  python -m spark_cli.cli install {target_dir}")
+    print(f"  spark install {target_dir}")
     return 0
 
 
