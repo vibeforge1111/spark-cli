@@ -10554,7 +10554,7 @@ def collect_llm_doctor_context(problem: str, *, include_logs: bool = False, log_
         "status": status_payload,
         "providers": provider_status_payload(),
         "verify": collect_verify_payload(deep=False),
-        "local_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "local_time": datetime.now().astimezone().isoformat(timespec="seconds"),
         "safety": {
             "secrets_redacted": True,
             "logs_included": bool(include_logs),
