@@ -932,16 +932,24 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
-            placeholders = ",".join("?" for _ in candidates)
-            matched = conn.execute(
-                f"""
-                select count(distinct request_id)
-                from builder_events
-                where request_id in ({placeholders})
-                """,
-                candidates,
-            ).fetchone()[0]
+            # Batch the full id set in chunks of 500 (safely below SQLite's
+            # default IN-list parameter limit) and sum the per-chunk distinct
+            # counts. Chunks are disjoint inputs to an equality IN, so per-chunk
+            # counts cannot double-count and the sum equals the true overlap.
+            ordered = sorted(request_ids)
+            chunk_size = 500
+            matched = 0
+            for start in range(0, len(ordered), chunk_size):
+                chunk = ordered[start:start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                matched += conn.execute(
+                    f"""
+                    select count(distinct request_id)
+                    from builder_events
+                    where request_id in ({placeholders})
+                    """,
+                    chunk,
+                ).fetchone()[0]
             out["matched_builder_request_id_count"] = int(matched or 0)
         finally:
             conn.close()
@@ -974,16 +982,24 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
-            placeholders = ",".join("?" for _ in candidates)
-            matched = conn.execute(
-                f"""
-                select count(distinct trace_ref)
-                from builder_events
-                where trace_ref in ({placeholders})
-                """,
-                candidates,
-            ).fetchone()[0]
+            # Batch the full id set in chunks of 500 (safely below SQLite's
+            # default IN-list parameter limit) and sum the per-chunk distinct
+            # counts. Chunks are disjoint inputs to an equality IN, so per-chunk
+            # counts cannot double-count and the sum equals the true overlap.
+            ordered = sorted(trace_refs)
+            chunk_size = 500
+            matched = 0
+            for start in range(0, len(ordered), chunk_size):
+                chunk = ordered[start:start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                matched += conn.execute(
+                    f"""
+                    select count(distinct trace_ref)
+                    from builder_events
+                    where trace_ref in ({placeholders})
+                    """,
+                    chunk,
+                ).fetchone()[0]
             out["matched_builder_trace_ref_count"] = int(matched or 0)
         finally:
             conn.close()
