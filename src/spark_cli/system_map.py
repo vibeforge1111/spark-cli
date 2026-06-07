@@ -2738,11 +2738,12 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 events.append(event)
             out["events"] = events
             out["sample_count"] = len(events)
-            out["top_trace_refs"] = [
+            top_pairs = [
                 {"trace_ref": trace_ref, "event_count": count}
-                for trace_ref, count in trace_counts.most_common(20)
+                for trace_ref, count in trace_counts.most_common()
                 if trace_ref != "[missing]"
             ]
+            out["top_trace_refs"] = top_pairs[:20]
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
         finally:
             conn.close()
