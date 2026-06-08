@@ -1522,6 +1522,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_user_account_mutations(self) -> None:
+        cases = [
+            ["adduser", "alice"],
+            ["useradd", "-m", "alice"],
+            ["usermod", "-aG", "sudo", "alice"],
+            ["userdel", "alice"],
+            ["deluser", "alice"],
+            ["groupadd", "developers"],
+            ["groupmod", "-n", "devs", "developers"],
+            ["groupdel", "developers"],
+            ["passwd", "alice"],
+            ["chpasswd"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval, f"Expected approval for {command}")
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.confirmation_phrase, "approve user account change")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
