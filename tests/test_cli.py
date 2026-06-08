@@ -1522,6 +1522,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_exec(self) -> None:
+        for command in (
+            ["docker", "exec", "my-container", "bash"],
+            ["docker", "exec", "-it", "my-container", "sh"],
+            ["docker", "container", "exec", "my-container", "bash"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "container_privilege_escalation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.confirmation_phrase, "approve container exec")
+
+    def test_approval_classifier_flags_nsenter(self) -> None:
+        for command in (
+            ["nsenter", "--target", "1", "--all", "bash"],
+            ["nsenter", "-t", "1234", "--mount", "--net", "--pid", "bash"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "container_privilege_escalation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.confirmation_phrase, "approve namespace entry")
+
+    def test_approval_classifier_flags_chroot(self) -> None:
+        for command in (
+            ["chroot", "/mnt/sysroot", "bash"],
+            ["chroot", "/", "sh"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "container_privilege_escalation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.confirmation_phrase, "approve chroot")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
