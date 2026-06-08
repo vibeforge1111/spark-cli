@@ -7889,6 +7889,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(envs["spawner-ui"]["SPAWNER_STATE_DIR"], str(STATE_DIR / "spawner-ui"))
         self.assertNotIn("TELEGRAM_WEBHOOK_SECRET", envs["spark-telegram-bot"])
 
+    def test_build_module_envs_generates_shared_spawner_control_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_config_dir = Path(tmp_dir) / "modules"
+            module_config_dir.mkdir(parents=True)
+            (module_config_dir / "spawner-ui.env").write_text(
+                "SPARK_BRIDGE_API_KEY=existing-bridge\n",
+                encoding="utf-8",
+            )
+            gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+            builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+            spawner = make_module("spawner-ui", ["mission.execution"])
+
+            class Args:
+                spawner_ui_url = "http://127.0.0.1:3333"
+                telegram_relay_secret = None
+
+            with patch("spark_cli.cli.MODULE_CONFIG_DIR", module_config_dir), patch.dict(os.environ, {}, clear=True):
+                envs = build_module_envs(
+                    Args(),
+                    {
+                        gateway.name: gateway,
+                        builder.name: builder,
+                        spawner.name: spawner,
+                    },
+                    {
+                        "telegram.bot_token": "abc",
+                        "telegram.admin_ids": "123",
+                    },
+                )
+
+        telegram_env = envs["spark-telegram-bot"]
+        spawner_env = envs["spawner-ui"]
+        self.assertEqual(telegram_env["SPARK_BRIDGE_API_KEY"], "existing-bridge")
+        self.assertEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "existing-bridge")
+        self.assertEqual(telegram_env["SPARK_UI_API_KEY"], spawner_env["SPARK_UI_API_KEY"])
+        self.assertTrue(spawner_env["EVENTS_API_KEY"])
+        self.assertTrue(spawner_env["MCP_API_KEY"])
+        self.assertNotEqual(spawner_env["EVENTS_API_KEY"], "existing-bridge")
+        self.assertNotEqual(spawner_env["MCP_API_KEY"], "existing-bridge")
+
     def test_build_module_envs_keeps_primary_telegram_profile_and_port_coherent(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         builder = make_module("spark-intelligence-builder", ["spark.runtime"])

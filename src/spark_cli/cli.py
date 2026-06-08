@@ -4018,6 +4018,26 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
     primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
+    existing_gateway_env = read_generated_env(generated_module_env_path(gateway))
+    existing_spawner_env = read_generated_env(generated_module_env_path(spawner))
+
+    def spawner_control_key(name: str, *, shared_with_gateway: bool = False) -> str:
+        candidates = [
+            os.environ.get(name, ""),
+            existing_spawner_env.get(name, ""),
+        ]
+        if shared_with_gateway:
+            candidates.append(existing_gateway_env.get(name, ""))
+        for value in candidates:
+            normalized = str(value or "").strip()
+            if normalized:
+                return normalized
+        return py_secrets.token_urlsafe(32)
+
+    spawner_bridge_key = spawner_control_key("SPARK_BRIDGE_API_KEY", shared_with_gateway=True)
+    spawner_ui_key = spawner_control_key("SPARK_UI_API_KEY", shared_with_gateway=True)
+    spawner_events_key = spawner_control_key("EVENTS_API_KEY")
+    spawner_mcp_key = spawner_control_key("MCP_API_KEY")
 
     gateway_env = {
         "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
@@ -4036,6 +4056,8 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_WORKSPACE_ROOT": workspace_root,
         "SPARK_ACCESS_LEVEL_DEFAULT": "4",
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
+        "SPARK_BRIDGE_API_KEY": spawner_bridge_key,
+        "SPARK_UI_API_KEY": spawner_ui_key,
     }
     if character is not None:
         gateway_env["SPARK_CHARACTER_ROOT"] = str(character.path)
@@ -4054,6 +4076,10 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BRIDGE_API_KEY": spawner_bridge_key,
+        "SPARK_UI_API_KEY": spawner_ui_key,
+        "EVENTS_API_KEY": spawner_events_key,
+        "MCP_API_KEY": spawner_mcp_key,
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
