@@ -116,6 +116,56 @@
       },
       "verify_ref": "refs/heads/main"
     },
+    "domain-chip-spark-qa-evidence-lane": {
+      "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+      "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5",
+      "visibility": "private",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Evidence-only QA validation chip for Spark answer quality, source precedence, and conversational surface checks",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+        "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5"
+      }
+    },
+    "spark-harness-core": {
+      "source": "https://github.com/vibeforge1111/spark-harness-core",
+      "commit": "aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
+      "verify_ref": "refs/heads/codex/genesis-harness-core-20260602",
+      "visibility": "private",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/spark-harness-core",
+        "commit": "aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
+        "verify_ref": "refs/heads/codex/genesis-harness-core-20260602",
+        "canonical_head": "aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
+        "runtime_mirror_head": "aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
+        "tree_clean": true,
+        "validated_at": "2026-06-09T20:36:24Z",
+        "evidence": [
+          "governed Harness Core head from deployment state",
+          "runtime mirror reset to governed branch",
+          "spawner-ui vendored harness-core SOURCE_MANIFEST points to aa19fd7e49151c9df9e76e38f32da4aba7870bdf"
+        ]
+      }
+    },
+    "spark-skill-graphs": {
+      "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+      "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
+      "visibility": "private",
+      "require_signed_commit": false,
+      "blessed": true,
+      "summary": "Metadata-only Spark specialist routing catalog and H70-C+ skill corpus",
+      "attestation": {
+        "type": "git-commit-pin-v1",
+        "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+        "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21"
+      }
+    },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
       "commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
