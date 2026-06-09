@@ -8503,6 +8503,7 @@ class SparkCliTests(unittest.TestCase):
     def test_stop_module_terminates_posix_process_group(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
              patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.pid_is_running", return_value=False), \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
@@ -8513,6 +8514,7 @@ class SparkCliTests(unittest.TestCase):
     def test_stop_module_falls_back_to_single_posix_pid(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
              patch("spark_cli.cli.os.killpg", side_effect=ProcessLookupError(), create=True), \
+             patch("spark_cli.cli.pid_is_running", return_value=False), \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
