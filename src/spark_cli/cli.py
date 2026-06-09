@@ -40,7 +40,7 @@ from .runtime_policy import run_runtime_command, runtime_command_argv, split_sin
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
-from .system_map import compile_summary, compile_system_map, write_compiled_outputs
+from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -7549,6 +7549,101 @@ def collect_status_payload() -> dict[str, Any]:
     return payload
 
 
+def _release_lane_strict_gate(
+    compiled: dict[str, Any],
+    *,
+    spark_cli_root: Path,
+    registry_path: Path,
+    installed_path: Path,
+    critical_duplicate_truth_count: int,
+) -> dict[str, Any]:
+    registry = compiled.get("registry") if isinstance(compiled.get("registry"), dict) else {}
+    registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    installed_modules = (
+        compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
+    )
+    if not registry_modules:
+        registry = load_json(registry_path, {"modules": {}, "bundles": {}})
+        registry_modules = registry.get("modules") if isinstance(registry.get("modules"), dict) else {}
+    if not installed_modules:
+        installed_modules = load_json(installed_path, {})
+        installed_modules = installed_modules if isinstance(installed_modules, dict) else {}
+    rows: list[dict[str, Any]] = []
+    issue_count = 0
+    dirty_repo_count = 0
+
+    def append_row(module_id: str, path: Path, expected_commit: str | None, installed_commit: str | None) -> None:
+        nonlocal dirty_repo_count, issue_count
+        git = git_board_status(path)
+        dirty = int(git.get("dirty_tracked_count") or 0) or int(git.get("untracked_count") or 0)
+        actual_commit = str(git.get("head_commit") or "") or None
+        issues: list[str] = []
+        if not git.get("available"):
+            issues.append("git_unavailable")
+        if dirty:
+            issues.append("dirty_repo")
+            dirty_repo_count += 1
+        if expected_commit and actual_commit and actual_commit.lower() != expected_commit.lower():
+            issues.append("head_differs_from_registry")
+        if expected_commit and installed_commit and installed_commit.lower() != expected_commit.lower():
+            issues.append("installed_metadata_differs_from_registry")
+        if expected_commit and not actual_commit:
+            issues.append("missing_head_commit")
+        if issues:
+            issue_count += 1
+        rows.append(
+            {
+                "module": module_id,
+                "path": str(path),
+                "expected_commit": expected_commit,
+                "actual_commit": actual_commit,
+                "installed_registry_commit": installed_commit,
+                "dirty_tracked_count": int(git.get("dirty_tracked_count") or 0),
+                "untracked_count": int(git.get("untracked_count") or 0),
+                "issues": issues,
+            }
+        )
+
+    spark_cli_git = git_board_status(spark_cli_root)
+    append_row("spark-cli", spark_cli_root, str(spark_cli_git.get("head_commit") or "") or None, None)
+
+    for module_id in sorted(registry_modules):
+        registry_entry = registry_modules.get(module_id)
+        registry_entry = registry_entry if isinstance(registry_entry, dict) else {}
+        expected_commit = str(registry_entry.get("commit") or "") or None
+        installed_entry = installed_modules.get(module_id)
+        installed_entry = installed_entry if isinstance(installed_entry, dict) else {}
+        installed_commit = str(installed_entry.get("registry_commit") or "") or None
+        installed_path = str(installed_entry.get("path") or installed_entry.get("source") or "")
+        if not installed_path:
+            rows.append(
+                {
+                    "module": module_id,
+                    "path": None,
+                    "expected_commit": expected_commit,
+                    "actual_commit": None,
+                    "installed_registry_commit": installed_commit,
+                    "dirty_tracked_count": None,
+                    "untracked_count": None,
+                    "issues": ["missing_installed_path"],
+                }
+            )
+            issue_count += 1
+            continue
+        append_row(module_id, Path(installed_path), expected_commit, installed_commit)
+
+    ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0 and issue_count == 0
+    return {
+        "scope": "release-lane",
+        "ok": ok,
+        "dirty_repo_count": dirty_repo_count,
+        "critical_duplicate_truth_count": critical_duplicate_truth_count,
+        "issue_count": issue_count,
+        "module_count": len(rows),
+        "rows": rows,
+    }
+
+
 def cmd_os_compile(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
@@ -7561,13 +7656,31 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)
     critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
     strict = bool(getattr(args, "strict", False))
-    strict_ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0
+    strict_scope = str(getattr(args, "strict_scope", "all") or "all")
+    if strict_scope == "release-lane":
+        release_lane_gate = _release_lane_strict_gate(
+            compiled,
+            spark_cli_root=REPO_ROOT,
+            registry_path=registry_path,
+            installed_path=spark_home / "state" / "installed.json",
+            critical_duplicate_truth_count=critical_duplicate_truth_count,
+        )
+        gate_dirty_repo_count = int(release_lane_gate.get("dirty_repo_count") or 0)
+        strict_ok = bool(release_lane_gate.get("ok"))
+    else:
+        release_lane_gate = None
+        gate_dirty_repo_count = dirty_repo_count
+        strict_ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0
     summary["gate"] = {
         "strict": strict,
+        "scope": strict_scope,
         "ok": strict_ok,
-        "dirty_repo_count": dirty_repo_count,
+        "dirty_repo_count": gate_dirty_repo_count,
+        "broad_dirty_repo_count": dirty_repo_count,
         "critical_duplicate_truth_count": critical_duplicate_truth_count,
     }
+    if release_lane_gate is not None:
+        summary["gate"]["release_lane"] = release_lane_gate
     if args.json:
         print(json.dumps(summary, indent=2))
         return 0 if (not strict or strict_ok) else 1
@@ -7578,11 +7691,14 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     print(f"- chip manifests: {summary['chip_manifests']}")
     print(f"- skill graphs: {summary['skill_graphs']}")
     print(f"- builder events: {summary.get('builder_event_rows') or 0}")
-    print(f"- dirty repos: {dirty_repo_count}")
+    print(f"- dirty repos: {gate_dirty_repo_count}")
+    if strict_scope == "release-lane":
+        print(f"- broad dirty repos: {dirty_repo_count}")
     print(f"- critical duplicate truths: {critical_duplicate_truth_count}")
     print(f"- gaps: {summary['gaps']}")
     print(f"- output: {out_dir}")
     if strict:
+        print(f"- strict scope: {strict_scope}")
         print(f"- strict gate: {'pass' if strict_ok else 'fail'}")
     print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
     return 0 if (not strict or strict_ok) else 1
@@ -16526,6 +16642,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Exit non-zero when dirty repos or critical duplicate truths are present",
+    )
+    os_compile_parser.add_argument(
+        "--strict-scope",
+        choices=("all", "release-lane"),
+        default="all",
+        help="Choose whether --strict checks the whole repo board or only registry-pinned installed release modules",
     )
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")

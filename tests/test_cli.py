@@ -4206,6 +4206,94 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["gate"]["strict"])
         self.assertFalse(payload["gate"]["ok"])
 
+    def test_os_compile_release_lane_strict_ignores_dirty_backlog_repos(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        cli_commit = "b" * 40
+        compiled = {
+            "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": expected_commit,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 237,
+            "repo_board": {
+                "dirty_repo_count": 91,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(path: Path) -> dict[str, Any]:
+            commit = cli_commit if str(path) == "C:/spark/spark-cli" else expected_commit
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": commit,
+            }
+
+        with patch("spark_cli.cli.REPO_ROOT", Path("C:/spark/spark-cli")), \
+             patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["gate"]["ok"])
+        self.assertEqual(payload["gate"]["scope"], "release-lane")
+        self.assertEqual(payload["gate"]["dirty_repo_count"], 0)
+        self.assertEqual(payload["gate"]["broad_dirty_repo_count"], 91)
+        self.assertEqual(payload["gate"]["release_lane"]["module_count"], 2)
+
+    def test_os_compile_release_lane_strict_fails_on_installed_pin_mismatch(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        installed_commit = "c" * 40
+        compiled = {
+            "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": installed_commit,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": expected_commit,
+            }
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["gate"]["ok"])
+        row = next(row for row in payload["gate"]["release_lane"]["rows"] if row["module"] == "spark-harness-core")
+        self.assertIn("installed_metadata_differs_from_registry", row["issues"])
+
     def test_resolve_install_target_unknown_message_lists_installed_and_registry(self) -> None:
         installed = {
             "spark-cli": make_module("spark-cli", ["spark.cli"]),
