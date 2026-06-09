@@ -7607,9 +7607,11 @@ def _release_lane_strict_gate(
     spark_cli_git = git_board_status(spark_cli_root)
     append_row("spark-cli", spark_cli_root, str(spark_cli_git.get("head_commit") or "") or None, None)
 
-    for module_id in sorted(registry_modules):
+    for module_id in sorted(installed_modules):
         registry_entry = registry_modules.get(module_id)
         registry_entry = registry_entry if isinstance(registry_entry, dict) else {}
+        if not registry_entry:
+            continue
         expected_commit = str(registry_entry.get("commit") or "") or None
         installed_entry = installed_modules.get(module_id)
         installed_entry = installed_entry if isinstance(installed_entry, dict) else {}

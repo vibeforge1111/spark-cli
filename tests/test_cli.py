@@ -4219,7 +4219,12 @@ class SparkCliTests(unittest.TestCase):
         expected_commit = "a" * 40
         cli_commit = "b" * 40
         compiled = {
-            "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+            "registry": {
+                "modules": {
+                    "spark-harness-core": {"commit": expected_commit},
+                    "spark-skill-graphs": {"commit": "c" * 40},
+                }
+            },
             "installed_modules": {
                 "spark-harness-core": {
                     "path": "C:/spark/modules/spark-harness-core/source",
@@ -4259,6 +4264,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["gate"]["dirty_repo_count"], 0)
         self.assertEqual(payload["gate"]["broad_dirty_repo_count"], 91)
         self.assertEqual(payload["gate"]["release_lane"]["module_count"], 2)
+        modules = {row["module"] for row in payload["gate"]["release_lane"]["rows"]}
+        self.assertNotIn("spark-skill-graphs", modules)
 
     def test_os_compile_release_lane_strict_fails_on_installed_pin_mismatch(self) -> None:
         args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
