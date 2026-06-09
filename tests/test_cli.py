@@ -1472,8 +1472,39 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["mode"], "report_only")
+        self.assertTrue(payload["would_enforce"])
+        self.assertFalse(payload["would_block"])
         self.assertEqual(payload["decision"]["action_class"], "destructive_filesystem")
         self.assertTrue(payload["decision"]["requires_approval"])
+
+    def test_approval_classify_cli_reports_blocking_verdict(self) -> None:
+        args = build_parser().parse_args([
+            "approval",
+            "classify",
+            "--json",
+            "--non-interactive",
+            "--",
+            "spark",
+            "access",
+            "setup",
+            "--level",
+            "5",
+            "--enable-high-agency",
+        ])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["would_enforce"])
+        self.assertTrue(payload["would_block"])
+        self.assertEqual(payload["decision"]["action_class"], "identity_access_mutation")
+
+    def test_setup_identity_mutation_no_longer_skips_approval_enforcement(self) -> None:
+        decision = Namespace(
+            requires_approval=True,
+            action_class="identity_access_mutation",
+            approval_mode="interactive",
+        )
+        self.assertTrue(should_enforce_approval(Namespace(command="setup"), decision))
 
     def test_main_blocks_sensitive_command_in_non_interactive_shell(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
@@ -1491,6 +1522,15 @@ class SparkCliTests(unittest.TestCase):
              patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(main(["access", "setup", "--level", "5", "--enable-high-agency"]), 2)
         access_command.assert_not_called()
+        self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+
+    def test_main_blocks_setup_default_autostart_in_non_interactive_shell(self) -> None:
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch("spark_cli.cli.cmd_setup", return_value=0) as setup_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["setup", "telegram-starter", "--no-start-now"]), 2)
+        setup_command.assert_not_called()
         self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
 
     def test_main_requires_exact_phrase_for_sensitive_command(self) -> None:
@@ -3692,6 +3732,46 @@ class SparkCliTests(unittest.TestCase):
             )
             resolved = resolve_install_target(str(repo_path), {})
             self.assertEqual(resolved.name, "test-module")
+
+    def test_os_compile_strict_fails_on_dirty_repo_count(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--json"])
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 1,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+        with patch("spark_cli.cli.compile_system_map", return_value={}), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["gate"]["dirty_repo_count"], 1)
+        self.assertFalse(payload["gate"]["ok"])
+
+    def test_os_compile_non_strict_reports_gate_without_failing(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--json"])
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 1,
+                "critical_duplicate_truth_count": 1,
+            },
+        }
+        with patch("spark_cli.cli.compile_system_map", return_value={}), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["gate"]["strict"])
+        self.assertFalse(payload["gate"]["ok"])
 
     def test_resolve_bundle_names_reads_registry_bundle(self) -> None:
         self.assertEqual(
@@ -8719,6 +8799,14 @@ class SparkCliTests(unittest.TestCase):
                 ).stdout.strip()
                 self.assertEqual(head, first_commit)
 
+                (cloned / "local.txt").write_text("dirty runtime", encoding="utf-8")
+                with self.assertRaisesRegex(SystemExit, "local git changes"):
+                    clone_module_source("git-demo", str(bare), commit=first_commit)
+                self.assertEqual(
+                    clone_module_source("git-demo", str(bare), commit=first_commit, allow_dirty_runtime=True),
+                    cloned,
+                )
+
     def test_update_module_source_fetches_pinned_commit_for_detached_clone(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git not available on PATH")
@@ -8817,7 +8905,8 @@ class SparkCliTests(unittest.TestCase):
     def test_ensure_bundle_modules_available_calls_resolve_for_missing(self) -> None:
         existing = make_module("already-here", ["cap.x"])
 
-        def fake_resolver(target: str, modules: dict) -> Module:
+        def fake_resolver(target: str, modules: dict, *, allow_dirty_runtime: bool = False) -> Module:
+            self.assertFalse(allow_dirty_runtime)
             return make_module(target, ["cap.y"])
 
         with patch("spark_cli.cli.resolve_install_target", side_effect=fake_resolver):

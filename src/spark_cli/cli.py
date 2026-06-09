@@ -656,6 +656,7 @@ def clone_module_source(
     *,
     commit: str | None = None,
     require_signed_commit: bool = False,
+    allow_dirty_runtime: bool = False,
 ) -> Path:
     target = clone_target_for_module(name)
     if (target / "spark.toml").exists() and (target / ".git").exists():
@@ -671,6 +672,12 @@ def clone_module_source(
                     f"Installed clone for {name} is not at pinned commit {pinned_commit}. "
                     "Run `spark uninstall` for the module and reinstall it."
                 )
+        dirty_status = git_short_status(target)
+        if dirty_status and not allow_dirty_runtime:
+            raise SystemExit(
+                f"Installed clone for {name} has local git changes. "
+                "Commit or stash them before installing, or pass --allow-dirty-runtime for intentional local runtime testing."
+            )
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and not (target / ".git").exists():
@@ -4300,7 +4307,12 @@ def resolve_bundle(bundle_name: str, modules: dict[str, Module]) -> list[Module]
     return [modules[name] for name in names]
 
 
-def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]) -> dict[str, Module]:
+def ensure_bundle_modules_available(
+    names: list[str],
+    modules: dict[str, Module],
+    *,
+    allow_dirty_runtime: bool = False,
+) -> dict[str, Module]:
     """Populate `modules` with any missing bundle members.
 
     If a registry entry has a git URL source that has not been cloned yet,
@@ -4311,7 +4323,7 @@ def ensure_bundle_modules_available(names: list[str], modules: dict[str, Module]
     for name in names:
         if name in augmented:
             continue
-        module = resolve_install_target(name, augmented)
+        module = resolve_install_target(name, augmented, allow_dirty_runtime=allow_dirty_runtime)
         augmented[module.name] = module
     return augmented
 
@@ -4504,7 +4516,12 @@ def cmd_list(_: argparse.Namespace) -> int:
     return 0
 
 
-def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
+def resolve_install_target(
+    target: str,
+    modules: dict[str, Module],
+    *,
+    allow_dirty_runtime: bool = False,
+) -> Module:
     if target in modules:
         return modules[target]
     registry = load_registry_definition()
@@ -4517,6 +4534,7 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
                 source,
                 commit=str(registry_metadata.get("commit", "")),
                 require_signed_commit=bool(registry_metadata.get("require_signed_commit", False)),
+                allow_dirty_runtime=allow_dirty_runtime,
             )
             return load_module(clone_path)
         if source and Path(source).exists():
@@ -4526,7 +4544,7 @@ def resolve_install_target(target: str, modules: dict[str, Module]) -> Module:
             raise SystemExit(f"Registry entry {target} points at {source} but no spark.toml is there.")
     if is_git_source(target):
         name = infer_module_name_from_url(target)
-        clone_path = clone_module_source(name, target)
+        clone_path = clone_module_source(name, target, allow_dirty_runtime=allow_dirty_runtime)
         return load_module(clone_path)
     candidate = Path(target)
     if candidate.exists():
@@ -5317,8 +5335,14 @@ def cmd_install(args: argparse.Namespace) -> int:
     resume = getattr(args, "resume", False)
     if args.target in registry.get("bundles", {}):
         bundle_names = resolve_bundle_names(args.target)
-        modules = ensure_bundle_modules_available(bundle_names, modules)
+        modules = ensure_bundle_modules_available(
+            bundle_names,
+            modules,
+            allow_dirty_runtime=bool(getattr(args, "allow_dirty_runtime", False)),
+        )
         bundle_modules = [modules[name] for name in bundle_names]
+        if not emit_runtime_supply_chain_guard(bundle_modules, args):
+            return 1
         detect_ingress_owner(bundle_modules)
         for module in bundle_modules:
             validate_manifest_schema(module)
@@ -5345,7 +5369,13 @@ def cmd_install(args: argparse.Namespace) -> int:
             )
             clear_install_progress(module.name)
         return 0
-    module = resolve_install_target(args.target, modules)
+    module = resolve_install_target(
+        args.target,
+        modules,
+        allow_dirty_runtime=bool(getattr(args, "allow_dirty_runtime", False)),
+    )
+    if not emit_runtime_supply_chain_guard([module], args):
+        return 1
     validate_manifest_schema(module)
     source_kind = determine_install_source_kind(args.target, modules)
     conflicts = detect_capability_conflicts([module], installed_modules)
@@ -7237,9 +7267,20 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
     written = write_compiled_outputs(out_dir, compiled)
     summary = compile_summary(compiled, written)
+    repo_board = summary.get("repo_board") if isinstance(summary.get("repo_board"), dict) else {}
+    dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    strict = bool(getattr(args, "strict", False))
+    strict_ok = dirty_repo_count == 0 and critical_duplicate_truth_count == 0
+    summary["gate"] = {
+        "strict": strict,
+        "ok": strict_ok,
+        "dirty_repo_count": dirty_repo_count,
+        "critical_duplicate_truth_count": critical_duplicate_truth_count,
+    }
     if args.json:
         print(json.dumps(summary, indent=2))
-        return 0
+        return 0 if (not strict or strict_ok) else 1
 
     print("Spark OS system map compiled")
     print(f"- modules: {summary['modules']}")
@@ -7247,10 +7288,14 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     print(f"- chip manifests: {summary['chip_manifests']}")
     print(f"- skill graphs: {summary['skill_graphs']}")
     print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+    print(f"- dirty repos: {dirty_repo_count}")
+    print(f"- critical duplicate truths: {critical_duplicate_truth_count}")
     print(f"- gaps: {summary['gaps']}")
     print(f"- output: {out_dir}")
+    if strict:
+        print(f"- strict gate: {'pass' if strict_ok else 'fail'}")
     print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
-    return 0
+    return 0 if (not strict or strict_ok) else 1
 
 
 def cmd_os_capabilities(args: argparse.Namespace) -> int:
@@ -9629,9 +9674,13 @@ def cmd_approval(args: argparse.Namespace) -> int:
             non_interactive=bool(getattr(args, "non_interactive", False)),
         ),
     )
+    would_enforce = approval_decision_would_enforce(decision)
+    would_block = bool(would_enforce and decision.approval_mode == "blocked")
     payload = {
         "ok": True,
         "mode": "report_only",
+        "would_enforce": would_enforce,
+        "would_block": would_block,
         "decision": decision.to_dict(),
         "note": "Report-only classifier. Spark is not enforcing this decision yet.",
     }
@@ -9642,6 +9691,8 @@ def cmd_approval(args: argparse.Namespace) -> int:
     print(f"Class: {decision.action_class}")
     print(f"Risk: {decision.risk}")
     print(f"Requires approval: {'yes' if decision.requires_approval else 'no'}")
+    print(f"Would enforce: {'yes' if would_enforce else 'no'}")
+    print(f"Would block: {'yes' if would_block else 'no'}")
     print(f"Reason: {decision.reason}")
     if decision.target_display:
         print(f"Target: {decision.target_display}")
@@ -9946,13 +9997,15 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 
 
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
-    if not decision.requires_approval:
-        return False
     if getattr(args, "command", "") == "approval":
         return False
-    if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
+    return approval_decision_would_enforce(decision)
+
+
+def approval_decision_would_enforce(decision: Any) -> bool:
+    if not decision.requires_approval:
         return False
-    if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
+    if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
     return True
 
@@ -15802,6 +15855,11 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("target")
     install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
+    install_parser.add_argument(
+        "--allow-dirty-runtime",
+        action="store_true",
+        help="Allow installing from a managed runtime clone with local git changes",
+    )
     install_parser.add_argument("--trust", action="store_true", help="Approve running install commands and hooks for non-blessed modules without prompting")
     install_parser.add_argument("--resume", action="store_true", help="Skip install steps that succeeded on a prior attempt")
     install_parser.set_defaults(func=cmd_install)
@@ -15982,6 +16040,11 @@ def build_parser() -> argparse.ArgumentParser:
     os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
     os_compile_parser.add_argument("--json", action="store_true", help="Emit a compact JSON summary after writing files")
+    os_compile_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when dirty repos or critical duplicate truths are present",
+    )
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
     os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
