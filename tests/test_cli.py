@@ -5028,6 +5028,29 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"][0]["remote_head"], "")
         self.assertIn("Could not verify remote HEAD", payload["checks"][0]["detail"])
 
+    def test_registry_pin_drift_payload_allows_private_source_without_ci_credentials(self) -> None:
+        registry = {
+            "modules": {
+                "spark-harness-core": {
+                    "source": "https://github.com/vibeforge1111/spark-harness-core",
+                    "commit": "f" * 40,
+                    "visibility": "private",
+                    "blessed": True,
+                }
+            },
+            "bundles": {},
+        }
+
+        def resolver(_source: str, _ref: str) -> str:
+            raise RuntimeError("fatal: could not read Username for 'https://github.com'")
+
+        payload = collect_registry_pin_drift_payload(registry=registry, resolver=resolver)
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["checks"][0]["ok"])
+        self.assertFalse(payload["checks"][0]["verified"])
+        self.assertEqual(payload["checks"][0]["verification_status"], "private_source_unavailable")
+
     def test_run_git_or_exit_reports_missing_git_without_traceback(self) -> None:
         with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
             with self.assertRaises(SystemExit) as error:

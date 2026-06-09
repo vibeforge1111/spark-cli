@@ -1905,14 +1905,7 @@ def collect_registry_pin_drift_payload(
         remote_ref = str(metadata.get("verify_ref") or metadata.get("release_ref") or "HEAD").strip() or "HEAD"
         try:
             validate_commit_pin(pinned)
-            try:
-                remote = resolver(source, remote_ref).strip().lower()
-            except TypeError:
-                if remote_ref != "HEAD":
-                    raise
-                remote = resolver(source).strip().lower()
-            validate_commit_pin(remote)
-        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+        except SystemExit as error:
             checks.append(
                 {
                     "name": str(name),
@@ -1921,6 +1914,46 @@ def collect_registry_pin_drift_payload(
                     "remote_ref": remote_ref,
                     "remote_head": "",
                     "ok": False,
+                    "verified": False,
+                    "verification_status": "invalid_pin",
+                    "detail": f"Could not verify remote {remote_ref}: {error}",
+                }
+            )
+            continue
+        try:
+            try:
+                remote = resolver(source, remote_ref).strip().lower()
+            except TypeError:
+                if remote_ref != "HEAD":
+                    raise
+                remote = resolver(source).strip().lower()
+            validate_commit_pin(remote)
+        except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+            if str(metadata.get("visibility") or "").strip().lower() == "private":
+                checks.append(
+                    {
+                        "name": str(name),
+                        "source": source,
+                        "pinned_commit": pinned,
+                        "remote_ref": remote_ref,
+                        "remote_head": "",
+                        "ok": True,
+                        "verified": False,
+                        "verification_status": "private_source_unavailable",
+                        "detail": f"Could not verify remote {remote_ref} without private-source credentials: {error}",
+                    }
+                )
+                continue
+            checks.append(
+                {
+                    "name": str(name),
+                    "source": source,
+                    "pinned_commit": pinned,
+                    "remote_ref": remote_ref,
+                    "remote_head": "",
+                    "ok": False,
+                    "verified": False,
+                    "verification_status": "remote_unavailable",
                     "detail": f"Could not verify remote {remote_ref}: {error}",
                 }
             )
@@ -1935,6 +1968,8 @@ def collect_registry_pin_drift_payload(
                 "remote_ref": remote_ref,
                 "remote_head": remote,
                 "ok": ok,
+                "verified": True,
+                "verification_status": "verified" if ok else "pin_drift",
                 "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
             }
         )
