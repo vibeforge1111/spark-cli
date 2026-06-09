@@ -1876,7 +1876,8 @@ def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
     first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
-    commit = first_line.split()[0].strip().lower() if first_line else ""
+    parts = first_line.split()
+    commit = parts[0].strip().lower() if parts else ""
     if not validate_commit_pin(commit):
         raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
     return commit
