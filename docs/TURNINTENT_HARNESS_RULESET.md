@@ -2,6 +2,14 @@
 
 Date: 2026-05-31
 
+> Historical predecessor note: this file describes the TurnIntent-era adoption
+> rules that led to Harness Core. Current installer-facing authority is
+> `TurnIntentEnvelopeVNext` plus `GovernorDecisionV1`,
+> `AuthorizationDecisionV1`, matching `ToolCallLedgerV1`, and owner consumer
+> verification from `@spark/harness-core`. Treat old `spark.turn_intent.v1`
+> wording as compatibility/migration context, not sufficient execution
+> authority.
+
 This is the Spark-wide rule for preventing deterministic route fighting, word hijacks, stale pending-state launches, memory-driven authority drift, and accidental tool calls.
 
 Spark may keep deterministic systems underneath for speed, routing evidence, health checks, and state machines. Those systems must never become authority for a high-agency action unless they are bound to the shared TurnIntent harness contract.

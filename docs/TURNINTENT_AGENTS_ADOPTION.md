@@ -2,6 +2,11 @@
 
 Date: 2026-05-31
 
+> Historical predecessor note: this file is retained for migration context.
+> Current authority is Harness Core VNext/Governor/Authorization/ledger plus
+> owner consumer verification. Do not treat old TurnIntent vocabulary as
+> sufficient execution authority.
+
 Use this when adding or updating `AGENTS.md` in Spark repos, Codex workspaces, or the publishing machine.
 
 ## Shared Section For Every Spark-Connected Repo
