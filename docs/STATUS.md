@@ -135,7 +135,7 @@ Not a launch blocker.
 
 ---
 
-This document is the ground-truth index of what the spike does, what it does
+This document is the ground-truth index of what the CLI does, what it does
 not, and where to look. Update it at the end of any session that changes the
 surface area of the CLI.
 

@@ -36,12 +36,55 @@
         "commit": {
           "$ref": "#/$defs/sha1"
         },
+        "verify_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "release_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "private"]
+        },
+        "source_visibility": {
+          "type": "string",
+          "enum": ["public", "private"]
+        },
+        "private_source": {
+          "type": "boolean"
+        },
+        "verify_requires_auth": {
+          "type": "boolean"
+        },
         "require_signed_commit": {
           "type": "boolean"
         },
         "attestation": {
-          "type": "string",
-          "minLength": 1
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "source", "commit"],
+              "properties": {
+                "type": {
+                  "const": "git-commit-pin-v1"
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "commit": {
+                  "$ref": "#/$defs/sha1"
+                }
+              }
+            }
+          ]
         },
         "attestation_ref": {
           "type": "string",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -9,12 +10,14 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from spark_cli.cli import build_parser
 from spark_cli.system_map import (
     CONTRACT_FILE_HINTS,
     build_authority_view,
     build_capability_catalog,
+    build_contract_coverage,
     build_memory_movement_index,
     build_duplicate_truths,
     build_repo_board,
@@ -25,6 +28,7 @@ from spark_cli.system_map import (
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
+    contract_marker_summary,
     count_files_under,
     count_safe_jsonl,
     count_schema_files,
@@ -44,6 +48,7 @@ from spark_cli.system_map import (
     inspect_telegram_final_answer_gate,
     git_summary,
     parse_branch_status,
+    repo_release_status,
     read_json,
     read_toml,
     run_git,
@@ -66,6 +71,24 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_contract_markers_ignore_safe_pending_and_mission_id_words(self) -> None:
+        safe_markers = contract_marker_summary(
+            "const missionId = result.missionId;\n"
+            "contextRefs: { pendingState: baseEnvelope.contextRefs.pendingState }\n"
+            "route: 'pending_task.recovery'\n"
+            "freshness: { pending_state_used_as_authority: false }\n"
+            "pending = {'stage': 'setup'}\n"
+            "pending.get('bundle')\n"
+        )
+        self.assertFalse(safe_markers["auto_state_trigger"])
+
+        unsafe_markers = contract_marker_summary(
+            "const pendingMissionCancelConfirmations = new Map();\n"
+            "pendingMissionCancelConfirmations.set(key, value);\n"
+            "freshness: { pending_state_used_as_authority: true }\n"
+        )
+        self.assertTrue(unsafe_markers["auto_state_trigger"])
+
     def test_json_toml_and_git_helpers_report_expected_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -246,6 +269,20 @@ class SparkSystemMapTests(unittest.TestCase):
                     ],
                 }
             )
+            board_with_agents = build_repo_board(
+                {
+                    "registry": {"modules": {"spark-cli": {}}},
+                    "installed_modules": {},
+                    "discovered_repos": [
+                        {
+                            "name": "spark-cli",
+                            "path": str(repo),
+                            "spark_toml": {"module_name": "spark-cli"},
+                            "contract_files": ["spark.toml", "AGENTS.md"],
+                        }
+                    ],
+                }
+            )
             view = build_voice_surface_view(
                 {
                     "installed_modules": {},
@@ -274,6 +311,13 @@ class SparkSystemMapTests(unittest.TestCase):
 
         self.assertEqual(board["schema_version"], "spark.repo_board.compiled.v0")
         self.assertEqual(board["repos"][0]["risk_class"], "critical")
+        self.assertFalse(board["repos"][0]["agents_ruleset_present"])
+        self.assertTrue(board["repos"][0]["agents_ruleset_release_blocker"])
+        self.assertEqual(board["summary"]["agents_ruleset_release_blocker_count"], 1)
+        self.assertEqual(board["summary"]["release_readiness"], "blocked")
+        self.assertTrue(board_with_agents["repos"][0]["agents_ruleset_present"])
+        self.assertFalse(board_with_agents["repos"][0]["agents_ruleset_release_blocker"])
+        self.assertEqual(board_with_agents["summary"]["agents_ruleset_release_blocker_count"], 0)
         self.assertEqual(board["duplicate_truths"]["schema_version"], "spark.duplicate_truths.compiled.v0")
         self.assertEqual(view["schema_version"], "spark.voice_surface_view.compiled.v0")
         self.assertEqual(view["mode"], "disabled")
@@ -365,6 +409,40 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("send raw prompts", encoded)
         self.assertNotIn("prompt-injection", encoded)
         self.assertNotIn("unsafe-benchmark", encoded)
+
+    def test_installed_module_source_repos_use_module_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / ".spark" / "modules" / "spark-telegram-bot" / "source"
+            standalone = root / "spark-example"
+            source.mkdir(parents=True)
+            standalone.mkdir()
+            (source / "AGENTS.md").write_text("Spark Telegram Bot rules\n", encoding="utf-8")
+
+            installed_metadata = collect_repo_metadata(source)
+            standalone_metadata = collect_repo_metadata(standalone)
+
+        self.assertEqual(installed_metadata["name"], "spark-telegram-bot")
+        self.assertIn("AGENTS.md", installed_metadata["contract_files"])
+        self.assertEqual(standalone_metadata["name"], "spark-example")
+
+    def test_private_office_repo_missing_runtime_manifest_is_not_blocked(self) -> None:
+        clean_git = {"available": True, "dirty_tracked_count": 0, "untracked_count": 0, "behind": 0}
+        no_manifest = {
+            "spark_toml": False,
+            "spark_chip": False,
+            "skill_manifest": False,
+            "agents_md": False,
+            "contract_file_count": False,
+        }
+
+        systems_status = repo_release_status("spark-intelligence-systems", clean_git, no_manifest, False)
+        runtime_status = repo_release_status("spark-telegram-bot", clean_git, no_manifest, True)
+
+        self.assertEqual(systems_status[0], "not_release_candidate")
+        self.assertIn("private office", systems_status[1] or "")
+        self.assertEqual(runtime_status[0], "blocked")
+        self.assertEqual(runtime_status[1], "core repo missing Spark manifest")
 
     def test_compile_surfaces_duplicate_truths_for_legacy_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -505,6 +583,15 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(telegram_pin_item["classification"], "runtime_ahead_of_registry_pin")
         self.assertIn("release metadata drift", telegram_pin_item["evidence"])
         self.assertEqual(repo_board["summary"]["duplicate_truth_count"], len(item_ids))
+        self.assertEqual(repo_board["summary"]["critical_duplicate_truth_count"], 1)
+        self.assertEqual(repo_board["summary"]["duplicate_truth_release_blocker_count"], 1)
+        self.assertEqual(
+            repo_board["summary"]["blocked_release_count"],
+            repo_board["summary"]["repo_blocked_release_count"]
+            + repo_board["summary"]["duplicate_truth_release_blocker_count"]
+            + repo_board["summary"]["agents_ruleset_release_blocker_count"],
+        )
+        self.assertEqual(repo_board["summary"]["release_readiness"], "blocked")
         self.assertFalse(compiled["operating_cockpit"]["action_boundary"].startswith("Write"))
 
     def test_dirty_desktop_repo_is_backlog_when_installed_runtime_is_clean(self) -> None:
@@ -596,7 +683,16 @@ class SparkSystemMapTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
-                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                "\n".join(
+                    [
+                        "voice.status",
+                        "voice.transcribe",
+                        "voice.speak",
+                        "_record_telegram_voice_delivery_runtime_state",
+                        "telegram_delivery",
+                    ]
+                )
+                + "\n",
                 encoding="utf-8",
             )
             (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
@@ -640,7 +736,16 @@ class SparkSystemMapTests(unittest.TestCase):
                         {"name": "spark-intelligence-builder", "path": str(builder)},
                         {"name": "spark-telegram-bot", "path": str(telegram)},
                     ],
-                }
+                },
+                {
+                    "telegram_final_answer_gate_samples": {
+                        "trace_join": {
+                            "request_id_field_present": True,
+                            "trace_ref_field_present": True,
+                            "status": "join_key_present",
+                        }
+                    }
+                },
             )
 
         encoded = json.dumps(view)
@@ -653,12 +758,14 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertFalse(view["provider"]["tts_ready"])
         self.assertEqual(view["profile"]["voice_style_ref"], "spark_core")
         self.assertTrue(view["trace"]["voice_events_supported"])
+        self.assertTrue(view["trace"]["final_answer_check_supported"])
+        self.assertEqual(view["trace"]["final_answer_trace_join_status"], "join_key_present")
         self.assertEqual(view["trace"]["trace_evidence"], "runtime_state_export_present_delivery_unproven")
         self.assertNotIn("not installed", joined_blockers)
         self.assertNotIn("runtime status is not exported", joined_blockers)
         self.assertIn("voice synthesis is not ready", joined_blockers)
         self.assertIn("voice Telegram delivery is not proven", joined_blockers)
-        self.assertIn("voice final-answer join evidence is not compiled", joined_blockers)
+        self.assertNotIn("voice final-answer join evidence is not compiled", joined_blockers)
         self.assertNotIn("private transcript body", encoded)
 
     def test_parse_branch_status_handles_unborn_branch(self) -> None:
@@ -1566,6 +1673,81 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_uses_active_tool_and_adapter_sources_when_legacy_repos_are_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            desktop.mkdir()
+            cli_access = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py"
+            cli_capabilities = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py"
+            browser_policy = spark_home / "tools" / "spark-cli" / "src" / "spark_cli" / "cli.py"
+            browser_service = (
+                spark_home
+                / "modules"
+                / "spark-intelligence-builder"
+                / "source"
+                / "src"
+                / "spark_intelligence"
+                / "browser"
+                / "service.py"
+            )
+            swarm_sync = (
+                spark_home
+                / "modules"
+                / "spark-intelligence-builder"
+                / "source"
+                / "src"
+                / "spark_intelligence"
+                / "swarm_bridge"
+                / "sync.py"
+            )
+            for path in (cli_access, cli_capabilities, browser_policy, browser_service, swarm_sync):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            cli_access.write_text(
+                "DEFAULT_ACCESS_LEVEL = 4\nDEFAULT_SANDBOX_LANE = 'spark_workspace'\nLEVEL5_ENV = {'SPARK_ALLOW_HIGH_AGENCY_WORKERS': '1'}\n",
+                encoding="utf-8",
+            )
+            cli_capabilities.write_text(
+                "TOXIC_CAPABILITY_PAIRS = (('network', 'secrets', 'never combine raw network and secrets'),)\n",
+                encoding="utf-8",
+            )
+            browser_policy.write_text(
+                "BROWSER_USE_REQUIRED_PROOFS = {'doctor', 'public_page_open'}\n"
+                "return {'status': 'blocked', 'last_failure_reason': 'metadata service blocked'}\n"
+                "'sensitive click workflows'\n",
+                encoding="utf-8",
+            )
+            browser_service.write_text(
+                "payload = {'risk_class': 'read_only', 'approval_mode': 'not_required', 'policy_context': {'sensitive_domain': False}}\n",
+                encoding="utf-8",
+            )
+            swarm_sync.write_text(
+                "payload_ready = True\napi_ready = True\nauth_state = 'configured'\ndef _record_swarm_sync_state(): pass\n",
+                encoding="utf-8",
+            )
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        observed = view["observed_sources"]
+        self.assertEqual(observed["cli_access_policy"]["path"], str(cli_access))
+        self.assertTrue(observed["cli_access_policy"]["exists"])
+        self.assertEqual(observed["cli_capabilities"]["path"], str(cli_capabilities))
+        self.assertTrue(observed["cli_capabilities"]["exists"])
+        self.assertEqual(observed["browser_constants"]["path"], str(browser_service))
+        self.assertTrue(observed["browser_constants"]["exists"])
+        self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
+        self.assertTrue(observed["browser_policy"]["exists"])
+        self.assertEqual(observed["swarm_sync_validation"]["path"], str(swarm_sync))
+        self.assertTrue(observed["swarm_sync_validation"]["exists"])
+        self.assertEqual(view["default_access_level_hint"], 4)
+        self.assertEqual(view["cli_capability_policy"]["toxic_pair_count"], 1)
+        self.assertEqual(view["browser_authority"]["source_kind"], "browser_use_adapter")
+        self.assertEqual(view["browser_authority"]["risk_class_counts"]["read_only"], 1)
+        self.assertTrue(view["browser_authority"]["sensitive_surface_policy_exists"])
+        self.assertEqual(view["public_output_authority"]["sync_source_kind"], "builder_swarm_bridge")
+        self.assertIn("swarm_payload_ready", view["public_output_authority"]["required_publication_checks"])
+
     def test_authority_view_uses_running_cli_source_when_cli_module_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1584,6 +1766,609 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(capabilities_path.name, "capabilities.py")
         self.assertNotIn(str(desktop), str(access_path))
         self.assertNotIn(str(desktop), str(capabilities_path))
+
+    def test_contract_coverage_marks_verified_machine_and_legacy_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            spawner_spark_run = desktop / "spawner-ui" / "src" / "routes" / "api" / "spark" / "run"
+            spawner_dispatch = desktop / "spawner-ui" / "src" / "routes" / "api" / "dispatch"
+            spawner_scheduled = desktop / "spawner-ui" / "src" / "routes" / "api" / "scheduled"
+            spawner_mc_command = desktop / "spawner-ui" / "src" / "routes" / "api" / "mission-control" / "command"
+            spawner_daily_orchestrator = (
+                desktop / "spawner-ui" / "src" / "routes" / "api" / "automation" / "daily-orchestrator" / "run"
+            )
+            spawner_server = desktop / "spawner-ui" / "src" / "lib" / "server"
+            telegram_src = desktop / "spark-telegram-bot" / "src"
+            builder_telegram = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "adapters" / "telegram"
+            builder_src = desktop / "spark-intelligence-builder" / "src" / "spark_intelligence"
+            builder_harness_runtime = builder_src / "harness_runtime"
+            builder_researcher_bridge = builder_src / "researcher_bridge"
+            voice_src = desktop / "spark-voice-comms" / "src" / "voice_comms_chip"
+            memory_src = desktop / "domain-chip-memory" / "src" / "domain_chip_memory"
+            memory_tests = desktop / "domain-chip-memory" / "tests"
+            researcher_src = desktop / "spark-researcher" / "src" / "spark_researcher"
+            harness_core = spark_home / "modules" / "spark-harness-core" / "source"
+            harness_core_src = harness_core / "src" / "spark_harness_core"
+            harness_core_schemas = harness_core / "schemas"
+            for path in (
+                spawner_spark_run,
+                spawner_dispatch,
+                spawner_scheduled,
+                spawner_mc_command,
+                spawner_daily_orchestrator,
+                spawner_server,
+                telegram_src,
+                builder_src,
+                builder_telegram,
+                builder_harness_runtime,
+                builder_researcher_bridge,
+                voice_src,
+                memory_src,
+                memory_tests,
+                researcher_src,
+                harness_core_src,
+                harness_core_schemas,
+            ):
+                path.mkdir(parents=True)
+
+            (spawner_spark_run / "+server.ts").write_text(
+                "evaluateExecutionIntentBoundary(goal);\n"
+                "assertNativeGovernorOrVNextHarnessAuthority({ toolName: 'spawner.run' });\n",
+                encoding="utf-8",
+            )
+            (spawner_dispatch / "+server.ts").write_text(
+                "import { assertNativeGovernorHarnessAuthority } from '../../../lib/server/harness-authority';\n"
+                "assertNativeGovernorHarnessAuthority({ toolName: 'spawner.dispatch' });\n",
+                encoding="utf-8",
+            )
+            (spawner_scheduled / "+server.ts").write_text(
+                "createSchedule({ executionAuthority }); deleteSchedule({ executionAuthority });\n",
+                encoding="utf-8",
+            )
+            (spawner_mc_command / "+server.ts").write_text(
+                "executeMissionControlAction({ executionAuthority });\n",
+                encoding="utf-8",
+            )
+            (spawner_daily_orchestrator / "+server.ts").write_text(
+                "runMissionControlRegression({ execute: executeMissionControlAction });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "harness-authority.ts").write_text(
+                "export const schema = 'spark.machine_origin_policy.v1';\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "scheduler.ts").write_text(
+                "assertHarnessAuthority({ toolName: 'spawner.schedule.create' });\n"
+                "buildServerGovernorDecisionAuthority({ toolName: 'spawner.run' });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "mission-control-command.ts").write_text(
+                "assertHarnessAuthority({ toolName: 'spawner.mission_control.command' });\n",
+                encoding="utf-8",
+            )
+            (spawner_server / "daily-orchestrator.ts").write_text(
+                "runMissionControlRegression();\n"
+                "buildServerGovernorDecisionAuthority({ toolName: 'spawner.mission_control.command' });\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "index.ts").write_text(
+                "buildTelegramTurnIntentEnvelope();\n"
+                "if (telegramActionAuthorityAllowed('mission')) launchMission();\n"
+                "authorizeRouteProbeCommand(ctx, text, ['spark_browser']);\n"
+                "recordTelegramHarnessCoreExecution(authorization, { toolName: 'route.probe' });\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "harnessContract.ts").write_text(
+                "export function authorizeToolCallFromEnvelope() {}\n"
+                "export type TurnIntentEnvelope = { schema: 'spark.turn_intent.v1' };\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "telegramActionAuthority.ts").write_text(
+                "export function authorizeTelegramActionFromEnvelope() {}\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "telegramCommandAuthority.ts").write_text(
+                "buildTelegramTurnIntentEnvelope(); route: 'route.probe';\n",
+                encoding="utf-8",
+            )
+            (telegram_src / "routeTypes.ts").write_text(
+                "export type TelegramRouteId = 'route.probe';\n",
+                encoding="utf-8",
+            )
+            (builder_telegram / "runtime.py").write_text(
+                "authorize_builder_bridge_action(update_payload, tool_name='swarm.autoloop.run')\n"
+                "swarm_bridge_autoloop()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='chip.evaluate')\n"
+                "run_chip_hook()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='schedule.list')\n"
+                "format_schedule_list_from_spawner()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='route.probe.run')\n"
+                "run_route_probe_and_record()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='memory.diagnose')\n"
+                "run_memory_doctor()\n"
+                "_match_natural_memory_doctor_command()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.install')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.status')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.plan')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.transcribe')\n"
+                "_prepare_telegram_media_input()\n"
+                "run_first_chip_hook_supporting(hook='voice.install')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.diagnostics.run')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.self_test.run')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.search.run')\n"
+                "_render_elevenlabs_voice_search_reply()\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.profile.tune')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='voice.speak')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='style.train')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='style.feedback.record')\n"
+                "authorize_builder_bridge_action(update_payload, tool_name='think.visibility.set')\n",
+                encoding="utf-8",
+            )
+            (builder_src / "bridge_authority.py").write_text(
+                "def authorize_builder_bridge_action(): pass\n"
+                "TurnIntentEnvelope = object\n",
+                encoding="utf-8",
+            )
+            (builder_src / "harness_contract.py").write_text(
+                "schema = 'spark.turn_intent.v1'\n",
+                encoding="utf-8",
+            )
+            (builder_harness_runtime / "service.py").write_text(
+                "schema = 'spark.turn_intent.v1'\n"
+                "parse_turn_intent_envelope(payload)\n"
+                "build_harness_local_operator_turn_intent(envelope)\n"
+                "authorize_tool_call(parsed_envelope, tool_name=hook, owner_system='spark-voice-comms')\n"
+                "run_first_chip_hook_supporting(config_manager, hook='voice.speak', payload=payload)\n",
+                encoding="utf-8",
+            )
+            (builder_researcher_bridge / "advisory.py").write_text(
+                "TurnIntentEnvelope = object\n"
+                "parse_turn_intent_envelope(payload)\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='browser.navigate', owner_system='spark-browser')\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='chip.evaluate', owner_system='spark-intelligence-builder')\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='memory.write', owner_system='domain-chip-memory')\n"
+                "authorize_tool_call(turn_intent_envelope, tool_name='memory.read', owner_system='domain-chip-memory')\n"
+                "_build_browser_search_context()\n"
+                "_execute_browser_hook()\n"
+                "_run_active_chip_evaluate()\n"
+                "_authorize_researcher_memory_write()\n"
+                "_authorize_researcher_memory_read()\n"
+                "_researcher_memory_read_side_effects_authorized()\n"
+                "select_chips_for_message()\n"
+                "run_chip_hook()\n"
+                "active_chip_evaluate\n"
+                "write_profile_fact_to_memory()\n"
+                "delete_profile_fact_from_memory()\n"
+                "write_structured_evidence_to_memory()\n"
+                "archive_structured_evidence_from_memory()\n"
+                "archive_raw_episode_from_memory()\n"
+                "archive_belief_from_memory()\n"
+                "run_first_chip_hook_supporting(config_manager, hook='browser.navigate', payload=payload)\n",
+                encoding="utf-8",
+            )
+            (voice_src / "spark_hook.py").write_text(
+                "schema = 'governor-decision-v1'\n"
+                "auth = 'authorization-decision-v1'\n"
+                "ledger = 'tool-call-ledger-v1'\n"
+                "def _voice_governor_allows_tool_call(payload): pass\n"
+                "def _require_voice_governor_authority(payload): pass\n"
+                "_require_voice_governor_authority(payload)\n"
+                "install(); transcribe(); speak()\n",
+                encoding="utf-8",
+            )
+            (memory_tests / "test_promotion_gates.py").write_text(
+                "# promotion gate keeps protected prompt changes evidence-only\n",
+                encoding="utf-8",
+            )
+            (memory_src / "cli.py").write_text(
+                "schema = 'governor-decision-v1'\n"
+                "auth = 'authorization-decision-v1'\n"
+                "ledger = 'tool-call-ledger-v1'\n"
+                "MEMORY_PROMOTION_PUBLISH_TOOL_NAME = 'domain-chip-memory.memory_promotion.publish'\n"
+                "MEMORY_PROMOTION_SHIP_TOOL_NAME = 'domain-chip-memory.memory_promotion.ship'\n"
+                "def _validate_memory_promotion_governor(payload): pass\n"
+                "def _publish_spark_memory_kb_refresh_manifest(governor_decision): pass\n"
+                "def _ship_spark_memory_kb_governed_release(governor_decision): pass\n",
+                encoding="utf-8",
+            )
+            (researcher_src / "self_edit.py").write_text(
+                "schema = 'governor-decision-v1'\n"
+                "auth = 'authorization-decision-v1'\n"
+                "ledger = 'tool-call-ledger-v1'\n"
+                "SELF_EDIT_APPLY_TOOL_NAME = 'spark-researcher.self_edit.apply'\n"
+                "def _validate_self_edit_apply_governor(payload): pass\n"
+                "def apply_proposal(governor_decision_path): pass\n",
+                encoding="utf-8",
+            )
+            (harness_core_src / "kernel.py").write_text(
+                "class HarnessKernel:\n"
+                "    def create_envelope(self): pass\n"
+                "    def authorize(self): pass\n"
+                "    def record_tool_call(self): pass\n"
+                "    def self_evolution_run(self): pass\n"
+                "    def change_manifest_runner(self): pass\n",
+                encoding="utf-8",
+            )
+            (harness_core_src / "cli.py").write_text(
+                "subcommands.add_parser('change-manifest-runner')\n"
+                "schema = 'self-evolution-run-v1'\n"
+                "kernel.change_manifest_runner(mode='promote')\n",
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "turn-intent-envelope-vnext.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/turn-intent-envelope-vnext.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "authorization-decision-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/authorization-decision-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "tool-call-ledger-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/tool-call-ledger-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "change-manifest-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/change-manifest-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+            (harness_core_schemas / "self-evolution-run-v1.schema.json").write_text(
+                '{"$id":"https://spark.local/schemas/self-evolution-run-v1.schema.json"}\n',
+                encoding="utf-8",
+            )
+
+            coverage = build_contract_coverage(desktop, spark_home)
+            by_id = {item["id"]: item for item in coverage["edges"]}
+
+        self.assertEqual(coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(by_id["harness_core.authority_kernel"]["status"], "envelope_verified")
+        self.assertFalse(by_id["harness_core.authority_kernel"]["markers"]["auto_state_trigger"])
+        self.assertEqual(by_id["harness_core.self_evolution_runner"]["status"], "envelope_verified")
+        self.assertEqual(
+            by_id["harness_core.self_evolution_runner"]["reason_code"],
+            "action_edge_checks_change_manifest_runner",
+        )
+        self.assertTrue(by_id["harness_core.self_evolution_runner"]["markers"]["self_evolution_runner"])
+        self.assertEqual(by_id["spawner.spark_run"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.dispatch"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.schedule_mutation"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.scheduler_fire"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spawner.mission_control_command"]["status"], "machine_origin_policy")
+        self.assertEqual(by_id["spawner.daily_orchestrator_run"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.direct_chip_commands"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.schedule_read_tools"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.route_probe_commands"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.swarm_runtime_actions"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_runtime_hooks"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_transcription_ingress"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.harness_runtime_voice_io"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_browser_hooks"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_active_chip_evaluate"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_memory_write"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.researcher_memory_read"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.memory_doctor_diagnostics"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.memory_read_side_effects"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_diagnostic_tools"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_search_network"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_state_mutations"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.voice_delivery_actions"]["status"], "envelope_verified")
+        self.assertEqual(by_id["voice.install_transcribe_speak"]["status"], "envelope_verified")
+        self.assertEqual(by_id["researcher.self_edit"]["status"], "envelope_verified")
+        self.assertEqual(by_id["telegram.route_probe_commands"]["status"], "envelope_verified")
+        self.assertEqual(by_id["spark_cli.browser_use_actions"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.style_state_mutations"]["status"], "envelope_verified")
+        self.assertEqual(by_id["builder.preference_state_mutations"]["status"], "envelope_verified")
+        self.assertFalse(by_id["spawner.dispatch"]["release_blocker"])
+        self.assertFalse(by_id["spawner.daily_orchestrator_run"]["release_blocker"])
+        self.assertFalse(by_id["builder.direct_chip_commands"]["release_blocker"])
+        self.assertFalse(by_id["builder.schedule_read_tools"]["release_blocker"])
+        self.assertFalse(by_id["builder.route_probe_commands"]["release_blocker"])
+        self.assertFalse(by_id["builder.swarm_runtime_actions"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_runtime_hooks"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_transcription_ingress"]["release_blocker"])
+        self.assertFalse(by_id["builder.harness_runtime_voice_io"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_browser_hooks"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_active_chip_evaluate"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_memory_write"]["release_blocker"])
+        self.assertFalse(by_id["builder.researcher_memory_read"]["release_blocker"])
+        self.assertFalse(by_id["builder.memory_doctor_diagnostics"]["release_blocker"])
+        self.assertFalse(by_id["builder.memory_read_side_effects"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_diagnostic_tools"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_search_network"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["builder.voice_delivery_actions"]["release_blocker"])
+        self.assertFalse(by_id["voice.install_transcribe_speak"]["release_blocker"])
+        self.assertFalse(by_id["researcher.self_edit"]["release_blocker"])
+        self.assertFalse(by_id["telegram.route_probe_commands"]["release_blocker"])
+        self.assertFalse(by_id["spark_cli.browser_use_actions"]["release_blocker"])
+        self.assertFalse(by_id["builder.style_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["builder.preference_state_mutations"]["release_blocker"])
+        self.assertFalse(by_id["harness_core.authority_kernel"]["release_blocker"])
+        self.assertFalse(by_id["harness_core.self_evolution_runner"]["release_blocker"])
+        self.assertEqual(by_id["telegram.mission_launch"]["status"], "envelope_verified")
+        self.assertEqual(by_id["telegram.mission_launch"]["legacy_plane_classification"], "retired")
+        self.assertEqual(
+            by_id["telegram.mission_launch"]["legacy_plane_reason_code"],
+            "no_local_legacy_authority_marker_observed_on_this_action_edge",
+        )
+        self.assertFalse(by_id["telegram.mission_launch"]["release_blocker"])
+        self.assertEqual(by_id["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
+        self.assertEqual(
+            by_id["spawner.spark_run"]["legacy_plane_reason_code"],
+            "local_detector_or_pending_state_marker_exists_but_contract_authority_owns_execution",
+        )
+        self.assertFalse(by_id["spawner.spark_run"]["release_blocker"])
+        self.assertEqual(by_id["harness_core.authority_kernel"]["legacy_plane_classification"], "retired")
+        self.assertEqual(by_id["memory.promotion"]["status"], "envelope_verified")
+        self.assertFalse(by_id["memory.promotion"]["release_blocker"])
+        self.assertIn("legacy_plane_classification_values", coverage)
+        self.assertIn("legacy_plane_classification_counts", coverage["summary"])
+        self.assertEqual(
+            coverage["summary"]["legacy_plane_release_blocker_count"],
+            coverage["summary"]["release_blocker_count"],
+        )
+        self.assertGreaterEqual(coverage["summary"]["legacy_plane_classification_counts"].get("blocked", 0), 1)
+        cleanup_queue = coverage["legacy_plane_cleanup_queue"]
+        cleanup_by_edge = {item["edge_id"]: item for item in cleanup_queue}
+        legacy_inventory = coverage["legacy_authority_inventory"]
+        inventory_planes_by_edge = {
+            str(item["plane_id"]).replace("legacy-plane:", "", 1): item
+            for item in legacy_inventory["planes"]
+        }
+        self.assertEqual(
+            coverage["summary"]["legacy_plane_cleanup_queue_count"],
+            len(cleanup_queue),
+        )
+        self.assertEqual(legacy_inventory["schema_version"], "legacy-authority-inventory-v1")
+        self.assertEqual(legacy_inventory["summary"]["plane_count"], coverage["summary"]["edge_count"])
+        self.assertEqual(
+            legacy_inventory["summary"]["release_blocker_count"],
+            coverage["summary"]["release_blocker_count"],
+        )
+        self.assertFalse(legacy_inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+        self.assertFalse(legacy_inventory["release_gate"]["ready_for_readiness_promotion"])
+        self.assertEqual(
+            inventory_planes_by_edge["telegram.mission_launch"]["disposition"],
+            "removed",
+        )
+        self.assertEqual(inventory_planes_by_edge["telegram.mission_launch"]["surface"], "telegram")
+        self.assertEqual(
+            inventory_planes_by_edge["spawner.spark_run"]["disposition"],
+            "canonical_consumer",
+        )
+        self.assertTrue(
+            inventory_planes_by_edge["spawner.spark_run"]["harness_binding"]["governor_required"]
+        )
+        self.assertEqual(
+            inventory_planes_by_edge["harness_core.authority_kernel"]["disposition"],
+            "removed",
+        )
+        self.assertEqual(
+            inventory_planes_by_edge["harness_core.self_evolution_runner"]["disposition"],
+            "removed",
+        )
+        self.assertEqual(coverage["summary"]["uncovered_authority_source_count"], 0)
+        self.assertEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 0)
+        self.assertEqual(coverage["uncovered_authority_sources"], [])
+        self.assertEqual(cleanup_by_edge["spawner.spark_run"]["priority"], "high")
+        self.assertFalse(cleanup_by_edge["spawner.spark_run"]["release_blocker"])
+        self.assertEqual(cleanup_by_edge["spawner.spark_run"]["legacy_plane_classification"], "compat_no_authority")
+        self.assertTrue(cleanup_by_edge["spawner.spark_run"]["marker_evidence"]["deterministic_local_route"])
+        self.assertNotIn("harness_core.authority_kernel", cleanup_by_edge)
+        self.assertEqual(
+            coverage["optional_surfaces"]["spark-skill-graphs"]["status"],
+            "not_installed_optional_surface",
+        )
+        self.assertIn("release_blocker_count", coverage["summary"])
+
+    def test_contract_coverage_blocks_uncovered_high_agency_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            hidden_route = (
+                desktop
+                / "spawner-ui"
+                / "src"
+                / "routes"
+                / "api"
+                / "hidden-mission"
+                / "run"
+            )
+            hidden_route.mkdir(parents=True)
+            (hidden_route / "+server.ts").write_text(
+                "export async function POST() {\n"
+                "  return runGoal({ prompt: 'hidden mission' });\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            coverage = build_contract_coverage(desktop, spark_home)
+            uncovered = [
+                item
+                for item in coverage.get("uncovered_authority_sources", [])
+                if item.get("owner_repo") == "spawner-ui"
+                and item.get("rel_path") == "src/routes/api/hidden-mission/run/+server.ts"
+            ]
+
+        self.assertEqual(len(uncovered), 1)
+        self.assertTrue(uncovered[0]["release_blocker"])
+        self.assertIn("mission_execution", uncovered[0]["signals"])
+        self.assertEqual(uncovered[0]["reason_code"], "high_agency_source_not_declared_in_contract_coverage")
+        self.assertGreaterEqual(coverage["summary"]["uncovered_authority_source_count"], 1)
+        self.assertGreaterEqual(coverage["summary"]["uncovered_authority_release_blocker_count"], 1)
+        inventory = coverage["legacy_authority_inventory"]
+        uncovered_planes = [
+            item
+            for item in inventory["planes"]
+            if item.get("plane_id") == f"legacy-plane:{uncovered[0]['id']}"
+        ]
+        self.assertEqual(len(uncovered_planes), 1)
+        self.assertEqual(uncovered_planes[0]["disposition"], "release_blocker")
+        self.assertFalse(inventory["release_gate"]["zero_high_agency_legacy_local_gates"])
+
+    def test_compile_system_map_discovers_local_harness_core_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            harness_core = spark_home / "modules" / "spark-harness-core" / "source"
+            state = spark_home / "state"
+            harness_core.mkdir(parents=True)
+            desktop.mkdir()
+            state.mkdir(parents=True)
+            (state / "installed.json").write_text("{}", encoding="utf-8")
+            (state / "setup.json").write_text("{}", encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+            registry = root / "registry.json"
+            registry.write_text('{"modules":{},"bundles":{}}', encoding="utf-8")
+            (harness_core / "spark.toml").write_text(
+                "[module]\n"
+                'name = "spark-harness-core"\n'
+                'version = "0.1.0"\n'
+                'kind = "runtime"\n'
+                'plane = "authority"\n'
+                'description = "Spark Genesis Harness canonical authority kernel."\n'
+                "\n[provides]\n"
+                'capabilities = ["spark.harness.core"]\n',
+                encoding="utf-8",
+            )
+
+            compiled = compile_system_map(desktop, spark_home, registry)
+
+        modules = {item["id"]: item for item in compiled["system_map"]["modules"]}
+        self.assertIn("spark-harness-core", modules)
+        self.assertEqual(modules["spark-harness-core"]["plane"], "authority")
+        self.assertEqual(modules["spark-harness-core"]["kind"], "runtime")
+
+    def test_compile_system_map_refreshes_builder_memory_movement_status_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            state = spark_home / "state"
+            builder_home = state / "spark-intelligence"
+            builder_repo = spark_home / "modules" / "spark-intelligence-builder" / "source"
+            (builder_repo / "src" / "spark_intelligence").mkdir(parents=True)
+            desktop.mkdir()
+            builder_home.mkdir(parents=True)
+            (state / "installed.json").write_text("{}", encoding="utf-8")
+            (state / "setup.json").write_text(json.dumps({"builder_home": str(builder_home)}), encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+            registry = root / "registry.json"
+            registry.write_text('{"modules":{},"bundles":{}}', encoding="utf-8")
+            (builder_repo / "spark.toml").write_text(
+                "[module]\n"
+                'name = "spark-intelligence-builder"\n'
+                'version = "0.1.0"\n'
+                'kind = "runtime"\n'
+                'plane = "runtime"\n',
+                encoding="utf-8",
+            )
+            (builder_repo / "src" / "spark_intelligence" / "cli.py").write_text("# test cli marker\n", encoding="utf-8")
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "export-movement-status" in command:
+                    status_path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+                    status_path.parent.mkdir(parents=True)
+                    status_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "spark.memory_movement_status_export.v1",
+                                "status": "supported",
+                                "authority": "observability_non_authoritative",
+                                "movement_counts": {"captured": 3, "saved": 2},
+                                "row_count": 5,
+                                "rows": [{"raw_text": "private memory should not appear"}],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    stdout = json.dumps(
+                        {
+                            "status": "written",
+                            "path": str(status_path),
+                            "payload": {"status": "supported", "row_count": 5},
+                        }
+                    )
+                    return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("spark_cli.system_map.subprocess.run", side_effect=fake_run) as run_mock:
+                compiled = compile_system_map(desktop, spark_home, registry)
+
+        memory_index = compiled["memory_movement_index"]
+        encoded = json.dumps(memory_index)
+        export_command_count = sum(
+            1 for call in run_mock.call_args_list if "export-movement-status" in call.args[0]
+        )
+        self.assertEqual(export_command_count, 1)
+        self.assertEqual(memory_index["status_export_refresh"]["status"], "refreshed")
+        self.assertEqual(memory_index["safe_status_export"]["status"]["status"], "supported")
+        self.assertEqual(memory_index["safe_status_export"]["status"]["row_count"], 5)
+        self.assertNotIn("private memory should not appear", encoded)
+
+    def test_compile_system_map_reuses_fresh_memory_movement_status_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            state = spark_home / "state"
+            builder_home = state / "spark-intelligence"
+            builder_repo = spark_home / "modules" / "spark-intelligence-builder" / "source"
+            status_path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+            (builder_repo / "src" / "spark_intelligence").mkdir(parents=True)
+            desktop.mkdir()
+            builder_home.mkdir(parents=True)
+            status_path.parent.mkdir(parents=True)
+            (state / "installed.json").write_text("{}", encoding="utf-8")
+            (state / "setup.json").write_text(json.dumps({"builder_home": str(builder_home)}), encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+            (builder_home / "state.db").write_text("", encoding="utf-8")
+            registry = root / "registry.json"
+            registry.write_text('{"modules":{},"bundles":{}}', encoding="utf-8")
+            (builder_repo / "spark.toml").write_text(
+                "[module]\n"
+                'name = "spark-intelligence-builder"\n'
+                'version = "0.1.0"\n'
+                'kind = "runtime"\n'
+                'plane = "runtime"\n',
+                encoding="utf-8",
+            )
+            (builder_repo / "src" / "spark_intelligence" / "cli.py").write_text("# test cli marker\n", encoding="utf-8")
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.memory_movement_status_export.v1",
+                        "status": "supported",
+                        "authority": "observability_non_authoritative",
+                        "movement_counts": {"captured": 3},
+                        "row_count": 3,
+                        "rows": [{"raw_text": "private memory should not appear"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(builder_home / "state.db", (100.0, 100.0))
+            os.utime(status_path, (200.0, 200.0))
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("spark_cli.system_map.subprocess.run", side_effect=fake_run) as run_mock:
+                compiled = compile_system_map(desktop, spark_home, registry)
+
+        memory_index = compiled["memory_movement_index"]
+        encoded = json.dumps(memory_index)
+        export_command_count = sum(
+            1 for call in run_mock.call_args_list if "export-movement-status" in call.args[0]
+        )
+        self.assertEqual(export_command_count, 0)
+        self.assertEqual(memory_index["status_export_refresh"]["status"], "fresh_existing")
+        self.assertEqual(memory_index["status_export_refresh"]["freshness"]["reason"], "status_export_current")
+        self.assertEqual(memory_index["safe_status_export"]["status"]["row_count"], 3)
+        self.assertNotIn("private memory should not appear", encoded)
 
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1851,6 +2636,82 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
 
+    def test_source_owner_compile_emits_contract_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            state = spark_home / "state"
+            out = root / "out"
+            source_owner_repo = Path(__file__).resolve().parents[1]
+            desktop.mkdir()
+            state.mkdir(parents=True)
+
+            registry = root / "registry.json"
+            registry.write_text(
+                json.dumps(
+                    {
+                        "modules": {
+                            "spark-cli": {
+                                "source": "https://example.test/spark-cli",
+                                "summary": "Spark OS compiler source owner",
+                                "blessed": True,
+                            }
+                        },
+                        "bundles": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "installed.json").write_text(
+                json.dumps(
+                    {
+                        "spark-cli": {
+                            "path": str(source_owner_repo),
+                            "source": str(source_owner_repo),
+                            "kind": "runtime",
+                            "plane": "authority",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "setup.json").write_text("{}", encoding="utf-8")
+            (state / "pids.json").write_text("{}", encoding="utf-8")
+
+            args = build_parser().parse_args(
+                [
+                    "os",
+                    "compile",
+                    "--desktop",
+                    str(desktop),
+                    "--spark-home",
+                    str(spark_home),
+                    "--registry",
+                    str(registry),
+                    "--out",
+                    str(out),
+                    "--json",
+                ]
+            )
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = args.func(args)
+
+            summary = json.loads(stdout.getvalue())
+            contract_coverage_path = out / "contract-coverage.json"
+            contract_coverage = json.loads(contract_coverage_path.read_text(encoding="utf-8"))
+            edges_by_id = {item["id"]: item for item in contract_coverage["edges"]}
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(summary["ok"])
+        self.assertEqual(contract_coverage["schema_version"], "spark.contract_coverage.compiled.v0")
+        self.assertEqual(summary["outputs"]["contract_coverage"], str(contract_coverage_path))
+        self.assertEqual(summary["contract_coverage"], contract_coverage["summary"])
+        self.assertIn("spark_cli.browser_use_actions", edges_by_id)
+        self.assertEqual(edges_by_id["spark_cli.browser_use_actions"]["owner_repo"], "spark-cli")
+        self.assertTrue(edges_by_id["spark_cli.browser_use_actions"]["source_exists"])
+
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1941,13 +2802,25 @@ routes = []
 
             summary = json.loads(stdout.getvalue())
             system_map = json.loads((out / "system-map.json").read_text(encoding="utf-8"))
+            contract_coverage = json.loads((out / "contract-coverage.json").read_text(encoding="utf-8"))
             output_text = "\n".join(path.read_text(encoding="utf-8") for path in out.glob("*") if path.is_file())
+            authority_count_keys = [
+                "release_blocker_count",
+                "legacy_plane_release_blocker_count",
+                "uncovered_authority_release_blocker_count",
+                "legacy_authority_inventory_release_blocker_count",
+            ]
 
             self.assertEqual(exit_code, 0)
             self.assertTrue(summary["ok"])
             self.assertEqual(summary["modules"], 1)
+            self.assertIn("contract_coverage", summary)
+            for key in authority_count_keys:
+                self.assertIsInstance(summary["contract_coverage"][key], int)
+                self.assertEqual(summary["contract_coverage"][key], contract_coverage["summary"][key])
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
             self.assertTrue((out / "authority-view.json").exists())
+            self.assertTrue((out / "contract-coverage.json").exists())
             self.assertTrue((out / "capability-catalog.json").exists())
             self.assertTrue((out / "trace-index.json").exists())
             self.assertTrue((out / "memory-movement-index.json").exists())

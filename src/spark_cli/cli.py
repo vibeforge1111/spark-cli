@@ -119,12 +119,18 @@ VOICE_MODULE_NAME = "spark-voice-comms"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
+CLI_APPROVAL_LEDGER_DIR = STATE_DIR / "approval-ledgers"
+CLI_APPROVAL_TOOL_NAME = "spark-cli.approval.enforced-command"
+CLI_APPROVAL_BOOTSTRAP_TOOL_NAME = "spark-cli.approval.harness-core-bootstrap"
+CLI_APPROVAL_BOOTSTRAP_DIGEST_ENV = "SPARK_CLI_HARNESS_CORE_BOOTSTRAP_DIGEST"
+CLI_APPROVAL_CAPABILITY_PREFIX = "capability:spark-cli:approval"
 BROWSER_USE_PROBE_SESSION = "spark-probe"
 BROWSER_USE_PROBE_URL = "https://example.com"
 BROWSER_USE_PROOF_TTL_SECONDS = 15 * 60
 BROWSER_USE_REQUIRED_PROOFS = {"doctor", "public_page_open", "screenshot_capture", "state_read"}
 BROWSER_USE_ACTION_TEXT_LIMIT = 1800
 BROWSER_USE_TASK_TEXT_LIMIT = 2600
+BROWSER_USE_HARNESS_CORE_SOURCE_ENV = "SPARK_HARNESS_CORE_SOURCE"
 BROWSER_USE_AGENT_SYSTEM_NUDGE = (
     "Spark wrapper instruction: every assistant response in the browser-use loop must use the "
     "available action schema only. Do not answer with plain prose during intermediate steps. "
@@ -333,14 +339,31 @@ CHIP_SCAN_PATTERNS = (
     ),
 )
 
-try:  # keyring is an optional runtime dep; we degrade gracefully without it.
-    import keyring as _keyring
-    import keyring.errors as _keyring_errors
+_keyring: Any | None = None
+_keyring_errors: Any | None = None
+HAS_KEYRING: bool | None = None
+
+
+def _load_keyring() -> Any | None:
+    """Import keyring only when a secret operation actually needs it."""
+    global HAS_KEYRING, _keyring, _keyring_errors
+    if _keyring is not None:
+        HAS_KEYRING = True
+        return _keyring
+    if HAS_KEYRING is False:
+        return None
+    try:  # keyring is an optional runtime dep; we degrade gracefully without it.
+        import keyring
+        import keyring.errors as keyring_errors
+    except ImportError:  # pragma: no cover - exercised only on minimal installs
+        _keyring = None
+        _keyring_errors = None
+        HAS_KEYRING = False
+        return None
+    _keyring = keyring
+    _keyring_errors = keyring_errors
     HAS_KEYRING = True
-except ImportError:  # pragma: no cover - exercised only on minimal installs
-    _keyring = None
-    _keyring_errors = None
-    HAS_KEYRING = False
+    return _keyring
 
 
 @dataclass
@@ -863,7 +886,7 @@ def print_update_live_status_summary() -> int:
     if not ok and payload.get("repair_hints"):
         print("  Repair:")
         for hint in payload.get("repair_hints", [])[:2]:
-            print(f"    - {hint}")
+            print_redacted_console(f"    - {hint}")
     return 0 if ok else 1
 
 
@@ -911,10 +934,11 @@ def ensure_state_dirs() -> None:
 
 
 def keychain_available() -> bool:
-    if not HAS_KEYRING:
+    keyring = _load_keyring()
+    if keyring is None:
         return False
     try:
-        _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
+        keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
     except Exception:
         return False
     return True
@@ -1104,8 +1128,11 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
     ensure_state_dirs()
     index = load_secrets_index()
     if preferred == "keychain" and keychain_available():
+        keyring = _load_keyring()
+        if keyring is None:
+            raise AssertionError("keychain_available returned true without a keyring backend")
         try:
-            _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
+            keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
             index[secret_id] = "keychain"
             save_secrets_index(index)
             return "keychain"
@@ -1135,13 +1162,14 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
 def fetch_secret(secret_id: str) -> str | None:
     index = load_secrets_index()
     backend = index.get(secret_id)
-    if backend == "keychain" and HAS_KEYRING:
+    keyring = _load_keyring() if backend == "keychain" else None
+    if backend == "keychain" and keyring is not None:
         try:
-            value = _keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
+            value = keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             if value is not None:
                 return value
             if default_home_uses_legacy_keychain():
-                return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
+                return keyring.get_password(KEYCHAIN_SERVICE, secret_id)
             return None
         except Exception:
             return None
@@ -1220,15 +1248,16 @@ def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
     backend = index.pop(secret_id, None)
     removed = False
-    if backend == "keychain" and HAS_KEYRING:
+    keyring = _load_keyring() if backend == "keychain" else None
+    if backend == "keychain" and keyring is not None:
         try:
-            _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
+            keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
         except Exception:
             pass
         if default_home_uses_legacy_keychain():
             try:
-                _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
+                keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
                 removed = True
             except Exception:
                 pass
@@ -1879,6 +1908,11 @@ def resolve_remote_git_head(source: str) -> str:
     return resolve_remote_git_ref(source, "HEAD")
 
 
+def registry_entry_allows_unverified_private_pin(metadata: dict[str, Any]) -> bool:
+    visibility = str(metadata.get("visibility") or metadata.get("source_visibility") or "").strip().lower()
+    return visibility == "private" or bool(metadata.get("private_source") or metadata.get("verify_requires_auth"))
+
+
 def collect_registry_pin_drift_payload(
     *,
     registry: dict[str, Any] | None = None,
@@ -1906,6 +1940,21 @@ def collect_registry_pin_drift_payload(
                 remote = resolver(source).strip().lower()
             validate_commit_pin(remote)
         except (RuntimeError, SystemExit, OSError, subprocess.TimeoutExpired) as error:
+            if registry_entry_allows_unverified_private_pin(metadata):
+                checks.append(
+                    {
+                        "name": str(name),
+                        "source": source,
+                        "pinned_commit": pinned,
+                        "remote_ref": remote_ref,
+                        "remote_head": "",
+                        "ok": True,
+                        "verified": False,
+                        "verification_status": "private_source_unavailable",
+                        "detail": f"Could not verify remote {remote_ref} without private-source credentials: {error}",
+                    }
+                )
+                continue
             checks.append(
                 {
                     "name": str(name),
@@ -1914,6 +1963,8 @@ def collect_registry_pin_drift_payload(
                     "remote_ref": remote_ref,
                     "remote_head": "",
                     "ok": False,
+                    "verified": False,
+                    "verification_status": "failed",
                     "detail": f"Could not verify remote {remote_ref}: {error}",
                 }
             )
@@ -1928,6 +1979,8 @@ def collect_registry_pin_drift_payload(
                 "remote_ref": remote_ref,
                 "remote_head": remote,
                 "ok": ok,
+                "verified": True,
+                "verification_status": "verified" if ok else "pin_drift",
                 "detail": f"registry pin matches {remote_label}" if ok else f"registry pin lags or diverges from {remote_label}",
             }
         )
@@ -3965,6 +4018,26 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
     primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
+    existing_gateway_env = read_generated_env(generated_module_env_path(gateway))
+    existing_spawner_env = read_generated_env(generated_module_env_path(spawner))
+
+    def spawner_control_key(name: str, *, shared_with_gateway: bool = False) -> str:
+        candidates = [
+            os.environ.get(name, ""),
+            existing_spawner_env.get(name, ""),
+        ]
+        if shared_with_gateway:
+            candidates.append(existing_gateway_env.get(name, ""))
+        for value in candidates:
+            normalized = str(value or "").strip()
+            if normalized:
+                return normalized
+        return py_secrets.token_urlsafe(32)
+
+    spawner_bridge_key = spawner_control_key("SPARK_BRIDGE_API_KEY", shared_with_gateway=True)
+    spawner_ui_key = spawner_control_key("SPARK_UI_API_KEY", shared_with_gateway=True)
+    spawner_events_key = spawner_control_key("EVENTS_API_KEY")
+    spawner_mcp_key = spawner_control_key("MCP_API_KEY")
 
     gateway_env = {
         "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
@@ -3983,6 +4056,8 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_WORKSPACE_ROOT": workspace_root,
         "SPARK_ACCESS_LEVEL_DEFAULT": "4",
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
+        "SPARK_BRIDGE_API_KEY": spawner_bridge_key,
+        "SPARK_UI_API_KEY": spawner_ui_key,
     }
     if character is not None:
         gateway_env["SPARK_CHARACTER_ROOT"] = str(character.path)
@@ -4001,6 +4076,10 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BRIDGE_API_KEY": spawner_bridge_key,
+        "SPARK_UI_API_KEY": spawner_ui_key,
+        "EVENTS_API_KEY": spawner_events_key,
+        "MCP_API_KEY": spawner_mcp_key,
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
@@ -6030,6 +6109,232 @@ def write_browser_use_screenshot(result: subprocess.CompletedProcess[str], scree
         raise RuntimeError(f"browser-use screenshot response could not be saved: {exc}") from exc
 
 
+def harness_core_source_roots() -> list[Path]:
+    roots: list[Path] = []
+    env_root = os.environ.get(BROWSER_USE_HARNESS_CORE_SOURCE_ENV)
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    roots.append(REPO_ROOT.parent / "spark-harness-core" / "src")
+    roots.append(SPARK_HOME / "modules" / "spark-harness-core" / "source" / "src")
+    return roots
+
+
+def load_harness_core_symbols() -> tuple[Any, Any]:
+    try:
+        from spark_harness_core import HarnessKernel, evidence_ref
+
+        return HarnessKernel, evidence_ref
+    except ModuleNotFoundError:
+        pass
+
+    for root in harness_core_source_roots():
+        if root.exists() and str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+            try:
+                from spark_harness_core import HarnessKernel, evidence_ref
+
+                return HarnessKernel, evidence_ref
+            except ModuleNotFoundError:
+                continue
+    raise RuntimeError("Spark Harness Core is not importable from the active Spark installation.")
+
+
+def browser_use_harness_authorize(
+    *,
+    action_type: str,
+    risk_tier: str,
+    summary: str,
+    raw_turn_summary: str,
+    args_path: Path,
+    tool_name: str,
+    output_path: Path,
+    requires_confirmation: bool,
+) -> dict[str, Any]:
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    evidence = [
+        evidence_ref(
+            "positive_command",
+            "spark-cli.browser-use",
+            "Fresh explicit Spark CLI browser-use command requested this action.",
+            confidence=0.99,
+        )
+    ]
+    action = kernel.proposed_action(
+        capability_id="capability:browser-use",
+        action_type=action_type,
+        risk_tier=risk_tier,
+        summary=summary,
+        args_path=str(args_path),
+        requires_confirmation=requires_confirmation,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=summary,
+        raw_turn_summary=raw_turn_summary,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier=risk_tier,
+        confidence=0.98,
+        evidence=evidence,
+        requires_human_confirmation=False,
+    )
+    approval_ref = (
+        evidence_ref(
+            "human_confirmation",
+            "spark-cli.browser-use",
+            "The local operator invoked this explicit Spark CLI command.",
+            confidence=1.0,
+        )
+        if requires_confirmation
+        else None
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    pre_execution_ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=str(output_path),
+        summary="browser-use tool execution has not started yet.",
+    )
+    governor_decision = kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[pre_execution_ledger],
+    )
+    return {
+        "kernel": kernel,
+        "envelope": envelope,
+        "action": action,
+        "authorization": authorization,
+        "tool_ledger": pre_execution_ledger,
+        "governor_decision": governor_decision,
+    }
+
+
+def browser_use_harness_summary(authority: dict[str, Any], *, ledger_path: Path | None = None) -> dict[str, Any]:
+    envelope = authority.get("envelope") if isinstance(authority.get("envelope"), dict) else {}
+    action = authority.get("action") if isinstance(authority.get("action"), dict) else {}
+    authorization = authority.get("authorization") if isinstance(authority.get("authorization"), dict) else {}
+    governor_decision = authority.get("governor_decision") if isinstance(authority.get("governor_decision"), dict) else {}
+    execution_boundary = governor_decision.get("execution_boundary") if isinstance(governor_decision.get("execution_boundary"), dict) else {}
+    tool_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else {}
+    verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
+    return {
+        "schema_version": "spark.browser_use.harness_authority.v1",
+        "turn_id": envelope.get("turn_id"),
+        "action_id": action.get("action_id"),
+        "governor_decision_id": governor_decision.get("decision_id"),
+        "governor_outcome": governor_decision.get("outcome"),
+        "governor_action_authorized": execution_boundary.get("action_authorized"),
+        "decision_id": authorization.get("decision_id"),
+        "verdict": authorization.get("verdict"),
+        "risk_tier": authorization.get("risk_tier"),
+        "approval": authorization.get("approval"),
+        "restrictions": authorization.get("restrictions"),
+        "tool_ledger_id": tool_ledger.get("ledger_id"),
+        "ledger_path": str(ledger_path) if ledger_path is not None else "",
+        "governor_verifier_allowed": verification.get("allowed") if isinstance(verification, dict) else None,
+        "governor_verifier_reason_codes": verification.get("reason_codes", []) if isinstance(verification, dict) else [],
+    }
+
+
+def browser_use_verify_harness_authority(authority: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+    kernel = authority.get("kernel")
+    action = authority.get("action") if isinstance(authority.get("action"), dict) else {}
+    governor_decision = authority.get("governor_decision") if isinstance(authority.get("governor_decision"), dict) else None
+    verifier = getattr(kernel, "verify_governor_execution_authority", None)
+    if not callable(verifier):
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": False,
+            "reason_codes": ["harness_core_verifier_unavailable"],
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+        }
+    expected_capability_id = str(action.get("capability_id") or "")
+    expected_action_type = str(action.get("action_type") or "")
+    action_id = str(action.get("action_id") or "")
+    if not expected_capability_id or not expected_action_type or not action_id:
+        return {
+            "schema_version": "governor-consumer-verification-v1",
+            "allowed": False,
+            "reason_codes": ["browser_use_missing_action_binding"],
+            "source_kind": "governor_decision" if isinstance(governor_decision, dict) else "missing_governor_decision",
+        }
+    return verifier(
+        governor_decision,
+        expected_capability_id=expected_capability_id,
+        expected_action_type=expected_action_type,
+        tool_name=tool_name,
+        action_id=action_id,
+    )
+
+
+def browser_use_harness_authority_allows(authority: dict[str, Any], *, tool_name: str) -> bool:
+    verification = browser_use_verify_harness_authority(authority, tool_name=tool_name)
+    authority["governor_verification"] = verification
+    return bool(verification.get("allowed"))
+
+
+def browser_use_write_harness_ledger(
+    *,
+    authority: dict[str, Any],
+    tool_name: str,
+    status: str,
+    output_path: Path,
+    summary: str,
+    ledger_path: Path,
+) -> dict[str, Any]:
+    kernel = authority["kernel"]
+    pre_execution_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else None
+    finalizer = getattr(kernel, "finalize_tool_call_ledger", None)
+    if pre_execution_ledger is None or not callable(finalizer):
+        raise RuntimeError("Harness Core pre-execution ledger is required before browser-use execution can be finalized.")
+    ledger = finalizer(
+        pre_execution_ledger,
+        status=status,
+        output_path=str(output_path),
+        summary=summary,
+    )
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(ledger_path, ledger)
+    authority["tool_ledger"] = ledger
+    authority["governor_decision"] = kernel.governor_decision(
+        authority["envelope"],
+        authorizations=[authority["authorization"]],
+        tool_ledgers=[ledger],
+    )
+    return ledger
+
+
+def browser_use_authority_block_payload(
+    *,
+    base_payload: dict[str, Any],
+    receipt_path: Path,
+    reason: str,
+    authority: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        **base_payload,
+        "ok": False,
+        "status": "blocked",
+        "last_failure_reason": reason,
+        "receipt_path": str(receipt_path),
+        "harness_authority": browser_use_harness_summary(authority)
+        if authority is not None
+        else {
+            "schema_version": "spark.browser_use.harness_authority.v1",
+            "verdict": "unavailable",
+            "reason": reason,
+        },
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(receipt_path, payload)
+    return payload
+
+
 def browser_use_probe_payload() -> dict[str, Any]:
     cli_path = browser_use_cli_path()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -6156,6 +6461,42 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
     session = "spark-browser-" + hashlib.sha256(f"{url}:{now}".encode("utf-8")).hexdigest()[:12]
     receipt_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.json"
     screenshot_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}.png"
+    args_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-args.json"
+    ledger_path = BROWSER_USE_STATUS_DIR / "actions" / f"{session}-ledger.json"
+    atomic_write_json(
+        args_path,
+        {
+            "schema_version": "spark.browser_use.args.v1",
+            "action": base_payload["action"],
+            "url": url,
+            "screenshot": bool(screenshot),
+        },
+    )
+    try:
+        browser_use_tool_name = "browser-use open/screenshot"
+        authority = browser_use_harness_authorize(
+            action_type="browser_action",
+            risk_tier="read",
+            summary=f"Use browser-use to {'capture a screenshot of' if screenshot else 'open and read'} a URL.",
+            raw_turn_summary=f"spark browser-use {'screenshot' if screenshot else 'open'} {url}",
+            args_path=args_path,
+            tool_name=browser_use_tool_name,
+            output_path=receipt_path,
+            requires_confirmation=False,
+        )
+    except RuntimeError as exc:
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason=str(exc),
+        )
+    if not browser_use_harness_authority_allows(authority, tool_name=browser_use_tool_name):
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason="Harness Core verifier did not authorize the browser-use action.",
+            authority=authority,
+        )
     proofs: list[str] = []
     try:
         run_browser_use_command(cli_path, "--session", session, "open", url, timeout=90)
@@ -6187,6 +6528,15 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
                 "sensitive click workflows",
             ],
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name=browser_use_tool_name,
+            status="success",
+            output_path=receipt_path,
+            summary="browser-use read action completed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
         return payload
@@ -6201,6 +6551,15 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
             "proofs": proofs,
             "receipt_path": str(receipt_path),
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name=browser_use_tool_name,
+            status="failure",
+            output_path=receipt_path,
+            summary="browser-use read action failed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(receipt_path, payload)
         return payload
@@ -6304,6 +6663,8 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
     task_dir = BROWSER_USE_STATUS_DIR / "tasks"
     receipt_path = task_dir / f"{session}.json"
     history_path = task_dir / f"{session}-history.json"
+    args_path = task_dir / f"{session}-args.json"
+    ledger_path = task_dir / f"{session}-ledger.json"
     base_payload: dict[str, Any] = {
         "backend_kind": "browser_use_agent",
         "action": "task",
@@ -6327,6 +6688,42 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         }
 
     task_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        args_path,
+        {
+            "schema_version": "spark.browser_use.args.v1",
+            "action": "task",
+            "task_excerpt": browser_use_bounded_text(cleaned_goal, 1200),
+            "url": url,
+            "max_steps": steps,
+        },
+    )
+    try:
+        browser_use_tool_name = "browser-use agent task"
+        authority = browser_use_harness_authorize(
+            action_type="browser_action",
+            risk_tier="high",
+            summary="Run a browser-use agent task through Spark CLI.",
+            raw_turn_summary=f"spark browser-use task {browser_use_bounded_text(cleaned_goal, 500)}",
+            args_path=args_path,
+            tool_name=browser_use_tool_name,
+            output_path=receipt_path,
+            requires_confirmation=True,
+        )
+    except RuntimeError as exc:
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason=str(exc),
+        )
+    if not browser_use_harness_authority_allows(authority, tool_name=browser_use_tool_name):
+        return browser_use_authority_block_payload(
+            base_payload=base_payload,
+            receipt_path=receipt_path,
+            reason="Harness Core verifier did not authorize the browser-use task.",
+            authority=authority,
+        )
+
     start_page: dict[str, Any] = {}
     if url:
         start_page = browser_use_task_start_page(url)
@@ -6339,6 +6736,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
                 "last_failure_at": now,
                 "last_failure_reason": f"Could not read the starting page before the task: {start_page.get('last_failure_reason') or 'unknown'}",
             }
+            browser_use_write_harness_ledger(
+                authority=authority,
+                tool_name=browser_use_tool_name,
+                status="failure",
+                output_path=receipt_path,
+                summary="browser-use task failed before agent execution because the starting page could not be read.",
+                ledger_path=ledger_path,
+            )
+            payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
             atomic_write_json(receipt_path, payload)
             return payload
     try:
@@ -6364,6 +6770,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
         else:
             payload["last_failure_at"] = now
             payload["last_failure_reason"] = browser_use_task_failure_reason(result)
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name=browser_use_tool_name,
+            status="success" if completed else "failure",
+            output_path=receipt_path,
+            summary="browser-use task completed." if completed else "browser-use task failed.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         atomic_write_json(receipt_path, payload)
         return payload
     except Exception as exc:
@@ -6374,6 +6789,15 @@ def browser_use_task_payload(goal: str, *, start_url: str = "", max_steps: int =
             "last_failure_at": now,
             "last_failure_reason": browser_use_command_failure_message(exc),
         }
+        browser_use_write_harness_ledger(
+            authority=authority,
+            tool_name=browser_use_tool_name,
+            status="failure",
+            output_path=receipt_path,
+            summary="browser-use task raised an exception.",
+            ledger_path=ledger_path,
+        )
+        payload["harness_authority"] = browser_use_harness_summary(authority, ledger_path=ledger_path)
         atomic_write_json(receipt_path, payload)
         return payload
 
@@ -7467,13 +7891,15 @@ def collect_status_payload() -> dict[str, Any]:
     tracked_pids = load_pids()
     public_tracked_pids = public_diagnostic_payload(tracked_pids)
     repair_hints = build_status_repair_hints(modules, module_results, setup_state, tracked_pids)
+    profile_warnings = telegram_profile_warnings(setup_state)
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
     payload = {
         "ok": ok,
-        "summary": "Spark CLI spike status",
+        "summary": "Spark CLI status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
+        "telegram_profile_warnings": profile_warnings,
         "modules": module_results,
         "tracked_pids": public_tracked_pids,
         "config_dir": public_local_path_ref(CONFIG_DIR),
@@ -7502,6 +7928,8 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     print(f"- chip manifests: {summary['chip_manifests']}")
     print(f"- skill graphs: {summary['skill_graphs']}")
     print(f"- builder events: {summary.get('builder_event_rows') or 0}")
+    contract_coverage = summary.get("contract_coverage") if isinstance(summary.get("contract_coverage"), dict) else {}
+    print(f"- contract coverage release blockers: {contract_coverage.get('release_blocker_count') or 0}")
     print(f"- gaps: {summary['gaps']}")
     print(f"- output: {out_dir}")
     print("Redaction: no raw secrets, logs, conversations, memory evidence, or event summaries are exported.")
@@ -7796,32 +8224,33 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
 
     if not payload.get("modules"):
-        print(payload["summary"])
-        print(payload["repair"])
+        print_redacted_console(payload["summary"])
+        print_redacted_console(payload["repair"])
         return 1
 
-    print(payload["summary"])
+    print_redacted_console(payload["summary"])
     ingress_owner = payload.get("telegram_ingress_owner")
     if ingress_owner:
-        print(f"Telegram ingress owner: {ingress_owner}")
+        print_redacted_console(f"Telegram ingress owner: {ingress_owner}")
     llm_state = payload.get("llm")
     if isinstance(llm_state, dict) and llm_state.get("provider"):
         if llm_state["provider"] == "not_configured":
             print("LLM provider: not configured")
         else:
-            model = llm_state.get("model") or "default"
-            print(f"LLM provider: {llm_state['provider']} ({model})")
+            provider = redact_shareable_text(str(llm_state["provider"]))
+            model = redact_shareable_text(str(llm_state.get("model") or "default"))
+            print_redacted_console(f"LLM provider: {provider} ({model})")
         roles = llm_state.get("roles")
         if isinstance(roles, dict):
             role_summary = ", ".join(
-                f"{role}={roles.get(role, {}).get('provider', llm_state['provider'])}"
+                f"{role}={redact_shareable_text(str(roles.get(role, {}).get('provider', llm_state['provider'])))}"
                 for role in LLM_ROLES
             )
-            print(f"LLM roles: {role_summary}")
+            print_redacted_console(f"LLM roles: {role_summary}")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         profile_parts = []
@@ -7836,12 +8265,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             if item.get("autostart") is False:
                 details.append("manual")
             suffix = f"({', '.join(details)})" if details else ""
-            profile_parts.append(f"{item.get('profile')}={'running' if item.get('running') else 'stopped'}{suffix}")
+            profile = redact_shareable_text(str(item.get("profile") or "unknown"))
+            profile_parts.append(f"{profile}={'running' if item.get('running') else 'stopped'}{suffix}")
         profile_summary = ", ".join(profile_parts)
         if profile_summary:
-            print(f"Telegram profiles: {profile_summary}")
+            print_redacted_console(f"Telegram profiles: {profile_summary}")
     for hint in payload.get("repair_hints", []):
-        print(f"Repair: {expand_spark_home_placeholder(str(hint))}")
+        print_redacted_console(f"Repair: {expand_spark_home_placeholder(str(hint))}")
+    for warning in payload.get("telegram_profile_warnings", []):
+        print_redacted_console(f"Warning: {warning}")
     print("")
 
     exit_code = 0
@@ -7853,11 +8285,15 @@ def cmd_status(args: argparse.Namespace) -> int:
             marker = "[OK]"
         else:
             marker = "[ERR]"
-        detail = expand_spark_home_placeholder(str(module["detail"]))
+        detail = redact_shareable_text(expand_spark_home_placeholder(str(module["detail"])))
         if module.get("repair_hints"):
-            expanded_hints = [expand_spark_home_placeholder(str(hint)) for hint in module["repair_hints"]]
+            expanded_hints = [
+                redact_shareable_text(expand_spark_home_placeholder(str(hint)))
+                for hint in module["repair_hints"]
+            ]
             detail = f"{detail} -- {' '.join(expanded_hints)}"
-        print(f"{marker} {module['name']:<26} {detail}")
+        module_name = redact_shareable_text(str(module["name"]))
+        print_redacted_console(f"{marker} {module_name:<26} {detail}")
         if healthy is False:
             exit_code = 1
     if payload.get("repair_hints"):
@@ -7979,7 +8415,7 @@ def initial_follow_log_lines(path: Path, line_count: int) -> list[str]:
 def cmd_live_status(args: argparse.Namespace) -> int:
     payload = collect_status_payload()
     if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
     print("Spark Live")
     print("One surface for Telegram, Mission Control, memory, and provider routing.")
@@ -7996,12 +8432,14 @@ def cmd_live_status(args: argparse.Namespace) -> int:
                 f"{role}={roles.get(role, {}).get('provider', llm_state.get('provider', 'not_configured'))}"
                 for role in LLM_ROLES
             )
-            print(f"LLM roles: {role_summary}")
+            print_redacted_console(f"LLM roles: {role_summary}")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
         running = [item for item in profiles if isinstance(item, dict) and item.get("running")]
         stopped = [item for item in profiles if isinstance(item, dict) and not item.get("running")]
         print(f"Telegram profiles: {len(running)} running, {len(stopped)} stopped")
+    for warning in payload.get("telegram_profile_warnings", []):
+        print_redacted_console(f"Warning: {warning}")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     for name in ["spawner-ui", "spark-telegram-bot", "spark-intelligence-builder", "domain-chip-memory", "spark-researcher", "spark-character"]:
         module = next((item for item in modules if isinstance(item, dict) and item.get("name") == name), None)
@@ -8009,12 +8447,12 @@ def cmd_live_status(args: argparse.Namespace) -> int:
             continue
         healthy = module.get("healthy")
         marker = "[OK]" if healthy else "[SKIP]" if healthy is None else "[FIX]"
-        print(f"{marker} {name}: {module.get('detail')}")
+        print_redacted_console(f"{marker} {name}: {module.get('detail') or ''}")
     if payload.get("repair_hints"):
         print("")
         print("Fix next:")
         for hint in payload.get("repair_hints", []):
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
         print("  - For deeper help: spark doctor llm \"Spark Live is not ready\" --save-report")
     print("")
     print("Useful:")
@@ -8030,13 +8468,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if getattr(args, "doctor_command", None) == "specialization-loop":
         payload = collect_specialization_loop_payload(proof=bool(getattr(args, "proof", False)))
         if args.json:
-            print(json.dumps(payload, indent=2))
+            print_redacted_json_payload(payload)
         else:
             print_plain_specialization_loop_doctor(payload)
         return 0 if payload.get("ok") else 1
     payload = collect_status_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
     else:
         print_plain_doctor(payload)
     return 0 if payload.get("ok") else 1
@@ -8050,7 +8488,7 @@ def _doctor_module_summary(modules: list[Any], name: str, label: str) -> str:
     state = "ready" if healthy else "not checked" if healthy is None else "needs attention"
     detail = str(module.get("detail") or "").strip()
     if detail:
-        return f"- {label}: {state} - {detail}"
+        return f"- {label}: {state} - {redact_shareable_text(detail)}"
     return f"- {label}: {state}"
 
 
@@ -8064,28 +8502,28 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     print("")
     modules = payload.get("modules") if isinstance(payload.get("modules"), list) else []
     llm_state = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
-    provider = llm_state.get("provider") or "not configured"
+    provider = redact_shareable_text(str(llm_state.get("provider") or "not configured"))
     if provider == "not_configured":
         provider = "not configured"
-    model = llm_state.get("model") or "default"
+    model = redact_shareable_text(str(llm_state.get("model") or "default"))
     print("Core")
-    print(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
-    print(f"- LLM: {provider} ({model})")
-    print(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
-    print(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
-    print(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
+    print_redacted_console(_doctor_module_summary(modules, "spark-telegram-bot", "Telegram"))
+    print_redacted_console(f"- LLM: {provider} ({model})")
+    print_redacted_console(_doctor_module_summary(modules, "spark-intelligence-builder", "Builder"))
+    print_redacted_console(_doctor_module_summary(modules, "domain-chip-memory", "Memory"))
+    print_redacted_console(_doctor_module_summary(modules, "spawner-ui", "Spawner"))
     print("")
     if setup_refresh:
         print("Setup refresh")
-        print(f"- Status: {setup_refresh.get('status') or 'pending'}")
+        print_redacted_console(f"- Status: {setup_refresh.get('status') or 'pending'}")
         summary = str(setup_refresh.get("summary") or "").strip()
         if summary:
-            print(f"- Note: {summary}")
+            print_redacted_console(f"- Note: {summary}")
         if setup_refresh.get("safe_to_continue"):
             print("- Existing runtime: safe to keep using")
         next_step = str(setup_refresh.get("next") or "").strip()
         if next_step:
-            print(f"- Resume: {next_step}")
+            print_redacted_console(f"- Resume: {next_step}")
         print("")
     profiles = payload.get("telegram_profiles")
     if isinstance(profiles, list) and profiles:
@@ -8098,7 +8536,7 @@ def print_plain_doctor(payload: dict[str, Any]) -> None:
     if hints:
         print("Fix next")
         for hint in hints[:5]:
-            print(f"- {hint}")
+            print_redacted_console(f"- {hint}")
         if len(hints) > 5:
             print(f"- {len(hints) - 5} more repair hint(s); run `spark status --json` for details.")
         print("")
@@ -8221,7 +8659,7 @@ def cmd_support(args: argparse.Namespace) -> int:
         raise SystemExit(f"Unknown support command: {args.support_command}")
     payload = collect_support_bundle_payload(include_logs=args.include_logs, log_lines=args.log_lines)
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0
     path = write_support_bundle(payload)
     print("Spark support bundle")
@@ -9191,7 +9629,7 @@ def truthy_env(name: str) -> bool:
 
 
 def runtime_guard_bypassed(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "allow_dirty_runtime", False)) or truthy_env("SPARK_ALLOW_DIRTY_RUNTIME")
+    return bool(getattr(args, "allow_dirty_runtime", False))
 
 
 def runtime_guard_is_strict() -> bool:
@@ -9200,13 +9638,25 @@ def runtime_guard_is_strict() -> bool:
 
 def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Namespace) -> bool:
     """Warn, or fail in strict mode, when Spark would run a dirty managed checkout."""
-    if runtime_guard_bypassed(args):
-        return True
     warnings = runtime_supply_chain_warnings(modules)
     if not warnings:
         return True
 
     strict = runtime_guard_is_strict()
+    if runtime_guard_bypassed(args):
+        if cli_approval_authority_allows(
+            getattr(args, "_spark_cli_approval_authority", None),
+            action_class="remote_code_execution",
+        ):
+            print("Spark runtime hygiene override: Harness Core authorized this dirty runtime run.")
+            for warning in warnings:
+                print(f"  - {warning}")
+            return True
+        print("Spark runtime hygiene blocked: --allow-dirty-runtime requires Harness Core approval for this command.")
+        for warning in warnings:
+            print(f"  - {warning}")
+        return False
+
     marker = "blocked" if strict else "warning"
     print(f"Spark runtime hygiene {marker}: installed runtime code has drifted from the pinned registry.")
     for warning in warnings:
@@ -9218,7 +9668,7 @@ def emit_runtime_supply_chain_guard(modules: Iterable[Module], args: argparse.Na
     print("  - Test dev servers on another port, for example 5174, then commit/push and run spark update.")
     if strict:
         print("")
-        print("To run anyway for local development, add --allow-dirty-runtime or set SPARK_ALLOW_DIRTY_RUNTIME=1.")
+        print("To run anyway for local development, add --allow-dirty-runtime and approve the Harness Core prompt.")
         return False
     print("")
     print("Continuing for now. To silence this for intentional local runtime testing, add --allow-dirty-runtime.")
@@ -9879,6 +10329,17 @@ def cmd_security(args: argparse.Namespace) -> int:
 
 
 def cmd_approval(args: argparse.Namespace) -> int:
+    if args.approval_command == "ledger":
+        payload = query_cli_approval_ledgers(
+            limit=int(getattr(args, "limit", 20) or 20),
+            turn_id=str(getattr(args, "turn_id", "") or "") or None,
+            ledger_dir=CLI_APPROVAL_LEDGER_DIR,
+        )
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload.get("ok") else 1
+        print_cli_approval_ledger_query(payload)
+        return 0 if payload.get("ok") else 1
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
     command = list(args.command or [])
@@ -9961,11 +10422,85 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print(f"Next: {payload.get('next')}")
 
 
+def create_level5_access_governor_decision(*, tool_name: str, summary: str) -> dict[str, Any]:
+    from .sandbox.access import (
+        LEVEL5_ACTION_TYPE,
+        LEVEL5_DISABLE_CAPABILITY_ID,
+        LEVEL5_DISABLE_TOOL_NAME,
+        LEVEL5_ENABLE_CAPABILITY_ID,
+        LEVEL5_ENABLE_TOOL_NAME,
+    )
+
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    if tool_name == LEVEL5_ENABLE_TOOL_NAME:
+        capability_id = LEVEL5_ENABLE_CAPABILITY_ID
+        args_path = "spark-cli-access://level5/enable"
+    elif tool_name == LEVEL5_DISABLE_TOOL_NAME:
+        capability_id = LEVEL5_DISABLE_CAPABILITY_ID
+        args_path = "spark-cli-access://level5/disable"
+    else:
+        raise RuntimeError(f"Unsupported Level 5 access tool: {tool_name}")
+    evidence = [
+        evidence_ref(
+            "fresh_user_intent",
+            "spark-cli.access",
+            "Local operator invoked an explicit Spark CLI Level 5 access command.",
+            confidence=1.0,
+        ),
+        evidence_ref(
+            "human_confirmation",
+            "spark-cli.access",
+            "The command line includes the explicit Level 5 access operation.",
+            confidence=1.0,
+        ),
+    ]
+    action = kernel.proposed_action(
+        capability_id=capability_id,
+        action_type=LEVEL5_ACTION_TYPE,
+        risk_tier="high",
+        summary=summary,
+        args_path=args_path,
+        requires_confirmation=True,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=summary,
+        raw_turn_summary="Local operator typed an explicit Spark CLI Level 5 access command.",
+        evidence=evidence,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier="high",
+        confidence=1.0,
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=evidence[1])
+    ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=tool_name,
+        status="not_started",
+        output_path=args_path,
+        summary="Level 5 access mutation is authorized but not started.",
+    )
+    return kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[ledger],
+        reply_style="compact_status",
+        reply_instruction=summary,
+    )
+
+
 def cmd_access(args: argparse.Namespace) -> int:
-    from .sandbox.access import access_lane_payload, level5_disable_payload
+    from .sandbox.access import LEVEL5_DISABLE_TOOL_NAME, LEVEL5_ENABLE_TOOL_NAME, access_lane_payload, level5_disable_payload
 
     if getattr(args, "access_command", "") == "disable-level5":
-        payload = level5_disable_payload()
+        governor_decision = create_level5_access_governor_decision(
+            tool_name=LEVEL5_DISABLE_TOOL_NAME,
+            summary="Disable persisted Spark Level 5 access guardrails.",
+        )
+        payload = level5_disable_payload(governor_decision=governor_decision)
         if getattr(args, "json", False):
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
@@ -9978,11 +10513,22 @@ def cmd_access(args: argparse.Namespace) -> int:
     goal = str(getattr(args, "goal", "") or "")
     if requested_lane and requested_lane not in goal.lower():
         goal = f"{goal} {requested_lane}".strip()
+    governor_decision = None
+    if (
+        getattr(args, "access_command", "") == "setup"
+        and int(getattr(args, "level", 4) or 4) >= 5
+        and bool(getattr(args, "enable_high_agency", False))
+    ):
+        governor_decision = create_level5_access_governor_decision(
+            tool_name=LEVEL5_ENABLE_TOOL_NAME,
+            summary="Persist Spark Level 5 high-agency access guardrails.",
+        )
     payload = access_lane_payload(
         level=int(getattr(args, "level", 4) or 4),
         goal=goal,
         setup=getattr(args, "access_command", "") == "setup",
         enable_high_agency=bool(getattr(args, "enable_high_agency", False)),
+        governor_decision=governor_decision,
     )
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
@@ -10194,11 +10740,14 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
+    "runtime_state_mutation",
+    "configuration_mutation",
+    "high_cost_execution",
 }
 
 
 def approval_enforcement_enabled() -> bool:
-    return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+    return True
 
 
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
@@ -10220,9 +10769,347 @@ def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
         return False
     if decision.action_class not in APPROVAL_ENFORCED_ACTION_CLASSES:
         return False
-    if getattr(args, "command", "") == "setup" and decision.action_class == "identity_access_mutation":
-        return False
     return True
+
+
+def cli_approval_spark_id_fragment(value: str) -> str:
+    fragment = re.sub(r"[^a-z0-9_.:-]+", "-", str(value or "").strip().lower()).strip("-")
+    return fragment or "unknown"
+
+
+def cli_approval_capability_id(decision: Any) -> str:
+    return f"{CLI_APPROVAL_CAPABILITY_PREFIX}.{cli_approval_spark_id_fragment(decision.action_class)}"
+
+
+def cli_approval_action_type(decision: Any) -> str:
+    return "run_command"
+
+
+def create_cli_approval_harness_authority(decision: Any, command_argv: list[str]) -> dict[str, Any]:
+    HarnessKernel, evidence_ref = load_harness_core_symbols()
+    kernel = HarnessKernel(surface="cli")
+    command_digest_ref = f"spark-cli-command-digest:{decision.command_digest}"
+    capability_id = cli_approval_capability_id(decision)
+    action_type = cli_approval_action_type(decision)
+    evidence = [
+        evidence_ref(
+            "fresh_user_intent",
+            "spark-cli.approval",
+            f"Local operator invoked this Spark CLI command with digest {decision.command_digest}.",
+            confidence=1.0,
+        ),
+        evidence_ref(
+            "positive_command",
+            "spark-cli.approval",
+            f"Sensitive Spark CLI command requested with digest {decision.command_digest}.",
+            confidence=0.99,
+        ),
+        evidence_ref(
+            "runtime_state",
+            "spark-cli.approval",
+            f"Approval classifier marked {decision.action_class} risk {decision.risk}.",
+            confidence=0.99,
+        ),
+    ]
+    action = kernel.proposed_action(
+        capability_id=capability_id,
+        action_type=action_type,
+        risk_tier=str(decision.risk),
+        summary=str(decision.reason),
+        args_path=command_digest_ref,
+        requires_confirmation=True,
+    )
+    envelope = kernel.create_envelope(
+        selected_move="execute_action",
+        intent_summary=f"Run sensitive Spark CLI action {decision.action_class}.",
+        raw_turn_summary="Local operator typed the exact Spark CLI approval phrase.",
+        evidence=evidence,
+        proposed_actions=[action],
+        authority_state="executable",
+        risk_tier=str(decision.risk),
+        confidence=0.99,
+        requires_human_confirmation=False,
+    )
+    approval_ref = evidence_ref(
+        "human_confirmation",
+        "spark-cli.approval",
+        "Operator typed the exact Spark CLI approval phrase for this command digest.",
+        confidence=1.0,
+    )
+    authorization = kernel.authorize(envelope, action, approval_ref=approval_ref)
+    pre_execution_ledger = kernel.record_tool_call(
+        envelope=envelope,
+        action=action,
+        authorization=authorization,
+        tool_name=CLI_APPROVAL_TOOL_NAME,
+        status="not_started",
+        output_path=command_digest_ref,
+        summary="Sensitive Spark CLI command is approved but has not executed yet.",
+    )
+    governor_decision = kernel.governor_decision(
+        envelope,
+        authorizations=[authorization],
+        tool_ledgers=[pre_execution_ledger],
+    )
+    verification = kernel.verify_governor_execution_authority(
+        governor_decision,
+        expected_capability_id=capability_id,
+        expected_action_type=action_type,
+        tool_name=CLI_APPROVAL_TOOL_NAME,
+        action_id=str(action.get("action_id") or ""),
+    )
+    ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{decision.command_digest[:12]}.json"
+    return {
+        "kernel": kernel,
+        "decision": decision,
+        "command_argv": list(command_argv),
+        "command_digest_ref": command_digest_ref,
+        "envelope": envelope,
+        "action": action,
+        "authorization": authorization,
+        "tool_ledger": pre_execution_ledger,
+        "governor_decision": governor_decision,
+        "governor_verification": verification,
+        "ledger_path": ledger_path,
+    }
+
+
+def command_is_harness_core_bootstrap_mutation(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
+    if str(getattr(decision, "action_class", "")) != "runtime_state_mutation":
+        return False
+    if str(getattr(args, "target", "")) != "spark-harness-core":
+        return False
+    if not bool(getattr(args, "skip_install_commands", False)):
+        return False
+    normalized = [str(part) for part in command_argv]
+    return (
+        len(normalized) >= 3
+        and normalized[0] == "spark"
+        and normalized[1] in {"install", "update"}
+        and normalized[2] == "spark-harness-core"
+    )
+
+
+def create_cli_approval_bootstrap_authority(
+    args: argparse.Namespace,
+    decision: Any,
+    command_argv: list[str],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    command_digest_ref = f"spark-cli-command-digest:{decision.command_digest}"
+    ledger_path = CLI_APPROVAL_LEDGER_DIR / (
+        f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-bootstrap-{decision.command_digest[:12]}.json"
+    )
+    return {
+        "schema_version": "spark-cli-approval-bootstrap-authority-v1",
+        "decision": decision,
+        "command_argv": list(command_argv),
+        "command_digest_ref": command_digest_ref,
+        "ledger_path": ledger_path,
+        "bootstrap": {
+            "allowed": True,
+            "reason": reason,
+            "target": str(getattr(args, "target", "")),
+            "requires_exact_phrase": True,
+            "requires_interactive_tty": True,
+            "requires_skip_install_commands": True,
+            "authority_limit": "install/update spark-harness-core only; all later sensitive commands require Harness Core authority",
+        },
+    }
+
+
+def cli_harness_core_authority_ready() -> bool:
+    try:
+        HarnessKernel, _ = load_harness_core_symbols()
+    except Exception:
+        return False
+    required_methods = (
+        "governor_decision",
+        "verify_governor_execution_authority",
+        "record_tool_call",
+        "finalize_tool_call_ledger",
+    )
+    return all(callable(getattr(HarnessKernel, method, None)) for method in required_methods)
+
+
+def bootstrap_digest_approval_allows(args: argparse.Namespace, decision: Any, command_argv: list[str]) -> bool:
+    if not command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
+        return False
+    provided = os.environ.get(CLI_APPROVAL_BOOTSTRAP_DIGEST_ENV, "").strip().lower()
+    if not provided or provided != str(getattr(decision, "command_digest", "")).strip().lower():
+        return False
+    return not cli_harness_core_authority_ready()
+
+
+def cli_approval_authority_allows(authority: Any, *, action_class: str | None = None) -> bool:
+    if not isinstance(authority, dict):
+        return False
+    if authority.get("schema_version") == "spark-cli-approval-bootstrap-authority-v1":
+        if action_class is not None:
+            decision = authority.get("decision")
+            if str(getattr(decision, "action_class", "")) != action_class:
+                return False
+        bootstrap = authority.get("bootstrap") if isinstance(authority.get("bootstrap"), dict) else {}
+        return bool(bootstrap.get("allowed"))
+    if action_class is not None:
+        decision = authority.get("decision")
+        if str(getattr(decision, "action_class", "")) != action_class:
+            return False
+    verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
+    return bool(verification.get("allowed"))
+
+
+def finalize_cli_approval_authority(args: argparse.Namespace, exit_code: int) -> dict[str, Any] | None:
+    authority = getattr(args, "_spark_cli_approval_authority", None)
+    if not isinstance(authority, dict):
+        return None
+    if authority.get("schema_version") == "spark-cli-approval-bootstrap-authority-v1":
+        decision = authority.get("decision")
+        ledger_path = authority.get("ledger_path")
+        if not isinstance(ledger_path, Path):
+            digest = str(getattr(decision, "command_digest", "unknown"))[:12]
+            ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-bootstrap-{digest}.json"
+        ledger = {
+            "schema_version": "spark-cli-approval-bootstrap-ledger-v1",
+            "tool_name": CLI_APPROVAL_BOOTSTRAP_TOOL_NAME,
+            "command_digest_ref": str(authority.get("command_digest_ref") or ""),
+            "command_argv": authority.get("command_argv") or [],
+            "action_class": str(getattr(decision, "action_class", "")),
+            "risk": str(getattr(decision, "risk", "")),
+            "target": authority.get("bootstrap", {}).get("target") if isinstance(authority.get("bootstrap"), dict) else "",
+            "bootstrap": authority.get("bootstrap") if isinstance(authority.get("bootstrap"), dict) else {},
+            "result": {
+                "status": "success" if exit_code == 0 else "failure",
+                "exit_code": exit_code,
+                "summary": "Harness Core bootstrap mutation completed; subsequent sensitive commands require Harness Core authority.",
+            },
+        }
+        atomic_write_json(ledger_path, ledger)
+        authority["tool_ledger"] = ledger
+        return ledger
+    kernel = authority.get("kernel")
+    pre_execution_ledger = authority.get("tool_ledger") if isinstance(authority.get("tool_ledger"), dict) else None
+    finalizer = getattr(kernel, "finalize_tool_call_ledger", None)
+    if pre_execution_ledger is None or not callable(finalizer):
+        return None
+    status = "success" if exit_code == 0 else "failure"
+    ledger = finalizer(
+        pre_execution_ledger,
+        status=status,
+        output_path=str(authority.get("command_digest_ref") or ""),
+        summary=f"Sensitive Spark CLI command completed with exit code {exit_code}.",
+    )
+    ledger_path = authority.get("ledger_path")
+    if not isinstance(ledger_path, Path):
+        decision = authority.get("decision")
+        digest = str(getattr(decision, "command_digest", "unknown"))[:12]
+        ledger_path = CLI_APPROVAL_LEDGER_DIR / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{digest}.json"
+    atomic_write_json(ledger_path, ledger)
+    authority["tool_ledger"] = ledger
+    governor = getattr(kernel, "governor_decision", None)
+    if callable(governor):
+        authority["governor_decision"] = governor(
+            authority["envelope"],
+            authorizations=[authority["authorization"]],
+            tool_ledgers=[ledger],
+        )
+    return ledger
+
+
+def summarize_cli_approval_ledger(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
+    raw_ref = arguments.get("raw_ref") if isinstance(arguments.get("raw_ref"), dict) else {}
+    sanitized_ref = arguments.get("sanitized_ref") if isinstance(arguments.get("sanitized_ref"), dict) else {}
+    output_ref = result.get("sanitized_output_ref") if isinstance(result.get("sanitized_output_ref"), dict) else {}
+    command_digest_ref = (
+        str(payload.get("command_digest_ref") or "")
+        or str(raw_ref.get("path_or_uri") or "")
+        or str(sanitized_ref.get("path_or_uri") or "")
+        or str(output_ref.get("path_or_uri") or "")
+    )
+    stat_result = path.stat()
+    return {
+        "path": str(path),
+        "schema_version": str(payload.get("schema_version") or ""),
+        "ledger_id": str(payload.get("ledger_id") or ""),
+        "turn_id": str(payload.get("turn_id") or ""),
+        "action_id": str(payload.get("action_id") or ""),
+        "capability_id": str(payload.get("capability_id") or ""),
+        "tool_name": str(payload.get("tool_name") or ""),
+        "status": str(result.get("status") or payload.get("status") or ""),
+        "exit_code": result.get("exit_code"),
+        "action_class": str(payload.get("action_class") or ""),
+        "risk": str(payload.get("risk") or ""),
+        "target": str(payload.get("target") or ""),
+        "command_digest_ref": command_digest_ref,
+        "updated_at": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "size_bytes": stat_result.st_size,
+    }
+
+
+def query_cli_approval_ledgers(
+    *,
+    limit: int = 20,
+    turn_id: str | None = None,
+    ledger_dir: Path = CLI_APPROVAL_LEDGER_DIR,
+) -> dict[str, Any]:
+    normalized_limit = max(1, min(int(limit or 20), 200))
+    if not ledger_dir.exists():
+        return {
+            "ok": True,
+            "ledger_dir": str(ledger_dir),
+            "count": 0,
+            "ledgers": [],
+            "errors": [],
+            "redaction": "raw command argv omitted; use command_digest_ref for correlation",
+        }
+    ledgers: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for path in sorted(ledger_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append({"path": str(path), "error": str(exc)})
+            continue
+        if not isinstance(payload, dict):
+            errors.append({"path": str(path), "error": "ledger payload is not a JSON object"})
+            continue
+        summary = summarize_cli_approval_ledger(path, payload)
+        if turn_id and summary["turn_id"] != turn_id:
+            continue
+        ledgers.append(summary)
+        if len(ledgers) >= normalized_limit:
+            break
+    return {
+        "ok": not errors,
+        "ledger_dir": str(ledger_dir),
+        "count": len(ledgers),
+        "ledgers": ledgers,
+        "errors": errors,
+        "redaction": "raw command argv omitted; use command_digest_ref for correlation",
+    }
+
+
+def print_cli_approval_ledger_query(payload: dict[str, Any]) -> None:
+    print("Spark approval ledgers")
+    print(f"Store: {payload['ledger_dir']}")
+    print(f"Rows: {payload['count']}")
+    print(f"Redaction: {payload['redaction']}")
+    for row in payload.get("ledgers", []):
+        if not isinstance(row, dict):
+            continue
+        status = row.get("status") or "unknown"
+        turn_id = row.get("turn_id") or "none"
+        ledger_id = row.get("ledger_id") or Path(str(row.get("path") or "")).name
+        tool_name = row.get("tool_name") or "unknown"
+        print(f"- {status} {tool_name} turn={turn_id} ledger={ledger_id}")
+    for error in payload.get("errors", []):
+        if isinstance(error, dict):
+            print(f"- error {error.get('path')}: {error.get('error')}")
 
 
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
@@ -10231,6 +11118,15 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
     context = approval_context_for_args(args)
     decision = approval_required_for_command(command_argv, context)
     if not should_enforce_approval(args, decision):
+        return None
+    if bootstrap_digest_approval_allows(args, decision, command_argv):
+        authority = create_cli_approval_bootstrap_authority(
+            args,
+            decision,
+            command_argv,
+            reason="Harness Core authority API missing during digest-bound bootstrap mutation.",
+        )
+        setattr(args, "_spark_cli_approval_authority", authority)
         return None
     if decision.approval_mode == "blocked":
         print("Spark blocked a sensitive action because this shell is non-interactive.")
@@ -10254,6 +11150,40 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
             "at the prompt to proceed."
         )
         return 2
+    if command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
+        authority = create_cli_approval_bootstrap_authority(
+            args,
+            decision,
+            command_argv,
+            reason=(
+                "Harness Core self-install/update uses digest-bound bootstrap authority after the exact "
+                "approval phrase so the CLI does not consult a stale authority package while replacing it."
+            ),
+        )
+        setattr(args, "_spark_cli_approval_authority", authority)
+        return None
+    try:
+        authority = create_cli_approval_harness_authority(decision, command_argv)
+    except Exception as exc:
+        if command_is_harness_core_bootstrap_mutation(args, decision, command_argv):
+            authority = create_cli_approval_bootstrap_authority(
+                args,
+                decision,
+                command_argv,
+                reason=f"Harness Core authority API missing during explicit bootstrap mutation: {exc}",
+            )
+            setattr(args, "_spark_cli_approval_authority", authority)
+            return None
+        print("Spark blocked the sensitive action because Harness Core authority could not be verified.")
+        print(f"Reason: {exc}")
+        return 2
+    if not cli_approval_authority_allows(authority):
+        verification = authority.get("governor_verification") if isinstance(authority.get("governor_verification"), dict) else {}
+        reasons = ", ".join(str(reason) for reason in verification.get("reason_codes", []) if str(reason)) or "unknown"
+        print("Spark blocked the sensitive action because Harness Core authority did not allow execution.")
+        print(f"Reason: {reasons}")
+        return 2
+    setattr(args, "_spark_cli_approval_authority", authority)
     return None
 
 
@@ -10305,6 +11235,20 @@ def redact_shareable_payload(value: Any) -> Any:
     if isinstance(value, str):
         return redact_shareable_text(value)
     return value
+
+
+def print_redacted_json_payload(payload: Any) -> None:
+    safe_payload = redact_shareable_payload(payload)
+    # Audited share-safe boundary: every value is rebuilt by redact_shareable_payload
+    # before it reaches stdout, and tests cover token/path/id redaction at this sink.
+    sys.stdout.writelines((json.dumps(safe_payload, indent=2), "\n"))
+
+
+def print_redacted_console(value: Any) -> None:
+    safe_text = redact_shareable_text(str(value))
+    # Audited share-safe boundary: every value is rebuilt by redact_shareable_text
+    # before it reaches stdout, and tests cover token/path/id redaction at this sink.
+    sys.stdout.writelines((safe_text, "\n"))
 
 
 SHARE_SAFETY_REMAINING_RISK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -11471,51 +12415,54 @@ def cmd_fix(args: argparse.Namespace) -> int:
     if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
         payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
         if args.json:
-            print(json.dumps(payload, indent=2))
+            print_redacted_json_payload(payload)
             return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
-        print(payload["summary"])
+        print_redacted_console(payload["summary"])
         print("")
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
-            print(f"{marker} {check['name']}: {check['detail']}")
+            print_redacted_console(
+                f"{marker} {redact_shareable_text(str(check['name']))}: "
+                f"{redact_shareable_text(str(check['detail']))}"
+            )
             if not check["ok"] and check.get("repair"):
-                print(f"      {check['repair']}")
+                print_redacted_console(f"      {check['repair']}")
         if args.target == "autostart" and payload.get("hooks"):
             print("")
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print_redacted_console(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
                 for warning in hook.get("warnings", []):
-                    print(f"      warning: {warning}")
+                    print_redacted_console(f"      warning: {warning}")
         print("")
         print("Useful commands:")
         for command in payload["next_commands"]:
-            print(f"  {command}")
+            print_redacted_console(f"  {command}")
         return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
 
     if args.target != "telegram":
         raise SystemExit(f"Unknown fix target: {args.target}")
     payload = collect_telegram_fix_payload()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload.get("ok") else 1
-    print(payload["summary"])
+    print_redacted_console(payload["summary"])
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Useful commands:")
     for command in payload["next_commands"]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
     return 0 if payload.get("ok") else 1
 
 
@@ -13393,32 +14340,32 @@ def collect_first_run_smoke_payload(*, deep: bool = True) -> dict[str, Any]:
 
 
 def print_first_run_smoke_payload(payload: dict[str, Any]) -> None:
-    print(payload["summary"])
-    print(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
+    print_redacted_console(payload["summary"])
+    print_redacted_console(f"Bundle: {payload.get('bundle', 'telegram-starter')}")
     print(f"Mode: {'deep local checks' if payload.get('deep') else 'quick local checks'}")
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Telegram first-run script:")
     for item in payload["telegram_script"]:
-        print(f"  {item}")
+        print_redacted_console(f"  {item}")
     print("")
     print("Pass criteria:")
     for item in payload["success_criteria"]:
-        print(f"  - {item}")
+        print_redacted_console(f"  - {item}")
     print("")
     print("Repair commands:")
     for command in payload["next_commands"][1:]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
@@ -13428,7 +14375,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 
     payload = collect_first_run_smoke_payload(deep=not bool(getattr(args, "quick", False)))
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload["ok"] else 1
     print_first_run_smoke_payload(payload)
     return 0 if payload["ok"] else 1
@@ -13561,25 +14508,25 @@ def cmd_verify(args: argparse.Namespace) -> int:
         payload["summary"] = "Spark onboarding verification"
         payload["onboarding_checklist"] = onboarding_checklist()
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print_redacted_json_payload(payload)
         return 0 if payload["ok"] else 1
-    print(payload["summary"])
-    print(f"Bundle: {payload['bundle']}")
+    print_redacted_console(payload["summary"])
+    print_redacted_console(f"Bundle: {payload['bundle']}")
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
-        print(f"{marker} {check['name']}: {check['detail']}")
+        print_redacted_console(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
-            print(f"      {check['repair']}")
+            print_redacted_console(f"      {check['repair']}")
     if payload.get("status_repair_hints"):
         print("")
         print("Status repair hints:")
         for hint in payload["status_repair_hints"]:
-            print(f"  - {hint}")
+            print_redacted_console(f"  - {hint}")
     print("")
     print("Useful commands:")
     for command in payload["next_commands"]:
-        print(f"  {command}")
+        print_redacted_console(f"  {command}")
     if onboarding:
         print("")
         print("Start in Telegram:")
@@ -14186,17 +15133,117 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
     profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
     has_profiles = isinstance(profiles, dict) and bool(profiles)
     external_telegram = telegram_ingress_is_external(setup_state if isinstance(setup_state, dict) else {})
+    shared_token_exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    polling_conflict_exclusions = polling_conflict_excluded_autostart_profiles(setup_state)
     if "spark-telegram-bot" in installed_names and not has_profiles and not external_telegram:
         names.append("spark-telegram-bot")
     if "spawner-ui" in installed_names:
         names.append("spawner-ui")
     if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
+            normalized = normalize_telegram_profile(str(profile))
+            if normalized in shared_token_exclusions or normalized in polling_conflict_exclusions:
+                continue
             if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
-                process_key = module_process_key("spark-telegram-bot", str(profile))
+                process_key = module_process_key("spark-telegram-bot", normalized)
                 if process_key not in names:
                     names.append(process_key)
     return names
+
+
+def telegram_profile_bot_token(profile: str) -> str:
+    token = fetch_secret(telegram_profile_secret_id(profile, "bot_token"))
+    return str(token or "")
+
+
+def shared_token_autostart_profile_groups(setup_state: dict[str, Any]) -> list[list[str]]:
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if not isinstance(profiles, dict):
+        return []
+    autostart_profiles = [
+        normalize_telegram_profile(str(profile))
+        for profile, profile_state in profiles.items()
+        if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state)
+    ]
+    if len(autostart_profiles) < 2:
+        return []
+    profile_tokens = [
+        (profile, token)
+        for profile in autostart_profiles
+        if (token := telegram_profile_bot_token(profile))
+    ]
+    groups: list[list[str]] = []
+    seen: set[str] = set()
+    for profile, token in profile_tokens:
+        if profile in seen:
+            continue
+        group = [profile]
+        for other_profile, other_token in profile_tokens:
+            if other_profile == profile or other_profile in seen:
+                continue
+            if py_secrets.compare_digest(token, other_token):
+                group.append(other_profile)
+        if len(group) > 1:
+            seen.update(group)
+            groups.append(sorted(set(group)))
+    return groups
+
+
+def shared_token_excluded_autostart_profiles(setup_state: dict[str, Any]) -> dict[str, str]:
+    primary_profile = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
+    excluded: dict[str, str] = {}
+    for group in shared_token_autostart_profile_groups(setup_state):
+        owner = primary_profile if primary_profile in group else group[0]
+        for profile in group:
+            if profile != owner:
+                excluded[profile] = owner
+    return excluded
+
+
+def telegram_profile_warnings(setup_state: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    for group in shared_token_autostart_profile_groups(setup_state):
+        owner = primary_telegram_profile(setup_state if isinstance(setup_state, dict) else {})
+        if owner not in group:
+            owner = group[0]
+        blocked = [profile for profile in group if exclusions.get(profile) == owner]
+        if not blocked:
+            continue
+        warnings.append(
+            "Telegram profiles share one bot token: "
+            f"{', '.join(group)}. Only `{owner}` is expected to poll; "
+            "configure distinct tokens or mark the extra profile manual."
+        )
+    for profile in sorted(polling_conflict_excluded_autostart_profiles(setup_state)):
+        warnings.append(
+            f"Telegram profile `{profile}` has a recent getUpdates polling conflict. "
+            "Spark Live will not expect that non-primary profile to poll until the competing poller stops "
+            "or the profile is marked manual."
+        )
+    return warnings
+
+
+def telegram_profile_has_polling_conflict(profile: str) -> bool:
+    log_text = "".join(tail_log_lines(module_log_path("spark-telegram-bot", profile), 200))
+    return "409: Conflict" in log_text and "getUpdates" in log_text
+
+
+def polling_conflict_excluded_autostart_profiles(setup_state: dict[str, Any]) -> set[str]:
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    if not isinstance(profiles, dict):
+        return set()
+    primary_profile = primary_telegram_profile(setup_state)
+    excluded: set[str] = set()
+    for profile, profile_state in profiles.items():
+        normalized = normalize_telegram_profile(str(profile))
+        if normalized == primary_profile:
+            continue
+        if not isinstance(profile_state, dict) or not telegram_profile_should_autostart(profile_state):
+            continue
+        if telegram_profile_has_polling_conflict(normalized):
+            excluded.add(normalized)
+    return excluded
 
 
 def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str, Any]) -> list[dict[str, Any]]:
@@ -14205,6 +15252,8 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
         return []
     statuses: list[dict[str, Any]] = []
     primary_profile = primary_telegram_profile(setup_state)
+    shared_token_exclusions = shared_token_excluded_autostart_profiles(setup_state)
+    polling_conflict_exclusions = polling_conflict_excluded_autostart_profiles(setup_state)
     for profile, profile_state in sorted(profiles.items()):
         if not isinstance(profile_state, dict):
             continue
@@ -14217,18 +15266,25 @@ def telegram_profile_runtime_status(setup_state: dict[str, Any], pids: dict[str,
                 pid = int(record.get("pid") or 0)
             except (TypeError, ValueError):
                 pid = 0
-        statuses.append(
-            {
-                "profile": normalized,
-                "process_key": process_key,
-                "pid": pid or None,
-                "running": bool(pid and pid_is_running(pid)),
-                "relay_port": profile_state.get("relay_port"),
-                "primary": normalized == primary_profile,
-                "autostart": telegram_profile_should_autostart(profile_state),
-                "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
-            }
-        )
+        status = {
+            "profile": normalized,
+            "process_key": process_key,
+            "pid": pid or None,
+            "running": bool(pid and pid_is_running(pid)),
+            "relay_port": profile_state.get("relay_port"),
+            "primary": normalized == primary_profile,
+            "autostart": telegram_profile_should_autostart(profile_state),
+            "log_path": public_local_path_ref(module_log_path("spark-telegram-bot", normalized)),
+        }
+        if normalized in shared_token_exclusions:
+            status["autostart_effective"] = False
+            status["exclusive_with_profile"] = shared_token_exclusions[normalized]
+            status["status_note"] = "shares one bot token; only one Telegram profile can poll at a time"
+        if normalized in polling_conflict_exclusions:
+            status["autostart_effective"] = False
+            status["blocked_by_polling_conflict"] = True
+            status["status_note"] = "recent Telegram getUpdates conflict; another poller owns this bot token"
+        statuses.append(status)
     return statuses
 
 
@@ -16103,6 +17159,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark security audit", "use": "Audit local security posture." },
             { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
             { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
+            { "command": "spark approval ledger [--turn-id <id>]", "use": "Query redacted local approval tool-call ledgers." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
             { "command": "spark uninstall [target]", "use": "Remove installed modules and generated config." },
@@ -16235,7 +17292,7 @@ def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
@@ -16694,7 +17751,12 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
-    _wrap_subgroup_help(approval_parser, ["classify"])
+    approval_ledger_parser = approval_subparsers.add_parser("ledger", help="Query local approval tool-call ledgers")
+    approval_ledger_parser.add_argument("--json", action="store_true", help="Emit machine-readable ledger summaries")
+    approval_ledger_parser.add_argument("--limit", type=int, default=20, help="Maximum ledgers to show (1-200)")
+    approval_ledger_parser.add_argument("--turn-id", help="Filter to one Harness Core turn_id")
+    approval_ledger_parser.set_defaults(func=cmd_approval)
+    _wrap_subgroup_help(approval_parser, ["classify", "ledger"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
@@ -16898,7 +17960,17 @@ def main(argv: list[str] | None = None) -> int:
     approval_exit = enforce_cli_approval(args, command_argv_for_approval(argv))
     if approval_exit is not None:
         return approval_exit
-    return int(args.func(args))
+    try:
+        exit_code = int(args.func(args))
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        finalize_cli_approval_authority(args, code)
+        raise
+    except BaseException:
+        finalize_cli_approval_authority(args, 1)
+        raise
+    finalize_cli_approval_authority(args, exit_code)
+    return exit_code
 
 
 if __name__ == "__main__":

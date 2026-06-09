@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
 import re
 import sqlite3
 import subprocess
+import sys
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,22 +28,64 @@ REPO_BOARD_SCHEMA = "spark.repo_board.compiled.v0"
 VOICE_SURFACE_SCHEMA = "spark.voice_surface_view.compiled.v0"
 OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
+CONTRACT_COVERAGE_SCHEMA = "spark.contract_coverage.compiled.v0"
+LEGACY_AUTHORITY_INVENTORY_SCHEMA = "legacy-authority-inventory-v1"
+LEGACY_AUTHORITY_PLANE_SCHEMA = "legacy-authority-plane-v1"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
 
 CONTRACT_FILE_HINTS = (
+    "AGENTS.md",
     "docs/AGENT_OPERATING_CONTEXT_AND_DRIFT_CONTROL.md",
     "docs/SPARK_UPGRADE_LEDGER.yaml",
     "docs/SPARK_INTEGRATION_CONTRACT.md",
     "docs/BROWSER_HOOK_CONTRACT_V1.md",
+    "docs/RUNTIME_CHARTER.md",
+    "docs/SPARK_GENESIS_KERNEL_SCHEMA_DESIGN.md",
     "docs/reference/SPARK_PROVENANCE_AND_MUTATION_LEDGER_DOCTRINE.md",
     "SPARK_AGENT_HARNESS_V1.md",
     "docs/wiki/02_SPARK_SYSTEM_MAP.md",
     "docs/SPARK_SKILL_GRAPH_STANDARD.md",
+    "schemas/turn-intent-envelope-vnext.schema.json",
+    "schemas/authorization-decision-v1.schema.json",
+    "schemas/tool-call-ledger-v1.schema.json",
     "schemas/spark-skill-manifest.v1.schema.json",
     "spark-skill-manifest.json",
     "spark-chip.json",
     "spark.toml",
+)
+
+AUTHORITY_SOURCE_SCAN_DIRS = ("src", "app", "apps", "server", "packages", "tools")
+AUTHORITY_SOURCE_SCAN_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".svelte"}
+AUTHORITY_SOURCE_SCAN_SKIP_PARTS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svelte-kit",
+    ".venv",
+    "__pycache__",
+    "__tests__",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "test",
+    "tests",
+    "vendor",
+}
+AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO = 1500
+AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES = 256 * 1024
+BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS = 10_000
+BUILDER_TRACE_JOIN_MAX_ROWS = 10_000
+AUTHORITY_SOURCE_SCAN_PATTERNS = (
+    ("mission_execution", re.compile(r"\b(?:runGoal|launchMission|startMission|executeMissionControlAction|runMissionControlRegression)\b")),
+    ("memory_mutation", re.compile(r"\b(?:write_profile_fact_to_memory|delete_profile_fact_from_memory|write_structured_evidence_to_memory|archive_structured_evidence_from_memory|archive_raw_episode_from_memory|archive_belief_from_memory)\b")),
+    ("schedule_mutation", re.compile(r"\b(?:createSchedule|deleteSchedule|updateSchedule|scheduleDelete|scheduleCreate)\b")),
+    ("publish_deploy_pr", re.compile(r"\b(?:openPullRequest|createPullRequest|publishRelease|deployRelease|shipRelease|releasePublish)\b")),
+    ("tool_process", re.compile(r"\b(?:subprocess\.run|child_process|execFile|spawn\(|runProvider|callProvider)\b")),
+    ("chip_execution", re.compile(r"\b(?:run_chip_hook|run_first_chip_hook_supporting|creatorMission|createChip|active_chip_evaluate)\b")),
+    ("browser_computer_use", re.compile(r"\b(?:run_browser_use_agent_task|browser_use_task_payload|computerUse|browser-use task)\b")),
 )
 
 BUILDER_TABLES_OF_INTEREST = (
@@ -98,9 +142,719 @@ OWNER_SURFACES = {
     "spark-swarm": "specialization paths and publication governance",
     "spark-skill-graphs": "specialist library and routing substrate",
     "spark-intelligence-systems": "doctrine, runbook, prototype read model",
+    "spark-harness-core": "canonical authority kernel and cross-surface contract package",
 }
 
 CORE_REPOS = set(OWNER_SURFACES)
+PRIVATE_OFFICE_REPOS = {"spark-intelligence-systems"}
+
+CONTRACT_COVERAGE_ACTION_EDGES = (
+    {
+        "id": "harness_core.authority_kernel",
+        "surface": "spark-harness-core",
+        "owner_repo": "spark-harness-core",
+        "mutation_class": "canonical_authority_kernel",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_harness_core/kernel.py",
+            "schemas/turn-intent-envelope-vnext.schema.json",
+            "schemas/authorization-decision-v1.schema.json",
+            "schemas/tool-call-ledger-v1.schema.json",
+        ),
+        "legacy_markers": ("HarnessKernel", "authorize", "ToolCallLedgerV1"),
+    },
+    {
+        "id": "harness_core.self_evolution_runner",
+        "surface": "spark-harness-core",
+        "owner_repo": "spark-harness-core",
+        "mutation_class": "self_evolution_promotion",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_harness_core/kernel.py",
+            "src/spark_harness_core/cli.py",
+            "schemas/change-manifest-v1.schema.json",
+            "schemas/self-evolution-run-v1.schema.json",
+        ),
+        "legacy_markers": ("change_manifest_runner", "self_evolution_run", "change-manifest-runner"),
+    },
+    {
+        "id": "telegram.mission_launch",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/telegramActionAuthority.ts"),
+        "legacy_markers": ("authorizeTelegramAction", "mission", "Spawner"),
+    },
+    {
+        "id": "telegram.memory_write",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "writes_memory",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("remember", "memory", "builderBridge"),
+    },
+    {
+        "id": "telegram.schedule_mutation",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("schedule", "calendar", "builderBridge"),
+    },
+    {
+        "id": "telegram.chip_creation",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "creates_chip",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/spawner.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("chip", "creatorMission", "domain"),
+    },
+    {
+        "id": "telegram.external_research",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "uses_network",
+        "risk": "network",
+        "files": ("src/index.ts", "src/llm.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("external", "research", "search"),
+    },
+    {
+        "id": "telegram.provider_run",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_provider",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/modelSwitch.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("provider", "codex", "model"),
+    },
+    {
+        "id": "telegram.access_change",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "changes_access",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/harnessContract.ts", "src/telegramActionAuthority.ts"),
+        "legacy_markers": ("access.change", "setSparkAccessProfile", "parseNaturalAccessChangeIntent"),
+    },
+    {
+        "id": "telegram.operator_safe_action",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "local_operator_probe",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/operatorActions.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("operator.safe_action", "runSafeOperatorAction", "level5_smoke"),
+    },
+    {
+        "id": "telegram.sparkqa_run_control",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_qa_loop",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/sparkQaOperator.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("sparkqa.run", "runSparkQaAutoloopRound", "pauseSparkQaOperatorLoop"),
+    },
+    {
+        "id": "telegram.recursive_proposal",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "recursive_proposal",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/recursive.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("recursive.proposal", "handleRecursiveCommand", "propose"),
+    },
+    {
+        "id": "telegram.self_improvement",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "self_improvement_plan",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spark.self_improvement", "runBuilderSelfImprovementPlan", "improve"),
+    },
+    {
+        "id": "telegram.wiki_promotion",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "writes_wiki_memory",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spark_wiki.promote", "runBuilderWikiPromoteImprovement", "wiki"),
+    },
+    {
+        "id": "telegram.diagnostics_scan",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "runs_diagnostics",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/builderBridge.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("diagnostics.scan", "runBuilderDiagnosticsScan", "diagnostics"),
+    },
+    {
+        "id": "telegram.route_probe_commands",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "records_route_probe_evidence",
+        "risk": "high_agency",
+        "files": (
+            "src/index.ts",
+            "src/harnessContract.ts",
+            "src/telegramActionAuthority.ts",
+            "src/telegramCommandAuthority.ts",
+            "src/routeTypes.ts",
+        ),
+        "legacy_markers": (
+            "route.probe",
+            "authorizeRouteProbeCommand",
+            "recordTelegramHarnessCoreExecution",
+        ),
+    },
+    {
+        "id": "telegram.mission_control_command",
+        "surface": "spark-telegram-bot",
+        "owner_repo": "spark-telegram-bot",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": ("src/index.ts", "src/spawner.ts", "src/harnessContract.ts"),
+        "legacy_markers": ("spawner.mission_control", "missionCommand", "pendingMissionCancelConfirmations"),
+    },
+    {
+        "id": "spawner.spark_run",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/spark/run/+server.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("evaluateExecutionIntentBoundary", "providerRuntime.dispatch", "createSparkMission"),
+    },
+    {
+        "id": "spawner.dispatch",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/dispatch/+server.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("dispatch", "assertCapability", "execute"),
+    },
+    {
+        "id": "spawner.prd_auto_dispatch",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/lib/server/prd-auto-dispatch.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("autoRun", "dispatch", "missionId"),
+    },
+    {
+        "id": "spawner.creator_mission_create",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "creates_chip",
+        "risk": "high_agency",
+        "files": ("src/routes/api/creator/mission/+server.ts", "src/lib/server/creator-mission.ts"),
+        "legacy_markers": ("executionPolicy", "creator", "mission"),
+    },
+    {
+        "id": "spawner.creator_mission_execute",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission",
+        "risk": "high_agency",
+        "files": ("src/routes/api/creator/mission/execute/+server.ts", "src/lib/server/creator-mission.ts"),
+        "legacy_markers": ("executeCreatorMission", "missionId", "requestId"),
+    },
+    {
+        "id": "spawner.schedule_mutation",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": ("src/routes/api/scheduled/+server.ts", "src/lib/server/scheduler.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("createSchedule", "deleteSchedule", "cron"),
+    },
+    {
+        "id": "spawner.scheduler_fire",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "launches_mission_or_loop",
+        "risk": "high_agency",
+        "files": ("src/lib/server/scheduler.ts", "src/lib/server/harness-authority.ts"),
+        "legacy_markers": ("execFileAsync", "/api/spark/run", "loops"),
+    },
+    {
+        "id": "spawner.mission_control_command",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/lib/server/mission-control-command.ts",
+            "src/routes/api/mission-control/command/+server.ts",
+            "src/routes/api/mission-control/discord-command/+server.ts",
+            "src/lib/server/harness-authority.ts",
+        ),
+        "legacy_markers": ("pauseMission", "resumeMission", "cancelMission", "kill"),
+    },
+    {
+        "id": "spawner.daily_orchestrator_run",
+        "surface": "spawner-ui",
+        "owner_repo": "spawner-ui",
+        "mutation_class": "controls_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/routes/api/automation/daily-orchestrator/run/+server.ts",
+            "src/lib/server/daily-orchestrator.ts",
+            "src/lib/server/mission-control-command.ts",
+            "src/lib/server/harness-authority.ts",
+        ),
+        "legacy_markers": ("runMissionControlRegression", "executeMissionControlAction", "daily-orchestrator"),
+    },
+    {
+        "id": "builder.memory_bridge",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_memory",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bot_drafts/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("memory", "draft", "save"),
+    },
+    {
+        "id": "builder.researcher_memory_write",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_or_deletes_memory",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_authorize_researcher_memory_write",
+            "write_profile_fact_to_memory",
+            "delete_profile_fact_from_memory",
+            "write_structured_evidence_to_memory",
+        ),
+    },
+    {
+        "id": "builder.researcher_memory_read",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "reads_memory",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/gateway/simulated_dm.py",
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_authorize_researcher_memory_read",
+            "build_telegram_memory_read_turn_intent_payload",
+            "detect_telegram_memory_read_authority_source_kind",
+            "retrieve_memory_evidence_in_memory",
+            "recall_episodic_context_in_memory",
+        ),
+    },
+    {
+        "id": "builder.memory_doctor_diagnostics",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "reads_memory_diagnostics",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/memory/doctor.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "memory.diagnose",
+            "run_memory_doctor",
+            "_match_natural_memory_doctor_command",
+        ),
+    },
+    {
+        "id": "builder.memory_read_side_effects",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "read_path_memory_maintenance",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_researcher_memory_read_side_effects_authorized",
+            "archive_structured_evidence_from_memory",
+            "archive_raw_episode_from_memory",
+            "archive_belief_from_memory",
+        ),
+    },
+    {
+        "id": "builder.schedule_bridge",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "mutates_schedule",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/schedule_bridge/service.py",
+            "src/spark_intelligence/schedule_create_bridge/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("schedule", "create", "delete"),
+    },
+    {
+        "id": "builder.schedule_read_tools",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "reads_schedule_state",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/schedule_bridge/service.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "schedule.list",
+            "format_schedule_list_from_spawner",
+            "fetch_schedules",
+            "urlopen",
+        ),
+    },
+    {
+        "id": "builder.loop_mission_chip_bridges",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "starts_loop_or_mission",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/loop_bridge/service.py",
+            "src/spark_intelligence/mission_bridge/service.py",
+            "src/spark_intelligence/chip_create_bridge/service.py",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": ("loop", "mission", "chip"),
+    },
+    {
+        "id": "builder.direct_chip_commands",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "runs_local_chip_hook",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "run_chip_hook",
+            "chip.evaluate",
+            "chip.suggest",
+            "record_chip_hook_execution",
+        ),
+    },
+    {
+        "id": "builder.route_probe_commands",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "records_route_probe_evidence",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "route.probe.run",
+            "run_route_probe_and_record",
+            "record_route_probe_evidence",
+        ),
+    },
+
+    {
+        "id": "builder.swarm_runtime_actions",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "launches_mission_or_external_swarm_action",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "swarm_bridge_run_specialization_path",
+            "swarm_bridge_autoloop",
+            "swarm_absorb_insight",
+            "swarm_deliver_upgrade",
+        ),
+    },
+    {
+        "id": "builder.voice_runtime_hooks",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "read_or_write_voice_chip_hooks",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.status",
+            "voice.plan",
+            "voice.install",
+            "voice.onboard",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
+        "id": "builder.voice_transcription_ingress",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_voice_transcription",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.transcribe",
+            "_prepare_telegram_media_input",
+            "_transcribe_telegram_audio_bytes",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
+        "id": "builder.voice_diagnostic_tools",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "read_or_network_voice_diagnostics",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.diagnostics.run",
+            "voice.self_test.run",
+            "_run_voice_doctor_command",
+            "_run_voice_self_test_command",
+        ),
+    },
+    {
+        "id": "builder.harness_runtime_voice_io",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "voice_io_harness_chip_hooks",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/harness_runtime/service.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.io",
+            "voice.status",
+            "voice.speak",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
+        "id": "builder.researcher_browser_hooks",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_browser_chip_hooks",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_build_browser_search_context",
+            "_execute_browser_hook",
+            "browser.navigate",
+            "run_first_chip_hook_supporting",
+        ),
+    },
+    {
+        "id": "builder.researcher_active_chip_evaluate",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "active_domain_chip_evaluate_hook",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/researcher_bridge/advisory.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "_run_active_chip_evaluate",
+            "select_chips_for_message",
+            "run_chip_hook",
+            "active_chip_evaluate",
+        ),
+    },
+    {
+        "id": "builder.voice_search_network",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_voice_search",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.search.run",
+            "_render_elevenlabs_voice_search_reply",
+            "_list_elevenlabs_voices",
+            "urlopen",
+        ),
+    },
+
+    {
+        "id": "builder.voice_state_mutations",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_voice_runtime_state",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.reply.set",
+            "voice.provider.set",
+            "voice.profile.select",
+            "voice.profile.tune",
+            "voice.profile.undo",
+        ),
+    },
+    {
+        "id": "builder.voice_delivery_actions",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "external_voice_delivery",
+        "risk": "network",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "voice.speak",
+            "_authorize_voice_delivery_action",
+            "force_voice",
+        ),
+    },
+    {
+        "id": "spark_cli.browser_use_actions",
+        "surface": "spark-cli",
+        "owner_repo": "spark-cli",
+        "mutation_class": "external_browser_or_computer_use_action",
+        "risk": "high_agency",
+        "files": ("src/spark_cli/cli.py",),
+        "legacy_markers": (
+            "browser_use_action_payload",
+            "browser_use_task_payload",
+            "run_browser_use_agent_task",
+            "browser-use",
+        ),
+    },
+    {
+        "id": "builder.style_state_mutations",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_style_runtime_state",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "style.train",
+            "style.feedback.record",
+            "style.preset.apply",
+            "style.savepoint.create",
+            "style.savepoint.restore",
+            "style.undo",
+        ),
+    },
+    {
+        "id": "builder.preference_state_mutations",
+        "surface": "spark-intelligence-builder",
+        "owner_repo": "spark-intelligence-builder",
+        "mutation_class": "writes_runtime_preference_state",
+        "risk": "high_agency",
+        "files": (
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "src/spark_intelligence/bridge_authority.py",
+            "src/spark_intelligence/harness_contract.py",
+        ),
+        "legacy_markers": (
+            "think.visibility.set",
+            "_set_think_enabled_for_user",
+        ),
+    },
+    {
+        "id": "voice.install_transcribe_speak",
+        "surface": "spark-voice-comms",
+        "owner_repo": "spark-voice-comms",
+        "mutation_class": "local_install_or_network_voice",
+        "risk": "high_agency",
+        "files": ("src/voice_comms_chip/spark_hook.py",),
+        "legacy_markers": ("install", "transcribe", "speak"),
+    },
+    {
+        "id": "memory.promotion",
+        "surface": "domain-chip-memory",
+        "owner_repo": "domain-chip-memory",
+        "mutation_class": "memory_promotion_activation",
+        "risk": "high_agency",
+        "files": ("src/domain_chip_memory/cli.py", "tests/test_spark_memory_kb_ablation.py"),
+        "legacy_markers": ("promotion", "memory", "publish", "ship"),
+    },
+    {
+        "id": "researcher.self_edit",
+        "surface": "spark-researcher",
+        "owner_repo": "spark-researcher",
+        "mutation_class": "self_evolution_apply",
+        "risk": "high_agency",
+        "files": ("src/spark_researcher/self_edit.py",),
+        "legacy_markers": ("self_edit", "apply", "proposal"),
+    },
+    {
+        "id": "character.live_data",
+        "surface": "spark-character",
+        "owner_repo": "spark-character",
+        "mutation_class": "network_context",
+        "risk": "network",
+        "files": ("src/spark_character/search_adapter.py",),
+        "legacy_markers": ("detect_needs_live_data", "search", "network"),
+    },
+)
 
 TRACE_REPAIR_COMPONENT_OWNERS = {
     "agent_operating_context": {
@@ -393,7 +1147,7 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
-def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
+def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None, spark_home: Path | None = None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
         try:
@@ -403,6 +1157,16 @@ def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list
         for child in children:
             if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
                 candidates[str(child.resolve()).lower()] = child
+
+    if spark_home is not None:
+        module_root = spark_home / "modules"
+        if module_root.exists():
+            for source in sorted(module_root.glob("*/source")):
+                module_name = source.parent.name
+                has_manifest = (source / "spark.toml").exists() or (source / "spark-chip.json").exists()
+                looks_like_spark = any(hint in module_name.lower() for hint in SPARK_REPO_NAME_HINTS)
+                if source.is_dir() and (has_manifest or looks_like_spark):
+                    candidates[str(source.resolve()).lower()] = source
 
     for payload in as_dict(installed).values():
         path = as_dict(payload).get("path")
@@ -513,8 +1277,14 @@ def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
     return None
 
 
+def repo_display_name(path: Path) -> str:
+    if path.name == "source" and path.parent.name and path.parent.parent.name == "modules":
+        return path.parent.name
+    return path.name
+
+
 def collect_repo_metadata(path: Path) -> dict[str, Any]:
-    record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
+    record: dict[str, Any] = {"name": repo_display_name(path), "path": str(path), "exists": path.exists()}
     if not path.exists():
         return record
 
@@ -574,6 +1344,18 @@ def collect_repo_metadata(path: Path) -> dict[str, Any]:
     record["contract_files"] = [rel for rel in CONTRACT_FILE_HINTS if (path / rel).exists()]
     record["git"] = git_summary(path)
     return record
+
+
+def find_repo_path(repos: list[dict[str, Any]], repo_name: str) -> Path | None:
+    for repo in repos:
+        name = str(repo.get("name") or "")
+        module_name = str(as_dict(repo.get("spark_toml")).get("module_name") or "")
+        if repo_name not in {name, module_name}:
+            continue
+        path = Path(str(repo.get("path") or "")).expanduser()
+        if path.exists():
+            return path
+    return None
 
 
 def repo_ids(repo: dict[str, Any]) -> set[str]:
@@ -932,6 +1714,14 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
+            row_count = int(conn.execute("select count(*) from builder_events").fetchone()[0] or 0)
+            out["builder_events_row_count"] = row_count
+            if row_count > BUILDER_TRACE_JOIN_MAX_ROWS:
+                out["matched_builder_request_id_count"] = 0
+                out["join_skipped"] = True
+                out["join_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_candidate_lookup"
+                out["join_row_limit"] = BUILDER_TRACE_JOIN_MAX_ROWS
+                return out
             candidates = sorted(request_ids)[:500]
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
@@ -973,6 +1763,14 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
+                return out
+            row_count = int(conn.execute("select count(*) from builder_events").fetchone()[0] or 0)
+            out["builder_events_row_count"] = row_count
+            if row_count > BUILDER_TRACE_JOIN_MAX_ROWS:
+                out["matched_builder_trace_ref_count"] = 0
+                out["join_skipped"] = True
+                out["join_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_candidate_lookup"
+                out["join_row_limit"] = BUILDER_TRACE_JOIN_MAX_ROWS
                 return out
             candidates = sorted(trace_refs)[:500]
             placeholders = ",".join("?" for _ in candidates)
@@ -1486,6 +2284,127 @@ def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
         str(key) for key in data.keys() if key not in SAFE_MEMORY_STATUS_KEYS and not key_has_raw_memory_hint(key)
     )[:80]
     out["raw_hint_key_count"] = count_raw_memory_hint_keys(data)
+    return out
+
+
+def file_modified_at(path: Path) -> str | None:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return None
+
+
+def memory_movement_status_freshness(builder_home: Path) -> dict[str, Any]:
+    status_path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+    state_db = builder_home / "state.db"
+    out: dict[str, Any] = {
+        "status_path": str(status_path),
+        "status_exists": status_path.exists(),
+        "state_db": str(state_db),
+        "state_db_exists": state_db.exists(),
+        "redaction": "mtime metadata only; no memory rows, state rows, or evidence bodies read",
+    }
+    if not status_path.exists():
+        out["fresh"] = False
+        out["reason"] = "status_export_missing"
+        return out
+    out["status_modified_at"] = file_modified_at(status_path)
+    if not state_db.exists():
+        out["fresh"] = True
+        out["reason"] = "status_export_present_state_db_missing"
+        return out
+    out["state_db_modified_at"] = file_modified_at(state_db)
+    try:
+        fresh = status_path.stat().st_mtime >= state_db.stat().st_mtime
+    except OSError:
+        fresh = False
+    out["fresh"] = fresh
+    out["reason"] = "status_export_current" if fresh else "status_export_older_than_state_db"
+    return out
+
+
+def refresh_memory_movement_status_export(builder_repo: Path | None, builder_home: Path) -> dict[str, Any]:
+    freshness = memory_movement_status_freshness(builder_home)
+    if freshness.get("fresh") is True:
+        status = as_dict(read_memory_movement_status_export(builder_home).get("status"))
+        return {
+            "status": "fresh_existing",
+            "builder_repo": str(builder_repo) if builder_repo is not None else None,
+            "builder_home": str(builder_home),
+            "path": freshness.get("status_path"),
+            "movement_status": safe_memory_status_value(status.get("status")),
+            "row_count": safe_memory_status_value(status.get("row_count")),
+            "freshness": freshness,
+            "redaction": "freshness metadata and allowlisted status fields only; Builder refresh command not run",
+        }
+
+    out: dict[str, Any] = {
+        "status": "skipped",
+        "builder_repo": str(builder_repo) if builder_repo is not None else None,
+        "builder_home": str(builder_home),
+        "freshness": freshness,
+        "redaction": "command status only; stdout parsed for allowlisted export status fields",
+    }
+    if builder_repo is None:
+        out["reason"] = "builder_repo_not_found"
+        return out
+    cli_path = builder_repo / "src" / "spark_intelligence" / "cli.py"
+    if not cli_path.exists():
+        out["reason"] = "builder_cli_not_found"
+        return out
+
+    env = dict(os.environ)
+    src_path = str(builder_repo / "src")
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_path if not existing_pythonpath else f"{src_path}{os.pathsep}{existing_pythonpath}"
+    env["SPARK_INTELLIGENCE_HOME"] = str(builder_home)
+    command = [
+        sys.executable,
+        "-m",
+        "spark_intelligence.cli",
+        "memory",
+        "export-movement-status",
+        "--home",
+        str(builder_home),
+        "--json",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=12,
+            check=False,
+            env=env,
+            cwd=str(builder_repo),
+        )
+    except Exception as exc:
+        out.update({"status": "error", "reason": f"{type(exc).__name__}: {exc}"})
+        return out
+
+    out["returncode"] = int(result.returncode)
+    if result.returncode != 0:
+        out["status"] = "error"
+        out["reason"] = "builder_export_command_failed"
+        if result.stderr.strip():
+            out["stderr_excerpt"] = safe_short_string(result.stderr.strip(), limit=240)
+        return out
+
+    data: Any = None
+    if result.stdout.strip():
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            data = None
+    payload = as_dict(as_dict(data).get("payload"))
+    out.update(
+        {
+            "status": "refreshed",
+            "path": as_dict(data).get("path"),
+            "movement_status": safe_memory_status_value(payload.get("status")),
+            "row_count": safe_memory_status_value(payload.get("row_count")),
+        }
+    )
     return out
 
 
@@ -3022,6 +3941,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                                     group_columns=group_columns,
                                     values=values,
                                     columns=columns,
+                                    total_rows=total,
                                 ),
                             }
                         )
@@ -3190,18 +4110,18 @@ def builder_trace_missing_source_state(
     group_columns: list[str],
     values: dict[str, str],
     columns: list[str],
+    total_rows: int | None = None,
 ) -> dict[str, Any]:
     if "trace_ref" not in columns:
         return {}
 
     where_sql, params = builder_trace_group_where(group_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by rowid desc
         limit 1
         """,
         params,
@@ -3220,7 +4140,11 @@ def builder_trace_missing_source_state(
         if "created_at" in columns:
             out["latest_event_created_at"] = str(latest[2] or "")
 
-    if "created_at" in columns:
+    recent_counts_allowed = (
+        "created_at" in columns
+        and (total_rows is None or total_rows <= BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS)
+    )
+    if recent_counts_allowed:
         now = datetime.now(timezone.utc)
         for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
             threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -3246,6 +4170,12 @@ def builder_trace_missing_source_state(
             ).fetchone()[0]
             out[f"recent_{label}_row_count"] = int(total or 0)
             out[f"recent_{label}_missing_trace_ref_count"] = int(missing or 0)
+    elif "created_at" in columns:
+        out["recent_window_counts_skipped"] = True
+        out["recent_window_skip_reason"] = "builder_events_table_too_large_for_unindexed_per_group_scan"
+        out["recent_window_row_limit"] = BUILDER_TRACE_GROUP_RECENT_COUNT_MAX_ROWS
+        if total_rows is not None:
+            out["builder_events_row_count"] = int(total_rows)
 
     latest_clean = bool(out.get("latest_event_trace_ref_present"))
     recent_24h_missing = int(out.get("recent_24h_missing_trace_ref_count") or 0)
@@ -3506,6 +4436,873 @@ def read_text_or_none(path: Path) -> str | None:
         return path.read_text(encoding="utf-8-sig")
     except Exception:
         return None
+
+
+def resolve_contract_repo_root(repo_name: str, desktop: Path, spark_home: Path) -> Path:
+    if repo_name == "spark-cli":
+        return Path(__file__).resolve().parents[2]
+    installed_root = spark_home / "modules" / repo_name / "source"
+    if installed_root.exists():
+        return installed_root
+    return desktop / repo_name
+
+
+def contract_edge_file_records(root: Path, rel_paths: tuple[str, ...]) -> list[dict[str, Any]]:
+    records = []
+    for rel_path in rel_paths:
+        path = root / rel_path
+        records.append(
+            {
+                "rel_path": rel_path,
+                "exists": path.exists(),
+                "is_dir": path.is_dir(),
+                "helper_contract": any(
+                    hint in rel_path
+                    for hint in (
+                        "harnessContract",
+                        "harness_contract",
+                        "harness-authority",
+                        "intent-boundary",
+                        "intent_boundary",
+                    )
+                ),
+            }
+        )
+    return records
+
+
+def contract_edge_text(root: Path, rel_paths: tuple[str, ...], *, helpers: bool | None = None) -> str:
+    parts: list[str] = []
+    for record in contract_edge_file_records(root, rel_paths):
+        if helpers is not None and bool(record.get("helper_contract")) is not helpers:
+            continue
+        path = root / str(record.get("rel_path") or "")
+        if path.is_dir():
+            for child in sorted(path.rglob("*"))[:30]:
+                if child.suffix not in {".py", ".ts", ".tsx", ".js", ".svelte"}:
+                    continue
+                text = read_text_or_none(child)
+                if text:
+                    parts.append(text)
+            continue
+        text = read_text_or_none(path)
+        if text:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def contract_marker_summary(text: str) -> dict[str, bool]:
+    auto_state_trigger = bool(
+        re.search(
+            r"\b(?:pending[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\s*=\s*new\s+Map\b",
+            text,
+        )
+        or re.search(
+            r"\b(?:pending[A-Z][A-Za-z0-9_]*|[A-Za-z0-9_]*Pending[A-Za-z0-9_]*)\.(?:get|set|delete)\s*\(",
+            text,
+        )
+        or re.search(
+            r"\b(?:pending_action|pending_route|pending_task)\s*[:=]",
+            text,
+        )
+        or re.search(
+            r"\bpending_state_used_as_authority\s*[:=]\s*true\b",
+            text,
+        )
+    )
+    return {
+        "turn_intent_schema": (
+            "spark.turn_intent.v1" in text
+            or "turn-intent-envelope-vnext" in text
+            or "TurnIntentEnvelope" in text
+            or "buildServerTurnIntentVNextAuthority" in text
+            or "buildServerGovernorDecisionAuthority" in text
+            or "buildClientTurnIntentVNextAuthority" in text
+            or "createHarnessCoreActionEnvelopeVNext" in text
+            or "assertNativeVNextHarnessAuthority" in text
+            or "assertNativeGovernorHarnessAuthority" in text
+            or "assertNativeGovernorOrVNextHarnessAuthority" in text
+            or "governor-decision-v1" in text
+            or "GovernorDecisionV1" in text
+            or "build_vnext_action_intent_envelope" in text
+            or "build_vnext_tool_intent_envelope" in text
+            or ("HarnessKernel" in text and "create_envelope" in text)
+        ),
+        "turn_intent_authorizer": (
+            "authorizeToolCallFromEnvelope" in text
+            or "assert_authorized_tool_call" in text
+            or "authorize_builder_bridge_action" in text
+            or "authorize_vnext_tool_call" in text
+            or "_voice_governor_allows_tool_call" in text
+            or "_require_voice_governor_authority" in text
+            or "parse_turn_intent_envelope" in text
+            or "browser_use_harness_authorize" in text
+            or "kernel.authorize" in text
+            or "assertHarnessAuthority" in text
+            or "assertNativeVNextHarnessAuthority" in text
+            or "assertNativeGovernorHarnessAuthority" in text
+            or "assertNativeGovernorOrVNextHarnessAuthority" in text
+            or "buildServerGovernorDecisionAuthority" in text
+            or "governorDecisionVerdict" in text
+            or ("governor-decision-v1" in text and "authorization-decision-v1" in text and "tool-call-ledger-v1" in text)
+            or ("HarnessKernel" in text and "def authorize(" in text)
+        ),
+        "machine_origin_policy": (
+            "spark.machine_origin_policy.v1" in text
+            or "buildMachineOriginPolicy" in text
+            or "assertHarnessAuthority" in text
+        ),
+        "deterministic_local_route": "deterministicRouteAllowed" in text
+        or "evaluateExecutionIntentBoundary" in text,
+        "auto_state_trigger": auto_state_trigger,
+        "evidence_or_proposal_only": (
+            "evidence-only" in text
+            or "proposal-only" in text
+            or "must not auto-apply" in text
+            or "protected prompt" in text
+            or "promotion gate" in text
+            or ("proposal" in text and "auto-apply" in text)
+            or ("promotion" in text and "protected" in text)
+        ),
+        "network_policy": "networkPolicy" in text or "network_policy" in text,
+        "telegram_action_authority": "telegramActionAuthorityAllowed" in text
+        or "authorizeTelegramActionFromEnvelope" in text,
+        "self_evolution_runner": (
+            "change_manifest_runner" in text
+            or "createHarnessCoreChangeManifestRunner" in text
+            or "change-manifest-runner" in text
+        )
+        and "self-evolution-run-v1" in text,
+    }
+
+
+def contract_covered_source_paths(root: Path, repo_name: str) -> set[str]:
+    covered: set[str] = set()
+    for edge in CONTRACT_COVERAGE_ACTION_EDGES:
+        if str(edge.get("owner_repo") or "") != repo_name:
+            continue
+        for rel_path in edge.get("files", ()):
+            rel_text = str(rel_path or "").strip().replace("\\", "/")
+            if not rel_text:
+                continue
+            path = root / rel_text
+            if path.is_dir():
+                for suffix in AUTHORITY_SOURCE_SCAN_SUFFIXES:
+                    for child in sorted(path.rglob(f"*{suffix}")):
+                        if any(part in AUTHORITY_SOURCE_SCAN_SKIP_PARTS for part in child.relative_to(root).parts):
+                            continue
+                        covered.add(child.relative_to(root).as_posix())
+                continue
+            covered.add(rel_text)
+    return covered
+
+
+def iter_authority_source_files(root: Path) -> tuple[list[Path], dict[str, Any]]:
+    if not root.exists():
+        return [], {"status": "root_missing", "scanned_file_count": 0}
+
+    scan_roots = [root / rel for rel in AUTHORITY_SOURCE_SCAN_DIRS if (root / rel).exists()]
+    if not scan_roots:
+        return [], {"status": "no_source_dirs", "scanned_file_count": 0}
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    capped = False
+    for scan_root in scan_roots:
+        for path in sorted(scan_root.rglob("*")):
+            if len(files) >= AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO:
+                capped = True
+                break
+            if path in seen or not path.is_file() or path.suffix not in AUTHORITY_SOURCE_SCAN_SUFFIXES:
+                continue
+            try:
+                rel_parts = path.relative_to(root).parts
+            except ValueError:
+                continue
+            if any(part in AUTHORITY_SOURCE_SCAN_SKIP_PARTS for part in rel_parts):
+                continue
+            try:
+                if path.stat().st_size > AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            seen.add(path)
+            files.append(path)
+        if capped:
+            break
+
+    return files, {
+        "status": "capped" if capped else "scanned",
+        "scanned_file_count": len(files),
+        "max_files_per_repo": AUTHORITY_SOURCE_SCAN_MAX_FILES_PER_REPO,
+        "max_file_bytes": AUTHORITY_SOURCE_SCAN_MAX_FILE_BYTES,
+    }
+
+
+def authority_source_signals(text: str) -> list[str]:
+    return [label for label, pattern in AUTHORITY_SOURCE_SCAN_PATTERNS if pattern.search(text)]
+
+
+def authority_source_surface_hints(rel_path: str, text: str) -> list[str]:
+    hints: list[str] = []
+    normalized = rel_path.replace("\\", "/")
+    if "/src/routes/api/" in f"/{normalized}" or normalized.startswith("src/routes/api/"):
+        hints.append("http_api_route")
+    if "/adapters/telegram/" in f"/{normalized}" or normalized.endswith("src/index.ts"):
+        hints.append("telegram_or_chat_ingress")
+    if normalized.endswith("/cli.py") or normalized == "src/spark_cli/cli.py" or "\ndef cmd_" in text:
+        hints.append("cli_command_surface")
+    if "export async function POST" in text or "export const POST" in text:
+        hints.append("http_post_handler")
+    if "handleTextMessage" in text or "bot.on(" in text or "onText(" in text:
+        hints.append("message_handler")
+    return sorted(set(hints))
+
+
+def build_uncovered_authority_source_scan(desktop: Path, spark_home: Path) -> dict[str, Any]:
+    repo_names = sorted({str(edge.get("owner_repo") or "") for edge in CONTRACT_COVERAGE_ACTION_EDGES if edge.get("owner_repo")})
+    items: list[dict[str, Any]] = []
+    repo_summaries: dict[str, Any] = {}
+
+    for repo_name in repo_names:
+        root = resolve_contract_repo_root(repo_name, desktop, spark_home)
+        covered = contract_covered_source_paths(root, repo_name)
+        files, scan_summary = iter_authority_source_files(root)
+        repo_summaries[repo_name] = {
+            **scan_summary,
+            "covered_source_count": len(covered),
+        }
+        for path in files:
+            rel_path = path.relative_to(root).as_posix()
+            if rel_path in covered:
+                continue
+            text = read_text_or_none(path)
+            if not text:
+                continue
+            signals = authority_source_signals(text)
+            if not signals:
+                continue
+            surface_hints = authority_source_surface_hints(rel_path, text)
+            if not surface_hints:
+                continue
+            markers = contract_marker_summary(text)
+            authority_present = bool(
+                markers.get("turn_intent_authorizer")
+                or markers.get("telegram_action_authority")
+                or markers.get("machine_origin_policy")
+                or (markers.get("turn_intent_schema") and markers.get("turn_intent_authorizer"))
+            )
+            evidence_only = bool(markers.get("evidence_or_proposal_only"))
+            release_blocker = not authority_present and not evidence_only
+            reason_code = (
+                "high_agency_source_not_declared_in_contract_coverage"
+                if release_blocker
+                else "authorized_or_evidence_source_not_declared_in_contract_coverage"
+            )
+            digest = hashlib.sha256(f"{repo_name}:{rel_path}".encode("utf-8")).hexdigest()[:12]
+            items.append(
+                {
+                    "id": f"uncovered-authority-source:{repo_name}:{digest}",
+                    "owner_repo": repo_name,
+                    "rel_path": rel_path,
+                    "risk": "high_agency",
+                    "signals": signals,
+                    "surface_hints": surface_hints,
+                    "reason_code": reason_code,
+                    "release_blocker": release_blocker,
+                    "priority": "critical" if release_blocker else "high",
+                    "authority_markers": {
+                        "turn_intent_schema": bool(markers.get("turn_intent_schema")),
+                        "turn_intent_authorizer": bool(markers.get("turn_intent_authorizer")),
+                        "telegram_action_authority": bool(markers.get("telegram_action_authority")),
+                        "machine_origin_policy": bool(markers.get("machine_origin_policy")),
+                        "evidence_or_proposal_only": evidence_only,
+                    },
+                    "recommended_action": (
+                        "Bind this source path to Harness Core/Governor authority and add a declared contract edge, "
+                        "or remove/disable the source path so it cannot execute high-agency work."
+                        if release_blocker
+                        else "Add this source path to the declared contract coverage map or demote it to explicit evidence-only support."
+                    ),
+                    "verification_command": "spark os compile --json",
+                    "data_boundary": "metadata-only; no source text, prompts, logs, secrets, transcripts, or payload bodies",
+                }
+            )
+
+    items = sorted(
+        items,
+        key=lambda item: (
+            0 if item.get("release_blocker") else 1,
+            str(item.get("owner_repo") or ""),
+            str(item.get("rel_path") or ""),
+        ),
+    )
+    return {
+        "schema_version": "spark.uncovered_authority_source_scan.v0",
+        "generated_at": utc_now(),
+        "authority": "observability_non_authoritative",
+        "redaction": "metadata-only source coverage scan; source text, prompts, logs, secrets, chat ids, memory bodies, transcripts, and provider output omitted",
+        "summary": {
+            "repo_count": len(repo_summaries),
+            "scanned_file_count": sum(int(as_dict(summary).get("scanned_file_count") or 0) for summary in repo_summaries.values()),
+            "uncovered_authority_source_count": len(items),
+            "uncovered_authority_release_blocker_count": sum(1 for item in items if item.get("release_blocker")),
+        },
+        "repo_summaries": repo_summaries,
+        "items": items,
+    }
+
+
+def legacy_plane_retirement_classification(
+    *,
+    status: str,
+    risk: str,
+    action_markers: dict[str, bool],
+    helper_markers: dict[str, bool],
+) -> tuple[str, str]:
+    if status == "legacy_local_gate" and risk in {"high_agency", "network"}:
+        return (
+            "blocked",
+            "high_agency_or_network_edge_still_depends_on_local_legacy_authority",
+        )
+    if status == "legacy_local_gate":
+        return (
+            "compat_no_authority",
+            "legacy_gate_present_but_edge_is_not_high_agency_or_network",
+        )
+    if status == "evidence_only":
+        return (
+            "evidence_only",
+            "legacy_or_local_detector_is_limited_to_evidence_or_proposal_behavior",
+        )
+    if (
+        action_markers.get("deterministic_local_route")
+        or action_markers.get("auto_state_trigger")
+        or helper_markers.get("deterministic_local_route")
+        or helper_markers.get("auto_state_trigger")
+    ):
+        return (
+            "compat_no_authority",
+            "local_detector_or_pending_state_marker_exists_but_contract_authority_owns_execution",
+        )
+    return (
+        "retired",
+        "no_local_legacy_authority_marker_observed_on_this_action_edge",
+    )
+
+
+def classify_contract_edge(edge: dict[str, Any], root: Path) -> dict[str, Any]:
+    rel_paths = tuple(str(path) for path in edge.get("files", ()))
+    files = contract_edge_file_records(root, rel_paths)
+    all_text = contract_edge_text(root, rel_paths)
+    action_text = contract_edge_text(root, rel_paths, helpers=False)
+    action_markers = contract_marker_summary(action_text)
+    all_markers = contract_marker_summary(all_text)
+    source_exists = any(bool(record.get("exists")) for record in files)
+    risk = str(edge.get("risk") or "high_agency")
+
+    if not source_exists:
+        status = "legacy_local_gate"
+        reason = "source_missing_for_active_edge"
+    elif risk in {"evidence", "proposal"} and all_markers["evidence_or_proposal_only"]:
+        status = "evidence_only"
+        reason = "surface_declares_evidence_or_proposal_only_behavior"
+    elif action_markers["telegram_action_authority"] and all_markers["turn_intent_authorizer"]:
+        status = "envelope_verified"
+        reason = "action_edge_uses_shared_telegram_turn_intent_authority"
+    elif action_markers["self_evolution_runner"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_change_manifest_runner"
+    elif risk == "network" and action_markers["network_policy"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_explicit_network_policy"
+    elif action_markers["turn_intent_schema"] and action_markers["turn_intent_authorizer"]:
+        status = "envelope_verified"
+        reason = "action_edge_checks_turn_intent_envelope"
+    elif action_markers["machine_origin_policy"]:
+        status = "machine_origin_policy"
+        reason = "action_edge_checks_machine_origin_or_harness_authority"
+    elif action_markers["deterministic_local_route"]:
+        status = "legacy_local_gate"
+        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
+    elif any(marker in action_text for marker in edge.get("legacy_markers", ())):
+        status = "legacy_local_gate"
+        reason = "action_edge_still_has_local_keyword_or_state_gate_without_final_contract_authority"
+    elif all_markers["turn_intent_schema"] or all_markers["machine_origin_policy"]:
+        status = "legacy_local_gate"
+        reason = "contract_helper_present_but_action_edge_does_not_import_authority"
+    else:
+        status = "legacy_local_gate"
+        reason = "no_contract_authority_marker_found"
+
+    legacy_plane_classification, legacy_plane_reason = legacy_plane_retirement_classification(
+        status=status,
+        risk=risk,
+        action_markers=action_markers,
+        helper_markers=all_markers,
+    )
+    release_blocker = legacy_plane_classification == "blocked"
+    return {
+        "id": edge.get("id"),
+        "surface": edge.get("surface"),
+        "owner_repo": edge.get("owner_repo"),
+        "mutation_class": edge.get("mutation_class"),
+        "risk": risk,
+        "status": status,
+        "legacy_plane_classification": legacy_plane_classification,
+        "legacy_plane_reason_code": legacy_plane_reason,
+        "release_blocker": release_blocker,
+        "reason_code": reason,
+        "source_root": str(root),
+        "source_exists": source_exists,
+        "source_files": files,
+        "markers": action_markers,
+        "helper_markers": all_markers,
+        "redaction": "source paths and marker booleans only; source text, prompts, logs, and runtime payloads omitted",
+    }
+
+
+def build_legacy_plane_cleanup_queue(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    priority_rank = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+    }
+    surface_rank = {
+        "spark-telegram-bot": 0,
+        "spawner-ui": 1,
+        "spark-intelligence-builder": 2,
+        "spark-cli": 3,
+    }
+    mutation_rank = {
+        "launches_mission": 0,
+        "starts_loop_or_mission": 1,
+        "launches_mission_or_loop": 2,
+        "mutates_schedule": 3,
+        "writes_memory": 4,
+        "creates_chip": 5,
+    }
+
+    for edge in edges:
+        classification = str(edge.get("legacy_plane_classification") or "unknown")
+        if classification in {"retired", "evidence_only"}:
+            continue
+        risk = str(edge.get("risk") or "unknown")
+        markers = as_dict(edge.get("markers"))
+        helper_markers = as_dict(edge.get("helper_markers"))
+        release_blocker = bool(edge.get("release_blocker"))
+        priority = "critical" if release_blocker else "high" if risk in {"high_agency", "network"} else "medium"
+        cleanup_action = (
+            "Bind this edge to Harness Core/Governor authority before any execution or mutation, "
+            "or remove/disable the local authority path."
+            if release_blocker
+            else (
+                "Keep the Governor as the execution authority, then move local detectors, pending-state "
+                "checks, or route helpers into evidence-only adapters or narrower non-authority helpers."
+            )
+        )
+        queue.append(
+            {
+                "id": f"legacy-plane:{edge.get('id')}",
+                "edge_id": edge.get("id"),
+                "priority": priority,
+                "owner_repo": edge.get("owner_repo"),
+                "surface": edge.get("surface"),
+                "mutation_class": edge.get("mutation_class"),
+                "risk": risk,
+                "status": edge.get("status"),
+                "legacy_plane_classification": classification,
+                "legacy_plane_reason_code": edge.get("legacy_plane_reason_code"),
+                "release_blocker": release_blocker,
+                "marker_evidence": {
+                    "deterministic_local_route": bool(markers.get("deterministic_local_route")),
+                    "auto_state_trigger": bool(markers.get("auto_state_trigger")),
+                    "helper_deterministic_local_route": bool(helper_markers.get("deterministic_local_route")),
+                    "helper_auto_state_trigger": bool(helper_markers.get("auto_state_trigger")),
+                },
+                "recommended_action": cleanup_action,
+                "verification_command": "spark os compile --json",
+                "data_boundary": "metadata-only; no source text, prompts, logs, secrets, transcripts, or payload bodies",
+            }
+        )
+
+    return sorted(
+        queue,
+        key=lambda item: (
+            priority_rank.get(str(item.get("priority")), 9),
+            surface_rank.get(str(item.get("surface")), 99),
+            mutation_rank.get(str(item.get("mutation_class")), 50),
+            str(item.get("edge_id") or ""),
+        ),
+    )
+
+
+def legacy_authority_plane_type(edge: dict[str, Any]) -> str:
+    mutation = str(edge.get("mutation_class") or "").lower()
+    status = str(edge.get("status") or "").lower()
+    if "memory" in mutation:
+        return "memory_override"
+    if "schedule" in mutation:
+        return "schedule_trigger"
+    if any(word in mutation for word in ("publish", "deploy", "pr")):
+        return "publish_hook"
+    if any(word in mutation for word in ("mission", "loop", "run", "provider", "tool", "browser", "computer")):
+        return "tool_launcher"
+    if status == "legacy_local_gate":
+        return "regex_router"
+    return "local_dispatcher"
+
+
+def harness_core_surface_name(surface_or_repo: Any) -> str:
+    value = str(surface_or_repo or "")
+    mapping = {
+        "spark-telegram-bot": "telegram",
+        "spark-cli": "cli",
+        "spark-intelligence-builder": "builder",
+        "spawner-ui": "spawner",
+        "domain-chip-memory": "memory",
+        "spark-voice-comms": "voice",
+        "spark-skill-graphs": "domain_chip",
+        "spark-harness-core": "test_harness",
+        "spark-researcher": "future_surface",
+        "spark-character": "future_surface",
+    }
+    if value in {
+        "telegram",
+        "cli",
+        "builder",
+        "spawner",
+        "memory",
+        "startup_operator",
+        "recursive_swarm",
+        "voice",
+        "domain_chip",
+        "browser",
+        "computer_use",
+        "api",
+        "test_harness",
+        "future_surface",
+    }:
+        return value
+    return mapping.get(value, "future_surface")
+
+
+def legacy_authority_disposition_for_edge(edge: dict[str, Any]) -> str:
+    classification = str(edge.get("legacy_plane_classification") or "")
+    risk = str(edge.get("risk") or "")
+    if classification == "blocked":
+        return "release_blocker"
+    if classification == "evidence_only":
+        return "evidence_adapter"
+    if classification == "compat_no_authority":
+        if risk in {"high_agency", "network"}:
+            return "canonical_consumer"
+        return "evidence_adapter"
+    if classification == "retired":
+        return "removed"
+    return "release_blocker"
+
+
+def legacy_authority_risk_for_edge(edge: dict[str, Any], disposition: str) -> dict[str, bool]:
+    mutation = str(edge.get("mutation_class") or "").lower()
+    risk = str(edge.get("risk") or "")
+    high_agency = risk in {"high_agency", "network"}
+    active = disposition in {"canonical_consumer", "release_blocker"}
+    surface = harness_core_surface_name(edge.get("surface"))
+    return {
+        "can_execute": bool(active and high_agency),
+        "can_mutate_state": bool(active and high_agency and risk != "network"),
+        "can_route_turns": bool(active and surface == "telegram"),
+        "can_write_memory": bool(active and "memory" in mutation),
+        "can_launch_mission": bool(active and any(word in mutation for word in ("mission", "loop", "run", "provider"))),
+        "can_call_network": bool(active and (risk == "network" or "network" in mutation or "browser" in mutation)),
+        "can_publish": bool(active and any(word in mutation for word in ("publish", "deploy", "pr"))),
+        "can_schedule": bool(active and "schedule" in mutation),
+    }
+
+
+def legacy_authority_harness_binding(disposition: str, edge: dict[str, Any]) -> dict[str, Any]:
+    if disposition == "canonical_consumer":
+        return {
+            "governor_required": True,
+            "evidence_only": False,
+            "consumer_of_governor": True,
+            "ledger_required": str(edge.get("risk") or "") in {"high_agency", "network"},
+            "notes": "Contract edge consumes Harness Core/Governor authority before high-agency execution.",
+        }
+    if disposition == "evidence_adapter":
+        return {
+            "governor_required": False,
+            "evidence_only": True,
+            "consumer_of_governor": False,
+            "ledger_required": False,
+            "notes": "Legacy detector is retained only as evidence or proposal support.",
+        }
+    if disposition in {"removed", "quarantined"}:
+        return {
+            "governor_required": False,
+            "evidence_only": False,
+            "consumer_of_governor": False,
+            "ledger_required": False,
+            "notes": "No live legacy authority plane remains on this contract edge.",
+        }
+    return {
+        "governor_required": False,
+        "evidence_only": False,
+        "consumer_of_governor": False,
+        "ledger_required": False,
+        "notes": "Legacy plane remains unresolved and blocks release readiness.",
+    }
+
+
+def legacy_authority_source_ref(source_id: str, path_or_uri: str, summary: str) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{source_id}:{path_or_uri}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"artifact:legacy-authority-source:{digest}",
+        "kind": "legacy_authority_source",
+        "path_or_uri": path_or_uri,
+        "redaction_class": "metadata_only",
+        "summary": summary,
+    }
+
+
+def legacy_authority_evidence_ref(kind: str, source: str, summary: str, *, confidence: float = 1.0) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{kind}:{source}:{summary}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"evidence:{kind}:{digest}",
+        "kind": kind,
+        "source": source,
+        "summary": summary,
+        "confidence": confidence,
+        "trace_refs": [],
+    }
+
+
+def legacy_authority_trace_ref(kind: str, summary: str) -> dict[str, Any]:
+    digest = hashlib.sha256(f"{kind}:{summary}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "id": f"trace:{kind}:{digest}",
+        "redaction_class": "metadata_only",
+        "summary": summary,
+    }
+
+
+def legacy_authority_plane_from_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    disposition = legacy_authority_disposition_for_edge(edge)
+    source_files = as_list(edge.get("source_files"))
+    source_paths = [
+        str(item.get("rel_path") or item.get("path") or "")
+        for item in source_files
+        if item.get("exists") and (item.get("rel_path") or item.get("path"))
+    ]
+    source_path = ",".join(source_paths[:5]) or str(edge.get("source_root") or edge.get("id") or "unknown")
+    blockers = []
+    if disposition == "release_blocker":
+        blockers.append(str(edge.get("legacy_plane_reason_code") or edge.get("reason_code") or "legacy authority blocks release"))
+    summary = (
+        f"{edge.get('id')} legacy authority disposition is {disposition}; "
+        f"classification={edge.get('legacy_plane_classification')}, status={edge.get('status')}."
+    )
+    return {
+        "schema_version": LEGACY_AUTHORITY_PLANE_SCHEMA,
+        "plane_id": f"legacy-plane:{edge.get('id')}",
+        "created_at": utc_now(),
+        "owner_repo": edge.get("owner_repo"),
+        "surface": harness_core_surface_name(edge.get("surface")),
+        "plane_type": legacy_authority_plane_type(edge),
+        "source_ref": legacy_authority_source_ref(str(edge.get("id") or ""), source_path, summary),
+        "authority_risk": legacy_authority_risk_for_edge(edge, disposition),
+        "disposition": disposition,
+        "harness_binding": legacy_authority_harness_binding(disposition, edge),
+        "evidence": [
+            legacy_authority_evidence_ref(
+                "policy",
+                "spark-cli.contract_coverage",
+                str(edge.get("legacy_plane_reason_code") or edge.get("reason_code") or summary),
+                confidence=0.95,
+            )
+        ],
+        "blockers": blockers,
+        "trace": legacy_authority_trace_ref("legacy_authority_plane", summary),
+    }
+
+
+def legacy_authority_plane_from_uncovered_source(item: dict[str, Any]) -> dict[str, Any]:
+    release_blocker = bool(item.get("release_blocker"))
+    markers = as_dict(item.get("authority_markers"))
+    if release_blocker:
+        disposition = "release_blocker"
+    elif markers.get("evidence_or_proposal_only"):
+        disposition = "evidence_adapter"
+    else:
+        disposition = "canonical_consumer"
+    edge_like = {
+        "mutation_class": "uncovered_authority_source",
+        "risk": "high_agency",
+        "surface": harness_core_surface_name(item.get("owner_repo")),
+    }
+    summary = (
+        f"{item.get('id')} uncovered authority source disposition is {disposition}; "
+        f"reason={item.get('reason_code')}."
+    )
+    blockers = [str(item.get("reason_code") or "uncovered authority source blocks release")] if release_blocker else []
+    return {
+        "schema_version": LEGACY_AUTHORITY_PLANE_SCHEMA,
+        "plane_id": f"legacy-plane:{item.get('id')}",
+        "created_at": utc_now(),
+        "owner_repo": item.get("owner_repo"),
+        "surface": harness_core_surface_name(item.get("owner_repo")),
+        "plane_type": "local_dispatcher",
+        "source_ref": legacy_authority_source_ref(str(item.get("id") or ""), str(item.get("rel_path") or ""), summary),
+        "authority_risk": legacy_authority_risk_for_edge(edge_like, disposition),
+        "disposition": disposition,
+        "harness_binding": legacy_authority_harness_binding(disposition, edge_like),
+        "evidence": [
+            legacy_authority_evidence_ref(
+                "policy",
+                "spark-cli.uncovered_authority_source_scan",
+                str(item.get("reason_code") or summary),
+                confidence=0.88,
+            )
+        ],
+        "blockers": blockers,
+        "trace": legacy_authority_trace_ref("legacy_authority_plane", summary),
+    }
+
+
+def build_legacy_authority_inventory(edges: list[dict[str, Any]], uncovered_sources: list[dict[str, Any]]) -> dict[str, Any]:
+    planes = [legacy_authority_plane_from_edge(edge) for edge in edges]
+    planes.extend(legacy_authority_plane_from_uncovered_source(item) for item in uncovered_sources)
+    dispositions = Counter(str(plane.get("disposition") or "unknown") for plane in planes)
+    high_agency_risk_count = sum(
+        1 for plane in planes if any(bool(value) for value in as_dict(plane.get("authority_risk")).values())
+    )
+    blockers: list[str] = []
+    for plane in planes:
+        blockers.extend(str(item) for item in as_list(plane.get("blockers")))
+        if plane.get("disposition") == "release_blocker":
+            blockers.append(f"{plane.get('plane_id')} is a release blocker")
+    release_blocker_count = int(dispositions.get("release_blocker") or 0)
+    ready = release_blocker_count == 0 and not blockers
+    surfaces = sorted({harness_core_surface_name(plane.get("surface")) for plane in planes}) or ["future_surface"]
+    return {
+        "schema_version": LEGACY_AUTHORITY_INVENTORY_SCHEMA,
+        "inventory_id": "legacy-authority-inventory:spark-cli-contract-coverage",
+        "created_at": utc_now(),
+        "scope": {
+            "owner_repo": "spark-wide",
+            "surfaces": surfaces,
+        },
+        "planes": planes,
+        "summary": {
+            "plane_count": len(planes),
+            "removed_count": int(dispositions.get("removed") or 0),
+            "quarantined_count": int(dispositions.get("quarantined") or 0),
+            "evidence_adapter_count": int(dispositions.get("evidence_adapter") or 0),
+            "canonical_consumer_count": int(dispositions.get("canonical_consumer") or 0),
+            "release_blocker_count": release_blocker_count,
+            "high_agency_risk_count": high_agency_risk_count,
+        },
+        "release_gate": {
+            "zero_high_agency_legacy_local_gates": ready,
+            "ready_for_readiness_promotion": ready,
+            "blockers": blockers,
+        },
+    }
+
+
+def build_contract_coverage(desktop: Path, spark_home: Path) -> dict[str, Any]:
+    edges = []
+    for edge in CONTRACT_COVERAGE_ACTION_EDGES:
+        root = resolve_contract_repo_root(str(edge.get("owner_repo")), desktop, spark_home)
+        edges.append(classify_contract_edge(edge, root))
+
+    status_counts = Counter(str(edge.get("status") or "unknown") for edge in edges)
+    legacy_plane_counts = Counter(str(edge.get("legacy_plane_classification") or "unknown") for edge in edges)
+    surface_counts = Counter(str(edge.get("surface") or "unknown") for edge in edges)
+    blocker_edges = [edge for edge in edges if edge.get("release_blocker")]
+    legacy_plane_cleanup_queue = build_legacy_plane_cleanup_queue(edges)
+    uncovered_source_scan = build_uncovered_authority_source_scan(desktop, spark_home)
+    uncovered_source_items = as_list(uncovered_source_scan.get("items"))
+    uncovered_source_blockers = [item for item in uncovered_source_items if item.get("release_blocker")]
+    legacy_authority_inventory = build_legacy_authority_inventory(edges, uncovered_source_items)
+    legacy_authority_inventory_summary = as_dict(legacy_authority_inventory.get("summary"))
+    legacy_authority_release_gate = as_dict(legacy_authority_inventory.get("release_gate"))
+    optional_surfaces = {
+        "spark-skill-graphs": {
+            "root": str(resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home)),
+            "exists": resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home).exists(),
+            "status": (
+                "not_installed_optional_surface"
+                if not resolve_contract_repo_root("spark-skill-graphs", desktop, spark_home).exists()
+                else "installed"
+            ),
+            "handling": "reported_explicitly_not_silently_assumed",
+        }
+    }
+    return {
+        "schema_version": CONTRACT_COVERAGE_SCHEMA,
+        "generated_at": utc_now(),
+        "authority": "observability_non_authoritative",
+        "redaction": "metadata-only contract coverage; no source text, raw prompts, logs, secrets, chat ids, memory bodies, transcripts, or provider output",
+        "status_values": ["envelope_verified", "machine_origin_policy", "evidence_only", "legacy_local_gate"],
+        "legacy_plane_classification_values": ["retired", "evidence_only", "compat_no_authority", "blocked"],
+        "summary": {
+            "edge_count": len(edges),
+            "status_counts": dict(sorted(status_counts.items())),
+            "legacy_plane_classification_counts": dict(sorted(legacy_plane_counts.items())),
+            "surface_counts": dict(sorted(surface_counts.items())),
+            "release_blocker_count": len(blocker_edges) + len(uncovered_source_blockers),
+            "legacy_plane_release_blocker_count": sum(
+                1 for edge in edges if edge.get("legacy_plane_classification") == "blocked"
+            ),
+            "legacy_plane_cleanup_queue_count": len(legacy_plane_cleanup_queue),
+            "uncovered_authority_source_count": len(uncovered_source_items),
+            "uncovered_authority_release_blocker_count": len(uncovered_source_blockers),
+            "uncovered_authority_scanned_file_count": int(
+                as_dict(uncovered_source_scan.get("summary")).get("scanned_file_count") or 0
+            ),
+            "legacy_authority_inventory_plane_count": int(
+                legacy_authority_inventory_summary.get("plane_count") or 0
+            ),
+            "legacy_authority_inventory_release_blocker_count": int(
+                legacy_authority_inventory_summary.get("release_blocker_count") or 0
+            ),
+            "legacy_authority_inventory_ready_for_readiness_promotion": bool(
+                legacy_authority_release_gate.get("ready_for_readiness_promotion")
+            ),
+        },
+        "release_blockers": [
+            {
+                "id": edge.get("id"),
+                "surface": edge.get("surface"),
+                "mutation_class": edge.get("mutation_class"),
+                "reason_code": edge.get("reason_code"),
+                "legacy_plane_classification": edge.get("legacy_plane_classification"),
+                "legacy_plane_reason_code": edge.get("legacy_plane_reason_code"),
+            }
+            for edge in blocker_edges
+        ]
+        + [
+            {
+                "id": item.get("id"),
+                "surface": item.get("owner_repo"),
+                "mutation_class": "uncovered_authority_source",
+                "reason_code": item.get("reason_code"),
+                "rel_path": item.get("rel_path"),
+                "signals": item.get("signals"),
+            }
+            for item in uncovered_source_blockers
+        ],
+        "legacy_plane_cleanup_queue": legacy_plane_cleanup_queue,
+        "legacy_authority_inventory": legacy_authority_inventory,
+        "uncovered_authority_source_scan": uncovered_source_scan,
+        "uncovered_authority_sources": uncovered_source_items,
+        "optional_surfaces": optional_surfaces,
+        "edges": edges,
+    }
 
 
 def literal_assignment(text: str | None, name: str) -> Any:
@@ -3784,11 +5581,25 @@ def js_const_object_values(text: str | None, object_name: str) -> dict[str, str]
     return {key: value for key, value in re.findall(r"(\w+):\s*['\"]([^'\"]+)['\"]", match.group("body"))}
 
 
-def inspect_browser_authority(root: Path) -> dict[str, Any]:
+def inspect_browser_authority(
+    root: Path,
+    *,
+    active_constants_path: Path | None = None,
+    active_policy_path: Path | None = None,
+) -> dict[str, Any]:
     constants_path = root / "src" / "protocol" / "constants.js"
     policy_path = root / "src" / "protocol" / "policy.js"
     contract_path = root / "docs" / "BROWSER_HOOK_CONTRACT_V1.md"
+    source_kind = "legacy_browser_extension"
+    if not constants_path.exists() and active_constants_path is not None and active_constants_path.exists():
+        constants_path = active_constants_path
+        source_kind = "browser_use_adapter"
+    if not policy_path.exists() and active_policy_path is not None and active_policy_path.exists():
+        policy_path = active_policy_path
+        source_kind = "browser_use_adapter"
+
     constants_text = read_text_or_none(constants_path)
+    policy_text = read_text_or_none(policy_path)
     risk_values = js_const_object_values(constants_text, "RISK_CLASSES")
     approval_values = js_const_object_values(constants_text, "APPROVAL_MODES")
     risk_counts: Counter[str] = Counter()
@@ -3797,7 +5608,15 @@ def inspect_browser_authority(root: Path) -> dict[str, Any]:
         risk_counts[risk_values.get(risk_key, risk_key.lower())] += 1
     for approval_key in re.findall(r"approval_mode:\s*APPROVAL_MODES\.(\w+)", constants_text or ""):
         approval_counts[approval_values.get(approval_key, approval_key.lower())] += 1
+    if source_kind == "browser_use_adapter":
+        for risk in re.findall(r"['\"]risk_class['\"]:\s*['\"]([^'\"]+)['\"]", constants_text or ""):
+            risk_counts[risk] += 1
+            risk_values.setdefault(risk.upper(), risk)
+        for mode in re.findall(r"['\"]approval_mode['\"]:\s*['\"]([^'\"]+)['\"]", constants_text or ""):
+            approval_counts[mode] += 1
+            approval_values.setdefault(mode.upper(), mode)
     return {
+        "source_kind": source_kind,
         "sources": {
             "constants": {"path": str(constants_path), "exists": constants_path.exists()},
             "policy": {"path": str(policy_path), "exists": policy_path.exists()},
@@ -3809,21 +5628,46 @@ def inspect_browser_authority(root: Path) -> dict[str, Any]:
         "risk_class_counts": dict(sorted(risk_counts.items())),
         "approval_mode_counts": dict(sorted(approval_counts.items())),
         "origin_scoped_hook_count": len(re.findall(r"requires_origin_scope:\s*true", constants_text or "")),
-        "sensitive_surface_policy_exists": "classifySensitiveSurface" in (read_text_or_none(policy_path) or ""),
+        "sensitive_surface_policy_exists": (
+            "classifySensitiveSurface" in (policy_text or "")
+            or "metadata service" in (policy_text or "")
+            or "sensitive click workflows" in (policy_text or "")
+            or "sensitive_domain" in (constants_text or "")
+        ),
     }
 
 
-def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
+def inspect_public_output_authority(desktop: Path, *, active_sync_path: Path | None = None) -> dict[str, Any]:
     swarm_root = desktop / "spark-swarm"
     labs_root = desktop / "spark-domain-chip-labs"
     sync_validation_path = swarm_root / "apps" / "api" / "src" / "collective" / "sync-validation.ts"
+    source_kind = "spark_swarm_repo"
+    if not sync_validation_path.exists() and active_sync_path is not None and active_sync_path.exists():
+        sync_validation_path = active_sync_path
+        source_kind = "builder_swarm_bridge"
     sync_text = read_text_or_none(sync_validation_path)
     checks_match = re.search(r"REQUIRED_PUBLICATION_CHECKS\s*=\s*\[(?P<body>.*?)\]", sync_text or "", re.S)
     required_checks = clean_ts_union(re.findall(r"['\"]([^'\"]+)['\"]", checks_match.group("body") if checks_match else ""))
+    if not required_checks and source_kind == "builder_swarm_bridge" and sync_text:
+        required_checks = [
+            check
+            for check, marker in (
+                ("swarm_payload_ready", "payload_ready"),
+                ("swarm_api_ready", "api_ready"),
+                ("swarm_auth_state", "auth_state"),
+                ("swarm_state_recorded", "_record_swarm_sync_state"),
+            )
+            if marker in sync_text
+        ]
 
     swarm_files = {
         name: {"path": str(swarm_root / rel_path), "exists": (swarm_root / rel_path).exists()}
         for name, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
+    }
+    swarm_files["sync_validation"] = {
+        "path": str(sync_validation_path),
+        "exists": sync_validation_path.exists(),
+        "source_kind": source_kind,
     }
     labs_files = {
         name: {"path": str(labs_root / rel_path), "exists": (labs_root / rel_path).exists()}
@@ -3834,9 +5678,11 @@ def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
 
     return {
         "authority": "publication_not_granted_by_local_artifacts",
+        "sync_source_kind": source_kind,
         "swarm_governance_files": swarm_files,
         "labs_gate_files": labs_files,
-        "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]"),
+        "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]")
+        or ("builder-swarm-bridge-sync" if source_kind == "builder_swarm_bridge" else None),
         "required_publication_checks": required_checks,
         "creator_network_templates": {
             "proposal_bundle": {"path": str(proposal_template), "exists": proposal_template.exists()},
@@ -3864,6 +5710,16 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
         "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
         "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
     }
+    tool_suffixes: dict[str, Path] = {
+        "cli_access_policy": Path("tools/spark-cli/src/spark_cli/sandbox/access.py"),
+        "cli_capabilities": Path("tools/spark-cli/src/spark_cli/sandbox/capabilities.py"),
+        "browser_policy": Path("tools/spark-cli/src/spark_cli/cli.py"),
+    }
+    active_source_suffixes: dict[str, Path] = {
+        "browser_constants": Path("modules/spark-intelligence-builder/source/src/spark_intelligence/browser/service.py"),
+        "browser_policy": Path("tools/spark-cli/src/spark_cli/cli.py"),
+        "swarm_sync_validation": Path("modules/spark-intelligence-builder/source/src/spark_intelligence/swarm_bridge/sync.py"),
+    }
     desktop_files = {
         "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
         "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
@@ -3885,6 +5741,17 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
             installed_path = module_sources / module_name / "source" / suffix
             if installed_path.exists():
                 return installed_path
+        if spark_home is not None:
+            tool_suffix = tool_suffixes.get(key)
+            if tool_suffix is not None:
+                tool_path = spark_home / tool_suffix
+                if tool_path.exists():
+                    return tool_path
+            active_suffix = active_source_suffixes.get(key)
+            if active_suffix is not None:
+                active_path = spark_home / active_suffix
+                if active_path.exists():
+                    return active_path
         if module_name == "spark-cli":
             local_repo_path = spark_cli_repo_root / suffix
             if local_repo_path.exists():
@@ -3909,8 +5776,15 @@ def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_hom
     cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
     telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
     spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
-    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
-    public_output_authority = inspect_public_output_authority(desktop)
+    browser_authority = inspect_browser_authority(
+        resolve_repo_root("spark-browser-extension"),
+        active_constants_path=source_files["browser_constants"],
+        active_policy_path=source_files["browser_policy"],
+    )
+    public_output_authority = inspect_public_output_authority(
+        desktop,
+        active_sync_path=source_files["swarm_sync_validation"],
+    )
 
     access_profile_count = len(as_list(telegram_policy.get("profiles")))
 
@@ -4332,7 +6206,11 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
     return trace_index
 
 
-def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
+def build_memory_movement_index(
+    builder_home: Path,
+    *,
+    status_export_refresh: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     builder_memory_tables = inspect_builder_memory_tables(builder_home)
     trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
     trace_bridge_instruction = (
@@ -4340,6 +6218,17 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
         if trace_join.get("status") == "present"
         else "Join memory movement events to trace ids once Builder event envelopes carry stable trace refs."
     )
+    safe_status_export = read_memory_movement_status_export(builder_home)
+    next_required_bridges = [
+        "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
+        trace_bridge_instruction,
+        "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
+    ]
+    if as_dict(safe_status_export).get("exists") is not True:
+        next_required_bridges.insert(
+            0,
+            "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
+        )
     memory_index = {
         "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
         "generated_at": utc_now(),
@@ -4349,15 +6238,11 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
             "conversation turns, evidence payloads, or Telegram update payloads emitted"
         ),
         "builder_memory_tables": builder_memory_tables,
-        "safe_status_export": read_memory_movement_status_export(builder_home),
+        "safe_status_export": safe_status_export,
+        "status_export_refresh": status_export_refresh or {"status": "not_requested"},
         "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
         "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
-        "next_required_bridges": [
-            "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
-            "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
-            trace_bridge_instruction,
-            "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
-        ],
+        "next_required_bridges": next_required_bridges,
     }
     memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
     return memory_index
@@ -4456,6 +6341,12 @@ def repo_release_status(name: str, git: dict[str, Any], manifest: dict[str, bool
         return "blocked", "dirty worktree", "curate local changes before merge or release"
     if behind:
         return "blocked", "behind upstream", "pull or merge upstream before release"
+    if name in PRIVATE_OFFICE_REPOS:
+        return (
+            "not_release_candidate",
+            "private office repo intentionally excluded from runtime manifests",
+            "publish docs and plans through the owner repo, but keep runtime contracts in installed surfaces",
+        )
     if name in CORE_REPOS and not any(manifest.values()):
         return "blocked", "core repo missing Spark manifest", "add or confirm owner manifest before release"
     if name == "spark-cli" and any(manifest.values()):
@@ -4473,6 +6364,13 @@ def repo_risk_class(name: str, release_eligibility: str) -> str:
     if name in CORE_REPOS:
         return "medium"
     return "low"
+
+
+def normalize_repo_path(value: Any) -> str:
+    try:
+        return str(Path(str(value)).resolve()).lower()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return str(value or "").lower()
 
 
 def repo_by_name(system_map: dict[str, Any], name: str) -> dict[str, Any]:
@@ -5005,7 +6903,13 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
 
 def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     registry_modules = set(as_dict(system_map.get("registry", {}).get("modules")).keys())
-    installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
+    installed_module_docs = as_dict(system_map.get("installed_modules"))
+    installed_modules = set(installed_module_docs.keys())
+    installed_runtime_paths = {
+        normalize_repo_path(as_dict(doc).get("path") or as_dict(doc).get("source"))
+        for doc in installed_module_docs.values()
+        if as_dict(doc).get("path") or as_dict(doc).get("source")
+    }
     rows: list[dict[str, Any]] = []
 
     for repo in as_list(system_map.get("discovered_repos")):
@@ -5014,9 +6918,26 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         ids = repo_ids(repo)
         registry_present = bool(ids & registry_modules)
         installed_present = bool(ids & installed_modules)
-        git = git_board_status(Path(str(repo.get("path") or "")))
+        repo_path = Path(str(repo.get("path") or ""))
+        actual_installed_runtime_root = normalize_repo_path(repo_path) in installed_runtime_paths
+        release_scope = actual_installed_runtime_root or name == "spark-cli"
+        git = git_board_status(repo_path)
         manifest = repo_manifest_presence(repo)
         release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
+        risk_class = repo_risk_class(name, release_eligibility)
+        agents_ruleset_present = bool(manifest.get("agents_md"))
+        agents_ruleset_required = (
+            release_scope
+            and bool(git.get("available"))
+            and release_eligibility != "not_release_candidate"
+            and risk_class in {"critical", "high"}
+        )
+        all_discovered_agents_ruleset_required = (
+            bool(git.get("available"))
+            and release_eligibility != "not_release_candidate"
+            and risk_class in {"critical", "high"}
+        )
+        agents_ruleset_release_blocker = agents_ruleset_required and not agents_ruleset_present
         rows.append(
             {
                 "repo": name,
@@ -5032,27 +6953,61 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
                 "manifest_presence": manifest,
                 "registry_present": registry_present,
                 "installed_present": installed_present,
+                "actual_installed_runtime_root": actual_installed_runtime_root,
+                "release_scope": release_scope,
+                "release_scope_reason": (
+                    "installed_runtime_root"
+                    if actual_installed_runtime_root
+                    else "spark_cli_release_owner"
+                    if name == "spark-cli"
+                    else "all_discovered_hygiene_only"
+                ),
                 "module_ids": sorted(ids),
                 "owner_surface": repo_owner_surface(name),
                 "release_eligibility": release_eligibility,
-                "risk_class": repo_risk_class(name, release_eligibility),
+                "risk_class": risk_class,
+                "agents_ruleset_present": agents_ruleset_present,
+                "agents_ruleset_required": agents_ruleset_required,
+                "all_discovered_agents_ruleset_required": all_discovered_agents_ruleset_required,
+                "agents_ruleset_release_blocker": agents_ruleset_release_blocker,
                 "next_safe_action": next_safe_action,
                 "do_not_merge_reason": do_not_merge_reason,
             }
         )
 
+    release_rows = [row for row in rows if row["release_scope"]]
     summary = {
         "repo_count": len(rows),
         "git_repo_count": sum(1 for row in rows if row["git_available"]),
-        "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
-        "blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+        "release_scope_repo_count": len(release_rows),
+        "all_discovered_dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
+        "all_discovered_repo_blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+        "dirty_repo_count": sum(1 for row in release_rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
+        "repo_blocked_release_count": sum(1 for row in release_rows if row["release_eligibility"] == "blocked"),
         "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
+        "agents_ruleset_present_count": sum(1 for row in rows if row["agents_ruleset_present"]),
+        "agents_ruleset_missing_count": sum(1 for row in rows if not row["agents_ruleset_present"]),
+        "all_discovered_agents_ruleset_required_count": sum(1 for row in rows if row["all_discovered_agents_ruleset_required"]),
+        "all_discovered_agents_ruleset_release_blocker_count": sum(
+            1
+            for row in rows
+            if row["all_discovered_agents_ruleset_required"] and not row["agents_ruleset_present"]
+        ),
+        "agents_ruleset_required_count": sum(1 for row in release_rows if row["agents_ruleset_required"]),
+        "agents_ruleset_release_blocker_count": sum(1 for row in release_rows if row["agents_ruleset_release_blocker"]),
     }
     duplicate_truths = build_duplicate_truths(system_map)
     summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
     summary["critical_duplicate_truth_count"] = as_dict(
         as_dict(duplicate_truths.get("summary")).get("severity_counts")
     ).get("critical", 0)
+    summary["duplicate_truth_release_blocker_count"] = summary["critical_duplicate_truth_count"]
+    summary["blocked_release_count"] = (
+        int(summary["repo_blocked_release_count"] or 0)
+        + int(summary["duplicate_truth_release_blocker_count"] or 0)
+        + int(summary["agents_ruleset_release_blocker_count"] or 0)
+    )
+    summary["release_readiness"] = "blocked" if summary["blocked_release_count"] else "eligible"
     ranked = sorted(
         rows,
         key=lambda row: (
@@ -5081,7 +7036,7 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
+def build_voice_surface_view(system_map: dict[str, Any], trace_index: dict[str, Any] | None = None) -> dict[str, Any]:
     repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
     repo_names = {str(repo.get("name")) for repo in repos}
     repo_paths = {
@@ -5160,6 +7115,12 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         "src/spark_intelligence/adapters/telegram/runtime.py",
         "voice.status",
     )
+    builder_has_voice_delivery_trace = source_file_contains(
+        "spark-intelligence-builder",
+        "src/spark_intelligence/adapters/telegram/runtime.py",
+        "_record_telegram_voice_delivery_runtime_state",
+        "telegram_delivery",
+    )
     builder_has_transcript_preview = source_file_contains(
         "spark-intelligence-builder",
         "src/spark_intelligence/adapters/telegram/runtime.py",
@@ -5197,7 +7158,16 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         runtime_mode = source_mode
 
     hard_blocked = not available or not installed or source_mode == "disabled" or builder_has_transcript_preview
-    final_answer_supported = delivery_ready and telegram_has_voice_bridge
+    trace_index = trace_index or {}
+    final_answer_gate_samples = as_dict(trace_index.get("telegram_final_answer_gate_samples"))
+    final_answer_trace_join = as_dict(final_answer_gate_samples.get("trace_join"))
+    final_answer_join_status = str(final_answer_trace_join.get("status") or "missing")
+    final_answer_join_supported = (
+        telegram_has_voice_bridge
+        and builder_has_voice_delivery_trace
+        and final_answer_join_status == "join_key_present"
+    )
+    final_answer_supported = runtime_egress_ready and final_answer_join_supported
 
     blockers = []
     if not available:
@@ -5212,7 +7182,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         blockers.append("voice synthesis is not ready")
     if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:
         blockers.append("voice Telegram delivery is not proven")
-    if not final_answer_supported:
+    if not final_answer_join_supported:
         blockers.append("voice final-answer join evidence is not compiled")
     if builder_has_transcript_preview:
         blockers.append("Builder retains raw voice transcript preview in private trace fields")
@@ -5220,7 +7190,9 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     trace_evidence = "missing_source_hooks"
     if source_mode != "disabled" and runtime_state_export_present:
         trace_evidence = "runtime_state_export_present"
-        if not final_answer_supported:
+        if not final_answer_join_supported:
+            trace_evidence = "runtime_state_export_present_final_answer_join_unproven"
+        elif not final_answer_supported:
             trace_evidence = "runtime_state_export_present_delivery_unproven"
     elif source_mode != "disabled":
         trace_evidence = "source_present_not_proven"
@@ -5272,7 +7244,8 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         },
         "trace": {
             "voice_events_supported": bool(runtime_sources),
-            "final_answer_check_supported": final_answer_supported,
+            "final_answer_check_supported": final_answer_join_supported,
+            "final_answer_trace_join_status": final_answer_join_status,
             "source_hooks_present": source_mode != "disabled",
             "telegram_delivery_bridge_present": telegram_has_voice_bridge,
             "runtime_state_export_present": runtime_state_export_present,
@@ -5380,9 +7353,11 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     setup_summary = summarize_setup(setup if isinstance(setup, dict) else None)
     running = summarize_pids(pids if isinstance(pids, dict) else None)
 
-    repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None)
+    repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None, spark_home)
     repos = [collect_repo_metadata(path) for path in repo_paths]
     builder_home = Path(str(setup_summary.get("builder_home") or state_dir / "spark-intelligence")).expanduser()
+    builder_repo = find_repo_path(repos, "spark-intelligence-builder")
+    memory_status_refresh = refresh_memory_movement_status_export(builder_repo, builder_home)
 
     system_map: dict[str, Any] = {
         "schema_version": SYSTEM_MAP_SCHEMA,
@@ -5412,12 +7387,16 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
     compiled = {
         "system_map": system_map,
         "authority_view": build_authority_view(desktop, setup_summary, spark_home),
+        "contract_coverage": build_contract_coverage(desktop, spark_home),
         "capability_catalog": build_capability_catalog(repos),
         "trace_index": build_trace_index(spark_home, builder_home),
-        "memory_movement_index": build_memory_movement_index(builder_home),
+        "memory_movement_index": build_memory_movement_index(
+            builder_home,
+            status_export_refresh=memory_status_refresh,
+        ),
     }
     compiled["repo_board"] = build_repo_board(system_map)
-    compiled["voice_surface_view"] = build_voice_surface_view(system_map)
+    compiled["voice_surface_view"] = build_voice_surface_view(system_map, compiled["trace_index"])
     compiled["operating_cockpit"] = build_operating_cockpit(compiled)
     return compiled
 
@@ -5458,7 +7437,7 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
             "",
             "1. Promote this generated map into Builder's AOC panel as a read-only source.",
             "2. Deepen trace-index compilation from aggregate counts into redacted trace drilldowns.",
-            "3. Have Builder publish a safe memory movement status export for the compiler to ingest.",
+            "3. Keep Builder's safe memory movement status export refreshed before compiler ingestion.",
             "4. Add per-gap owner assignment before any runtime behavior changes.",
             "",
         ]
@@ -5472,6 +7451,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
     paths = {
         "system_map": out_dir / "system-map.json",
         "authority_view": out_dir / "authority-view.json",
+        "contract_coverage": out_dir / "contract-coverage.json",
         "capability_catalog": out_dir / "capability-catalog.json",
         "trace_index": out_dir / "trace-index.json",
         "memory_movement_index": out_dir / "memory-movement-index.json",
@@ -5482,6 +7462,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
     }
     write_json(paths["system_map"], system_map)
     write_json(paths["authority_view"], compiled["authority_view"])
+    write_json(paths["contract_coverage"], compiled["contract_coverage"])
     write_json(paths["capability_catalog"], compiled["capability_catalog"])
     write_json(paths["trace_index"], compiled["trace_index"])
     write_json(paths["memory_movement_index"], compiled["memory_movement_index"])
@@ -5495,6 +7476,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
 def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = None) -> dict[str, Any]:
     system_map = as_dict(compiled["system_map"])
     capability_catalog = as_dict(compiled["capability_catalog"])
+    contract_coverage = as_dict(compiled.get("contract_coverage"))
     trace_index = as_dict(compiled["trace_index"])
     memory_index = as_dict(compiled["memory_movement_index"])
     repo_board = as_dict(compiled.get("repo_board"))
@@ -5519,6 +7501,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "creator_system_surfaces": len(as_list(capability_catalog.get("creator_system_surfaces"))),
         "specialization_path_surfaces": len(as_list(capability_catalog.get("specialization_path_surfaces"))),
         "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
+        "contract_coverage": as_dict(contract_coverage.get("summary")),
         "authority_sources": {
             key: as_dict(value).get("exists")
             for key, value in as_dict(as_dict(compiled["authority_view"]).get("observed_sources")).items()

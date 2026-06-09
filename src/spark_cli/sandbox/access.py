@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..env_files import normalize_env_file_value
 from .audit import sandbox_audit_ref, write_audit_event
@@ -21,6 +21,14 @@ LEVEL5_ENV = {
     "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS": "1",
     "SPARK_CODEX_SANDBOX": "danger-full-access",
 }
+
+LEVEL5_ENABLE_TOOL_NAME = "spark-cli.access.level5.enable"
+LEVEL5_DISABLE_TOOL_NAME = "spark-cli.access.level5.disable"
+LEVEL5_OWNER_SYSTEM = "spark-cli"
+LEVEL5_MUTATION_CLASS = "writes_files"
+LEVEL5_ACTION_TYPE = "edit_file"
+LEVEL5_ENABLE_CAPABILITY_ID = f"capability:{LEVEL5_OWNER_SYSTEM}:{LEVEL5_ENABLE_TOOL_NAME}"
+LEVEL5_DISABLE_CAPABILITY_ID = f"capability:{LEVEL5_OWNER_SYSTEM}:{LEVEL5_DISABLE_TOOL_NAME}"
 
 
 DEFAULT_ACCESS_LEVEL = 4
@@ -102,6 +110,63 @@ def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
 
 
+def _harness_core_source_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    candidates.append(Path(__file__).resolve().parents[4] / "spark-harness-core" / "src")
+    spark_home = os.environ.get("SPARK_HOME")
+    if spark_home:
+        candidates.append(Path(spark_home).expanduser() / "modules" / "spark-harness-core" / "source" / "src")
+    candidates.append(Path.home() / ".spark" / "modules" / "spark-harness-core" / "source" / "src")
+    return candidates
+
+
+def _load_verify_governor_tool_authority() -> Callable[..., dict[str, Any]]:
+    try:
+        from spark_harness_core.legacy_turn_intent import verify_governor_tool_authority
+
+        return verify_governor_tool_authority
+    except ModuleNotFoundError:
+        pass
+
+    for candidate in _harness_core_source_candidates():
+        if not (candidate / "spark_harness_core" / "__init__.py").exists():
+            continue
+        candidate_text = str(candidate)
+        if candidate_text not in sys.path:
+            sys.path.insert(0, candidate_text)
+        try:
+            from spark_harness_core.legacy_turn_intent import verify_governor_tool_authority
+
+            return verify_governor_tool_authority
+        except ModuleNotFoundError:
+            continue
+    raise RuntimeError("spark_harness_core_unavailable")
+
+
+def require_level5_access_authority(
+    governor_decision: dict[str, Any] | None,
+    *,
+    tool_name: str,
+) -> dict[str, Any]:
+    if not isinstance(governor_decision, dict):
+        raise RuntimeError(
+            "Level 5 access mutation requires GovernorDecisionV1 authority: missing_governor_decision"
+        )
+    verifier = _load_verify_governor_tool_authority()
+    verification = verifier(
+        governor_decision,
+        tool_name=tool_name,
+        owner_system=LEVEL5_OWNER_SYSTEM,
+        mutation_class=LEVEL5_MUTATION_CLASS,
+        require_pre_execution_ledger=True,
+    )
+    if not verification.get("allowed"):
+        reasons = [str(item) for item in verification.get("reason_codes", []) if str(item).strip()]
+        reason_text = ", ".join(reasons) if reasons else "governor_authority_denied"
+        raise RuntimeError(f"Level 5 access mutation requires GovernorDecisionV1 authority: {reason_text}")
+    return verification
+
+
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
     root = module_env_dir(home=home, env=env)
     return {
@@ -110,7 +175,13 @@ def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = N
     }
 
 
-def persist_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
+def persist_level5_guardrails(
+    *,
+    home: Path | None = None,
+    env: dict[str, str] | None = None,
+    governor_decision: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    require_level5_access_authority(governor_decision, tool_name=LEVEL5_ENABLE_TOOL_NAME)
     paths = level5_env_paths(home=home, env=env)
     spawner_env = read_env_file(paths["spawner"])
     telegram_env = read_env_file(paths["telegram"])
@@ -146,7 +217,13 @@ def _remove_env_keys(path: Path, keys: set[str]) -> bool:
     return changed
 
 
-def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
+def disable_level5_guardrails(
+    *,
+    home: Path | None = None,
+    env: dict[str, str] | None = None,
+    governor_decision: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    require_level5_access_authority(governor_decision, tool_name=LEVEL5_DISABLE_TOOL_NAME)
     paths = level5_env_paths(home=home, env=env)
     changed = {
         "spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV)),
@@ -590,6 +667,7 @@ def access_lane_payload(
     enable_high_agency: bool = False,
     home: Path | None = None,
     env: dict[str, str] | None = None,
+    governor_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     env_values = env or os.environ
     written_level5_env: dict[str, str] = {}
@@ -663,7 +741,7 @@ def access_lane_payload(
             }),
         }
     if setup and level >= 5 and enable_high_agency:
-        written_level5_env = persist_level5_guardrails(home=home, env=env_values)
+        written_level5_env = persist_level5_guardrails(home=home, env=env_values, governor_decision=governor_decision)
     family = access_os_family()
     workspace_root = spark_workspace_root(home=home, env=env_values)
     workspace_path = ensure_level4_workspace(home=home, env=env_values) if setup else workspace_root / "default"
@@ -899,8 +977,13 @@ def access_lane_payload(
     }
 
 
-def level5_disable_payload(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
-    result = disable_level5_guardrails(home=home, env=env)
+def level5_disable_payload(
+    *,
+    home: Path | None = None,
+    env: dict[str, str] | None = None,
+    governor_decision: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = disable_level5_guardrails(home=home, env=env, governor_decision=governor_decision)
     return {
         "ok": True,
         "access_level": 4,

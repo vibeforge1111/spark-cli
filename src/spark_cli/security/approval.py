@@ -14,6 +14,8 @@ ApprovalClass = Literal[
     "credential_mutation",
     "external_publish",
     "process_autostart_mutation",
+    "runtime_state_mutation",
+    "configuration_mutation",
     "network_exfiltration",
     "remote_code_execution",
     "container_privilege_escalation",
@@ -64,12 +66,32 @@ def _contains_any(parts: list[str], values: set[str]) -> bool:
     return any(part in values for part in parts)
 
 
+def _has_any_option(parts: list[str], option_names: set[str]) -> bool:
+    return any(part in option_names or any(part.startswith(f"{name}=") for name in option_names) for part in parts)
+
+
 def _target_after(parts: list[str], command_names: set[str]) -> str:
     for index, part in enumerate(parts):
         if part.lower() in command_names and index + 1 < len(parts):
             for candidate in parts[index + 1 :]:
                 if not candidate.startswith("-"):
                     return candidate
+    return ""
+
+
+def _last_non_option(parts: list[str]) -> str:
+    for part in reversed(parts[1:]):
+        if not part.startswith("-"):
+            return part
+    return ""
+
+
+def _assignment_value(parts: list[str], names: set[str]) -> str:
+    for part in parts[1:]:
+        lowered = part.lower()
+        for name in names:
+            if lowered.startswith(f"{name.lower()}="):
+                return part.split("=", 1)[1]
     return ""
 
 
@@ -134,6 +156,114 @@ def parse_command_text(command: str) -> list[str]:
         return command.split()
 
 
+_SHELL_INLINE_COMMANDS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
+_POWERSHELL_INLINE_COMMANDS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_CMD_INLINE_COMMANDS = {"cmd", "cmd.exe"}
+_INTERPRETER_INLINE_COMMANDS = {"python", "python3", "py", "python.exe", "py.exe", "node", "node.exe", "ruby", "ruby.exe", "perl", "perl.exe"}
+
+
+def _shell_inline_payload_index(lowered: list[str]) -> int | None:
+    for index, part in enumerate(lowered[1:], start=1):
+        if part in {"-c", "--command"} and index + 1 < len(lowered):
+            return index + 1
+        if part.startswith("-") and not part.startswith("--") and "c" in part[1:] and index + 1 < len(lowered):
+            return index + 1
+    return None
+
+
+def _option_payload_index(lowered: list[str], option_names: set[str]) -> int | None:
+    for index, part in enumerate(lowered[1:], start=1):
+        if part in option_names and index + 1 < len(lowered):
+            return index + 1
+    return None
+
+
+def _inline_payload_decision(parts: list[str], lowered: list[str], ctx: CommandContext) -> ApprovalDecision | None:
+    first = lowered[0] if lowered else ""
+    if first in _SHELL_INLINE_COMMANDS:
+        payload_index = _shell_inline_payload_index(lowered)
+        if payload_index is None:
+            return None
+        payload = parts[payload_index]
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline shell payload.",
+            target_display=f"{parts[0]} -c",
+            confirmation_phrase="approve inline shell",
+        )
+
+    if first in _POWERSHELL_INLINE_COMMANDS:
+        if _option_payload_index(lowered, {"-encodedcommand", "-enc"}) is not None:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "critical",
+                "Command runs an opaque encoded PowerShell payload.",
+                target_display=parts[0],
+                confirmation_phrase="approve encoded powershell",
+            )
+        payload_index = _option_payload_index(lowered, {"-c", "-command", "/c", "/command"})
+        if payload_index is None:
+            return None
+        payload = " ".join(parts[payload_index:])
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline PowerShell payload.",
+            target_display=f"{parts[0]} -Command",
+            confirmation_phrase="approve inline powershell",
+        )
+
+    if first in _CMD_INLINE_COMMANDS:
+        payload_index = _option_payload_index(lowered, {"/c", "/k"})
+        if payload_index is None:
+            return None
+        payload = " ".join(parts[payload_index:])
+        nested_parts = parse_command_text(payload)
+        nested = approval_required_for_command(nested_parts, ctx) if nested_parts else None
+        if nested and nested.requires_approval:
+            return nested
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs an inline cmd.exe payload.",
+            target_display=f"{parts[0]} /c",
+            confirmation_phrase="approve inline cmd",
+        )
+
+    if first in _INTERPRETER_INLINE_COMMANDS:
+        payload_index = _option_payload_index(lowered, {"-c", "-e"})
+        if payload_index is None:
+            return None
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command runs inline interpreter code.",
+            target_display=f"{parts[0]} {parts[payload_index - 1]}",
+            confirmation_phrase="approve inline code",
+        )
+
+    return None
+
+
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
     parts = [part for part in argv if part != "--"]
@@ -144,6 +274,10 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+
+    inline_decision = _inline_payload_decision(parts, lowered, ctx)
+    if inline_decision is not None:
+        return inline_decision
 
     if first in {"sudo", "doas"}:
         nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
@@ -184,8 +318,27 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         return _decision(parts, ctx, "none", "none", f"`spark access {lowered[2]}` is read-only.")
     if first == "spark" and second == "verify" and "--deep" not in lowered:
         return _decision(parts, ctx, "none", "none", "`spark verify` without --deep is report-only.")
-    if first == "spark" and lowered[1:3] == ["providers", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark providers status` is read-only.")
+    if first == "spark" and lowered[1:3] in (["providers", "status"], ["providers", "list"], ["providers", "recommend"]):
+        return _decision(parts, ctx, "none", "none", f"`spark providers {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] in (["config", "get"], ["config", "list"]):
+        return _decision(parts, ctx, "none", "none", f"`spark config {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] in (["live", "status"], ["live", "logs"]):
+        return _decision(parts, ctx, "none", "none", f"`spark live {lowered[2]}` is read-only.")
+    if first == "spark" and lowered[1:3] == ["autostart", "status"]:
+        return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
+    if first == "spark" and "--allow-dirty-runtime" in lowered and (
+        second in {"start", "restart"}
+        or (second == "live" and len(lowered) > 2 and lowered[2] in {"start", "run", "restart"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can run installed runtime code that has drifted from verified registry pins.",
+            target_display="spark runtime",
+            confirmation_phrase="approve dirty runtime",
+        )
 
     if first == "spark" and second == "uninstall" and "--purge-home" in lowered:
         return _decision(
@@ -196,6 +349,169 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete the local Spark home, including state, logs, generated config, and installed module checkouts.",
             target_display="SPARK_HOME",
             confirmation_phrase="delete spark home",
+        )
+
+    if first == "spark" and second == "install":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command installs or updates Spark module source, dependency commands, hooks, registry state, and generated runtime config.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve spark install",
+        )
+    if first == "spark" and second == "setup":
+        if _has_any_option(lowered, {"--bot-token", "--zai-api-key", "--openai-api-key", "--anthropic-api-key", "--openrouter-api-key", "--kimi-api-key", "--huggingface-api-key", "--minimax-api-key", "--elevenlabs-api-key"}):
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "high",
+                "Command can store or rotate Spark provider, voice, or Telegram credentials during setup.",
+                target_display="spark setup",
+                confirmation_phrase="approve setup credentials",
+            )
+        if _has_any_option(lowered, {"--admin-telegram-ids", "--external-telegram-ingress", "--access"}):
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Command changes Telegram, ingress, or operator access configuration during setup.",
+                target_display="spark setup",
+                confirmation_phrase="approve access change",
+            )
+        if "--no-autostart" not in lowered:
+            return _decision(
+                parts,
+                ctx,
+                "process_autostart_mutation",
+                "medium",
+                "`spark setup` installs OS login autostart by default.",
+                target_display="spark setup",
+                confirmation_phrase="approve autostart change",
+            )
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command writes Spark setup, installed-module, registry, generated config, and optional runtime state.",
+            target_display="spark setup",
+            confirmation_phrase="approve spark setup",
+        )
+    if first == "spark" and second in {"update", "onboard"}:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command can refresh installed runtime source, installed state, generated config, or running Spark services.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second == "uninstall":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command removes Spark modules from installed state, generated config, autostart hooks, or runtime process tracking.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second in {"start", "restart"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "medium",
+            "Command starts installed Spark runtime code.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime execution",
+        )
+    if first == "spark" and second == "stop":
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command stops tracked Spark runtime processes.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and second == "live" and len(lowered) > 2 and lowered[2] in {"start", "run", "restart"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "medium",
+            "Command starts Spark Live runtime code.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve runtime execution",
+        )
+    if first == "spark" and lowered[1:3] == ["live", "stop"]:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "medium",
+            "Command stops Spark Live runtime processes.",
+            target_display="spark live stop",
+            confirmation_phrase="approve runtime state change",
+        )
+    if first == "spark" and lowered[1:3] in (["config", "set"], ["config", "unset"]):
+        return _decision(
+            parts,
+            ctx,
+            "configuration_mutation",
+            "medium",
+            "Command changes persistent Spark CLI configuration.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve config change",
+        )
+    if first == "spark" and lowered[1:3] == ["providers", "codex"] and _has_any_option(lowered, {"--model", "--reasoning-effort", "--service-tier"}):
+        return _decision(
+            parts,
+            ctx,
+            "configuration_mutation",
+            "medium",
+            "Command changes Codex provider model, reasoning, or service-tier configuration.",
+            target_display="spark providers codex",
+            confirmation_phrase="approve provider config change",
+        )
+    if first == "spark" and lowered[1:3] == ["providers", "test"]:
+        return _decision(
+            parts,
+            ctx,
+            "high_cost_execution",
+            "medium",
+            "Command can call a configured LLM provider for a live probe.",
+            target_display="spark providers test",
+            confirmation_phrase="approve provider test",
+        )
+    if first == "spark" and lowered[1:3] == ["browser-use", "install"] and "--dry-run" in lowered:
+        return _decision(parts, ctx, "none", "none", "`spark browser-use install --dry-run` is report-only.")
+    if first == "spark" and lowered[1:3] == ["browser-use", "install"]:
+        return _decision(
+            parts,
+            ctx,
+            "runtime_state_mutation",
+            "high",
+            "Command installs browser-use dependencies and browser runtime components.",
+            target_display="spark browser-use install",
+            confirmation_phrase="approve browser install",
+        )
+    if first == "spark" and lowered[1:4] == ["fix", "secrets", "--redact-logs"]:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "medium",
+            "Command rewrites local Spark logs to redact credential-like values.",
+            target_display="spark fix secrets --redact-logs",
+            confirmation_phrase="approve log redaction",
         )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
@@ -210,6 +526,91 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+
+    if first == "dd":
+        target = _assignment_value(parts, {"of"})
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "critical",
+            "Command can overwrite local files, devices, or disks.",
+            target_display=target,
+            confirmation_phrase=f"overwrite {target}".strip().lower()[:80] if target else "approve dd overwrite",
+        )
+
+    if first in {"mv", "move", "ren", "rename"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can move, rename, or overwrite local files and directories.",
+            target_display=target,
+            confirmation_phrase=f"move {target}".strip().lower()[:80] if target else "approve file move",
+        )
+
+    if first in {"chmod", "chown", "icacls", "takeown", "attrib"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can change file permissions, ownership, or access controls.",
+            target_display=target,
+            confirmation_phrase=f"change permissions {target}".strip().lower()[:80] if target else "approve permission change",
+        )
+
+    if first in {"scp", "rsync", "sftp"}:
+        target = _last_non_option(parts)
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "high",
+            "Command can copy local data across a network boundary.",
+            target_display=target,
+            confirmation_phrase="approve network file transfer",
+        )
+
+    if first in {"ssh", "ssh.exe", "plink", "plink.exe"}:
+        target = parts[1] if len(parts) > 1 else parts[0]
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can execute a shell or command on a remote host.",
+            target_display=target,
+            confirmation_phrase="approve ssh remote command",
+        )
+
+    if first in {"npx", "bunx", "uvx"} or (
+        first in {"npm", "pnpm", "yarn", "bun"}
+        and second in {"install", "add", "i", "ci", "update", "upgrade", "exec", "dlx", "create"}
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can fetch packages and run package-manager lifecycle or executable code.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve package execution",
+        )
+
+    if first in {"pip", "pip3", "pip.exe", "pip3.exe", "pipx"} and second in {"install", "download", "run"}:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Command can fetch Python packages and execute package installation hooks.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve python package execution",
         )
 
     if first == "git" and (
@@ -444,18 +845,6 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve publish",
         )
 
-    if first == "spark" and lowered[1:3] == ["autostart", "status"]:
-        return _decision(parts, ctx, "none", "none", "`spark autostart status` is read-only.")
-    if first == "spark" and second == "setup" and "--no-autostart" not in lowered:
-        return _decision(
-            parts,
-            ctx,
-            "process_autostart_mutation",
-            "medium",
-            "`spark setup` installs OS login autostart by default.",
-            target_display="spark setup",
-            confirmation_phrase="approve autostart change",
-        )
     if first == "spark" and second == "autostart":
         return _decision(
             parts,
@@ -542,5 +931,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="spark verify --deep",
             confirmation_phrase="approve deep verification",
         )
+
+    if first in {"python", "python3", "py", "python.exe", "py.exe"} and len(lowered) > 3:
+        if lowered[1:4] == ["-m", "pip", "install"] or lowered[1:4] == ["-m", "pip", "download"]:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "high",
+                "Command can fetch Python packages and execute package installation hooks.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve python package execution",
+            )
 
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")

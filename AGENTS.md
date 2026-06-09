@@ -60,6 +60,9 @@ Use allowlisted serializers for read models. If a source payload contains unknow
 - `spark fix` and `spark doctor` outputs should expose metadata-only route context and verification commands, not mutate high-risk surfaces without explicit gates.
 - High-agency actions must fail closed unless authority, capability, freshness, consequence risk, confirmation, and privacy boundary are known.
 - External publication, destructive changes, credential changes, and installer/site publication require explicit release gates.
+- Historical TurnIntent adoption notes live in `docs/TURNINTENT_HARNESS_RULESET.md` and `docs/TURNINTENT_AGENTS_ADOPTION.md`; current installer-facing authority is Harness Core VNext/Governor/Authorization/ledger plus consumer verification.
+- Every new Spark-connected repo must declare its action edges before it can be considered Spark-ready.
+- Any high-agency `legacy_local_gate` in contract coverage is a release blocker.
 
 ## Release and Installer Rules
 
