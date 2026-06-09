@@ -354,7 +354,12 @@ from spark_cli.sandbox.ssh import (
 )
 
 
-def make_module(name: str, capabilities: list[str], secrets: list[str] | None = None) -> Module:
+def make_module(
+    name: str,
+    capabilities: list[str],
+    secrets: list[str] | None = None,
+    needs_capabilities: list[str] | None = None,
+) -> Module:
     secret_definitions = {}
     for secret_id in secrets or []:
         toml_key = secret_id.replace(".", "_")
@@ -377,6 +382,7 @@ def make_module(name: str, capabilities: list[str], secrets: list[str] | None = 
                 "capabilities": capabilities,
             },
             "needs": {
+                "capabilities": needs_capabilities or [],
                 "secrets": secrets or [],
             },
             "secrets": secret_definitions,
@@ -409,10 +415,19 @@ def make_telegram_gateway(needs_capabilities: list[str] | None = None) -> Module
 
 def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
     modules = {
-        "spark-researcher": make_module("spark-researcher", ["spark.research"]),
+        "spark-harness-core": make_module("spark-harness-core", ["spark.harness.core"]),
+        "spark-researcher": make_module(
+            "spark-researcher",
+            ["spark.research"],
+            needs_capabilities=["spark.harness.core"],
+        ),
         "spark-character": make_module("spark-character", ["spark.character"]),
         "spark-intelligence-builder": make_module("spark-intelligence-builder", ["spark.runtime"]),
-        "domain-chip-memory": make_module("domain-chip-memory", ["memory.store"]),
+        "domain-chip-memory": make_module(
+            "domain-chip-memory",
+            ["memory.store"],
+            needs_capabilities=["spark.runtime", "spark.harness.core"],
+        ),
         "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
         "spark-telegram-bot": make_telegram_gateway(),
     }
@@ -4029,17 +4044,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(owner.name, "spark-telegram-bot")
 
     def test_expand_targets_expands_bundle_name(self) -> None:
-        modules = {
-            "spark-researcher": object(),
-            "spark-character": object(),
-            "spark-telegram-bot": object(),
-            "spark-intelligence-builder": object(),
-            "domain-chip-memory": object(),
-            "spawner-ui": object(),
-        }
         self.assertEqual(
-            expand_targets("telegram-starter", modules, include_all=False),
+            expand_targets("telegram-starter", {}, include_all=False),
             [
+                "spark-harness-core",
                 "spark-researcher",
                 "spark-character",
                 "spark-intelligence-builder",
@@ -4332,6 +4340,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(
             resolve_bundle_names("telegram-starter"),
             [
+                "spark-harness-core",
                 "spark-researcher",
                 "spark-character",
                 "spark-intelligence-builder",
@@ -4931,7 +4940,6 @@ class SparkCliTests(unittest.TestCase):
             set(sources) - bundled_modules,
             {
                 "domain-chip-spark-qa-evidence-lane",
-                "spark-harness-core",
                 "spark-skill-graphs",
             },
         )

@@ -240,6 +240,7 @@
   "bundles": {
     "telegram-starter": {
       "modules": [
+        "spark-harness-core",
         "spark-researcher",
         "spark-character",
         "spark-intelligence-builder",
@@ -251,6 +252,7 @@
     },
     "telegram-voice-starter": {
       "modules": [
+        "spark-harness-core",
         "spark-researcher",
         "spark-character",
         "spark-intelligence-builder",
