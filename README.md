@@ -33,7 +33,7 @@ That default setup installs:
 - `spark-character`
 - `spark-intelligence-builder`
 - `domain-chip-memory`
-- `spawner-ui`
+- `spawner-ui` (the upstream repo for this module is `vibeforge1111/vibeship-spawner-ui` -- historical rename; the module key, directory name, and bundle reference stay `spawner-ui`)
 - `spark-telegram-bot`
 
 Voice is available as an opt-in starter path:
@@ -433,7 +433,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark smoke first-run [--quick\|--json]` | Check first-run readiness and print the Telegram Mission Control smoke script |
 | `spark guide [--advanced\|--json]` | Show onboarding, advanced guidance, and command reference |
 | `spark init <name>` | Scaffold a new module |
-| `spark search [query]` | Browse the registry |
+| `spark search [query] [--json]` | Browse the registry |
 | `spark logs <module>` | Tail `~/.spark/logs/<module>/process.log` |
 | `spark secrets list|set|get|delete` | Keychain-backed secret store |
 | `spark config get|set|unset|list` | User config at `~/.spark/config/config.json` |

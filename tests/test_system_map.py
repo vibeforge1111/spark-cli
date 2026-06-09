@@ -25,16 +25,30 @@ from spark_cli.system_map import (
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
+    count_files_under,
     count_safe_jsonl,
+    count_schema_files,
     dirty_family_for_path,
+    discover_repo_paths,
+    inspect_builder_event_trace,
     inspect_builder_event_samples,
+    inspect_builder_memory_tables,
+    inspect_builder_request_id_overlap,
+    inspect_builder_state_db,
     inspect_builder_trace_health,
+    inspect_builder_trace_ref_overlap,
     inspect_builder_trace_groups,
+    inspect_file_metadata,
     inspect_spawner_authority_verdicts,
     inspect_spawner_prd_auto_trace,
     inspect_telegram_final_answer_gate,
+    git_summary,
     parse_branch_status,
+    read_json,
+    read_toml,
+    run_git,
     safe_builder_event_value,
+    summarize_memory_run_artifacts,
     summarize_pids,
     summarize_setup,
 )
@@ -52,6 +66,94 @@ def init_git_repo(path: Path) -> str:
 
 
 class SparkSystemMapTests(unittest.TestCase):
+    def test_json_toml_and_git_helpers_report_expected_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bad_json = root / "bad.json"
+            bad_toml = root / "bad.toml"
+            bad_json.write_text("{", encoding="utf-8")
+            bad_toml.write_text("name = [", encoding="utf-8")
+
+            json_data, json_error = read_json(bad_json)
+            toml_data, toml_error = read_toml(bad_toml)
+
+            with unittest.mock.patch("spark_cli.system_map.subprocess.run", side_effect=subprocess.TimeoutExpired("git", 1)):
+                git_code, git_output = run_git(root, ["status"])
+
+        self.assertIsNone(json_data)
+        self.assertIn("JSONDecodeError", json_error or "")
+        self.assertIsNone(toml_data)
+        self.assertIn("TOMLDecodeError", toml_error or "")
+        self.assertEqual((git_code, git_output), (1, ""))
+
+    def test_filesystem_readers_report_os_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = root / "artifact.json"
+            existing.write_text("{}", encoding="utf-8")
+            (root / "artifacts").mkdir()
+
+            with unittest.mock.patch.object(Path, "exists", return_value=True), \
+                 unittest.mock.patch.object(Path, "stat", side_effect=PermissionError("stat denied")):
+                metadata = inspect_file_metadata(existing)
+            with unittest.mock.patch.object(Path, "rglob", side_effect=PermissionError("walk denied")):
+                file_counts = count_files_under(root)
+            with unittest.mock.patch.object(Path, "glob", side_effect=PermissionError("glob denied")):
+                schema_counts = count_schema_files(root)
+            with unittest.mock.patch.object(Path, "iterdir", side_effect=PermissionError("iter denied")):
+                run_counts = summarize_memory_run_artifacts(root)
+
+        self.assertIn("PermissionError", metadata["error"])
+        self.assertIn("PermissionError", file_counts["error"])
+        self.assertIn("PermissionError", schema_counts["error"])
+        self.assertIn("PermissionError", run_counts["error"])
+
+    def test_builder_db_readers_report_sqlite_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp)
+            (builder_home / "state.db").write_text("not sqlite", encoding="utf-8")
+
+            readers = [
+                inspect_builder_state_db(builder_home),
+                inspect_builder_request_id_overlap(builder_home, {"request-1"}),
+                inspect_builder_trace_ref_overlap(builder_home, {"trace-1"}),
+                inspect_builder_memory_tables(builder_home),
+                inspect_builder_event_trace(builder_home),
+                inspect_builder_event_samples(builder_home),
+                inspect_builder_trace_groups(builder_home),
+                inspect_builder_trace_health(builder_home),
+            ]
+
+        for result in readers:
+            self.assertIn("DatabaseError", result["error"])
+
+    def test_git_summary_marks_subprocess_failure_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".git").mkdir()
+            with unittest.mock.patch("spark_cli.system_map.subprocess.run", side_effect=OSError("git missing")):
+                summary = git_summary(repo)
+
+        self.assertFalse(summary["available"])
+        self.assertIsNone(summary["head_short"])
+
+    def test_discover_repo_paths_tolerates_unreadable_desktop(self) -> None:
+        class _UnreadableDesktop:
+            def exists(self) -> bool:
+                return True
+
+            def iterdir(self):
+                raise PermissionError("[Errno 1] Operation not permitted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            installed_repo = Path(tmp) / "spark-cli"
+            installed_repo.mkdir()
+            installed = {"spark-cli": {"path": str(installed_repo)}}
+
+            paths = discover_repo_paths(_UnreadableDesktop(), installed)
+
+        self.assertEqual([p.resolve() for p in paths], [installed_repo.resolve()])
+
     def test_dirty_family_for_path_coarsens_private_artifact_names(self) -> None:
         self.assertEqual(dirty_family_for_path("src/spark_intelligence/memory/orchestrator.py"), "src/spark_intelligence")
         self.assertEqual(dirty_family_for_path("artifacts/telegram-updates/private-row.json"), "artifacts")
@@ -881,6 +983,16 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("private project", encoded)
         self.assertNotIn("private prompt should stay out", encoded)
 
+    def test_spawner_prd_trace_reports_os_join_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trace.jsonl"
+            path.write_text("{}", encoding="utf-8")
+
+            with unittest.mock.patch.object(Path, "open", side_effect=PermissionError("trace denied")):
+                summary = inspect_spawner_prd_auto_trace(path, builder_home=Path(tmp) / "builder")
+
+        self.assertIn("PermissionError", summary["join_error"])
+
     def test_spark_os_review_candidates_project_labs_and_swarm_without_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1454,6 +1566,25 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_uses_running_cli_source_when_cli_module_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            desktop.mkdir()
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        observed = view["observed_sources"]
+        access_path = Path(observed["cli_access_policy"]["path"])
+        capabilities_path = Path(observed["cli_capabilities"]["path"])
+        self.assertTrue(observed["cli_access_policy"]["exists"])
+        self.assertTrue(observed["cli_capabilities"]["exists"])
+        self.assertEqual(access_path.name, "access.py")
+        self.assertEqual(capabilities_path.name, "capabilities.py")
+        self.assertNotIn(str(desktop), str(access_path))
+        self.assertNotIn(str(desktop), str(capabilities_path))
+
     def test_builder_event_samples_omit_event_bodies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             builder_home = Path(tmp) / "spark-intelligence"
@@ -1813,6 +1944,7 @@ routes = []
             output_text = "\n".join(path.read_text(encoding="utf-8") for path in out.glob("*") if path.is_file())
 
             self.assertEqual(exit_code, 0)
+            self.assertTrue(summary["ok"])
             self.assertEqual(summary["modules"], 1)
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
             self.assertTrue((out / "authority-view.json").exists())

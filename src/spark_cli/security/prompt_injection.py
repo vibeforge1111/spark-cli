@@ -7,9 +7,11 @@ from pathlib import Path
 
 CONTEXT_FILE_NAMES = {
     ".cursorrules",
+    ".windsurfrules",
     "agents.md",
     "claude.md",
     "codex.md",
+    "copilot-instructions.md",
     "gemini.md",
     "instructions.md",
     "llms-full.txt",
