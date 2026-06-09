@@ -4838,7 +4838,15 @@ class SparkCliTests(unittest.TestCase):
             if isinstance(bundle, dict)
             for module_name in bundle.get("modules", [])
         }
-        self.assertEqual(set(sources), bundled_modules)
+        self.assertTrue(bundled_modules.issubset(set(sources)))
+        self.assertEqual(
+            set(sources) - bundled_modules,
+            {
+                "domain-chip-spark-qa-evidence-lane",
+                "spark-harness-core",
+                "spark-skill-graphs",
+            },
+        )
         for name, source in sources.items():
             with self.subTest(module=name):
                 self.assertTrue(source.startswith("https://github.com/vibeforge1111/"))
