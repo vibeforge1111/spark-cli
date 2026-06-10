@@ -600,6 +600,42 @@ function Invoke-GitQuiet {
     }
 }
 
+function Get-GitHead {
+    param([string]$Path)
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        return ""
+    }
+    try {
+        $head = (& git -C $Path rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $head) {
+            return ([string]$head).Trim()
+        }
+    } catch {
+        return ""
+    }
+    return ""
+}
+
+function Write-CliSourceProvenance {
+    param([string]$Target, [string]$SourcePath)
+    $stateDir = Join-Path $Script:SparkPrefix "state"
+    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    $sourceHead = Get-GitHead -Path $SourcePath
+    if (-not $sourceHead) {
+        $sourceHead = Get-GitHead -Path $Target
+    }
+    $payload = [ordered]@{
+        schema_version = "spark.cli.install_source.v1"
+        component = "spark-cli"
+        source = $Source
+        ref = $Ref
+        source_head = $sourceHead
+        installed_path = $Target
+        local_source = [bool](Test-Path $Source)
+    }
+    $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir "spark-cli-install-source.json") -Encoding UTF8
+}
+
 function Checkout-CliRef {
     param([string]$Target)
     if ((Invoke-GitQuiet @("-C", $Target, "checkout", $Ref)) -eq 0) {
@@ -641,7 +677,9 @@ function Checkout-Cli {
     New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
     if (Test-Path $Source) {
         Write-SparkLog "Copying spark-cli from local path $Source"
-        Copy-DirectoryContents -From (Resolve-FullPath $Source) -To $target
+        $resolvedSource = Resolve-FullPath $Source
+        Copy-DirectoryContents -From $resolvedSource -To $target
+        Write-CliSourceProvenance -Target $target -SourcePath $resolvedSource
         return $target
     }
 
@@ -660,6 +698,7 @@ function Checkout-Cli {
         }
     }
     Checkout-CliRef -Target $target
+    Write-CliSourceProvenance -Target $target -SourcePath $target
     return $target
 }
 

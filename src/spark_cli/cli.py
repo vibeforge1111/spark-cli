@@ -7549,6 +7549,12 @@ def collect_status_payload() -> dict[str, Any]:
     return payload
 
 
+def _spark_cli_install_provenance(spark_cli_root: Path) -> dict[str, Any]:
+    provenance_path = spark_cli_root.parent.parent / "state" / "spark-cli-install-source.json"
+    payload = load_json(provenance_path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
 def _release_lane_strict_gate(
     compiled: dict[str, Any],
     *,
@@ -7572,13 +7578,21 @@ def _release_lane_strict_gate(
     issue_count = 0
     dirty_repo_count = 0
 
-    def append_row(module_id: str, path: Path, expected_commit: str | None, installed_commit: str | None) -> None:
+    def append_row(
+        module_id: str,
+        path: Path,
+        expected_commit: str | None,
+        installed_commit: str | None,
+        *,
+        provenance_commit: str | None = None,
+        provenance_source: str | None = None,
+    ) -> None:
         nonlocal dirty_repo_count, issue_count
         git = git_board_status(path)
         dirty = int(git.get("dirty_tracked_count") or 0) or int(git.get("untracked_count") or 0)
-        actual_commit = str(git.get("head_commit") or "") or None
+        actual_commit = str(git.get("head_commit") or "") or None or provenance_commit
         issues: list[str] = []
-        if not git.get("available"):
+        if not git.get("available") and not provenance_commit:
             issues.append("git_unavailable")
         if dirty:
             issues.append("dirty_repo")
@@ -7591,21 +7605,33 @@ def _release_lane_strict_gate(
             issues.append("missing_head_commit")
         if issues:
             issue_count += 1
-        rows.append(
-            {
-                "module": module_id,
-                "path": str(path),
-                "expected_commit": expected_commit,
-                "actual_commit": actual_commit,
-                "installed_registry_commit": installed_commit,
-                "dirty_tracked_count": int(git.get("dirty_tracked_count") or 0),
-                "untracked_count": int(git.get("untracked_count") or 0),
-                "issues": issues,
-            }
-        )
+        row = {
+            "module": module_id,
+            "path": str(path),
+            "expected_commit": expected_commit,
+            "actual_commit": actual_commit,
+            "installed_registry_commit": installed_commit,
+            "dirty_tracked_count": int(git.get("dirty_tracked_count") or 0),
+            "untracked_count": int(git.get("untracked_count") or 0),
+            "issues": issues,
+        }
+        if provenance_source:
+            row["provenance_source"] = provenance_source
+        rows.append(row)
 
     spark_cli_git = git_board_status(spark_cli_root)
-    append_row("spark-cli", spark_cli_root, str(spark_cli_git.get("head_commit") or "") or None, None)
+    spark_cli_provenance = _spark_cli_install_provenance(spark_cli_root)
+    spark_cli_provenance_commit = str(spark_cli_provenance.get("source_head") or "") or None
+    spark_cli_head = str(spark_cli_git.get("head_commit") or "") or None
+    spark_cli_expected = spark_cli_head or spark_cli_provenance_commit
+    append_row(
+        "spark-cli",
+        spark_cli_root,
+        spark_cli_expected,
+        spark_cli_provenance_commit,
+        provenance_commit=spark_cli_provenance_commit,
+        provenance_source="spark-cli-install-source" if spark_cli_provenance_commit else None,
+    )
 
     for module_id in sorted(installed_modules):
         registry_entry = registry_modules.get(module_id)

@@ -4267,6 +4267,75 @@ class SparkCliTests(unittest.TestCase):
         modules = {row["module"] for row in payload["gate"]["release_lane"]["rows"]}
         self.assertNotIn("spark-skill-graphs", modules)
 
+    def test_os_compile_release_lane_accepts_installed_cli_provenance_without_git(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        cli_commit = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir)
+            cli_root = spark_home / "tools" / "spark-cli"
+            state_dir = spark_home / "state"
+            cli_root.mkdir(parents=True)
+            state_dir.mkdir()
+            (state_dir / "spark-cli-install-source.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.cli.install_source.v1",
+                        "component": "spark-cli",
+                        "source_head": cli_commit,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args.spark_home = spark_home
+            compiled = {
+                "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+                "installed_modules": {
+                    "spark-harness-core": {
+                        "path": "C:/spark/modules/spark-harness-core/source",
+                        "registry_commit": expected_commit,
+                    }
+                },
+            }
+            summary = {
+                "schema_version": "spark.os_compile.summary.v0",
+                "modules": 1,
+                "repos": 237,
+                "repo_board": {
+                    "dirty_repo_count": 91,
+                    "critical_duplicate_truth_count": 0,
+                },
+            }
+
+            def fake_git_status(path: Path) -> dict[str, Any]:
+                if path == cli_root:
+                    return {
+                        "available": False,
+                        "dirty_tracked_count": 0,
+                        "untracked_count": 0,
+                        "head_commit": None,
+                    }
+                return {
+                    "available": True,
+                    "dirty_tracked_count": 0,
+                    "untracked_count": 0,
+                    "head_commit": expected_commit,
+                }
+
+            with patch("spark_cli.cli.REPO_ROOT", cli_root), \
+                 patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+                 patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+                 patch("spark_cli.cli.compile_summary", return_value=summary), \
+                 patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["gate"]["ok"])
+        row = next(row for row in payload["gate"]["release_lane"]["rows"] if row["module"] == "spark-cli")
+        self.assertEqual(row["actual_commit"], cli_commit)
+        self.assertEqual(row["provenance_source"], "spark-cli-install-source")
+        self.assertEqual(row["issues"], [])
+
     def test_os_compile_release_lane_strict_fails_on_installed_pin_mismatch(self) -> None:
         args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
         expected_commit = "a" * 40
@@ -13753,6 +13822,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }', script)
         self.assertIn('state\\setup-secret-inputs', script)
         self.assertIn("GetRandomFileName", script)
+        self.assertIn("spark-cli-install-source.json", script)
+        self.assertIn("source_head", script)
         self.assertIn('if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }', script)
         self.assertIn('$setupPreviewArgs += $SetupArg', script)
         self.assertIn('if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }', script)
