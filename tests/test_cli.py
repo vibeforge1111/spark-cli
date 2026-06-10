@@ -5995,6 +5995,7 @@ class SparkCliTests(unittest.TestCase):
             script = scripts[0].read_text(encoding="utf-8")
             self.assertIn(str(target), script)
             self.assertIn("rmdir /s /q", script)
+            self.assertNotIn("tasklist", script)
             popen.assert_called_once()
 
     def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
