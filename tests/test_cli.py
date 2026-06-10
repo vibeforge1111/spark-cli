@@ -101,6 +101,7 @@ from spark_cli.cli import (
     remove_windows_path_entry,
     runtime_supply_chain_warnings,
     purge_spark_home,
+    schedule_deferred_windows_purge,
     resolve_install_executable,
     resolve_remote_git_ref,
     install_module_record,
@@ -5947,6 +5948,54 @@ class SparkCliTests(unittest.TestCase):
     def test_purge_spark_home_refuses_home_directory(self) -> None:
         with self.assertRaises(SystemExit):
             purge_spark_home(Path.home())
+
+    def test_purge_spark_home_defers_windows_self_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / "spark-home"
+            spark_home.mkdir()
+            exe_path = spark_home / "tools" / "spark-cli-venv" / "Scripts" / "python.exe"
+            exe_path.parent.mkdir(parents=True)
+            exe_path.write_text("", encoding="utf-8")
+
+            with patch("spark_cli.cli.sys.platform", "win32"), \
+                 patch("spark_cli.cli.sys.executable", str(exe_path)), \
+                 patch("spark_cli.cli.schedule_deferred_windows_purge") as deferred, \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertTrue(purge_spark_home(spark_home))
+
+            deferred.assert_called_once_with(spark_home.resolve())
+            self.assertTrue(spark_home.exists())
+            self.assertIn("Scheduled Spark home removal", stdout.getvalue())
+
+    def test_purge_spark_home_removes_direct_when_not_running_from_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / "spark-home"
+            spark_home.mkdir()
+            (spark_home / "state").mkdir()
+
+            with patch("spark_cli.cli.sys.platform", "win32"), \
+                 patch("spark_cli.cli.running_from_path", return_value=False), \
+                 patch("spark_cli.cli.remove_tree") as remove_tree_mock:
+                self.assertTrue(purge_spark_home(spark_home))
+
+            remove_tree_mock.assert_called_once_with(spark_home.resolve())
+
+    def test_schedule_deferred_windows_purge_writes_temp_cmd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            temp_root = Path(tmp_dir) / "temp"
+            target.mkdir()
+
+            with patch.dict(os.environ, {"TEMP": str(temp_root)}), \
+                 patch("spark_cli.cli.subprocess.Popen") as popen:
+                schedule_deferred_windows_purge(target)
+
+            scripts = list(temp_root.glob("spark-purge-home-*.cmd"))
+            self.assertEqual(len(scripts), 1)
+            script = scripts[0].read_text(encoding="utf-8")
+            self.assertIn(str(target), script)
+            self.assertIn("rmdir /s /q", script)
+            popen.assert_called_once()
 
     def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
         args = Namespace()

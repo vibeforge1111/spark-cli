@@ -982,10 +982,76 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     return resolved
 
 
+def path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def running_from_path(target: Path) -> bool:
+    resolved_target = target.resolve()
+    candidates = [Path(sys.executable)]
+    try:
+        candidates.append(Path(__file__))
+    except NameError:  # pragma: no cover - defensive for embedded launchers
+        pass
+    for candidate in candidates:
+        try:
+            if path_is_relative_to(candidate.resolve(), resolved_target):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def schedule_deferred_windows_purge(target: Path) -> None:
+    temp_root = Path(os.environ.get("TEMP") or os.environ.get("TMP") or Path.home()).expanduser()
+    temp_root.mkdir(parents=True, exist_ok=True)
+    script_path = temp_root / f"spark-purge-home-{os.getpid()}.cmd"
+    script_path.write_text(
+        "\n".join(
+            [
+                "@echo off",
+                f'set "SPARK_PURGE_TARGET={target}"',
+                f'set "SPARK_PURGE_PARENT={os.getpid()}"',
+                "for /l %%i in (1,1,120) do (",
+                '  tasklist /FI "PID eq %SPARK_PURGE_PARENT%" | findstr /R /C:" %SPARK_PURGE_PARENT% " >nul',
+                "  if errorlevel 1 goto purge",
+                "  timeout /t 1 /nobreak >nul",
+                ")",
+                ":purge",
+                'rmdir /s /q "%SPARK_PURGE_TARGET%" >nul 2>nul',
+                'del "%~f0" >nul 2>nul',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    creationflags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "DETACHED_PROCESS", 0)
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(script_path)],
+        close_fds=True,
+        creationflags=creationflags,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def purge_spark_home(spark_home: Path = SPARK_HOME) -> bool:
     target = safe_spark_home_for_purge(spark_home)
     if not target.exists():
         return False
+    if sys.platform == "win32" and running_from_path(target):
+        schedule_deferred_windows_purge(target)
+        print(f"Scheduled Spark home removal after CLI exit: {target}")
+        return True
     remove_tree(target)
     return True
 
