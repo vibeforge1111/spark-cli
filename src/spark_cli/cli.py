@@ -1406,6 +1406,17 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def canonical_installer_script_bytes(path: Path) -> bytes:
+    payload = path.read_bytes()
+    if path.suffix.lower() in {".ps1", ".sh"}:
+        payload = payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return payload
+
+
+def installer_script_sha256(path: Path) -> str:
+    return sha256_bytes(canonical_installer_script_bytes(path))
+
+
 def _path_is_reparse_point(path: Path) -> bool:
     if path.is_symlink():
         return True
@@ -1518,7 +1529,7 @@ def installer_manifest_payload() -> dict[str, Any]:
         "installers": {
             name: {
                 "path": str(path.relative_to(REPO_ROOT)).replace("\\", "/"),
-                "sha256": sha256_file(path),
+                "sha256": installer_script_sha256(path),
             }
             for name, path in INSTALLER_SCRIPT_PATHS.items()
         },
@@ -1684,7 +1695,7 @@ def collect_installer_integrity_payload(*, hosted: bool = False) -> dict[str, An
         if isinstance(installers, dict) and isinstance(installers.get(name), dict):
             expected = str(installers[name].get("sha256", "")).lower()
         committed_expected[name] = expected
-        actual = sha256_file(path).lower() if path.exists() else ""
+        actual = installer_script_sha256(path).lower() if path.exists() else ""
         local_ok = bool(expected) and actual == expected
         checks.append(
             {
@@ -7758,14 +7769,6 @@ def _release_lane_strict_gate(
         "module_count": len(rows),
         "rows": rows,
     }
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _relative_file_hashes(root: Path) -> dict[str, str]:

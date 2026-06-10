@@ -80,6 +80,7 @@ from spark_cli.cli import (
     clone_module_source,
     clone_target_for_module,
     ensure_generated_setup_secrets,
+    installer_script_sha256,
     ensure_runtime_telegram_relay_secret,
     ensure_bundle_modules_available,
     delete_secret,
@@ -11917,6 +11918,16 @@ class SparkCliTests(unittest.TestCase):
             if check["name"].startswith("local_install.")
         }
         self.assertEqual(actual, expected)
+
+    def test_installer_script_hash_normalizes_windows_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            lf = root / "install.ps1"
+            crlf = root / "install-crlf.ps1"
+            lf.write_bytes(b"$x = 1\nWrite-Host $x\n")
+            crlf.write_bytes(b"$x = 1\r\nWrite-Host $x\r\n")
+
+            self.assertEqual(installer_script_sha256(lf), installer_script_sha256(crlf))
 
     def test_installer_integrity_fails_when_source_ref_is_not_reachable(self) -> None:
         with patch("spark_cli.cli.local_git_commit_exists", return_value=False):
