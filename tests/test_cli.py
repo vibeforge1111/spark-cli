@@ -13751,6 +13751,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }', script)
         self.assertIn('if ($SetupSkipTelegramTokenCheck) { $setupArgs += "--skip-telegram-token-check" }', script)
         self.assertIn('if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }', script)
+        self.assertIn('state\\setup-secret-inputs', script)
+        self.assertIn("GetRandomFileName", script)
         self.assertIn('if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }', script)
         self.assertIn('$setupPreviewArgs += $SetupArg', script)
         self.assertIn('if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }', script)

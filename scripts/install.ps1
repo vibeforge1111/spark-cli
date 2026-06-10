@@ -776,9 +776,11 @@ function Run-Setup {
     }
     $sparkCmd = Join-Path $Script:SparkPrefix "bin\spark.cmd"
     $secretFiles = [System.Collections.Generic.List[string]]::new()
+    $secretDir = Join-Path $Script:SparkPrefix "state\setup-secret-inputs"
+    New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
     function New-SetupSecretRef {
         param([string]$Value)
-        $secretFile = [System.IO.Path]::GetTempFileName()
+        $secretFile = Join-Path $secretDir ([System.IO.Path]::GetRandomFileName())
         [System.IO.File]::WriteAllText($secretFile, $Value, [System.Text.UTF8Encoding]::new($false))
         [void]$secretFiles.Add($secretFile)
         return "@file:$secretFile"
@@ -815,6 +817,9 @@ function Run-Setup {
         }
         foreach ($secretFile in $secretFiles) {
             Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $secretDir) {
+            Remove-Item -LiteralPath $secretDir -Force -ErrorAction SilentlyContinue
         }
     }
 }
