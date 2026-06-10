@@ -19,6 +19,7 @@ param(
     [switch]$SetupSkipRuntimeCheck,
     [switch]$SetupSkipTelegramTokenCheck,
     [switch]$ManagedNode,
+    [switch]$SkipUserPath,
     [string[]]$SetupArg = @(),
     [string]$LocalRegistry = "",
     [switch]$SkipSetup,
@@ -353,7 +354,8 @@ function Show-DryRunPlan {
     Write-Host "  Setup enabled:       $setupEnabled"
     $providerPlan = if ($LlmProvider) { "$LlmProvider for Agent and Mission" } else { "choose during spark setup" }
     Write-Host "  Default provider:    $providerPlan"
-    Write-Host "  User PATH edit:      yes"
+    $userPathEdit = if ($SkipUserPath) { "no" } else { "yes" }
+    Write-Host "  User PATH edit:      $userPathEdit"
     Write-Host "  Autostart:           $autostartEnabled"
     Write-Host "  Existing mode:       $existingMode"
     Write-Host "  Existing install:    $existing"
@@ -715,6 +717,11 @@ set "PATH=$NodeDir;%PATH%"
 function Add-SparkBinToUserPath {
     $binDir = Join-Path $Script:SparkPrefix "bin"
     $tempRoot = Resolve-FullPath $env:TEMP
+    if ($SkipUserPath) {
+        $env:PATH = "$binDir;$env:PATH"
+        Write-SparkLog "Skipping persistent PATH update by request"
+        return
+    }
     if ($Script:SparkPrefix.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         $env:PATH = "$binDir;$env:PATH"
         Write-SparkLog "Skipping persistent PATH update for temporary install prefix $Script:SparkPrefix"
