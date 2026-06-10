@@ -50,23 +50,23 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "24ac7f7ca33cd286abf1c421c2eff591bff66767",
+      "commit": "06f3083e7e78ffe33be7d05027c21a8f11b65799",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "24ac7f7ca33cd286abf1c421c2eff591bff66767",
+        "commit": "06f3083e7e78ffe33be7d05027c21a8f11b65799",
         "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
-        "canonical_head": "24ac7f7ca33cd286abf1c421c2eff591bff66767",
-        "runtime_mirror_head": "24ac7f7ca33cd286abf1c421c2eff591bff66767",
+        "canonical_head": "06f3083e7e78ffe33be7d05027c21a8f11b65799",
+        "runtime_mirror_head": "06f3083e7e78ffe33be7d05027c21a8f11b65799",
         "tree_clean": true,
-        "validated_at": "2026-06-10T09:27:14Z",
+        "validated_at": "2026-06-10T10:05:26Z",
         "evidence": [
-          "npm test full suite passed after PRD relay pre-registration fix",
-          "focused buildE2E + mission relay suites passed; npm run build passed",
-          "Installed runtime fast-forwarded to 24ac7f7 and restarted under Spark supervision"
+          "npm run build passed after metadata-only PRD result polling fix",
+          "buildE2E regression passed: PRD canvas ready notifier accepts metadata-only result summaries",
+          "Installed runtime will be fast-forwarded to 06f3083 and restarted under Spark supervision before installer proof"
         ]
       },
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness"
