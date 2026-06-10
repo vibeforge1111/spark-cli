@@ -92,6 +92,7 @@ from spark_cli.cli import (
     is_dirty_update_failure,
     installer_manifest_payload,
     git_command,
+    grant_windows_delete_access,
     run_git_or_exit,
     is_git_source,
     module_is_git_managed,
@@ -5980,6 +5981,34 @@ class SparkCliTests(unittest.TestCase):
 
             remove_tree_mock.assert_called_once_with(spark_home.resolve())
 
+    def test_remove_tree_repairs_windows_delete_acl_before_rmtree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            target.mkdir()
+
+            with patch("spark_cli.cli.grant_windows_delete_access") as grant_access, \
+                 patch("spark_cli.cli.shutil.rmtree") as rmtree:
+                remove_tree(target)
+
+            grant_access.assert_called_once_with(target)
+            rmtree.assert_called_once()
+
+    def test_grant_windows_delete_access_uses_current_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            target.mkdir()
+
+            with patch("spark_cli.cli.os.name", "nt"), \
+                 patch.dict(os.environ, {"USERDOMAIN": "DESKTOP", "USERNAME": "USER"}), \
+                 patch("spark_cli.cli.subprocess.run") as run:
+                run.return_value.returncode = 0
+                grant_windows_delete_access(target)
+
+            run.assert_called_once()
+            command = run.call_args.args[0]
+            self.assertEqual(command[:3], ["icacls", str(target), "/grant"])
+            self.assertEqual(command[3], "DESKTOP\\USER:(OI)(CI)F")
+
     def test_schedule_deferred_windows_purge_writes_temp_cmd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             target = Path(tmp_dir) / "spark-home"
@@ -5994,6 +6023,7 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(len(scripts), 1)
             script = scripts[0].read_text(encoding="utf-8")
             self.assertIn(str(target), script)
+            self.assertIn("icacls", script)
             self.assertIn("rmdir /s /q", script)
             self.assertNotIn("tasklist", script)
             popen.assert_called_once()

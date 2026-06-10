@@ -894,7 +894,28 @@ def retry_remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
     func(path)
 
 
+def grant_windows_delete_access(path: Path) -> None:
+    if os.name != "nt":
+        return
+    username = os.environ.get("USERNAME", "").strip()
+    if not username:
+        return
+    domain = os.environ.get("USERDOMAIN", "").strip()
+    principals = [f"{domain}\\{username}"] if domain else []
+    principals.append(username)
+    for principal in principals:
+        result = subprocess.run(
+            ["icacls", str(path), "/grant", f"{principal}:(OI)(CI)F", "/T", "/C"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+
+
 def remove_tree(path: Path) -> None:
+    grant_windows_delete_access(path)
     target = long_path_aware(path)
     try:
         shutil.rmtree(target, onexc=retry_remove_readonly)
@@ -1016,6 +1037,7 @@ def schedule_deferred_windows_purge(target: Path) -> None:
                 "@echo off",
                 f'set "SPARK_PURGE_TARGET={target}"',
                 "timeout /t 2 /nobreak >nul",
+                'icacls "%SPARK_PURGE_TARGET%" /grant "%USERDOMAIN%\\%USERNAME%:(OI)(CI)F" /T /C >nul 2>nul',
                 "for /l %%i in (1,1,30) do (",
                 '  rmdir /s /q "%SPARK_PURGE_TARGET%" >nul 2>nul',
                 '  if not exist "%SPARK_PURGE_TARGET%" goto done',
