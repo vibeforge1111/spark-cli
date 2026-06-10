@@ -7760,6 +7760,275 @@ def _release_lane_strict_gate(
     }
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _relative_file_hashes(root: Path) -> dict[str, str]:
+    if not root.exists() or not root.is_dir():
+        return {}
+    hashes: dict[str, str] = {}
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        rel = path.relative_to(root).as_posix()
+        hashes[rel] = sha256_file(path)
+    return hashes
+
+
+def collect_harness_vendor_integrity_payload(
+    *,
+    installed: dict[str, Any] | None = None,
+    canonical_module: str = "spark-harness-core",
+) -> dict[str, Any]:
+    installed_payload = installed if installed is not None else load_json(REGISTRY_PATH, {})
+    installed_modules = installed_payload if isinstance(installed_payload, dict) else {}
+    canonical_entry = installed_modules.get(canonical_module)
+    canonical_entry = canonical_entry if isinstance(canonical_entry, dict) else {}
+    canonical_path_raw = str(canonical_entry.get("path") or canonical_entry.get("source") or "").strip()
+    canonical_path = Path(canonical_path_raw) if canonical_path_raw else None
+    checks: list[dict[str, Any]] = []
+    if not canonical_path or not canonical_path.exists():
+        return {
+            "ok": False,
+            "summary": "Harness Core vendor integrity",
+            "canonical_module": canonical_module,
+            "canonical_path": canonical_path_raw,
+            "checks": [
+                {
+                    "name": canonical_module,
+                    "ok": False,
+                    "detail": "Installed canonical Harness Core source is missing.",
+                }
+            ],
+        }
+
+    canonical_git = git_board_status(canonical_path)
+    canonical_commit = str(canonical_git.get("head_commit") or "")
+    canonical_hashes = {
+        section: _relative_file_hashes(canonical_path / section)
+        for section in ("schemas", "ts-dist")
+    }
+    for name, entry in sorted(installed_modules.items()):
+        if name == canonical_module or not isinstance(entry, dict):
+            continue
+        module_path_raw = str(entry.get("path") or entry.get("source") or "").strip()
+        if not module_path_raw:
+            continue
+        vendor_root = Path(module_path_raw) / "vendor" / "harness-core"
+        if not vendor_root.exists():
+            continue
+        manifest_text = ""
+        manifest_path = vendor_root / "SOURCE_MANIFEST.md"
+        if manifest_path.exists():
+            manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace")
+        manifest_commit_match = re.search(r"Source commit:\s*`?([0-9a-fA-F]{40})`?", manifest_text)
+        manifest_commit = manifest_commit_match.group(1).lower() if manifest_commit_match else ""
+        issues: list[str] = []
+        if canonical_commit and manifest_commit and manifest_commit != canonical_commit.lower():
+            issues.append("manifest_commit_differs_from_canonical")
+        elif not manifest_commit:
+            issues.append("missing_manifest_commit")
+        section_counts: dict[str, dict[str, int]] = {}
+        for section, expected in canonical_hashes.items():
+            actual = _relative_file_hashes(vendor_root / section)
+            missing = sorted(set(expected) - set(actual))
+            extra = sorted(set(actual) - set(expected))
+            changed = sorted(path for path in set(expected) & set(actual) if expected[path] != actual[path])
+            if missing:
+                issues.append(f"{section}_missing_files")
+            if extra:
+                issues.append(f"{section}_extra_files")
+            if changed:
+                issues.append(f"{section}_hash_mismatch")
+            section_counts[section] = {
+                "expected_files": len(expected),
+                "actual_files": len(actual),
+                "missing_files": len(missing),
+                "extra_files": len(extra),
+                "changed_files": len(changed),
+            }
+        checks.append(
+            {
+                "name": str(name),
+                "path": str(vendor_root),
+                "ok": not issues,
+                "manifest_commit": manifest_commit,
+                "canonical_commit": canonical_commit,
+                "sections": section_counts,
+                "issues": issues,
+                "detail": "vendored Harness Core matches canonical source"
+                if not issues
+                else "vendored Harness Core differs from canonical source",
+            }
+        )
+    if not checks:
+        checks.append(
+            {
+                "name": "harness-core-vendors",
+                "ok": False,
+                "detail": "No installed modules expose vendor/harness-core for comparison.",
+            }
+        )
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "summary": "Harness Core vendor integrity",
+        "canonical_module": canonical_module,
+        "canonical_path": str(canonical_path),
+        "canonical_commit": canonical_commit,
+        "checks": checks,
+    }
+
+
+def collect_drift_sentinel_payload(
+    *,
+    desktop: Path | None = None,
+    spark_home: Path | None = None,
+    registry_path: Path | None = None,
+) -> dict[str, Any]:
+    desktop = desktop or (Path.home() / "Desktop")
+    spark_home = spark_home or SPARK_HOME
+    registry_path = registry_path or LOCAL_REGISTRY_PATH
+    installed_path = spark_home / "state" / "installed.json"
+    installed = load_json(installed_path, {})
+    registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    written = write_compiled_outputs(spark_home / "state" / "system-map", compiled)
+    os_summary = compile_summary(compiled, written)
+    repo_board = os_summary.get("repo_board") if isinstance(os_summary.get("repo_board"), dict) else {}
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    release_lane = _release_lane_strict_gate(
+        compiled,
+        spark_cli_root=REPO_ROOT,
+        registry_path=registry_path,
+        installed_path=installed_path,
+        critical_duplicate_truth_count=critical_duplicate_truth_count,
+    )
+    status = collect_status_payload()
+    vendor_integrity = collect_harness_vendor_integrity_payload(installed=installed)
+    checks = [
+        {
+            "name": "registry_pins",
+            "ok": bool(registry_pins.get("ok")),
+            "detail": registry_pins.get("summary", "registry pin check"),
+        },
+        {
+            "name": "os_compile",
+            "ok": int(repo_board.get("critical_duplicate_truth_count") or 0) == 0,
+            "detail": (
+                f"{int(repo_board.get('dirty_repo_count') or 0)} dirty repos; "
+                f"{int(repo_board.get('critical_duplicate_truth_count') or 0)} critical duplicate truths"
+            ),
+        },
+        {
+            "name": "release_lane",
+            "ok": bool(release_lane.get("ok")),
+            "detail": (
+                f"{int(release_lane.get('dirty_repo_count') or 0)} dirty release repos; "
+                f"{int(release_lane.get('issue_count') or 0)} release issues"
+            ),
+        },
+        {
+            "name": "runtime_health",
+            "ok": bool(status.get("ok")),
+            "detail": status.get("summary", "runtime health"),
+        },
+        {
+            "name": "harness_vendor_integrity",
+            "ok": bool(vendor_integrity.get("ok")),
+            "detail": vendor_integrity.get("summary", "Harness Core vendor integrity"),
+        },
+    ]
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "schema_version": "spark.drift_sentinel.v1",
+        "summary": "Spark daily drift sentinel",
+        "checked_at": timestamp_now(),
+        "checks": checks,
+        "registry_pins": registry_pins,
+        "os_compile": os_summary,
+        "release_lane": release_lane,
+        "status": status,
+        "harness_vendor_integrity": vendor_integrity,
+    }
+
+
+def format_drift_sentinel_message(payload: dict[str, Any]) -> str:
+    marker = "PASS" if payload.get("ok") else "DRIFT"
+    lines = [f"Spark daily drift sentinel: {marker}"]
+    for check in payload.get("checks", []):
+        if not isinstance(check, dict):
+            continue
+        state = "OK" if check.get("ok") else "FIX"
+        lines.append(f"[{state}] {check.get('name')}: {check.get('detail')}")
+    return "\n".join(lines)
+
+
+def send_telegram_drift_sentinel_message(payload: dict[str, Any], *, profile: str | None = None) -> dict[str, Any]:
+    setup_state = load_json(CONFIG_PATH, {})
+    normalized = normalize_telegram_profile(profile or primary_telegram_profile(setup_state))
+    profiles = setup_state.get("telegram_profiles") if isinstance(setup_state, dict) else None
+    profile_state = profiles.get(normalized) if isinstance(profiles, dict) and isinstance(profiles.get(normalized), dict) else {}
+    token_secret = str(profile_state.get("bot_token_secret") or telegram_profile_secret_id(normalized, "bot_token"))
+    token = fetch_secret(token_secret)
+    admin_ids = split_telegram_admin_ids(str(profile_state.get("admin_ids") or ""))
+    if not admin_ids:
+        env_path = profile_state.get("env_file") if isinstance(profile_state, dict) else None
+        if env_path:
+            admin_ids = split_telegram_admin_ids(read_generated_env(Path(str(env_path))).get("ADMIN_TELEGRAM_IDS", ""))
+    if not admin_ids:
+        admin_ids = split_telegram_admin_ids(fetch_secret("telegram.admin_ids") or "")
+    if not token or not admin_ids:
+        return {
+            "ok": False,
+            "profile": normalized,
+            "detail": "Telegram bot token or admin id is not configured for drift sentinel DM.",
+        }
+    message = format_drift_sentinel_message(payload)
+    results: list[dict[str, Any]] = []
+    for chat_id in admin_ids:
+        token_part = urllib.parse.quote(extract_telegram_bot_token(token), safe=":")
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
+        request = urllib.request.Request(f"https://api.telegram.org/bot{token_part}/sendMessage", data=data, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+            results.append({"chat_id": "<redacted>", "ok": bool(response_payload.get("ok"))})
+        except Exception as error:
+            results.append({"chat_id": "<redacted>", "ok": False, "error": redact_sensitive_text(str(error))})
+    return {
+        "ok": all(item.get("ok") for item in results),
+        "profile": normalized,
+        "recipients": len(admin_ids),
+        "results": results,
+    }
+
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    command = getattr(args, "drift_command", None)
+    if command != "sentinel":
+        raise SystemExit("Choose a drift command, for example: spark drift sentinel")
+    payload = collect_drift_sentinel_payload(
+        desktop=Path(args.desktop).expanduser(),
+        spark_home=Path(args.spark_home).expanduser(),
+        registry_path=Path(args.registry).expanduser(),
+    )
+    if getattr(args, "dm_telegram", False):
+        payload["telegram_dm"] = send_telegram_drift_sentinel_message(payload, profile=getattr(args, "profile", None))
+        payload["ok"] = bool(payload.get("ok")) and bool(payload["telegram_dm"].get("ok"))
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_drift_sentinel_message(payload))
+        if payload.get("telegram_dm"):
+            dm = payload["telegram_dm"]
+            marker = "OK" if dm.get("ok") else "FIX"
+            print(f"[{marker}] telegram_dm: {dm.get('detail') or str(dm.get('recipients', 0)) + ' recipient(s)'}")
+    return 0 if payload.get("ok") else 1
+
+
 def cmd_os_compile(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
@@ -16416,6 +16685,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
+            { "command": "spark drift sentinel", "use": "Run registry, OS compile, release-lane, runtime-health, and Harness vendor drift checks." },
             { "command": "spark os compile", "use": "Compile a redacted local Spark OS system map, authority view, capability catalog, trace index, memory movement index, and gaps report." },
             { "command": "spark os authority", "use": "Inspect redacted access, sandbox, browser approval, and publication authority contracts." },
             { "command": "spark os capabilities", "use": "Inspect redacted capability cards for Labs and Swarm surfaces." },
@@ -16450,6 +16720,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
             { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
+            { "command": "spark drift sentinel [--json|--dm-telegram]", "use": "Run the daily drift sentinel over registry pins, release-lane mirrors, OS compile, runtime health, and Harness vendor hashes." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
             { "command": "spark access status|guide|setup|disable-level5", "use": "Prepare, explain, and verify Spark workspace access, optional sandbox lanes, and explicit Level 5 guardrail state." },
@@ -16873,6 +17144,18 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
     verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
     verify_parser.set_defaults(func=cmd_verify)
+
+    drift_parser = subparsers.add_parser("drift", help="Run read-only drift sentinels")
+    drift_subparsers = drift_parser.add_subparsers(dest="drift_command", required=True)
+    drift_sentinel_parser = drift_subparsers.add_parser("sentinel", help="Run the daily registry/runtime/vendor drift sentinel")
+    drift_sentinel_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    drift_sentinel_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    drift_sentinel_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
+    drift_sentinel_parser.add_argument("--json", action="store_true", help="Emit the full sentinel payload as JSON")
+    drift_sentinel_parser.add_argument("--dm-telegram", action="store_true", help="Send the redacted sentinel summary to configured Telegram admins")
+    drift_sentinel_parser.add_argument("--profile", default=None, help="Telegram profile to use with --dm-telegram; defaults to the configured primary profile")
+    drift_sentinel_parser.set_defaults(func=cmd_drift)
+    _wrap_subgroup_help(drift_parser, ["sentinel"])
 
     smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
     smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)

@@ -41,6 +41,8 @@ from spark_cli.cli import (
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
+    collect_drift_sentinel_payload,
+    collect_harness_vendor_integrity_payload,
     collect_registry_pin_drift_payload,
     collect_sandbox_verify_payload,
     collect_setup_configuration,
@@ -4423,6 +4425,88 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["gate"]["ok"])
         row = next(row for row in payload["gate"]["release_lane"]["rows"] if row["module"] == "spark-harness-core")
         self.assertIn("installed_metadata_differs_from_registry", row["issues"])
+
+    def test_harness_vendor_integrity_compares_vendor_hashes_to_canonical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            canonical = root / "spark-harness-core"
+            vendor_owner = root / "spawner-ui"
+            for base in (canonical, vendor_owner / "vendor" / "harness-core"):
+                (base / "schemas").mkdir(parents=True)
+                (base / "ts-dist").mkdir()
+                (base / "schemas" / "governor-decision-v1.schema.json").write_text('{"ok":true}\n', encoding="utf-8")
+                (base / "ts-dist" / "index.js").write_text("export const ok = true;\n", encoding="utf-8")
+            (vendor_owner / "vendor" / "harness-core" / "SOURCE_MANIFEST.md").write_text(
+                f"- Source commit: `{'a' * 40}`\n",
+                encoding="utf-8",
+            )
+            installed = {
+                "spark-harness-core": {"path": str(canonical)},
+                "spawner-ui": {"path": str(vendor_owner)},
+            }
+
+            with patch("spark_cli.cli.git_board_status", return_value={"head_commit": "a" * 40}):
+                payload = collect_harness_vendor_integrity_payload(installed=installed)
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["checks"][0]["sections"]["schemas"]["changed_files"], 0)
+
+            (vendor_owner / "vendor" / "harness-core" / "schemas" / "governor-decision-v1.schema.json").write_text(
+                '{"ok":false}\n',
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.git_board_status", return_value={"head_commit": "a" * 40}):
+                payload = collect_harness_vendor_integrity_payload(installed=installed)
+
+            self.assertFalse(payload["ok"])
+            self.assertIn("schemas_hash_mismatch", payload["checks"][0]["issues"])
+
+    def test_drift_sentinel_aggregates_pin_compile_runtime_and_vendor_checks(self) -> None:
+        args = build_parser().parse_args(["drift", "sentinel", "--json"])
+        compiled = {
+            "registry": {"modules": {"spark-harness-core": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": "a" * 40,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 3,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(_path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": "a" * 40,
+            }
+
+        with patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": True, "summary": "pins ok", "checks": []}), \
+             patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok"}), \
+             patch("spark_cli.cli.collect_harness_vendor_integrity_payload", return_value={"ok": True, "summary": "vendor ok", "checks": []}), \
+             patch("spark_cli.cli.load_json", return_value={}), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(checks["registry_pins"]["ok"])
+        self.assertTrue(checks["release_lane"]["ok"])
+        self.assertIn("3 dirty repos", checks["os_compile"]["detail"])
 
     def test_resolve_install_target_unknown_message_lists_installed_and_registry(self) -> None:
         installed = {
