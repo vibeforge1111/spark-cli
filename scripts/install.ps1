@@ -14,6 +14,7 @@ param(
     [string]$AnthropicApiKey = "",
     [string]$MiniMaxApiKey = "",
     [switch]$NonInteractiveSetup,
+    [switch]$InteractiveSetup,
     [switch]$SetupSkipInstallCommands,
     [switch]$SetupSkipRuntimeCheck,
     [switch]$SetupSkipTelegramTokenCheck,
@@ -55,7 +56,7 @@ function Apply-InstallDefaults {
         $script:NoAutostart = $true
         $Script:AutostartAutoDisabled = $true
     }
-    if ($Yes -or [Console]::IsInputRedirected) {
+    if (($Yes -or [Console]::IsInputRedirected) -and -not $InteractiveSetup) {
         $script:NonInteractiveSetup = $true
     }
 }
@@ -502,6 +503,12 @@ function Test-InstallSettings {
     }
     if ($LocalRegistry -and -not $AllowDevSource) {
         throw "Refusing local registry override without -AllowDevSource: $LocalRegistry"
+    }
+    if ($InteractiveSetup -and $NonInteractiveSetup) {
+        throw "Refusing -InteractiveSetup with -NonInteractiveSetup"
+    }
+    if ($InteractiveSetup -and [Console]::IsInputRedirected) {
+        throw "Refusing -InteractiveSetup when standard input is redirected"
     }
 }
 
