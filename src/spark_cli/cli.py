@@ -14374,7 +14374,25 @@ def module_runtime_command_argv(module: Module, command: str, cwd: Path, env: di
         argv = replace_or_append_flag(argv, "--host", bind_host)
     if bind_port:
         argv = replace_or_append_flag(argv, "--port", bind_port)
+        if "--strictPort" not in argv:
+            argv.append("--strictPort")
     return argv
+
+
+def spawner_ready_listener_conflict_detail(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> str | None:
+    if module.name != "spawner-ui":
+        return None
+    launched_pid = int(process.pid)
+    if not pid_is_running(launched_pid):
+        return None
+    for port in module_runtime_listener_ports(module, profile):
+        listener_pid = listening_pid_for_tcp_port(port)
+        if listener_pid and listener_pid != launched_pid and pid_is_running(listener_pid):
+            return (
+                f"claimed Spawner port {port} is held by pid {listener_pid}, "
+                f"not launched pid {launched_pid}; refusing stale readiness"
+            )
+    return None
 
 
 def spawner_should_use_liveness_endpoint(env: dict[str, str]) -> bool:
@@ -14575,6 +14593,18 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
     print(f"Started {display_name} (pid {process.pid})")
     ready, detail = wait_for_ready_check(module, process=process, profile=profile, ready_check_override=ready_check)
     if ready:
+        conflict_detail = spawner_ready_listener_conflict_detail(module, process, profile)
+        if conflict_detail:
+            print(f"Start warning for {display_name}: {conflict_detail}")
+            append_process_log(module.name, f"start warning pid={process.pid} detail={conflict_detail}", profile=profile)
+            stop_module(display_name, process.pid)
+            with pid_file_lock():
+                latest_pids = load_pids()
+                latest_record = latest_pids.get(process_key, {})
+                if int(latest_record.get("pid", 0)) == int(process.pid):
+                    latest_pids.pop(process_key, None)
+                    save_pids(latest_pids)
+            return False
         runtime_pid = discover_runtime_pid(module, process, profile)
         update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
         pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"

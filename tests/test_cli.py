@@ -8535,7 +8535,7 @@ class SparkCliTests(unittest.TestCase):
                     {"SPARK_SPAWNER_HOST": "0.0.0.0", "SPARK_SPAWNER_PORT": "8080"},
                 )
 
-            self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080"])
+            self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080", "--strictPort"])
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
                 "http://127.0.0.1:8080/api/health/live",
@@ -8544,6 +8544,46 @@ class SparkCliTests(unittest.TestCase):
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),
                 "http://127.0.0.1:8080/api/health/live",
             )
+
+    def test_start_module_rejects_spawner_ready_check_from_stale_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            module = Module(
+                name="spawner-ui",
+                path=root,
+                manifest={
+                    "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                    "run": {"default": {"command": "npm run dev", "ready_check": "http://127.0.0.1:3333/api/providers"}},
+                },
+            )
+
+            class RunningProcess:
+                pid = 123
+
+                def poll(self) -> None:
+                    return None
+
+            def fake_pid_is_running(pid: int) -> bool:
+                return pid in {123, 456}
+
+            with patch("spark_cli.cli.load_pids", side_effect=[{}, {"spawner-ui": {"pid": 123}}]), \
+                 patch("spark_cli.cli.save_pids") as save_pids, \
+                 patch("spark_cli.cli.LOG_DIR", root / "logs"), \
+                 patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_SPAWNER_PORT": "3334"}), \
+                 patch("spark_cli.cli.pid_is_running", side_effect=fake_pid_is_running), \
+                 patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456), \
+                 patch("spark_cli.cli.os.name", "posix"), \
+                 patch("spark_cli.cli.subprocess.Popen", return_value=RunningProcess()) as popen, \
+                 patch("spark_cli.cli.wait_for_ready_check", return_value=(True, "http://127.0.0.1:3334/api/health/live")), \
+                 patch("spark_cli.cli.stop_module") as stop_module_mock, \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertFalse(start_module(module))
+
+            argv = popen.call_args.args[0]
+            self.assertIn("--strictPort", argv)
+            self.assertIn("refusing stale readiness", output.getvalue())
+            stop_module_mock.assert_called_once_with("spawner-ui", 123)
+            self.assertEqual(save_pids.call_args_list[-1].args[0], {})
 
     def test_spawner_health_uses_liveness_endpoint_in_hosted_mode(self) -> None:
         class Response:
