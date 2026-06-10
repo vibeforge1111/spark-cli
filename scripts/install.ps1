@@ -64,6 +64,28 @@ function Test-BundleIncludesVoice {
     return $Bundle -like "*voice*"
 }
 
+function Test-SetupApprovalPreflight {
+    if (-not $NonInteractiveSetup) {
+        return
+    }
+    $mutatesIdentityAccess = [bool]$BotToken -or [bool]$AdminTelegramIds
+    foreach ($arg in $SetupArg) {
+        $lowered = "$arg".ToLowerInvariant()
+        if (
+            $lowered -eq "--bot-token" -or
+            $lowered.StartsWith("--bot-token=") -or
+            $lowered -eq "--admin-telegram-ids" -or
+            $lowered.StartsWith("--admin-telegram-ids=")
+        ) {
+            $mutatesIdentityAccess = $true
+            break
+        }
+    }
+    if ($mutatesIdentityAccess) {
+        throw "Refusing non-interactive spark setup because Telegram identity/access configuration requires explicit interactive approval. Rerun without -Yes/-NonInteractiveSetup, or omit bot/admin setup flags and run spark setup interactively after install."
+    }
+}
+
 function Format-AutostartPlan {
     if (-not $NoAutostart) {
         return "yes; will mutate login items"
@@ -842,6 +864,7 @@ function Invoke-Install {
         return
     }
     Show-DryRunPlan
+    Test-SetupApprovalPreflight
     Invoke-Preflight
     if ($Preflight) {
         Write-SparkLog "Preflight complete."

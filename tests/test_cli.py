@@ -13647,6 +13647,50 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("--future-setup-flag", result.stdout)
 
+    def test_windows_install_script_blocks_noninteractive_identity_setup_before_writes(self) -> None:
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            self.skipTest("PowerShell is not available")
+        script_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            prefix = Path(tmp_dir) / ".spark-proof"
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script_root / "scripts" / "install.ps1"),
+                    "-Prefix",
+                    str(prefix),
+                    "-Source",
+                    str(script_root),
+                    "-AllowDevSource",
+                    "-Bundle",
+                    "telegram-starter",
+                    "-NoAutostart",
+                    "-SetupSkipRuntimeCheck",
+                    "-SetupSkipTelegramTokenCheck",
+                    "-BotToken",
+                    "123456:abcdefghijklmnopqrstuvwxyzABCDE",
+                    "-AdminTelegramIds",
+                    "123456789",
+                    "-Yes",
+                ],
+                cwd=str(script_root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            self.assertFalse(prefix.exists())
+        output = result.stderr + result.stdout
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Refusing non-interactive spark setup", output)
+        self.assertNotIn("Creating Spark CLI virtualenv", output)
+
     def test_windows_install_script_bootstraps_local_prefix_contract(self) -> None:
         script = (Path(__file__).resolve().parents[1] / "scripts" / "install.ps1").read_text(encoding="utf-8")
         release_source = installer_manifest_payload()["source"]
