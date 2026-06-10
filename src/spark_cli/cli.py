@@ -14303,13 +14303,15 @@ def module_runtime_listener_ports(module: Module, profile: str | None = None) ->
 
 
 def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile: str | None = None) -> int:
+    launched_pid = int(process.pid)
+    launched_running = pid_is_running(launched_pid)
     for port in module_runtime_listener_ports(module, profile):
         pid = listening_pid_for_tcp_port(port)
         if pid and pid_is_running(pid):
+            if int(pid) != launched_pid and launched_running:
+                continue
             return pid
-    if pid_is_running(process.pid):
-        return int(process.pid)
-    return int(process.pid)
+    return launched_pid
 
 
 def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
@@ -14747,10 +14749,10 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
         if "spark-telegram-bot" not in requested_names:
             print(f"Profile {profile} only applies to spark-telegram-bot; restarting default target instead.")
         else:
-            stop_code = cmd_stop_plain(args)
             module = installed_modules["spark-telegram-bot"]
             if not emit_runtime_supply_chain_guard([module], args):
                 return 1
+            stop_code = cmd_stop_plain(args)
             start_code = 0
             if not start_module(
                 module,

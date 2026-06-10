@@ -60,6 +60,7 @@ from spark_cli.cli import (
     cmd_live,
     cmd_onboard,
     cmd_sandbox,
+    cmd_restart,
     cmd_start,
     cmd_setup,
     cmd_uninstall,
@@ -2675,6 +2676,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["command"], "restart")
         self.assertEqual(payload["exit_code"], 1)
         self.assertIn("No installed Spark modules recorded", payload["messages"][0])
+
+    def test_profile_restart_blocks_dirty_runtime_before_stopping(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"},
+                "run": {"default": {"command": "npm run dev"}},
+            },
+        )
+        args = build_parser().parse_args(["restart", "spark-telegram-bot", "--profile", "spark-agi"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spark-telegram-bot": module}), \
+             patch("spark_cli.cli.expand_targets", return_value=["spark-telegram-bot"]), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=False) as guard, \
+             patch("spark_cli.cli.cmd_stop_plain") as stop:
+            self.assertEqual(cmd_restart(args), 1)
+
+        guard.assert_called_once_with([module], args)
+        stop.assert_not_called()
 
     def test_dependency_lockfile_errors_flag_unlocked_node_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -8393,6 +8415,20 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.module_runtime_listener_ports", return_value=[8788]), \
              patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456):
             self.assertEqual(discover_runtime_pid(module, process), 456)
+
+    def test_discover_runtime_pid_keeps_launched_pid_when_port_belongs_to_other_running_process(self) -> None:
+        module = make_module("spawner-ui", ["spawner"])
+        module.manifest["healthcheck"] = {"ready": "http://127.0.0.1:3333/api/providers"}
+        process = subprocess.Popen.__new__(subprocess.Popen)
+        process.pid = 123
+
+        def fake_pid_is_running(pid: int) -> bool:
+            return pid in {123, 456}
+
+        with patch("spark_cli.cli.pid_is_running", side_effect=fake_pid_is_running), \
+             patch("spark_cli.cli.module_runtime_env", return_value={}), \
+             patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456):
+            self.assertEqual(discover_runtime_pid(module, process), 123)
 
     def test_console_safe_text_replaces_unsupported_terminal_characters(self) -> None:
         self.assertEqual(console_safe_text("dotenv tip: 🔄", encoding="cp1252"), "dotenv tip: ?")
