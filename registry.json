@@ -215,7 +215,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
+      "commit": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -223,12 +223,12 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
+        "commit": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
-        "runtime_mirror_head": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
+        "canonical_head": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
+        "runtime_mirror_head": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
         "tree_clean": true,
-        "validated_at": "2026-06-10T08:32:43Z",
+        "validated_at": "2026-06-10T09:36:49Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
@@ -238,7 +238,8 @@
           "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 3637abeca96a",
           "2026-06-10 canonical fallback PRD completion relay: focused PRD bridge/concurrency suite 24/24, full Spawner suite 956/956, npm run build passed",
           "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 532edd3e1b5e",
-          "2026-06-10 Windows atomic rename retry hardens full-suite PRD bridge concurrency flake"
+          "2026-06-10 Windows atomic rename retry hardens full-suite PRD bridge concurrency flake",
+          "2026-06-10 canonical PRD webhook sanitizer: focused relay/PRD suite 63/63, full Spawner suite 957/957, npm run build passed"
         ]
       }
     }
