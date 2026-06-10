@@ -50,22 +50,23 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+      "commit": "e4c9cbc3e4e54527107051f0e1334f0e4525048f",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+        "commit": "e4c9cbc3e4e54527107051f0e1334f0e4525048f",
         "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
-        "canonical_head": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
-        "runtime_mirror_head": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+        "canonical_head": "e4c9cbc3e4e54527107051f0e1334f0e4525048f",
+        "runtime_mirror_head": "e4c9cbc3e4e54527107051f0e1334f0e4525048f",
         "tree_clean": true,
-        "validated_at": "2026-06-09T20:11:02Z",
+        "validated_at": "2026-06-10T07:28:22Z",
         "evidence": [
-          "npm test after npm install + npm run build: passed",
-          "route-hijack and relay binding regression cases passed"
+          "npm test + npm run build passed after pause-copy route regression fix",
+          "Installed runtime fast-forwarded cleanly and restarted under Spark supervision",
+          "Route-hijack and relay binding regression cases remained green"
         ]
       },
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness"
