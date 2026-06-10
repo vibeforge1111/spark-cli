@@ -191,7 +191,6 @@ def collect_docker_smoke_payload(
             "/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m",
             image_name,
             "status",
-            "--help",
         ]
         try:
             result = subprocess.run(
