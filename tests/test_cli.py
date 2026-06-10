@@ -70,6 +70,7 @@ from spark_cli.cli import (
     CONFIG_PATH,
     detect_runtime_binary,
     direct_node_package_script_argv,
+    discover_repo_root,
     DPAPI_SECRET_PREFIX,
     dpapi_protect,
     dpapi_unprotect,
@@ -448,6 +449,27 @@ def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
 
 
 class SparkCliTests(unittest.TestCase):
+    def test_discover_repo_root_prefers_installed_package_root_over_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            package_root = root / "installed-cli"
+            cwd_root = root / "other-cli"
+            for candidate in (package_root, cwd_root):
+                (candidate / "scripts").mkdir(parents=True)
+                (candidate / "src" / "spark_cli").mkdir(parents=True)
+                (candidate / "pyproject.toml").write_text("[project]\nname='spark-cli'\n", encoding="utf-8")
+                (candidate / "scripts" / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+                (candidate / "registry.json").write_text('{"modules":{}}\n', encoding="utf-8")
+
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(cwd_root)
+                with patch.dict(os.environ, {}, clear=True), \
+                     patch("spark_cli.cli.__file__", str(package_root / "src" / "spark_cli" / "cli.py")):
+                    self.assertEqual(discover_repo_root(), package_root)
+            finally:
+                os.chdir(old_cwd)
+
     def test_sandbox_capability_manifest_serializes_stable_payload(self) -> None:
         manifest = CapabilityManifest(
             backend="ssh",

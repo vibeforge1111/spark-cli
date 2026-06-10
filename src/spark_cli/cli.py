@@ -75,12 +75,13 @@ def discover_repo_root() -> Path:
     candidates = []
     if env_root:
         candidates.append(Path(env_root).expanduser())
+    package_root = Path(__file__).resolve().parents[2]
     cwd = Path.cwd().resolve()
-    candidates.extend([cwd, *cwd.parents, Path(__file__).resolve().parents[2]])
+    candidates.extend([package_root, cwd, *cwd.parents])
     for candidate in candidates:
         if (candidate / "pyproject.toml").exists() and (candidate / "scripts" / "install.sh").exists():
             return candidate
-    return Path(__file__).resolve().parents[2]
+    return package_root
 
 
 REPO_ROOT = discover_repo_root()
