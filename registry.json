@@ -215,7 +215,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
+      "commit": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -223,19 +223,22 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
+        "commit": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
-        "runtime_mirror_head": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
+        "canonical_head": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
+        "runtime_mirror_head": "532edd3e1b5ec0e1d93b7e0759f405f530a9b344",
         "tree_clean": true,
-        "validated_at": "2026-06-10T08:15:46Z",
+        "validated_at": "2026-06-10T08:32:43Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
           "vendor harness-core source: aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
           "2026-06-10 fixture isolation: focused Spawner authority bundle 8 files / 73 tests passed on canonical and runtime mirrors",
           "2026-06-10 PRD completion relay fix: focused auth-sensitive suite 35/35, full Spawner suite 956/956, npm run build passed",
-          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 3637abeca96a"
+          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 3637abeca96a",
+          "2026-06-10 canonical fallback PRD completion relay: focused PRD bridge/concurrency suite 24/24, full Spawner suite 956/956, npm run build passed",
+          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 532edd3e1b5e",
+          "2026-06-10 Windows atomic rename retry hardens full-suite PRD bridge concurrency flake"
         ]
       }
     }
