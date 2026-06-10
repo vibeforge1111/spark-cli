@@ -16,6 +16,7 @@ param(
     [switch]$NonInteractiveSetup,
     [switch]$SetupSkipInstallCommands,
     [switch]$SetupSkipRuntimeCheck,
+    [switch]$SetupSkipTelegramTokenCheck,
     [switch]$ManagedNode,
     [string[]]$SetupArg = @(),
     [string]$LocalRegistry = "",
@@ -367,6 +368,7 @@ function Show-DryRunPlan {
         if ($NonInteractiveSetup) { $setupPreviewArgs += "--non-interactive" }
         if ($SetupSkipInstallCommands) { $setupPreviewArgs += "--skip-install-commands" }
         if ($SetupSkipRuntimeCheck) { $setupPreviewArgs += "--skip-runtime-check" }
+        if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }
         if ($BotToken) { $setupPreviewArgs += @("--bot-token", "<redacted>") }
         if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
         if ($LlmProvider) { $setupPreviewArgs += @("--llm-provider", $LlmProvider) }
@@ -749,6 +751,7 @@ function Run-Setup {
     if ($NonInteractiveSetup) { $setupArgs += "--non-interactive" }
     if ($SetupSkipInstallCommands) { $setupArgs += "--skip-install-commands" }
     if ($SetupSkipRuntimeCheck) { $setupArgs += "--skip-runtime-check" }
+    if ($SetupSkipTelegramTokenCheck) { $setupArgs += "--skip-telegram-token-check" }
     if ($BotToken) { $setupArgs += @("--bot-token", (New-SetupSecretRef $BotToken)) }
     if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
     if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }
