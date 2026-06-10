@@ -215,7 +215,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "78553767ac925829b61748b30da72b0a88b42a1f",
+      "commit": "8a47e416ada82d2db7c18768afa0644a2b873b68",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -223,12 +223,12 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "78553767ac925829b61748b30da72b0a88b42a1f",
+        "commit": "8a47e416ada82d2db7c18768afa0644a2b873b68",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "78553767ac925829b61748b30da72b0a88b42a1f",
-        "runtime_mirror_head": "78553767ac925829b61748b30da72b0a88b42a1f",
+        "canonical_head": "8a47e416ada82d2db7c18768afa0644a2b873b68",
+        "runtime_mirror_head": "8a47e416ada82d2db7c18768afa0644a2b873b68",
         "tree_clean": true,
-        "validated_at": "2026-06-10T10:21:45Z",
+        "validated_at": "2026-06-10T10:37:53Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
@@ -240,7 +240,8 @@
           "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 532edd3e1b5e",
           "2026-06-10 Windows atomic rename retry hardens full-suite PRD bridge concurrency flake",
           "2026-06-10 canonical PRD webhook sanitizer: focused relay/PRD suite 63/63, full Spawner suite 957/957, npm run build passed",
-          "2026-06-10 PRD auto-dispatch prefers structured project lineage over command-like verification text: prd-auto-dispatch.test 23/23, npm run check passed, npm run build passed"
+          "2026-06-10 PRD auto-dispatch prefers structured project lineage over command-like verification text: prd-auto-dispatch.test 23/23, npm run check passed, npm run build passed",
+          "2026-06-10 PRD analysis completion is non-terminal for Codex auto-analysis: prd-bridge write 10/10, auto-dispatch/load-to-canvas 39/39, npm run check passed, npm run build passed"
         ]
       }
     }
