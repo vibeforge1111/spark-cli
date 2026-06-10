@@ -215,7 +215,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "114a7123f9d06f7da195e7ff6b49a0c9334aff28",
+      "commit": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -223,17 +223,19 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "114a7123f9d06f7da195e7ff6b49a0c9334aff28",
+        "commit": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "114a7123f9d06f7da195e7ff6b49a0c9334aff28",
-        "runtime_mirror_head": "114a7123f9d06f7da195e7ff6b49a0c9334aff28",
+        "canonical_head": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
+        "runtime_mirror_head": "3637abeca96abc9c651a30a1d0123f4e564e5d99",
         "tree_clean": true,
-        "validated_at": "2026-06-09T22:05:30Z",
+        "validated_at": "2026-06-10T08:15:46Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
           "vendor harness-core source: aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
-          "2026-06-10 fixture isolation: focused Spawner authority bundle 8 files / 73 tests passed on canonical and runtime mirrors"
+          "2026-06-10 fixture isolation: focused Spawner authority bundle 8 files / 73 tests passed on canonical and runtime mirrors",
+          "2026-06-10 PRD completion relay fix: focused auth-sensitive suite 35/35, full Spawner suite 956/956, npm run build passed",
+          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 3637abeca96a"
         ]
       }
     }
