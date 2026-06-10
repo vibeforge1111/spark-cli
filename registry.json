@@ -215,7 +215,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
+      "commit": "68142b9d0c0fe2b7f8f64df3fc84c7f659d3dcd6",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -223,10 +223,10 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
+        "commit": "68142b9d0c0fe2b7f8f64df3fc84c7f659d3dcd6",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
-        "runtime_mirror_head": "68142b9c0b820665dc986a6cd1ec1c1ec8e28968",
+        "canonical_head": "68142b9d0c0fe2b7f8f64df3fc84c7f659d3dcd6",
+        "runtime_mirror_head": "68142b9d0c0fe2b7f8f64df3fc84c7f659d3dcd6",
         "tree_clean": true,
         "validated_at": "2026-06-10T09:36:49Z",
         "evidence": [
