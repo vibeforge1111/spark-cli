@@ -16286,6 +16286,8 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
 def cmd_init(args: argparse.Namespace) -> int:
     name = args.name.strip()
     validate_init_module_name(name)
+    if args.path and ".." in Path(args.path).parts:
+        raise SystemExit("Path must not contain '..' traversal segments. Use a direct path instead.")
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
     if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
         raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
