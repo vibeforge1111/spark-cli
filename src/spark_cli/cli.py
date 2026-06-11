@@ -3749,7 +3749,7 @@ def collect_provider_api_keys(providers: list[str], secret_values: dict[str, str
             continue
         label = LLM_PROVIDER_LABELS.get(provider, provider)
         hint = LLM_PROVIDER_AUTH_HINTS.get(provider, "API key")
-        print(f"")
+        print("")
         print(f"{label} needs {hint} for this setup.")
         if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
             print(f"  Endpoint: {spec['base_url_default']}")
@@ -8819,7 +8819,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     print("  - Nothing was uploaded.")
     print("")
     print("Useful next:")
-    print(f"  spark doctor llm \"Describe the Spark issue\" --save-report")
+    print("  spark doctor llm \"Describe the Spark issue\" --save-report")
     return 0
 
 
@@ -11596,8 +11596,6 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
     }
     telegram_result = modules_by_name.get("spark-telegram-bot")
     pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
-    telegram_pid = pids.get("spark-telegram-bot") if isinstance(pids, dict) else None
-
     env_values = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
     builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
     llm_state = status_payload.get("llm") if isinstance(status_payload.get("llm"), dict) else {}

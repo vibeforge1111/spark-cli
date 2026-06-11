@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import ctypes
 import os
 import hashlib
@@ -41,7 +42,6 @@ from spark_cli.cli import (
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
-    collect_drift_sentinel_payload,
     collect_harness_vendor_integrity_payload,
     collect_registry_pin_drift_payload,
     collect_sandbox_verify_payload,
@@ -79,6 +79,7 @@ from spark_cli.cli import (
     evaluate_module_health,
     clone_module_source,
     clone_target_for_module,
+    canonical_installer_script_bytes,
     ensure_generated_setup_secrets,
     installer_script_sha256,
     ensure_runtime_telegram_relay_secret,
@@ -159,7 +160,6 @@ from spark_cli.cli import (
     enforce_runtime_versions,
     ensure_trust_for_install,
     extract_telegram_bot_token,
-    INSTALL_PROGRESS_PATH,
     INSECURE_FILE_SECRET_PREFIX,
     is_blessed_registry_entry,
     load_install_progress,
@@ -192,7 +192,6 @@ from spark_cli.cli import (
     redact_shareable_text,
     redact_sensitive_text,
     non_secret_llm_env,
-    read_clipboard_text,
     read_secret_interactive,
     redact_secret_surface_logs,
     resolve_secret_input,
@@ -11135,13 +11134,6 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(any(str(SPARK_HOME) in hint for hint in hints))
 
     def test_build_status_repair_hints_reports_missing_ingress_owner_and_unhealthy_dependency(self) -> None:
-        builder = Module(
-            name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
-            manifest={
-                "module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}
-            },
-        )
         gateway = Module(
             name="spark-telegram-bot",
             path=Path("C:/tmp/spark-telegram-bot"),
@@ -11979,8 +11971,8 @@ class SparkCliTests(unittest.TestCase):
         source = installer_manifest_payload()["source"]
         repo_root = Path(__file__).resolve().parents[1]
         hosted_installers = {
-            "install.sh": (repo_root / "scripts" / "install.sh").read_bytes(),
-            "install.ps1": (repo_root / "scripts" / "install.ps1").read_bytes(),
+            "install.sh": canonical_installer_script_bytes(repo_root / "scripts" / "install.sh"),
+            "install.ps1": canonical_installer_script_bytes(repo_root / "scripts" / "install.ps1"),
         }
         hosted_hashes = {
             name: hashlib.sha256(payload).hexdigest()
