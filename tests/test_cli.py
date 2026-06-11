@@ -13900,6 +13900,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("SPARK_SETUP_OPTIONAL_ON_UPGRADE=1", script)
         self.assertIn("spark_cli.cli", script)
 
+    @unittest.skipIf(os.name == "nt", "install.sh dry run requires a POSIX shell")
     def test_install_script_dry_run_reflects_bundle_voice_and_autostart(self) -> None:
         bash = shutil.which("bash")
         if not bash:
@@ -13962,6 +13963,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Missing value for --prefix.", result.stderr)
         self.assertIn("Usage: install.sh [options]", result.stderr)
 
+    @unittest.skipIf(os.name == "nt", "install.sh dry run requires a POSIX shell")
     def test_install_script_setup_arg_accepts_option_like_values(self) -> None:
         bash = shutil.which("bash")
         if not bash:
