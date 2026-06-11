@@ -1,6 +1,6 @@
 # Spark Normie Onboarding and Gateway Test
 
-Last updated: 2026-04-24
+Last updated: 2026-06-10
 
 This is the launch-facing contract for a fresh Spark install. The user should not install Spark repos one by one. They should install Spark CLI, run setup once, paste a Telegram bot token and one LLM provider key, then have the starter ecosystem wired together.
 
@@ -8,12 +8,15 @@ This is the launch-facing contract for a fresh Spark install. The user should no
 
 `spark setup` defaults to the `telegram-starter` bundle:
 
-1. `spark-researcher`
-2. `spark-character`
-3. `spark-intelligence-builder`
-4. `domain-chip-memory`
-5. `spawner-ui`
-6. `spark-telegram-bot`
+1. `spark-harness-core`
+2. `spark-researcher`
+3. `spark-character`
+4. `spark-intelligence-builder`
+5. `domain-chip-memory`
+6. `spawner-ui`
+7. `spark-telegram-bot`
+
+The full installer proof lane is 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. `telegram-starter` directly bootstraps 7 runtime modules; `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs must still pass optional-module proof before the whole 11-repo lane is called installer-ready.
 
 The CLI clones or discovers these modules, validates each `spark.toml`, checks capability conflicts, installs in dependency order, records the bundle, writes module env, stores declared secrets, and generates the local relay secret shared by Telegram and Spawner.
 

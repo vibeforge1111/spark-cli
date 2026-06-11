@@ -50,39 +50,42 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+      "commit": "709ac471e9775126257664ee7dc2edfe954b04e4",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+        "commit": "709ac471e9775126257664ee7dc2edfe954b04e4",
         "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
-        "canonical_head": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
-        "runtime_mirror_head": "e0d7e6c1fd1a4d96366d70a784ea2006663270dd",
+        "canonical_head": "709ac471e9775126257664ee7dc2edfe954b04e4",
+        "runtime_mirror_head": "709ac471e9775126257664ee7dc2edfe954b04e4",
         "tree_clean": true,
-        "validated_at": "2026-06-09T20:11:02Z",
+        "validated_at": "2026-06-10T12:11:22Z",
         "evidence": [
-          "npm test after npm install + npm run build: passed",
-          "route-hijack and relay binding regression cases passed"
+          "npm run build passed after metadata-only PRD result polling fix",
+          "buildE2E regression passed: PRD canvas ready notifier accepts metadata-only result summaries",
+          "Installed runtime will be fast-forwarded to 06f3083 and restarted under Spark supervision before installer proof",
+          "2026-06-10 rendered-file proof route replay: tests/naturalRouteReplay.test.ts passed; tests/naturalRouteDecision.test.ts passed",
+          "2026-06-10 route divergence diagnose telemetry: tests/diagnose.test.ts and tests/naturalRouteLedger.test.ts passed; npm run build passed"
         ]
       },
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "c8dfe3ed4954482c98e7c17fb94f04501f649ff5",
+      "commit": "b78db66ae3ce062c209279db6e3c041c84120009",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "c8dfe3ed4954482c98e7c17fb94f04501f649ff5",
+        "commit": "b78db66ae3ce062c209279db6e3c041c84120009",
         "verify_ref": "refs/heads/reconcile/20260610-mit-recovery",
-        "canonical_head": "c8dfe3ed4954482c98e7c17fb94f04501f649ff5",
-        "runtime_mirror_head": "c8dfe3ed4954482c98e7c17fb94f04501f649ff5",
+        "canonical_head": "b78db66ae3ce062c209279db6e3c041c84120009",
+        "runtime_mirror_head": "b78db66ae3ce062c209279db6e3c041c84120009",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-06-09T20:31:48Z",
@@ -118,7 +121,7 @@
     },
     "domain-chip-spark-qa-evidence-lane": {
       "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-      "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5",
+      "commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -126,8 +129,20 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-        "commit": "fc1a8b42bdc7f48fbf8dd7c1936b0f5d59b328f5"
-      }
+        "commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "verify_ref": "refs/heads/reconcile/20260610-metadata-authority",
+        "canonical_head": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "runtime_mirror_head": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "tree_clean": true,
+        "license_spdx": "MIT",
+        "validated_at": "2026-06-09T21:40:00Z",
+        "evidence": [
+          "focused pytest -q: 7/7",
+          "metadata cleanup removes aspirational spark-harness-core dependency claim",
+          "MIT license metadata aligned"
+        ]
+      },
+      "verify_ref": "refs/heads/reconcile/20260610-metadata-authority"
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
@@ -155,7 +170,7 @@
     },
     "spark-skill-graphs": {
       "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-      "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
+      "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -163,8 +178,21 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-        "commit": "8dcdd172f35f9d2e444577135ec308cb1caa1e21"
-      }
+        "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "verify_ref": "refs/heads/reconcile/20260610-metadata-authority",
+        "canonical_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "runtime_mirror_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "tree_clean": true,
+        "license_spdx": "MIT",
+        "validated_at": "2026-06-09T21:40:00Z",
+        "evidence": [
+          "npm run validate:all: passed",
+          "npm run test:unit: 7/7",
+          "npm run pack:dry: passed",
+          "metadata-only module removes aspirational spark-harness-core dependency claim"
+        ]
+      },
+      "verify_ref": "refs/heads/reconcile/20260610-metadata-authority"
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
@@ -189,7 +217,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "00124905e529dc91b83a13bc0c0d9de24e82a070",
+      "commit": "8a47e416ada82d2db7c18768afa0644a2b873b68",
       "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
       "require_signed_commit": false,
       "blessed": true,
@@ -197,16 +225,25 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "00124905e529dc91b83a13bc0c0d9de24e82a070",
+        "commit": "8a47e416ada82d2db7c18768afa0644a2b873b68",
         "verify_ref": "refs/heads/codex/spawner-watchdog-probe-auth-20260608",
-        "canonical_head": "00124905e529dc91b83a13bc0c0d9de24e82a070",
-        "runtime_mirror_head": "00124905e529dc91b83a13bc0c0d9de24e82a070",
+        "canonical_head": "8a47e416ada82d2db7c18768afa0644a2b873b68",
+        "runtime_mirror_head": "8a47e416ada82d2db7c18768afa0644a2b873b68",
         "tree_clean": true,
-        "validated_at": "2026-06-09T19:52:40Z",
+        "validated_at": "2026-06-10T10:37:53Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
-          "vendor harness-core source: aa19fd7e49151c9df9e76e38f32da4aba7870bdf"
+          "vendor harness-core source: aa19fd7e49151c9df9e76e38f32da4aba7870bdf",
+          "2026-06-10 fixture isolation: focused Spawner authority bundle 8 files / 73 tests passed on canonical and runtime mirrors",
+          "2026-06-10 PRD completion relay fix: focused auth-sensitive suite 35/35, full Spawner suite 956/956, npm run build passed",
+          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 3637abeca96a",
+          "2026-06-10 canonical fallback PRD completion relay: focused PRD bridge/concurrency suite 24/24, full Spawner suite 956/956, npm run build passed",
+          "2026-06-10 live runtime fast-forwarded, rebuilt, and Spark-supervised spawner-ui restarted on 532edd3e1b5e",
+          "2026-06-10 Windows atomic rename retry hardens full-suite PRD bridge concurrency flake",
+          "2026-06-10 canonical PRD webhook sanitizer: focused relay/PRD suite 63/63, full Spawner suite 957/957, npm run build passed",
+          "2026-06-10 PRD auto-dispatch prefers structured project lineage over command-like verification text: prd-auto-dispatch.test 23/23, npm run check passed, npm run build passed",
+          "2026-06-10 PRD analysis completion is non-terminal for Codex auto-analysis: prd-bridge write 10/10, auto-dispatch/load-to-canvas 39/39, npm run check passed, npm run build passed"
         ]
       }
     }
@@ -214,6 +251,7 @@
   "bundles": {
     "telegram-starter": {
       "modules": [
+        "spark-harness-core",
         "spark-researcher",
         "spark-character",
         "spark-intelligence-builder",
@@ -225,6 +263,7 @@
     },
     "telegram-voice-starter": {
       "modules": [
+        "spark-harness-core",
         "spark-researcher",
         "spark-character",
         "spark-intelligence-builder",

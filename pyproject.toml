@@ -29,3 +29,29 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 200
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/spark_cli/cli.py" = ["E501", "I001"]
+"src/spark_cli/runtime_policy.py" = ["I001"]
+"src/spark_cli/sandbox/access.py" = ["I001"]
+"src/spark_cli/sandbox/audit.py" = ["I001"]
+"src/spark_cli/sandbox/capabilities.py" = ["I001"]
+"src/spark_cli/sandbox/docker.py" = ["I001"]
+"src/spark_cli/sandbox/modal.py" = ["I001"]
+"src/spark_cli/sandbox/output.py" = ["I001"]
+"src/spark_cli/sandbox/paths.py" = ["I001"]
+"src/spark_cli/sandbox/ssh.py" = ["E501", "I001"]
+"src/spark_cli/security/approval.py" = ["I001"]
+"src/spark_cli/security/prompt_injection.py" = ["I001"]
+"src/spark_cli/security/url_policy.py" = ["I001"]
+"src/spark_cli/system_map.py" = ["I001"]
+"tests/test_access.py" = ["I001"]
+"tests/test_cli.py" = ["E501", "I001"]
+"tests/test_docker_entrypoint.py" = ["I001"]
+"tests/test_system_map.py" = ["I001"]

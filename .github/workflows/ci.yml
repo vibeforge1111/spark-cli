@@ -43,6 +43,9 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+      - name: Lint
+        run: python -m pip install ruff && python -m ruff check .
+
       - name: Verify installer release metadata
         run: python -m spark_cli.cli verify --installers --json
 

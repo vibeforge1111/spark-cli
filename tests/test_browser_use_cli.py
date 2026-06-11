@@ -158,7 +158,6 @@ class BrowserUseCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             completed = subprocess.CompletedProcess(["browser-use"], 0, stdout="ok", stderr="")
-            screenshot_path = status_path.parent / "probe-screenshot.png"
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 if "screenshot" in argv:
@@ -215,7 +214,7 @@ class BrowserUseCliTests(unittest.TestCase):
         args = parser.parse_args(["browser-use", "task", "--max-steps", "1", "review page"])
         self.assertEqual(args.max_steps, 1)
 
-    def test_discovers_checkout_root_from_current_directory(self) -> None:
+    def test_discovers_installed_checkout_root_before_current_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "spark-cli"
             nested = root / "nested"
@@ -224,7 +223,7 @@ class BrowserUseCliTests(unittest.TestCase):
             (root / "pyproject.toml").write_text("[project]\nname='spark-cli'\n", encoding="utf-8")
             (root / "scripts" / "install.sh").write_text("#!/usr/bin/env sh\n", encoding="utf-8")
             with patch("spark_cli.cli.Path.cwd", return_value=nested):
-                self.assertEqual(cli.discover_repo_root(), root)
+                self.assertEqual(cli.discover_repo_root(), Path(cli.__file__).resolve().parents[2])
 
     def test_open_returns_page_summary_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

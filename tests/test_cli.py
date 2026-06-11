@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import ctypes
 import os
 import hashlib
@@ -41,6 +42,7 @@ from spark_cli.cli import (
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
+    collect_harness_vendor_integrity_payload,
     collect_registry_pin_drift_payload,
     collect_sandbox_verify_payload,
     collect_setup_configuration,
@@ -60,6 +62,7 @@ from spark_cli.cli import (
     cmd_live,
     cmd_onboard,
     cmd_sandbox,
+    cmd_restart,
     cmd_start,
     cmd_setup,
     cmd_uninstall,
@@ -69,13 +72,16 @@ from spark_cli.cli import (
     CONFIG_PATH,
     detect_runtime_binary,
     direct_node_package_script_argv,
+    discover_repo_root,
     DPAPI_SECRET_PREFIX,
     dpapi_protect,
     dpapi_unprotect,
     evaluate_module_health,
     clone_module_source,
     clone_target_for_module,
+    canonical_installer_script_bytes,
     ensure_generated_setup_secrets,
+    installer_script_sha256,
     ensure_runtime_telegram_relay_secret,
     ensure_bundle_modules_available,
     delete_secret,
@@ -90,6 +96,7 @@ from spark_cli.cli import (
     is_dirty_update_failure,
     installer_manifest_payload,
     git_command,
+    grant_windows_delete_access,
     run_git_or_exit,
     is_git_source,
     module_is_git_managed,
@@ -99,6 +106,7 @@ from spark_cli.cli import (
     remove_windows_path_entry,
     runtime_supply_chain_warnings,
     purge_spark_home,
+    schedule_deferred_windows_purge,
     resolve_install_executable,
     resolve_remote_git_ref,
     install_module_record,
@@ -152,7 +160,6 @@ from spark_cli.cli import (
     enforce_runtime_versions,
     ensure_trust_for_install,
     extract_telegram_bot_token,
-    INSTALL_PROGRESS_PATH,
     INSECURE_FILE_SECRET_PREFIX,
     is_blessed_registry_entry,
     load_install_progress,
@@ -185,7 +192,6 @@ from spark_cli.cli import (
     redact_shareable_text,
     redact_sensitive_text,
     non_secret_llm_env,
-    read_clipboard_text,
     read_secret_interactive,
     redact_secret_surface_logs,
     resolve_secret_input,
@@ -354,7 +360,12 @@ from spark_cli.sandbox.ssh import (
 )
 
 
-def make_module(name: str, capabilities: list[str], secrets: list[str] | None = None) -> Module:
+def make_module(
+    name: str,
+    capabilities: list[str],
+    secrets: list[str] | None = None,
+    needs_capabilities: list[str] | None = None,
+) -> Module:
     secret_definitions = {}
     for secret_id in secrets or []:
         toml_key = secret_id.replace(".", "_")
@@ -377,6 +388,7 @@ def make_module(name: str, capabilities: list[str], secrets: list[str] | None = 
                 "capabilities": capabilities,
             },
             "needs": {
+                "capabilities": needs_capabilities or [],
                 "secrets": secrets or [],
             },
             "secrets": secret_definitions,
@@ -409,10 +421,19 @@ def make_telegram_gateway(needs_capabilities: list[str] | None = None) -> Module
 
 def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
     modules = {
-        "spark-researcher": make_module("spark-researcher", ["spark.research"]),
+        "spark-harness-core": make_module("spark-harness-core", ["spark.harness.core"]),
+        "spark-researcher": make_module(
+            "spark-researcher",
+            ["spark.research"],
+            needs_capabilities=["spark.harness.core"],
+        ),
         "spark-character": make_module("spark-character", ["spark.character"]),
         "spark-intelligence-builder": make_module("spark-intelligence-builder", ["spark.runtime"]),
-        "domain-chip-memory": make_module("domain-chip-memory", ["memory.store"]),
+        "domain-chip-memory": make_module(
+            "domain-chip-memory",
+            ["memory.store"],
+            needs_capabilities=["spark.runtime", "spark.harness.core"],
+        ),
         "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
         "spark-telegram-bot": make_telegram_gateway(),
     }
@@ -432,6 +453,27 @@ def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
 
 
 class SparkCliTests(unittest.TestCase):
+    def test_discover_repo_root_prefers_installed_package_root_over_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            package_root = root / "installed-cli"
+            cwd_root = root / "other-cli"
+            for candidate in (package_root, cwd_root):
+                (candidate / "scripts").mkdir(parents=True)
+                (candidate / "src" / "spark_cli").mkdir(parents=True)
+                (candidate / "pyproject.toml").write_text("[project]\nname='spark-cli'\n", encoding="utf-8")
+                (candidate / "scripts" / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+                (candidate / "registry.json").write_text('{"modules":{}}\n', encoding="utf-8")
+
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(cwd_root)
+                with patch.dict(os.environ, {}, clear=True), \
+                     patch("spark_cli.cli.__file__", str(package_root / "src" / "spark_cli" / "cli.py")):
+                    self.assertEqual(discover_repo_root(), package_root)
+            finally:
+                os.chdir(old_cwd)
+
     def test_sandbox_capability_manifest_serializes_stable_payload(self) -> None:
         manifest = CapabilityManifest(
             backend="ssh",
@@ -2661,6 +2703,27 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["exit_code"], 1)
         self.assertIn("No installed Spark modules recorded", payload["messages"][0])
 
+    def test_profile_restart_blocks_dirty_runtime_before_stopping(self) -> None:
+        module = Module(
+            name="spark-telegram-bot",
+            path=Path("C:/tmp/spark-telegram-bot"),
+            manifest={
+                "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"},
+                "run": {"default": {"command": "npm run dev"}},
+            },
+        )
+        args = build_parser().parse_args(["restart", "spark-telegram-bot", "--profile", "spark-agi"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spark-telegram-bot": module}), \
+             patch("spark_cli.cli.expand_targets", return_value=["spark-telegram-bot"]), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=False) as guard, \
+             patch("spark_cli.cli.cmd_stop_plain") as stop:
+            self.assertEqual(cmd_restart(args), 1)
+
+        guard.assert_called_once_with([module], args)
+        stop.assert_not_called()
+
     def test_dependency_lockfile_errors_flag_unlocked_node_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             module_path = Path(tmp_dir) / "module"
@@ -4029,17 +4092,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(owner.name, "spark-telegram-bot")
 
     def test_expand_targets_expands_bundle_name(self) -> None:
-        modules = {
-            "spark-researcher": object(),
-            "spark-character": object(),
-            "spark-telegram-bot": object(),
-            "spark-intelligence-builder": object(),
-            "domain-chip-memory": object(),
-            "spawner-ui": object(),
-        }
         self.assertEqual(
-            expand_targets("telegram-starter", modules, include_all=False),
+            expand_targets("telegram-starter", {}, include_all=False),
             [
+                "spark-harness-core",
                 "spark-researcher",
                 "spark-character",
                 "spark-intelligence-builder",
@@ -4206,6 +4262,252 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["gate"]["strict"])
         self.assertFalse(payload["gate"]["ok"])
 
+    def test_os_compile_release_lane_strict_ignores_dirty_backlog_repos(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        cli_commit = "b" * 40
+        compiled = {
+            "registry": {
+                "modules": {
+                    "spark-harness-core": {"commit": expected_commit},
+                    "spark-skill-graphs": {"commit": "c" * 40},
+                }
+            },
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": expected_commit,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 237,
+            "repo_board": {
+                "dirty_repo_count": 91,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(path: Path) -> dict[str, Any]:
+            commit = cli_commit if str(path) == "C:/spark/spark-cli" else expected_commit
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": commit,
+            }
+
+        with patch("spark_cli.cli.REPO_ROOT", Path("C:/spark/spark-cli")), \
+             patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["gate"]["ok"])
+        self.assertEqual(payload["gate"]["scope"], "release-lane")
+        self.assertEqual(payload["gate"]["dirty_repo_count"], 0)
+        self.assertEqual(payload["gate"]["broad_dirty_repo_count"], 91)
+        self.assertEqual(payload["gate"]["release_lane"]["module_count"], 2)
+        modules = {row["module"] for row in payload["gate"]["release_lane"]["rows"]}
+        self.assertNotIn("spark-skill-graphs", modules)
+
+    def test_os_compile_release_lane_accepts_installed_cli_provenance_without_git(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        cli_commit = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir)
+            cli_root = spark_home / "tools" / "spark-cli"
+            state_dir = spark_home / "state"
+            cli_root.mkdir(parents=True)
+            state_dir.mkdir()
+            (state_dir / "spark-cli-install-source.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.cli.install_source.v1",
+                        "component": "spark-cli",
+                        "source_head": cli_commit,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args.spark_home = spark_home
+            compiled = {
+                "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+                "installed_modules": {
+                    "spark-harness-core": {
+                        "path": "C:/spark/modules/spark-harness-core/source",
+                        "registry_commit": expected_commit,
+                    }
+                },
+            }
+            summary = {
+                "schema_version": "spark.os_compile.summary.v0",
+                "modules": 1,
+                "repos": 237,
+                "repo_board": {
+                    "dirty_repo_count": 91,
+                    "critical_duplicate_truth_count": 0,
+                },
+            }
+
+            def fake_git_status(path: Path) -> dict[str, Any]:
+                if path == cli_root:
+                    return {
+                        "available": False,
+                        "dirty_tracked_count": 0,
+                        "untracked_count": 0,
+                        "head_commit": None,
+                    }
+                return {
+                    "available": True,
+                    "dirty_tracked_count": 0,
+                    "untracked_count": 0,
+                    "head_commit": expected_commit,
+                }
+
+            with patch("spark_cli.cli.REPO_ROOT", cli_root), \
+                 patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+                 patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+                 patch("spark_cli.cli.compile_summary", return_value=summary), \
+                 patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(args.func(args), 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["gate"]["ok"])
+        row = next(row for row in payload["gate"]["release_lane"]["rows"] if row["module"] == "spark-cli")
+        self.assertEqual(row["actual_commit"], cli_commit)
+        self.assertEqual(row["provenance_source"], "spark-cli-install-source")
+        self.assertEqual(row["issues"], [])
+
+    def test_os_compile_release_lane_strict_fails_on_installed_pin_mismatch(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--strict", "--strict-scope", "release-lane", "--json"])
+        expected_commit = "a" * 40
+        installed_commit = "c" * 40
+        compiled = {
+            "registry": {"modules": {"spark-harness-core": {"commit": expected_commit}}},
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": installed_commit,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": expected_commit,
+            }
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["gate"]["ok"])
+        row = next(row for row in payload["gate"]["release_lane"]["rows"] if row["module"] == "spark-harness-core")
+        self.assertIn("installed_metadata_differs_from_registry", row["issues"])
+
+    def test_harness_vendor_integrity_compares_vendor_hashes_to_canonical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            canonical = root / "spark-harness-core"
+            vendor_owner = root / "spawner-ui"
+            for base in (canonical, vendor_owner / "vendor" / "harness-core"):
+                (base / "schemas").mkdir(parents=True)
+                (base / "ts-dist").mkdir()
+                (base / "schemas" / "governor-decision-v1.schema.json").write_text('{"ok":true}\n', encoding="utf-8")
+                (base / "ts-dist" / "index.js").write_text("export const ok = true;\n", encoding="utf-8")
+            (vendor_owner / "vendor" / "harness-core" / "SOURCE_MANIFEST.md").write_text(
+                f"- Source commit: `{'a' * 40}`\n",
+                encoding="utf-8",
+            )
+            installed = {
+                "spark-harness-core": {"path": str(canonical)},
+                "spawner-ui": {"path": str(vendor_owner)},
+            }
+
+            with patch("spark_cli.cli.git_board_status", return_value={"head_commit": "a" * 40}):
+                payload = collect_harness_vendor_integrity_payload(installed=installed)
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["checks"][0]["sections"]["schemas"]["changed_files"], 0)
+
+            (vendor_owner / "vendor" / "harness-core" / "schemas" / "governor-decision-v1.schema.json").write_text(
+                '{"ok":false}\n',
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.git_board_status", return_value={"head_commit": "a" * 40}):
+                payload = collect_harness_vendor_integrity_payload(installed=installed)
+
+            self.assertFalse(payload["ok"])
+            self.assertIn("schemas_hash_mismatch", payload["checks"][0]["issues"])
+
+    def test_drift_sentinel_aggregates_pin_compile_runtime_and_vendor_checks(self) -> None:
+        args = build_parser().parse_args(["drift", "sentinel", "--json"])
+        compiled = {
+            "registry": {"modules": {"spark-harness-core": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-harness-core": {
+                    "path": "C:/spark/modules/spark-harness-core/source",
+                    "registry_commit": "a" * 40,
+                }
+            },
+        }
+        summary = {
+            "schema_version": "spark.os_compile.summary.v0",
+            "modules": 1,
+            "repos": 1,
+            "repo_board": {
+                "dirty_repo_count": 3,
+                "critical_duplicate_truth_count": 0,
+            },
+        }
+
+        def fake_git_status(_path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": "a" * 40,
+            }
+
+        with patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": True, "summary": "pins ok", "checks": []}), \
+             patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok"}), \
+             patch("spark_cli.cli.collect_harness_vendor_integrity_payload", return_value={"ok": True, "summary": "vendor ok", "checks": []}), \
+             patch("spark_cli.cli.load_json", return_value={}), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(checks["registry_pins"]["ok"])
+        self.assertTrue(checks["release_lane"]["ok"])
+        self.assertIn("3 dirty repos", checks["os_compile"]["detail"])
+
     def test_resolve_install_target_unknown_message_lists_installed_and_registry(self) -> None:
         installed = {
             "spark-cli": make_module("spark-cli", ["spark.cli"]),
@@ -4244,6 +4546,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(
             resolve_bundle_names("telegram-starter"),
             [
+                "spark-harness-core",
                 "spark-researcher",
                 "spark-character",
                 "spark-intelligence-builder",
@@ -4843,7 +5146,6 @@ class SparkCliTests(unittest.TestCase):
             set(sources) - bundled_modules,
             {
                 "domain-chip-spark-qa-evidence-lane",
-                "spark-harness-core",
                 "spark-skill-graphs",
             },
         )
@@ -5731,6 +6033,84 @@ class SparkCliTests(unittest.TestCase):
     def test_purge_spark_home_refuses_home_directory(self) -> None:
         with self.assertRaises(SystemExit):
             purge_spark_home(Path.home())
+
+    def test_purge_spark_home_defers_windows_self_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / "spark-home"
+            spark_home.mkdir()
+            exe_path = spark_home / "tools" / "spark-cli-venv" / "Scripts" / "python.exe"
+            exe_path.parent.mkdir(parents=True)
+            exe_path.write_text("", encoding="utf-8")
+
+            with patch("spark_cli.cli.sys.platform", "win32"), \
+                 patch("spark_cli.cli.sys.executable", str(exe_path)), \
+                 patch("spark_cli.cli.schedule_deferred_windows_purge") as deferred, \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertTrue(purge_spark_home(spark_home))
+
+            deferred.assert_called_once_with(spark_home.resolve())
+            self.assertTrue(spark_home.exists())
+            self.assertIn("Scheduled Spark home removal", stdout.getvalue())
+
+    def test_purge_spark_home_removes_direct_when_not_running_from_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / "spark-home"
+            spark_home.mkdir()
+            (spark_home / "state").mkdir()
+
+            with patch("spark_cli.cli.sys.platform", "win32"), \
+                 patch("spark_cli.cli.running_from_path", return_value=False), \
+                 patch("spark_cli.cli.remove_tree") as remove_tree_mock:
+                self.assertTrue(purge_spark_home(spark_home))
+
+            remove_tree_mock.assert_called_once_with(spark_home.resolve())
+
+    def test_remove_tree_repairs_windows_delete_acl_before_rmtree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            target.mkdir()
+
+            with patch("spark_cli.cli.grant_windows_delete_access") as grant_access, \
+                 patch("spark_cli.cli.shutil.rmtree") as rmtree:
+                remove_tree(target)
+
+            grant_access.assert_called_once_with(target)
+            rmtree.assert_called_once()
+
+    def test_grant_windows_delete_access_uses_current_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            target.mkdir()
+
+            with patch("spark_cli.cli.os.name", "nt"), \
+                 patch.dict(os.environ, {"USERDOMAIN": "DESKTOP", "USERNAME": "USER"}), \
+                 patch("spark_cli.cli.subprocess.run") as run:
+                run.return_value.returncode = 0
+                grant_windows_delete_access(target)
+
+            run.assert_called_once()
+            command = run.call_args.args[0]
+            self.assertEqual(command[:3], ["icacls", str(target), "/grant"])
+            self.assertEqual(command[3], "DESKTOP\\USER:(OI)(CI)F")
+
+    def test_schedule_deferred_windows_purge_writes_temp_cmd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "spark-home"
+            temp_root = Path(tmp_dir) / "temp"
+            target.mkdir()
+
+            with patch.dict(os.environ, {"TEMP": str(temp_root)}), \
+                 patch("spark_cli.cli.subprocess.Popen") as popen:
+                schedule_deferred_windows_purge(target)
+
+            scripts = list(temp_root.glob("spark-purge-home-*.cmd"))
+            self.assertEqual(len(scripts), 1)
+            script = scripts[0].read_text(encoding="utf-8")
+            self.assertIn(str(target), script)
+            self.assertIn("icacls", script)
+            self.assertIn("rmdir /s /q", script)
+            self.assertNotIn("tasklist", script)
+            popen.assert_called_once()
 
     def test_list_prints_empty_state_guidance_when_no_modules_exist(self) -> None:
         args = Namespace()
@@ -8222,6 +8602,20 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456):
             self.assertEqual(discover_runtime_pid(module, process), 456)
 
+    def test_discover_runtime_pid_keeps_launched_pid_when_port_belongs_to_other_running_process(self) -> None:
+        module = make_module("spawner-ui", ["spawner"])
+        module.manifest["healthcheck"] = {"ready": "http://127.0.0.1:3333/api/providers"}
+        process = subprocess.Popen.__new__(subprocess.Popen)
+        process.pid = 123
+
+        def fake_pid_is_running(pid: int) -> bool:
+            return pid in {123, 456}
+
+        with patch("spark_cli.cli.pid_is_running", side_effect=fake_pid_is_running), \
+             patch("spark_cli.cli.module_runtime_env", return_value={}), \
+             patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456):
+            self.assertEqual(discover_runtime_pid(module, process), 123)
+
     def test_console_safe_text_replaces_unsupported_terminal_characters(self) -> None:
         self.assertEqual(console_safe_text("dotenv tip: 🔄", encoding="cp1252"), "dotenv tip: ?")
 
@@ -8305,7 +8699,7 @@ class SparkCliTests(unittest.TestCase):
                     {"SPARK_SPAWNER_HOST": "0.0.0.0", "SPARK_SPAWNER_PORT": "8080"},
                 )
 
-            self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080"])
+            self.assertEqual(argv, ["C:/node/node.exe", str(vite_bin), "dev", "--host", "0.0.0.0", "--port", "8080", "--strictPort"])
             self.assertEqual(
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080"}),
                 "http://127.0.0.1:8080/api/health/live",
@@ -8314,6 +8708,46 @@ class SparkCliTests(unittest.TestCase):
                 module_runtime_ready_check(module, {"SPARK_SPAWNER_PORT": "8080", "SPARK_LIVE_CONTAINER": "1"}),
                 "http://127.0.0.1:8080/api/health/live",
             )
+
+    def test_start_module_rejects_spawner_ready_check_from_stale_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            module = Module(
+                name="spawner-ui",
+                path=root,
+                manifest={
+                    "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                    "run": {"default": {"command": "npm run dev", "ready_check": "http://127.0.0.1:3333/api/providers"}},
+                },
+            )
+
+            class RunningProcess:
+                pid = 123
+
+                def poll(self) -> None:
+                    return None
+
+            def fake_pid_is_running(pid: int) -> bool:
+                return pid in {123, 456}
+
+            with patch("spark_cli.cli.load_pids", side_effect=[{}, {"spawner-ui": {"pid": 123}}]), \
+                 patch("spark_cli.cli.save_pids") as save_pids, \
+                 patch("spark_cli.cli.LOG_DIR", root / "logs"), \
+                 patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_SPAWNER_PORT": "3334"}), \
+                 patch("spark_cli.cli.pid_is_running", side_effect=fake_pid_is_running), \
+                 patch("spark_cli.cli.listening_pid_for_tcp_port", return_value=456), \
+                 patch("spark_cli.cli.os.name", "posix"), \
+                 patch("spark_cli.cli.subprocess.Popen", return_value=RunningProcess()) as popen, \
+                 patch("spark_cli.cli.wait_for_ready_check", return_value=(True, "http://127.0.0.1:3334/api/health/live")), \
+                 patch("spark_cli.cli.stop_module") as stop_module_mock, \
+                 patch("sys.stdout", new_callable=StringIO) as output:
+                self.assertFalse(start_module(module))
+
+            argv = popen.call_args.args[0]
+            self.assertIn("--strictPort", argv)
+            self.assertIn("refusing stale readiness", output.getvalue())
+            stop_module_mock.assert_called_once_with("spawner-ui", 123)
+            self.assertEqual(save_pids.call_args_list[-1].args[0], {})
 
     def test_spawner_health_uses_liveness_endpoint_in_hosted_mode(self) -> None:
         class Response:
@@ -8503,6 +8937,7 @@ class SparkCliTests(unittest.TestCase):
     def test_stop_module_terminates_posix_process_group(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
              patch("spark_cli.cli.os.killpg", create=True) as killpg, \
+             patch("spark_cli.cli.pid_is_running", return_value=False), \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
@@ -8513,6 +8948,7 @@ class SparkCliTests(unittest.TestCase):
     def test_stop_module_falls_back_to_single_posix_pid(self) -> None:
         with patch("spark_cli.cli.os.name", "posix"), \
              patch("spark_cli.cli.os.killpg", side_effect=ProcessLookupError(), create=True), \
+             patch("spark_cli.cli.pid_is_running", return_value=False), \
              patch("spark_cli.cli.subprocess.run") as run, \
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
@@ -10698,13 +11134,6 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(any(str(SPARK_HOME) in hint for hint in hints))
 
     def test_build_status_repair_hints_reports_missing_ingress_owner_and_unhealthy_dependency(self) -> None:
-        builder = Module(
-            name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
-            manifest={
-                "module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}
-            },
-        )
         gateway = Module(
             name="spark-telegram-bot",
             path=Path("C:/tmp/spark-telegram-bot"),
@@ -11482,6 +11911,16 @@ class SparkCliTests(unittest.TestCase):
         }
         self.assertEqual(actual, expected)
 
+    def test_installer_script_hash_normalizes_windows_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            lf = root / "install.ps1"
+            crlf = root / "install-crlf.ps1"
+            lf.write_bytes(b"$x = 1\nWrite-Host $x\n")
+            crlf.write_bytes(b"$x = 1\r\nWrite-Host $x\r\n")
+
+            self.assertEqual(installer_script_sha256(lf), installer_script_sha256(crlf))
+
     def test_installer_integrity_fails_when_source_ref_is_not_reachable(self) -> None:
         with patch("spark_cli.cli.local_git_commit_exists", return_value=False):
             committed = collect_installer_integrity_payload()
@@ -11532,8 +11971,8 @@ class SparkCliTests(unittest.TestCase):
         source = installer_manifest_payload()["source"]
         repo_root = Path(__file__).resolve().parents[1]
         hosted_installers = {
-            "install.sh": (repo_root / "scripts" / "install.sh").read_bytes(),
-            "install.ps1": (repo_root / "scripts" / "install.ps1").read_bytes(),
+            "install.sh": canonical_installer_script_bytes(repo_root / "scripts" / "install.sh"),
+            "install.ps1": canonical_installer_script_bytes(repo_root / "scripts" / "install.ps1"),
         }
         hosted_hashes = {
             name: hashlib.sha256(payload).hexdigest()
@@ -13542,6 +13981,50 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("--future-setup-flag", result.stdout)
 
+    def test_windows_install_script_blocks_noninteractive_identity_setup_before_writes(self) -> None:
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            self.skipTest("PowerShell is not available")
+        script_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            prefix = Path(tmp_dir) / ".spark-proof"
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script_root / "scripts" / "install.ps1"),
+                    "-Prefix",
+                    str(prefix),
+                    "-Source",
+                    str(script_root),
+                    "-AllowDevSource",
+                    "-Bundle",
+                    "telegram-starter",
+                    "-NoAutostart",
+                    "-SetupSkipRuntimeCheck",
+                    "-SetupSkipTelegramTokenCheck",
+                    "-BotToken",
+                    "123456:abcdefghijklmnopqrstuvwxyzABCDE",
+                    "-AdminTelegramIds",
+                    "123456789",
+                    "-Yes",
+                ],
+                cwd=str(script_root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            self.assertFalse(prefix.exists())
+        output = result.stderr + result.stdout
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Refusing non-interactive spark setup", output)
+        self.assertNotIn("Creating Spark CLI virtualenv", output)
+
     def test_windows_install_script_bootstraps_local_prefix_contract(self) -> None:
         script = (Path(__file__).resolve().parents[1] / "scripts" / "install.ps1").read_text(encoding="utf-8")
         release_source = installer_manifest_payload()["source"]
@@ -13585,6 +14068,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("[switch]$Autostart", script)
         self.assertIn("Apply-InstallDefaults", script)
         self.assertIn('$script:NonInteractiveSetup = $true', script)
+        self.assertIn("[switch]$InteractiveSetup", script)
+        self.assertIn("[switch]$SetupSkipTelegramTokenCheck", script)
+        self.assertIn("[switch]$SkipUserPath", script)
         self.assertIn("Test-BundleIncludesVoice", script)
         self.assertIn("Format-AutostartPlan", script)
         self.assertIn("Format-InstallerRunMode", script)
@@ -13597,10 +14083,19 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("function Checkout-CliRef", script)
         self.assertIn('if ($BotToken) { $setupArgs += @("--bot-token", (New-SetupSecretRef $BotToken)) }', script)
         self.assertIn('if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }', script)
+        self.assertIn('if ($SetupSkipTelegramTokenCheck) { $setupArgs += "--skip-telegram-token-check" }', script)
         self.assertIn('if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }', script)
+        self.assertIn('state\\setup-secret-inputs', script)
+        self.assertIn("GetRandomFileName", script)
+        self.assertIn("spark-cli-install-source.json", script)
+        self.assertIn("source_head", script)
         self.assertIn('if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }', script)
         self.assertIn('$setupPreviewArgs += $SetupArg', script)
+        self.assertIn('if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }', script)
         self.assertIn('if ($ZaiApiKey) { $setupPreviewArgs += @("--zai-api-key", "<redacted>") }', script)
+        self.assertIn('if (($Yes -or [Console]::IsInputRedirected) -and -not $InteractiveSetup)', script)
+        self.assertIn("Refusing -InteractiveSetup with -NonInteractiveSetup", script)
+        self.assertIn("Refusing -InteractiveSetup when standard input is redirected", script)
         self.assertIn('$setupStartArgs = if ($NoAutostart) { @("--no-start-now", "--no-autostart") } else { @("--start-now", "--autostart") }', script)
         self.assertIn('$env:SPARK_SETUP_OPTIONAL_ON_UPGRADE = "1"', script)
         self.assertIn("& $sparkCmd setup $Bundle @setupStartArgs @setupArgs", script)
@@ -13608,6 +14103,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Spark startup was handled by setup", script)
         self.assertIn('Install transcript disabled because this PowerShell cannot omit the command-line header.', script)
         self.assertIn("Start-Transcript -Path $Script:InstallLogPath -Append -UseMinimalHeader", script)
+        self.assertIn("Skipping persistent PATH update by request", script)
         self.assertIn("spark providers list", script)
         self.assertIn("spark live start", script)
         self.assertIn("spark live status", script)

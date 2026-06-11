@@ -1,5 +1,7 @@
 # Spark Production Installer Audit - 2026-04-25
 
+> Superseded for the 2026-06-10 Harness Core installer lane: `telegram-starter` now installs `spark-harness-core` first, and the full proof lane is `spark-cli` plus 10 registry-pinned runtime/support modules. Keep this audit as historical context for the April launch flow.
+
 This audit covers the launch-day Spark onboarding path:
 
 1. hosted installer from `agent.sparkswarm.ai`
@@ -19,6 +21,7 @@ flowchart TD
   Installer --> Venv["Create Spark CLI venv"]
   Venv --> Setup["spark setup telegram-starter"]
   Setup --> Registry["registry.json starter bundle"]
+  Registry --> Harness["spark-harness-core"]
   Registry --> Researcher["spark-researcher"]
   Registry --> Character["spark-character"]
   Registry --> Builder["spark-intelligence-builder"]
@@ -32,14 +35,15 @@ flowchart TD
 
 ## What We Are Actually Using
 
-The launch starter stack is six modules in this order:
+The current `telegram-starter` stack installs Harness Core first, then the starter runtime modules:
 
-1. `spark-researcher`
-2. `spark-character`
-3. `spark-intelligence-builder`
-4. `domain-chip-memory`
-5. `spawner-ui`
-6. `spark-telegram-bot`
+1. `spark-harness-core`
+2. `spark-researcher`
+3. `spark-character`
+4. `spark-intelligence-builder`
+5. `domain-chip-memory`
+6. `spawner-ui`
+7. `spark-telegram-bot`
 
 Installer-side responsibilities:
 
