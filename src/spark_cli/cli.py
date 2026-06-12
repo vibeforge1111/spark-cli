@@ -8613,7 +8613,12 @@ def cmd_live_status(args: argparse.Namespace) -> int:
     if payload.get("ok"):
         print("[OK] Spark Live is ready.")
     else:
-        print("[FIX] Spark Live needs attention.")
+        modules_list = payload.get("modules") if isinstance(payload.get("modules"), list) else []
+        failing = [m for m in modules_list if isinstance(m, dict) and m.get("healthy") is False]
+        if failing:
+            print(f"[FIX] Spark Live needs attention ({len(failing)} module(s) unhealthy).")
+        else:
+            print("[FIX] Spark Live needs attention.")
     llm_state = payload.get("llm")
     if isinstance(llm_state, dict):
         roles = llm_state.get("roles")
