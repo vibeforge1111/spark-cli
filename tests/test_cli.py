@@ -420,6 +420,34 @@ def make_telegram_gateway(needs_capabilities: list[str] | None = None) -> Module
     )
 
 
+def make_git_demo_remote(tmp: Path) -> tuple[Path, list[str]]:
+    work = tmp / "work"
+    work.mkdir()
+    subprocess.run(["git", "-C", str(work), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "t"], check=True)
+    commits: list[str] = []
+    for index, content in enumerate(("initial content", "middle content", "tip content"), start=1):
+        (work / "spark.toml").write_text(
+            '[module]\nname = "git-demo"\nversion = "0.1.0"\nkind = "service"\nplane = "execution"\n',
+            encoding="utf-8",
+        )
+        (work / "content.txt").write_text(content, encoding="utf-8")
+        subprocess.run(["git", "-C", str(work), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(work), "commit", "-q", "-m", f"commit {index}"], check=True)
+        commits.append(
+            subprocess.run(
+                ["git", "-C", str(work), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+    bare = tmp / "remote.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(work), str(bare)], check=True)
+    return bare, commits
+
+
 def make_starter_modules(include_voice: bool = True) -> dict[str, Module]:
     modules = {
         "spark-harness-core": make_module("spark-harness-core", ["spark.harness.core"]),
@@ -10187,6 +10215,144 @@ class SparkCliTests(unittest.TestCase):
                 ).stdout.strip()
                 self.assertEqual(head, second_commit)
 
+    def test_update_module_source_refuses_rollback_without_allow_rollback(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commits = make_git_demo_remote(tmp)
+            _first_commit, middle_commit, tip_commit = commits
+            clone_home = tmp / "spark-home"
+            registry = {
+                "modules": {
+                    "git-demo": {
+                        "source": str(bare),
+                        "commit": middle_commit,
+                        "require_signed_commit": False,
+                    }
+                }
+            }
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                cloned = clone_module_source("git-demo", str(bare), commit=tip_commit)
+                module = Module(
+                    name="git-demo",
+                    path=cloned,
+                    manifest={
+                        "module": {
+                            "name": "git-demo",
+                            "version": "0.1.0",
+                            "kind": "service",
+                            "plane": "execution",
+                        }
+                    },
+                )
+                with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                    ok, detail = update_module_source(module)
+                self.assertFalse(ok)
+                self.assertIn("older than installed", detail)
+                self.assertIn("pass --allow-rollback to force", detail)
+                head = subprocess.run(
+                    ["git", "-C", str(cloned), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                self.assertEqual(head, tip_commit)
+
+    def test_update_module_source_allows_rollback_with_allow_rollback(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commits = make_git_demo_remote(tmp)
+            _first_commit, middle_commit, tip_commit = commits
+            clone_home = tmp / "spark-home"
+            registry = {
+                "modules": {
+                    "git-demo": {
+                        "source": str(bare),
+                        "commit": middle_commit,
+                        "require_signed_commit": False,
+                    }
+                }
+            }
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                cloned = clone_module_source("git-demo", str(bare), commit=tip_commit)
+                module = Module(
+                    name="git-demo",
+                    path=cloned,
+                    manifest={
+                        "module": {
+                            "name": "git-demo",
+                            "version": "0.1.0",
+                            "kind": "service",
+                            "plane": "execution",
+                        }
+                    },
+                )
+                with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                    ok, detail = update_module_source(module, allow_rollback=True)
+                self.assertTrue(ok, detail)
+                self.assertIn("checked out pinned commit", detail)
+                head = subprocess.run(
+                    ["git", "-C", str(cloned), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                self.assertEqual(head, middle_commit)
+
+    def test_update_module_source_allows_forward_update_without_allow_rollback(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commits = make_git_demo_remote(tmp)
+            _first_commit, middle_commit, tip_commit = commits
+            clone_home = tmp / "spark-home"
+            registry = {
+                "modules": {
+                    "git-demo": {
+                        "source": str(bare),
+                        "commit": tip_commit,
+                        "require_signed_commit": False,
+                    }
+                }
+            }
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                cloned = clone_module_source("git-demo", str(bare), commit=middle_commit)
+                module = Module(
+                    name="git-demo",
+                    path=cloned,
+                    manifest={
+                        "module": {
+                            "name": "git-demo",
+                            "version": "0.1.0",
+                            "kind": "service",
+                            "plane": "execution",
+                        }
+                    },
+                )
+                with patch("spark_cli.cli.load_registry_definition", return_value=registry):
+                    ok, detail = update_module_source(module)
+                self.assertTrue(ok, detail)
+                self.assertIn("checked out pinned commit", detail)
+                head = subprocess.run(
+                    ["git", "-C", str(cloned), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                self.assertEqual(head, tip_commit)
+
+    def test_update_help_lists_allow_rollback_flag(self) -> None:
+        parser = build_parser()
+        stdout = StringIO()
+        with self.assertRaises(SystemExit) as raised, redirect_stdout(stdout):
+            parser.parse_args(["update", "--help"])
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("--allow-rollback", stdout.getvalue())
+
     def test_git_command_enables_long_paths_for_registry_clones(self) -> None:
         self.assertEqual(
             git_command("clone", "--depth=1", "https://example.test/repo.git", "target"),
@@ -10988,7 +11154,8 @@ class SparkCliTests(unittest.TestCase):
             continue_update = False
             no_live_restart = False
 
-        def fake_update(module: Module) -> tuple[bool, str]:
+        def fake_update(module: Module, *, allow_rollback: bool = False) -> tuple[bool, str]:
+            self.assertFalse(allow_rollback)
             return True, "Already up to date."
 
         with patch("spark_cli.cli.resolve_installed_target_modules", return_value=[dirty, clean]), \

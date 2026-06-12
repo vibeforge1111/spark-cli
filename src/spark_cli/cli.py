@@ -723,7 +723,7 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
     return result.returncode == 0, summarize_command_output(result)
 
 
-def update_module_source(module: Module) -> tuple[bool, str]:
+def update_module_source(module: Module, *, allow_rollback: bool = False) -> tuple[bool, str]:
     registry_metadata = load_registry_definition().get("modules", {}).get(module.name, {})
     source = str(registry_metadata.get("source", ""))
     pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
@@ -759,6 +759,40 @@ def update_module_source(module: Module) -> tuple[bool, str]:
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
 
+    ancestry_note = ""
+    ancestry = subprocess.run(
+        git_command("-C", str(module.path), "merge-base", "--is-ancestor", pinned_commit, current_commit),
+        capture_output=True,
+        text=True,
+    )
+    if ancestry.returncode != 0:
+        shallow = subprocess.run(
+            git_command("-C", str(module.path), "rev-parse", "--is-shallow-repository"),
+            capture_output=True,
+            text=True,
+        )
+        if shallow.returncode == 0 and shallow.stdout.strip().lower() == "true":
+            deepen = subprocess.run(
+                git_command("-C", str(module.path), "fetch", "--deepen=50", "origin", pinned_commit, current_commit),
+                capture_output=True,
+                text=True,
+            )
+            if deepen.returncode == 0:
+                ancestry = subprocess.run(
+                    git_command("-C", str(module.path), "merge-base", "--is-ancestor", pinned_commit, current_commit),
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                ancestry_note = " (ancestry undecidable, shallow history)"
+    if ancestry.returncode == 0 and not allow_rollback:
+        return False, (
+            f"registry pin {pinned_commit[:12]} is older than installed {current_commit[:12]}; "
+            "pass --allow-rollback to force"
+        )
+    if ancestry.returncode > 1:
+        ancestry_note = " (ancestry undecidable, shallow history)"
+
     if bool(registry_metadata.get("require_signed_commit", False)):
         verify = subprocess.run(
             git_command("-C", str(module.path), "verify-commit", pinned_commit),
@@ -785,7 +819,7 @@ def update_module_source(module: Module) -> tuple[bool, str]:
         return False, summarize_command_output(resolved)
     if resolved.stdout.strip().lower() != pinned_commit:
         return False, f"checkout mismatch: expected {pinned_commit}, got {resolved.stdout.strip()}"
-    return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}"
+    return True, f"checked out pinned commit {current_commit[:12]}..{pinned_commit[:12]}{ancestry_note}"
 
 
 def is_dirty_update_failure(detail: str) -> bool:
@@ -16420,7 +16454,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     stopped_processes: list[str] = []
     for module in modules:
         if module_is_git_managed(module.path):
-            ok, detail = update_module_source(module)
+            ok, detail = update_module_source(module, allow_rollback=getattr(args, "allow_rollback", False))
             print(f"git update {module.name}: {'ok' if ok else 'failed'} - {detail}")
             if not ok:
                 print(f"Update stopped before touching running processes for {module.name}.")
@@ -17391,6 +17425,7 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
     update_parser.add_argument("--skip-dirty", action="store_true", help="Skip modules with local git changes and continue updating clean modules")
     update_parser.add_argument("--stash-local-runtime", action="store_true", help="Stash dirty installed-runtime module edits before updating")
+    update_parser.add_argument("--allow-rollback", action="store_true", help="Permit updating a module to a registry pin older than its current commit")
     update_parser.add_argument("--continue", dest="continue_update", action="store_true", help="Resume after fixing a previous update preflight stop")
     update_parser.add_argument("--no-live-restart", action="store_true", help="Do not restart Spark Live after updating stopped runtime services")
     update_parser.set_defaults(func=cmd_update)
