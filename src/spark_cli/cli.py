@@ -2905,6 +2905,9 @@ def spark_write_safe_root() -> Path | None:
 
 def require_write_allowed(path: Path, *, safe_root: Path | None = None, subject: str = "path") -> None:
     candidate = resolve_policy_path(path)
+    spark_home = resolve_policy_path(Path(os.environ.get("SPARK_HOME", "~/.spark")).expanduser())
+    if policy_path_is_same_or_child(candidate, spark_home):
+        return
     denied, reason = path_is_write_denied(candidate)
     if denied:
         raise SystemExit(f"Refusing {subject}: `{candidate}` is inside denied write path `{reason}`.")

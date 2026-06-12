@@ -9205,6 +9205,16 @@ class SparkCliTests(unittest.TestCase):
                 require_write_allowed(outside, safe_root=safe_root, subject="module root")
         self.assertIn("outside Spark write boundary", str(error.exception))
 
+    def test_require_write_allowed_allows_paths_inside_spark_home_under_root(self) -> None:
+        with patch.dict(os.environ, {"SPARK_HOME": "/root/.spark"}, clear=False):
+            require_write_allowed(Path("/root/.spark/modules/spark-telegram-bot/source"), subject="module path")
+
+    def test_require_write_allowed_still_blocks_root_paths_outside_spark_home(self) -> None:
+        with patch.dict(os.environ, {"SPARK_HOME": "/root/.spark"}, clear=False):
+            with self.assertRaises(SystemExit) as error:
+                require_write_allowed(Path("/root/.ssh/authorized_keys"), subject="ssh key path")
+        self.assertIn("denied write path", str(error.exception))
+
     def test_write_boundary_env_exports_denylist_and_safe_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             safe_root = Path(tmp_dir) / "modules"
