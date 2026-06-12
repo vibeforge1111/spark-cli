@@ -746,6 +746,7 @@ function Write-Wrapper {
     $contents = @"
 @echo off
 set "SPARK_HOME=$Script:SparkPrefix"
+set "SPARK_CLI_SOURCE_ROOT=$Script:SparkPrefix\tools\spark-cli"
 set "PATH=$NodeDir;%PATH%"
 "$pythonExe" -m spark_cli.cli %*
 "@
