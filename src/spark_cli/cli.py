@@ -2116,6 +2116,7 @@ def collect_registry_pin_drift_payload(
     return {
         "ok": all(check["ok"] for check in checks),
         "summary": "Spark registry pin drift verification",
+        "unverified": sum(1 for check in checks if not check.get("verified", True)),
         "checks": checks,
     }
 
@@ -14090,6 +14091,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         for check in payload["checks"]:
             marker = "[OK]" if check["ok"] else "[FIX]"
             print(f"{marker} {check['name']}: {check['detail']}")
+            if not check.get("verified", True):
+                if check.get("verification_status") == "private_source_unavailable":
+                    print(f"WARNING: {check['name']} pin not verified (private source unavailable)")
+                else:
+                    status = check.get("verification_status") or "unverified"
+                    print(f"WARNING: {check['name']} pin not verified ({status})")
             print(f"      pinned: {check['pinned_commit']}")
             if check.get("remote_head"):
                 print(f"      remote: {check['remote_head']}")

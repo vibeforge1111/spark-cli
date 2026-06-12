@@ -5311,6 +5311,7 @@ class SparkCliTests(unittest.TestCase):
         payload = collect_registry_pin_drift_payload(registry=registry, resolver=lambda _source: "c" * 40)
 
         self.assertTrue(payload["ok"])
+        self.assertEqual(payload["unverified"], 0)
         self.assertIn("matches remote HEAD", payload["checks"][0]["detail"])
 
     def test_registry_pin_drift_payload_accepts_explicit_release_ref(self) -> None:
@@ -5379,8 +5380,36 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["checks"][0]["ok"])
+        self.assertEqual(payload["unverified"], 1)
         self.assertFalse(payload["checks"][0]["verified"])
         self.assertEqual(payload["checks"][0]["verification_status"], "private_source_unavailable")
+
+    def test_verify_registry_pins_warns_for_unverified_private_source(self) -> None:
+        payload = {
+            "ok": True,
+            "summary": "Spark registry pin drift verification",
+            "unverified": 1,
+            "checks": [
+                {
+                    "name": "spark-harness-core",
+                    "source": "https://github.com/vibeforge1111/spark-harness-core",
+                    "pinned_commit": "f" * 40,
+                    "remote_ref": "HEAD",
+                    "remote_head": "",
+                    "ok": True,
+                    "verified": False,
+                    "verification_status": "private_source_unavailable",
+                    "detail": "Could not verify remote HEAD without private-source credentials",
+                }
+            ],
+        }
+        args = build_parser().parse_args(["verify", "--registry-pins"])
+
+        with patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value=payload), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        self.assertIn("WARNING: spark-harness-core pin not verified (private source unavailable)", stdout.getvalue())
 
     def test_run_git_or_exit_reports_missing_git_without_traceback(self) -> None:
         with patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("git")):
