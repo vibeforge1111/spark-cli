@@ -10,7 +10,7 @@
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
         "commit": "906592e2bb025ef485c6320339f714433714c9b6",
-        "verify_ref": "refs/heads/reconcile/20260610-mit-authority",
+        "verify_ref": "refs/heads/main",
         "canonical_head": "906592e2bb025ef485c6320339f714433714c9b6",
         "runtime_mirror_head": "906592e2bb025ef485c6320339f714433714c9b6",
         "tree_clean": true,
@@ -22,7 +22,7 @@
           "canonical Harness Core memory-write binding guard preserved"
         ]
       },
-      "verify_ref": "refs/heads/reconcile/20260610-mit-authority"
+      "verify_ref": "refs/heads/main"
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
