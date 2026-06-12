@@ -14,9 +14,12 @@ param(
     [string]$AnthropicApiKey = "",
     [string]$MiniMaxApiKey = "",
     [switch]$NonInteractiveSetup,
+    [switch]$InteractiveSetup,
     [switch]$SetupSkipInstallCommands,
     [switch]$SetupSkipRuntimeCheck,
+    [switch]$SetupSkipTelegramTokenCheck,
     [switch]$ManagedNode,
+    [switch]$SkipUserPath,
     [string[]]$SetupArg = @(),
     [string]$LocalRegistry = "",
     [switch]$SkipSetup,
@@ -54,13 +57,35 @@ function Apply-InstallDefaults {
         $script:NoAutostart = $true
         $Script:AutostartAutoDisabled = $true
     }
-    if ($Yes -or [Console]::IsInputRedirected) {
+    if (($Yes -or [Console]::IsInputRedirected) -and -not $InteractiveSetup) {
         $script:NonInteractiveSetup = $true
     }
 }
 
 function Test-BundleIncludesVoice {
     return $Bundle -like "*voice*"
+}
+
+function Test-SetupApprovalPreflight {
+    if (-not $NonInteractiveSetup) {
+        return
+    }
+    $mutatesIdentityAccess = [bool]$BotToken -or [bool]$AdminTelegramIds
+    foreach ($arg in $SetupArg) {
+        $lowered = "$arg".ToLowerInvariant()
+        if (
+            $lowered -eq "--bot-token" -or
+            $lowered.StartsWith("--bot-token=") -or
+            $lowered -eq "--admin-telegram-ids" -or
+            $lowered.StartsWith("--admin-telegram-ids=")
+        ) {
+            $mutatesIdentityAccess = $true
+            break
+        }
+    }
+    if ($mutatesIdentityAccess) {
+        throw "Refusing non-interactive spark setup because Telegram identity/access configuration requires explicit interactive approval. Rerun without -Yes/-NonInteractiveSetup, or omit bot/admin setup flags and run spark setup interactively after install."
+    }
 }
 
 function Format-AutostartPlan {
@@ -329,7 +354,8 @@ function Show-DryRunPlan {
     Write-Host "  Setup enabled:       $setupEnabled"
     $providerPlan = if ($LlmProvider) { "$LlmProvider for Agent and Mission" } else { "choose during spark setup" }
     Write-Host "  Default provider:    $providerPlan"
-    Write-Host "  User PATH edit:      yes"
+    $userPathEdit = if ($SkipUserPath) { "no" } else { "yes" }
+    Write-Host "  User PATH edit:      $userPathEdit"
     Write-Host "  Autostart:           $autostartEnabled"
     Write-Host "  Existing mode:       $existingMode"
     Write-Host "  Existing install:    $existing"
@@ -367,6 +393,7 @@ function Show-DryRunPlan {
         if ($NonInteractiveSetup) { $setupPreviewArgs += "--non-interactive" }
         if ($SetupSkipInstallCommands) { $setupPreviewArgs += "--skip-install-commands" }
         if ($SetupSkipRuntimeCheck) { $setupPreviewArgs += "--skip-runtime-check" }
+        if ($SetupSkipTelegramTokenCheck) { $setupPreviewArgs += "--skip-telegram-token-check" }
         if ($BotToken) { $setupPreviewArgs += @("--bot-token", "<redacted>") }
         if ($AdminTelegramIds) { $setupPreviewArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
         if ($LlmProvider) { $setupPreviewArgs += @("--llm-provider", $LlmProvider) }
@@ -479,6 +506,12 @@ function Test-InstallSettings {
     if ($LocalRegistry -and -not $AllowDevSource) {
         throw "Refusing local registry override without -AllowDevSource: $LocalRegistry"
     }
+    if ($InteractiveSetup -and $NonInteractiveSetup) {
+        throw "Refusing -InteractiveSetup with -NonInteractiveSetup"
+    }
+    if ($InteractiveSetup -and [Console]::IsInputRedirected) {
+        throw "Refusing -InteractiveSetup when standard input is redirected"
+    }
 }
 
 function Find-SystemNodeDir {
@@ -567,6 +600,42 @@ function Invoke-GitQuiet {
     }
 }
 
+function Get-GitHead {
+    param([string]$Path)
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        return ""
+    }
+    try {
+        $head = (& git -C $Path rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $head) {
+            return ([string]$head).Trim()
+        }
+    } catch {
+        return ""
+    }
+    return ""
+}
+
+function Write-CliSourceProvenance {
+    param([string]$Target, [string]$SourcePath)
+    $stateDir = Join-Path $Script:SparkPrefix "state"
+    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    $sourceHead = Get-GitHead -Path $SourcePath
+    if (-not $sourceHead) {
+        $sourceHead = Get-GitHead -Path $Target
+    }
+    $payload = [ordered]@{
+        schema_version = "spark.cli.install_source.v1"
+        component = "spark-cli"
+        source = $Source
+        ref = $Ref
+        source_head = $sourceHead
+        installed_path = $Target
+        local_source = [bool](Test-Path $Source)
+    }
+    $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stateDir "spark-cli-install-source.json") -Encoding UTF8
+}
+
 function Checkout-CliRef {
     param([string]$Target)
     if ((Invoke-GitQuiet @("-C", $Target, "checkout", $Ref)) -eq 0) {
@@ -608,7 +677,9 @@ function Checkout-Cli {
     New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
     if (Test-Path $Source) {
         Write-SparkLog "Copying spark-cli from local path $Source"
-        Copy-DirectoryContents -From (Resolve-FullPath $Source) -To $target
+        $resolvedSource = Resolve-FullPath $Source
+        Copy-DirectoryContents -From $resolvedSource -To $target
+        Write-CliSourceProvenance -Target $target -SourcePath $resolvedSource
         return $target
     }
 
@@ -627,6 +698,7 @@ function Checkout-Cli {
         }
     }
     Checkout-CliRef -Target $target
+    Write-CliSourceProvenance -Target $target -SourcePath $target
     return $target
 }
 
@@ -674,6 +746,7 @@ function Write-Wrapper {
     $contents = @"
 @echo off
 set "SPARK_HOME=$Script:SparkPrefix"
+set "SPARK_CLI_SOURCE_ROOT=$Script:SparkPrefix\tools\spark-cli"
 set "PATH=$NodeDir;%PATH%"
 "$pythonExe" -m spark_cli.cli %*
 "@
@@ -684,6 +757,11 @@ set "PATH=$NodeDir;%PATH%"
 function Add-SparkBinToUserPath {
     $binDir = Join-Path $Script:SparkPrefix "bin"
     $tempRoot = Resolve-FullPath $env:TEMP
+    if ($SkipUserPath) {
+        $env:PATH = "$binDir;$env:PATH"
+        Write-SparkLog "Skipping persistent PATH update by request"
+        return
+    }
     if ($Script:SparkPrefix.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         $env:PATH = "$binDir;$env:PATH"
         Write-SparkLog "Skipping persistent PATH update for temporary install prefix $Script:SparkPrefix"
@@ -738,9 +816,11 @@ function Run-Setup {
     }
     $sparkCmd = Join-Path $Script:SparkPrefix "bin\spark.cmd"
     $secretFiles = [System.Collections.Generic.List[string]]::new()
+    $secretDir = Join-Path $Script:SparkPrefix "state\setup-secret-inputs"
+    New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
     function New-SetupSecretRef {
         param([string]$Value)
-        $secretFile = [System.IO.Path]::GetTempFileName()
+        $secretFile = Join-Path $secretDir ([System.IO.Path]::GetRandomFileName())
         [System.IO.File]::WriteAllText($secretFile, $Value, [System.Text.UTF8Encoding]::new($false))
         [void]$secretFiles.Add($secretFile)
         return "@file:$secretFile"
@@ -749,6 +829,7 @@ function Run-Setup {
     if ($NonInteractiveSetup) { $setupArgs += "--non-interactive" }
     if ($SetupSkipInstallCommands) { $setupArgs += "--skip-install-commands" }
     if ($SetupSkipRuntimeCheck) { $setupArgs += "--skip-runtime-check" }
+    if ($SetupSkipTelegramTokenCheck) { $setupArgs += "--skip-telegram-token-check" }
     if ($BotToken) { $setupArgs += @("--bot-token", (New-SetupSecretRef $BotToken)) }
     if ($AdminTelegramIds) { $setupArgs += @("--admin-telegram-ids", $AdminTelegramIds) }
     if ($LlmProvider) { $setupArgs += @("--llm-provider", $LlmProvider) }
@@ -776,6 +857,9 @@ function Run-Setup {
         }
         foreach ($secretFile in $secretFiles) {
             Remove-Item -LiteralPath $secretFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $secretDir) {
+            Remove-Item -LiteralPath $secretDir -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -839,6 +923,7 @@ function Invoke-Install {
         return
     }
     Show-DryRunPlan
+    Test-SetupApprovalPreflight
     Invoke-Preflight
     if ($Preflight) {
         Write-SparkLog "Preflight complete."

@@ -8,12 +8,13 @@ without requiring the deferred dashboard or resonance API.
 
 `spark setup` defaults to the `telegram-starter` bundle:
 
-1. `spark-researcher`
-2. `spark-character`
-3. `spark-intelligence-builder`
-4. `domain-chip-memory`
-5. `spawner-ui`
-6. `spark-telegram-bot`
+1. `spark-harness-core`
+2. `spark-researcher`
+3. `spark-character`
+4. `spark-intelligence-builder`
+5. `domain-chip-memory`
+6. `spawner-ui`
+7. `spark-telegram-bot`
 
 Spawner UI is included as the local execution plane and mission surface. The old
 dashboard/resonance API is not part of launch. A starter install should not need

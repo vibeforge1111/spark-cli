@@ -29,6 +29,7 @@ spark status
 
 That default setup installs:
 
+- `spark-harness-core`
 - `spark-researcher`
 - `spark-character`
 - `spark-intelligence-builder`
@@ -51,6 +52,8 @@ spark setup telegram-voice-starter
 Add `--elevenlabs-api-key @clipboard` if you want hosted ElevenLabs TTS configured during setup. The key is stored in Spark secrets and injected into Builder at runtime; it is not written into Telegram config.
 
 Public builder labs such as `spark-domain-chip-labs` and `spark-personality-chip-labs` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
+
+The current installer proof lane covers 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. The plain `telegram-starter` bundle exercises Harness Core, Researcher, Character, Builder, Memory, Spawner, and Telegram directly. `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs require their own optional-module proof before claiming the entire 11-repo lane is ship-ready.
 
 For creator-system and specialization-path work, verify those optional surfaces explicitly:
 

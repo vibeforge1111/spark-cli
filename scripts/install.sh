@@ -944,6 +944,7 @@ write_wrapper() {
   cat > "$wrapper" <<EOF
 #!/usr/bin/env bash
 export SPARK_HOME="$SPARK_PREFIX"
+export SPARK_CLI_SOURCE_ROOT="$SPARK_PREFIX/tools/spark-cli"
 export PATH="$SPARK_NODE_BIN_DIR:\$PATH"
 exec "$SPARK_PREFIX/tools/spark-cli-venv/bin/python" -m spark_cli.cli "\$@"
 EOF
