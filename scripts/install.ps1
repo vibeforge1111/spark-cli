@@ -211,7 +211,7 @@ function Install-Uv {
     }
     New-Item -ItemType Directory -Force -Path $toolsDir, $uvDir | Out-Null
     Write-SparkLog "Downloading pinned uv $UvVersion for $uvPlatform"
-    Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/$UvVersion/$asset" -OutFile $archive
+    Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/$UvVersion/$asset" -OutFile $archive -UseBasicParsing
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
         throw "uv archive checksum mismatch for $asset"
@@ -555,8 +555,8 @@ function Install-Node {
     $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
     $shasumsUrl = "https://nodejs.org/dist/v$NodeVersion/SHASUMS256.txt"
     Write-SparkLog "Downloading Node $NodeVersion"
-    Invoke-WebRequest -Uri $url -OutFile $archive
-    Invoke-WebRequest -Uri $shasumsUrl -OutFile $shasums
+    Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+    Invoke-WebRequest -Uri $shasumsUrl -OutFile $shasums -UseBasicParsing
     Test-NodeArchiveHash -Archive $archive -Shasums $shasums
     Write-SparkLog "Extracting Node $NodeVersion"
     Expand-Archive -Path $archive -DestinationPath $toolsDir -Force
