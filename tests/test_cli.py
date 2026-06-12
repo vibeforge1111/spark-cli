@@ -5373,6 +5373,44 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("could not start git", message)
         self.assertIn("PATH", message)
 
+    def test_resolve_remote_git_ref_peels_tag_refs_to_commits(self) -> None:
+        commit = "1" * 40
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=f"{commit}\trefs/tags/v1.0.0-rc^{{}}\n",
+            stderr="",
+        )
+
+        with patch("spark_cli.cli.subprocess.run", return_value=result) as run:
+            resolved = resolve_remote_git_ref(
+                "https://github.com/vibeforge1111/spark-harness-core",
+                "refs/tags/v1.0.0-rc",
+            )
+
+        self.assertEqual(resolved, commit)
+        command = run.call_args.args[0]
+        self.assertIn("refs/tags/v1.0.0-rc^{}", command)
+        self.assertIn("refs/tags/v1.0.0-rc", command)
+
+    def test_resolve_remote_git_ref_accepts_lightweight_tag_refs(self) -> None:
+        commit = "2" * 40
+        tag_ref = "refs/tags/spark-cli-public-installer-2026-06-10-r27"
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=f"{commit}\t{tag_ref}\n",
+            stderr="",
+        )
+
+        with patch("spark_cli.cli.subprocess.run", return_value=result):
+            resolved = resolve_remote_git_ref(
+                "https://github.com/vibeforge1111/domain-chip-memory",
+                tag_ref,
+            )
+
+        self.assertEqual(resolved, commit)
+
     def test_autostart_install_defaults_to_telegram_starter_and_now_is_optional(self) -> None:
         args = build_parser().parse_args(["autostart", "install", "--now"])
         self.assertEqual(args.target, "telegram-starter")

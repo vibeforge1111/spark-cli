@@ -1950,7 +1950,10 @@ REMOTE_GIT_REF_ATTEMPTS = 2
 
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     remote_ref = (ref or "HEAD").strip() or "HEAD"
-    command = git_command("ls-remote", normalize_git_url(source), remote_ref)
+    is_tag_ref = remote_ref.startswith("refs/tags/") and not remote_ref.endswith("^{}")
+    lookup_ref = f"{remote_ref}^{{}}" if is_tag_ref else remote_ref
+    lookup_refs = [lookup_ref, remote_ref] if lookup_ref != remote_ref else [remote_ref]
+    command = git_command("ls-remote", normalize_git_url(source), *lookup_refs)
     last_timeout: subprocess.TimeoutExpired | None = None
     for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
         try:
@@ -1974,7 +1977,11 @@ def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise RuntimeError(detail)
-    first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+    lines = result.stdout.splitlines()
+    first_line = next(
+        (line for line in lines if line.endswith(f"\t{lookup_ref}")),
+        lines[0] if lines else "",
+    )
     commit = first_line.split()[0].strip().lower() if first_line else ""
     if not validate_commit_pin(commit):
         raise RuntimeError(f"remote {remote_ref} did not resolve to a full commit SHA")
