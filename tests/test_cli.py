@@ -1584,6 +1584,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_kubectl_exec(self) -> None:
+        for command in (
+            ["kubectl", "exec", "spark-pod", "--", "sh", "-c", "echo ok"],
+            ["kubectl", "exec", "-it", "spark-pod", "--", "bash"],
+            ["kubectl", "-n", "default", "exec", "spark-pod", "--", "python", "-V"],
+            ["kubectl", "--context=demo", "exec", "spark-pod", "--", "node", "-v"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes exec")
+
+    def test_approval_classifier_allows_kubectl_logs_and_pod_reads(self) -> None:
+        for command in (
+            ["kubectl", "logs", "spark-pod"],
+            ["kubectl", "-n", "default", "logs", "spark-pod"],
+            ["kubectl", "get", "pods"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],

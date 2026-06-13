@@ -49,6 +49,26 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
+KUBECTL_VALUE_FLAGS = {
+    "-c",
+    "-n",
+    "-s",
+    "--as",
+    "--as-group",
+    "--cache-dir",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--cluster",
+    "--container",
+    "--context",
+    "--kubeconfig",
+    "--namespace",
+    "--request-timeout",
+    "--server",
+    "--token",
+    "--user",
+}
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -97,6 +117,20 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
 
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+
+
+def _kubectl_command_index(parts: list[str], command: str) -> int:
+    index = 1
+    while index < len(parts):
+        part = parts[index]
+        if part == command:
+            return index
+        if part.startswith("-"):
+            name = part.split("=", 1)[0]
+            index += 1 if "=" in part or name not in KUBECTL_VALUE_FLAGS else 2
+            continue
+        return -1
+    return -1
 
 
 def _decision(
@@ -311,6 +345,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Kubernetes command can reveal cluster secrets.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve kubernetes secret reveal",
+        )
+
+    if first == "kubectl" and _kubectl_command_index(lowered, "exec") > 0:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Kubernetes exec command can run commands inside a cluster workload.",
+            target_display="kubectl exec",
+            confirmation_phrase="approve kubernetes exec",
         )
 
     if first == "docker" and second == "login":
