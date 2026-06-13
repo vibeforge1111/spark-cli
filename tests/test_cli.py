@@ -1599,6 +1599,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_ansible_execution(self) -> None:
+        for command in (
+            ["ansible-playbook", "site.yml"],
+            ["ansible-playbook", "-i", "inventory.ini", "deploy.yml"],
+            ["ansible", "all", "-m", "shell", "-a", "id"],
+            ["ansible", "web", "-m=command", "-a", "uptime"],
+            ["ansible", "web", "-m", "script", "-a", "deploy.sh"],
+            ["ansible", "web", "-m", "raw", "-a", "whoami"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ansible execution")
+
+    def test_approval_classifier_allows_ansible_inspection(self) -> None:
+        for command in (
+            ["ansible", "--version"],
+            ["ansible-inventory", "--list"],
+            ["ansible-playbook", "--syntax-check", "site.yml"],
+            ["ansible-playbook", "--list-hosts", "site.yml"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

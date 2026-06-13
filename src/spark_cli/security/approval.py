@@ -360,6 +360,36 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve submodule code fetch",
         )
 
+    if first == "ansible-playbook" and "--syntax-check" not in lowered and "--list-tasks" not in lowered and "--list-hosts" not in lowered:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Ansible playbook command can execute tasks against inventory hosts.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve ansible execution",
+        )
+    if first == "ansible":
+        module = ""
+        for index, part in enumerate(lowered):
+            if part == "-m" and index + 1 < len(lowered):
+                module = lowered[index + 1]
+                break
+            if part.startswith("-m="):
+                module = part.split("=", 1)[1]
+                break
+        if module in {"shell", "command", "raw", "script"}:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "high",
+                "Ansible ad-hoc command can execute shell or command modules against inventory hosts.",
+                target_display=" ".join(parts[:5]),
+                confirmation_phrase="approve ansible execution",
+            )
+
     if first == "docker" and (
         "--privileged" in lowered
         or "--network=host" in lowered
