@@ -1593,6 +1593,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_image_removal(self) -> None:
+        for command in (
+            ["docker", "rmi", "example/spark:old"],
+            ["docker", "image", "rm", "example/spark:old"],
+            ["docker", "image", "remove", "example/spark:old"],
+            ["docker", "compose", "down", "--rmi", "all"],
+            ["docker", "compose", "down", "--rmi=local"],
+            ["docker-compose", "down", "--rmi", "all"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker image removal")
+
+    def test_approval_classifier_allows_read_only_docker_image_commands(self) -> None:
+        for command in (
+            ["docker", "images"],
+            ["docker", "image", "ls"],
+            ["docker", "compose", "ps"],
+            ["docker", "compose", "down"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
