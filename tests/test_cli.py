@@ -1584,6 +1584,29 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_remote_copy_uploads(self) -> None:
+        for command in (
+            ["scp", "report.txt", "user@example.test:incoming/report.txt"],
+            ["scp", "-r", "dist", "example.test:incoming/dist"],
+            ["rsync", "-av", "report.txt", "user@example.test:incoming/report.txt"],
+            ["rsync", "-av", "dist", "example.test:incoming/dist"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve network upload")
+
+        for command in (
+            ["scp", "user@example.test:incoming/report.txt", "report.txt"],
+            ["rsync", "-av", "user@example.test:incoming/report.txt", "report.txt"],
+            ["scp", "report.txt", "report-copy.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
