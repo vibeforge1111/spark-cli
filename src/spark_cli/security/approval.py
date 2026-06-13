@@ -324,6 +324,25 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve docker credential change",
         )
 
+    if first == "podman" and len(lowered) > 2 and lowered[2] == "prune" and lowered[1] in {
+        "builder",
+        "container",
+        "image",
+        "network",
+        "system",
+        "volume",
+    }:
+        risk: ApprovalRisk = "critical" if lowered[1] in {"system", "volume"} or "--volumes" in lowered else "high"
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            risk,
+            "Podman prune command can delete local containers, images, volumes, networks, or build cache data.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve podman prune",
+        )
+
     if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
         r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
         joined,
