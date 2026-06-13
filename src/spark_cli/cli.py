@@ -5322,7 +5322,13 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    modules: dict[str, Module] = {}
+    for name, data in installed.items():
+        try:
+            modules[name] = load_module(Path(data["path"]))
+        except (FileNotFoundError, OSError):
+            pass
+    return modules
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
