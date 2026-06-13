@@ -302,6 +302,30 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "route53" and len(lowered) > 2:
+        route53_mutation_prefixes = (
+            "associate-",
+            "change-",
+            "create-",
+            "delete-",
+            "disable-",
+            "disassociate-",
+            "enable-",
+            "update-",
+        )
+        if lowered[2].startswith(route53_mutation_prefixes):
+            route53_action = lowered[2]
+            critical_prefixes = ("delete-", "disable-", "disassociate-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if route53_action.startswith(critical_prefixes) else "high",
+                "AWS Route 53 command can mutate public DNS records, hosted zones, health checks, domain routing, or zone associations.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve route53 change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

@@ -1653,6 +1653,55 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_route53_mutations(self) -> None:
+        hosted_zone_id = "Z00000000000000000000"
+        health_check_id = "00000000-0000-0000-0000-000000000000"
+        cases = [
+            (
+                ["aws", "route53", "change-resource-record-sets", "--hosted-zone-id", hosted_zone_id, "--change-batch", "{}"],
+                "external_publish",
+                "high",
+            ),
+            (["aws", "route53", "create-hosted-zone", "--name", "example.test", "--caller-reference", "spark"], "external_publish", "high"),
+            (["aws", "route53", "create-health-check", "--caller-reference", "spark", "--health-check-config", "{}"], "external_publish", "high"),
+            (["aws", "route53", "update-hosted-zone-comment", "--id", hosted_zone_id, "--comment", "spark"], "external_publish", "high"),
+            (
+                ["aws", "route53", "associate-vpc-with-hosted-zone", "--hosted-zone-id", hosted_zone_id, "--vpc", "VPCRegion=us-east-1,VPCId=vpc-00000000"],
+                "external_publish",
+                "high",
+            ),
+            (
+                ["aws", "route53", "disassociate-vpc-from-hosted-zone", "--hosted-zone-id", hosted_zone_id, "--vpc", "VPCRegion=us-east-1,VPCId=vpc-00000000"],
+                "external_publish",
+                "critical",
+            ),
+            (["aws", "route53", "delete-health-check", "--health-check-id", health_check_id], "external_publish", "critical"),
+            (["aws", "route53", "delete-hosted-zone", "--id", hosted_zone_id], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve route53 change")
+
+    def test_approval_classifier_allows_aws_route53_report_commands(self) -> None:
+        hosted_zone_id = "Z00000000000000000000"
+        cases = [
+            ["aws", "route53", "list-hosted-zones"],
+            ["aws", "route53", "list-resource-record-sets", "--hosted-zone-id", hosted_zone_id],
+            ["aws", "route53", "get-hosted-zone", "--id", hosted_zone_id],
+            ["aws", "route53", "get-health-check", "--health-check-id", "00000000-0000-0000-0000-000000000000"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
