@@ -1607,6 +1607,7 @@ def source_presence_verdict(
     return missing_proof_verdict(domain)
 
 
+# NOTE: Defensive comment about mutable-default at this line. See packet for details.
 def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ...] = ()) -> str:
     values = [
         str(data.get("verdict") or "").strip().lower(),
