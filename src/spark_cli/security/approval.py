@@ -301,6 +301,33 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "dynamodb":
+        dynamodb_action = lowered[2]
+        if dynamodb_action.startswith(
+            (
+                "batch-write",
+                "create-",
+                "delete-",
+                "disable-",
+                "enable-",
+                "import-",
+                "put-",
+                "restore-",
+                "tag-",
+                "transact-write",
+                "untag-",
+                "update-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if dynamodb_action.startswith(("delete-", "disable-")) else "high",
+                "AWS DynamoDB command can write items, mutate tables, restore or import data, change tags, or delete database resources.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve dynamodb change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
