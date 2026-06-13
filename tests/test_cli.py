@@ -2912,6 +2912,18 @@ class SparkCliTests(unittest.TestCase):
                 errors = validate_url_safety(url, label="provider endpoint")
                 self.assertTrue(any("cloud metadata service" in error for error in errors), errors)
 
+    def test_url_policy_rejects_browser_backslash_parser_differentials(self) -> None:
+        host = ".".join(["169", "254", "169", "254"])
+        cases = [
+            f"http://{host}\\@example.com/latest/meta-data",
+            f"https://{host}\\@example.com/latest/meta-data",
+        ]
+        browser_policy = UrlPolicy(allow_local=True, allow_private_networks=True, require_https_for_remote=False)
+        for url in cases:
+            with self.subTest(url=url):
+                errors = validate_url_safety(url, label="Browser URL", policy=browser_policy)
+                self.assertTrue(any("backslash URL syntax" in error for error in errors), errors)
+
     def test_url_policy_allows_local_provider_targets_by_default(self) -> None:
         errors = validate_url_safety("http://localhost:1234/v1", label="LM Studio")
         self.assertEqual(errors, [])
