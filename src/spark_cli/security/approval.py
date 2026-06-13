@@ -95,6 +95,16 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_dry_run_value(parts: list[str], values: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        if part.startswith("--dry-run="):
+            return part.split("=", 1)[1] in values
+        if part == "--dry-run" and index + 1 < len(lowered):
+            return lowered[index + 1] in values
+    return False
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
@@ -311,6 +321,26 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Kubernetes command can reveal cluster secrets.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve kubernetes secret reveal",
+        )
+
+    if first == "kubectl" and second == "create":
+        if _has_dry_run_value(parts, {"client", "server"}):
+            return _decision(parts, ctx, "none", "none", "`kubectl create --dry-run` is report-only.")
+        action_class: ApprovalClass = "credential_mutation" if len(lowered) > 2 and lowered[2] in {"secret", "token"} else "external_publish"
+        risk: ApprovalRisk = "critical" if action_class == "credential_mutation" else "high"
+        reason = (
+            "Kubernetes create command can create or reveal credential material."
+            if action_class == "credential_mutation"
+            else "Kubernetes create command can mutate live cluster resources."
+        )
+        return _decision(
+            parts,
+            ctx,
+            action_class,
+            risk,
+            reason,
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes create",
         )
 
     if first == "docker" and second == "login":
