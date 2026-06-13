@@ -11594,7 +11594,9 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     if getattr(args, "prompt_out", None):
         prompt_path = Path(args.prompt_out).expanduser()
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text(prompt, encoding="utf-8")
+        _tmp = prompt_path.with_suffix(prompt_path.suffix + ".tmp")
+        _tmp.write_text(prompt, encoding="utf-8")
+        _tmp.replace(prompt_path)
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
     target = resolve_llm_doctor_target(args)
@@ -11619,7 +11621,9 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         if upstream_out:
             upstream_path = Path(upstream_out).expanduser()
             upstream_path.parent.mkdir(parents=True, exist_ok=True)
-            upstream_path.write_text(upstream, encoding="utf-8")
+            _tmp = upstream_path.with_suffix(upstream_path.suffix + ".tmp")
+            _tmp.write_text(upstream, encoding="utf-8")
+            _tmp.replace(upstream_path)
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
         print(f"Saved sanitized upstream PR candidate: {upstream_path}")
