@@ -99,6 +99,24 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _has_help_or_version(parts: list[str]) -> bool:
+    return any(part in {"-h", "--help", "-v", "--version", "help", "version"} for part in parts[1:])
+
+
+def _is_public_tunnel_command(parts: list[str], lowered: list[str]) -> bool:
+    if _has_help_or_version(lowered):
+        return False
+    first = lowered[0]
+    second = lowered[1] if len(lowered) > 1 else ""
+    if first == "ngrok" and second in {"http", "tcp", "start"}:
+        return True
+    if first == "cloudflared" and second == "tunnel" and ("--url" in lowered or "run" in lowered):
+        return True
+    if first in {"lt", "localtunnel"}:
+        return len(parts) > 1
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -374,6 +392,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Docker command can expose the host, Docker socket, host network, or privileged container capabilities.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
+        )
+
+    if _is_public_tunnel_command(parts, lowered):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "high",
+            "Command can expose a local service through a public tunnel.",
+            target_display="public tunnel",
+            confirmation_phrase="approve public tunnel",
         )
 
     if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
