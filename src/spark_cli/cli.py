@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_PULL_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -719,6 +721,8 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
         git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
+
+    timeout=SPARK_CLI_PULL_MODULE_SOURCE_TIMEOUT_SECONDS,
     )
     return result.returncode == 0, summarize_command_output(result)
 
