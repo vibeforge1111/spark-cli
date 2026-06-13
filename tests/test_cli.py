@@ -1599,6 +1599,28 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_ansible_vault_secret_access(self) -> None:
+        for command in (
+            ["ansible-vault", "view", "group_vars/prod/vault.yml"],
+            ["ansible-vault", "decrypt", "group_vars/prod/vault.yml"],
+            ["ansible-vault", "edit", "group_vars/prod/vault.yml"],
+            ["ansible-vault", "rekey", "group_vars/prod/vault.yml"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ansible vault secret access")
+
+    def test_approval_classifier_allows_ansible_vault_inspection(self) -> None:
+        for command in (["ansible-vault", "--version"], ["ansible-vault", "--help"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

@@ -313,6 +313,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
+    if first == "ansible-vault" and second in {"view", "decrypt", "edit", "rekey"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Ansible Vault command can reveal, decrypt, or mutate encrypted secret files.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve ansible vault secret access",
+        )
+
     if first == "docker" and second == "login":
         return _decision(
             parts,
