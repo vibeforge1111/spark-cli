@@ -3084,6 +3084,40 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(target["model"], "sonnet")
         self.assertEqual(target["cli_path"], "claude")
 
+    def test_provider_status_ready_matches_provider_test_for_openai_default_base_no_key(self) -> None:
+        # setup.json as persisted by `spark setup --chat-llm-provider openai` when
+        # OPENAI_API_KEY is unset and OPENAI_BASE_URL is the default: provider_auth_mode
+        # has no codex fallback for openai, so the chat role is stored not_configured.
+        setup_state = {
+            "llm": {
+                "provider": "openai",
+                "roles": {
+                    role: {
+                        "provider": "openai",
+                        "model": "gpt-5.5",
+                        "auth_mode": "not_configured",
+                        "base_url": "",
+                    }
+                    for role in ("chat", "builder", "mission", "memory")
+                },
+            }
+        }
+        # detect_codex_cli reports present so no real codex CLI is required; the
+        # codex auth payload is stubbed so the test never shells out to codex.
+        with patch("spark_cli.cli.load_json", return_value=setup_state), \
+             patch("spark_cli.cli.detect_codex_cli", return_value={"present": True, "path": "codex"}), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True}):
+            status_payload = provider_status_payload()
+            test_payload = provider_test_payload(role="chat")
+        status_ready = status_payload["roles"]["chat"]["ready"]
+        # status (`providers status` / `doctor llm`) must not report the chat role
+        # READY while `providers test` for the same role fails: a verify check that
+        # passes when the runtime is unauthenticated is a silent-wrong-result.
+        self.assertEqual(status_ready, test_payload["ok"])
+        self.assertFalse(status_ready)
+        self.assertFalse(test_payload["ok"])
+        self.assertTrue(status_payload["repair_hints"])
+
     def test_new_user_experience_commands_parse(self) -> None:
         parser = build_parser()
         self.assertEqual(parser.parse_args(["support", "bundle"]).support_command, "bundle")
