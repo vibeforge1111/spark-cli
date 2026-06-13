@@ -15429,21 +15429,26 @@ def running_under_wsl() -> bool:
     return "microsoft" in release or "wsl" in release
 
 
+def normalize_wsl_distro_name(value: str) -> str:
+    cleaned = value.replace("\x00", "").lstrip("\ufeff").strip()
+    cleaned = cleaned.strip("*").strip().lstrip("\ufeff").strip()
+    return "".join(char for char in cleaned if char.isprintable())
+
+
 def available_wsl_distros() -> list[str]:
     result = run_autostart_helper(["wsl.exe", "-l", "-q"])
     if result.returncode != 0:
         return []
-    output = (result.stdout or "").replace("\x00", "")
     distros: list[str] = []
-    for line in output.splitlines():
-        distro = line.strip().strip("*").strip()
+    for line in (result.stdout or "").splitlines():
+        distro = normalize_wsl_distro_name(line)
         if distro and distro.lower() != "windows subsystem for linux distributions:":
             distros.append(distro)
     return distros
 
 
 def wsl_distro_name() -> str | None:
-    configured = os.environ.get("WSL_DISTRO_NAME", "").strip()
+    configured = normalize_wsl_distro_name(os.environ.get("WSL_DISTRO_NAME", ""))
     if configured:
         return configured
     distros = available_wsl_distros()
