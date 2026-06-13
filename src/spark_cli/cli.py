@@ -4821,6 +4821,8 @@ def resolve_install_target(
         clone_path = clone_module_source(name, target, allow_dirty_runtime=allow_dirty_runtime)
         return load_module(clone_path)
     candidate = Path(target)
+    if ".." in candidate.parts:
+        raise SystemExit(f"Module path must not contain '..' traversal segments: {target}")
     if candidate.exists():
         manifest_path = candidate / "spark.toml"
         if not manifest_path.exists():
