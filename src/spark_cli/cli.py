@@ -41,6 +41,7 @@ from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
+from .trace_command import cmd_trace
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -17099,6 +17100,18 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_wait_group.add_argument("--no-wait-first-message", dest="wait_first_message", action="store_false", help="Do not wait for the first Telegram message")
     onboard_parser.add_argument("--wait-first-message-seconds", type=int, default=None, help="Override the first-message wait timeout")
     onboard_parser.set_defaults(func=cmd_onboard)
+
+    trace_parser = subparsers.add_parser("trace", help="Reconstruct a Spark turn from exact trace ids")
+    trace_parser.add_argument("target", help="turn_id, update_id, mission_id, request_id, or trace_ref")
+    trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    trace_parser.add_argument("--builder-home", default=None, help="Builder state directory containing state.db")
+    trace_parser.add_argument("--state-db", default=None, help="Override Builder state.db path")
+    trace_parser.add_argument("--bot-turn-trace", default=None, help="Override Telegram turn trace JSONL path")
+    trace_parser.add_argument("--spawner-prd-trace", default=None, help="Override Spawner PRD auto trace JSONL path")
+    trace_parser.add_argument("--spawner-agent-events", default=None, help="Override Spawner agent events JSONL path")
+    trace_parser.add_argument("--limit", type=int, default=100, help="Maximum recent records to retain from each source")
+    trace_parser.add_argument("--json", action="store_true", help="Emit reconstructed trace metadata as JSON")
+    trace_parser.set_defaults(func=cmd_trace)
 
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
     os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
