@@ -1534,6 +1534,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_aws_lambda_runtime_changes(self) -> None:
+        cases = [
+            (["aws", "lambda", "invoke", "--function-name", "spark", "out.json"], "remote_code_execution", "high"),
+            (
+                ["aws", "lambda", "update-function-code", "--function-name", "spark", "--zip-file", "fileb://function.zip"],
+                "external_publish",
+                "high",
+            ),
+            (
+                ["aws", "lambda", "update-function-configuration", "--function-name", "spark", "--timeout", "30"],
+                "external_publish",
+                "high",
+            ),
+            (["aws", "lambda", "delete-function", "--function-name", "spark"], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve lambda runtime change")
+
+    def test_approval_classifier_allows_aws_lambda_report_commands(self) -> None:
+        cases = [
+            ["aws", "lambda", "list-functions"],
+            ["aws", "lambda", "get-function", "--function-name", "spark"],
+            ["aws", "lambda", "get-function-configuration", "--function-name", "spark"],
+            ["aws", "lambda", "list-event-source-mappings", "--function-name", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)

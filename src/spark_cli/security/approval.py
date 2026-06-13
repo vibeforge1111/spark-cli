@@ -302,6 +302,22 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "lambda" and lowered[2] in {
+        "delete-function",
+        "invoke",
+        "update-function-code",
+        "update-function-configuration",
+    }:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution" if lowered[2] == "invoke" else "external_publish",
+            "critical" if lowered[2] == "delete-function" else "high",
+            "AWS Lambda command can invoke functions or mutate deployed function code/configuration.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve lambda runtime change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
