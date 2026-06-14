@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: "CRITICAL,HIGH"
+      trivy-version:
+        description: Trivy CLI version installed before scanning.
+        required: false
+        type: string
+        default: "v0.69.3"
       opengrep-command:
         description: Optional OpenGrep command, for example a pinned install plus scan.
         required: false
@@ -54,8 +59,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITLEAKS_CONFIG: ${{ inputs.gitleaks-config-path }}
 
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: ${{ inputs.trivy-version }}
+          cache: true
+
       - name: Run Trivy
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: ${{ inputs.trivy-scan-type }}
           scan-ref: ${{ inputs.working-directory }}
@@ -63,6 +74,7 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
+          skip-setup-trivy: true
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4

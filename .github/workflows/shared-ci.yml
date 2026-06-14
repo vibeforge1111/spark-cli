@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   conformance:
-    uses: vibeforge1111/spark-cli/.github/workflows/reusable-conformance.yml@ap-01-reusable-ci-v1
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-conformance.yml@ap-01-reusable-ci-v2
     with:
       python-version: "3.11"
       install-command: "python -m pip install -e . pytest pip-audit"
@@ -25,4 +25,4 @@ jobs:
       conformance-command: "python -m spark_cli.cli verify --registry-pins --json"
 
   scanners:
-    uses: vibeforge1111/spark-cli/.github/workflows/reusable-scanners.yml@ap-01-reusable-ci-v1
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-scanners.yml@ap-01-reusable-ci-v2
