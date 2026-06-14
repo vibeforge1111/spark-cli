@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: "v0.69.3"
+      upload-trivy-sarif:
+        description: Upload Trivy SARIF to GitHub code scanning.
+        required: false
+        type: string
+        default: "false"
       opengrep-command:
         description: Optional OpenGrep command, for example a pinned install plus scan.
         required: false
@@ -76,7 +81,15 @@ jobs:
           output: trivy-results.sarif
           skip-setup-trivy: true
 
-      - name: Upload Trivy SARIF
+      - name: Upload Trivy SARIF artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          if-no-files-found: error
+
+      - name: Upload Trivy SARIF to code scanning
+        if: ${{ inputs.upload-trivy-sarif == 'true' }}
         uses: github/codeql-action/upload-sarif@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
         with:
           sarif_file: trivy-results.sarif
