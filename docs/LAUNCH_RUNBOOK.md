@@ -219,3 +219,35 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+## Known UX Gap — Mission Uses Wrong Provider Without Warning (QA 2026-06-03)
+
+### Bug: Mission execution uses OpenAI Codex when Anthropic Claude is configured
+
+**Trigger:** User runs /run build me a hello world Python script
+
+**Expected:** Mission uses the configured provider (Anthropic/Sonnet as shown
+in /diagnose Chat: anthropic sonnet). User is notified which provider will be
+used before mission starts.
+
+**Actual observed behavior:**
+- /diagnose showed: Chat: anthropic (sonnet), Builds: claude (sonnet)
+- Mission execution log showed: "OpenAI Codex is still working through 4 task pack"
+- User never warned that a different provider would be used
+- No consent obtained for using OpenAI Codex instead of configured provider
+- Provider mismatch between chat and mission execution
+- User has no way to know which provider is actually running their mission
+
+**Usage harm:**
+User configured Anthropic as their provider but mission silently uses
+OpenAI Codex without warning. This could cause unexpected API costs,
+different behavior, or privacy concerns if user chose Anthropic
+specifically for data handling reasons.
+
+**Fix needed:**
+1. Mission execution must use the configured mission provider
+2. If a different provider is selected show warning:
+   "This mission will use OpenAI Codex. Your configured provider is
+   Anthropic/Sonnet. Continue?"
+3. spark providers status must accurately reflect which provider
+   will be used for missions
+4. Never silently switch providers without user consent
