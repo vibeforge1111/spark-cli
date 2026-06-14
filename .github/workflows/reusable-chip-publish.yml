@@ -1,0 +1,207 @@
+name: Spark reusable chip publish
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to install. Leave empty to skip Python setup.
+        required: false
+        type: string
+        default: "3.11"
+      node-version:
+        description: Node.js version to install. Leave empty to skip Node setup.
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        description: Directory where chip publish commands run.
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: Dependency installation command.
+        required: false
+        type: string
+        default: ""
+      test-command:
+        description: Test command. Leave empty to skip.
+        required: false
+        type: string
+        default: ""
+      manifest-path:
+        description: Path to spark-chip.json relative to working-directory.
+        required: false
+        type: string
+        default: "spark-chip.json"
+      schemafile:
+        description: Path or URL for the spark-chip.v2 JSON Schema.
+        required: true
+        type: string
+      release-tag:
+        description: Semver release tag to validate. Defaults to the Git ref name.
+        required: false
+        type: string
+        default: ""
+      gitleaks-config-path:
+        description: Optional gitleaks config path.
+        required: false
+        type: string
+        default: ""
+      trivy-version:
+        description: Trivy CLI version installed before scanning.
+        required: false
+        type: string
+        default: "v0.69.3"
+      trivy-severity:
+        description: Comma-separated Trivy severities.
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+      upload-trivy-sarif:
+        description: Upload Trivy SARIF to GitHub code scanning.
+        required: false
+        type: string
+        default: "false"
+      opengrep-command:
+        description: Optional OpenGrep install and scan command.
+        required: false
+        type: string
+        default: ""
+      build-command:
+        description: Release build command.
+        required: true
+        type: string
+      artifact-path:
+        description: Artifact path to upload and attest.
+        required: true
+        type: string
+      artifact-name:
+        description: Uploaded artifact name.
+        required: false
+        type: string
+        default: "chip-release-artifacts"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  security-events: write
+
+jobs:
+  chip-publish:
+    name: chip publish gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: ${{ inputs.python-version != '' }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Set up Node
+        if: ${{ inputs.node-version != '' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install
+        if: ${{ inputs.install-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: Test
+        if: ${{ inputs.test-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.test-command }}
+
+      - name: Install schema validator
+        run: python -m pip install "check-jsonschema==0.37.3"
+
+      - name: Validate spark-chip manifest schema
+        working-directory: ${{ inputs.working-directory }}
+        run: check-jsonschema --schemafile "${{ inputs.schemafile }}" "${{ inputs.manifest-path }}"
+
+      - name: Check semver release tag
+        env:
+          SPARK_RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+
+          tag = os.environ.get("SPARK_RELEASE_TAG") or os.environ.get("GITHUB_REF_NAME", "")
+          pattern = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$")
+          if not pattern.fullmatch(tag):
+              print(f"release tag must match vMAJOR.MINOR.PATCH[-PRERELEASE], got {tag!r}", file=sys.stderr)
+              sys.exit(1)
+          print(f"release tag ok: {tag}")
+          PY
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_CONFIG: ${{ inputs.gitleaks-config-path }}
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: ${{ inputs.trivy-version }}
+          cache: true
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          severity: ${{ inputs.trivy-severity }}
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          skip-setup-trivy: true
+
+      - name: Upload Trivy SARIF artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          if-no-files-found: error
+
+      - name: Upload Trivy SARIF to code scanning
+        if: ${{ inputs.upload-trivy-sarif == 'true' }}
+        uses: github/codeql-action/upload-sarif@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
+        with:
+          sarif_file: trivy-results.sarif
+          wait-for-processing: false
+
+      - name: Run OpenGrep
+        if: ${{ inputs.opengrep-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.opengrep-command }}
+
+      - name: Build release artifact
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.build-command }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          if-no-files-found: error
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ inputs.artifact-path }}
