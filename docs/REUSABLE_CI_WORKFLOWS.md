@@ -15,7 +15,7 @@ Call a workflow from a repo workflow with `uses` and typed inputs:
 ```yaml
 jobs:
   conformance:
-    uses: vibeforge1111/spark-cli/.github/workflows/reusable-conformance.yml@ap-01-reusable-ci-v2
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-conformance.yml@ap-01-reusable-ci-v3
     with:
       python-version: "3.11"
       install-command: "python -m pip install -e . pytest"
@@ -27,7 +27,7 @@ Scanner callers should pass an explicit OpenGrep command once the repo has a pin
 ```yaml
 jobs:
   scanners:
-    uses: vibeforge1111/spark-cli/.github/workflows/reusable-scanners.yml@ap-01-reusable-ci-v2
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-scanners.yml@ap-01-reusable-ci-v3
     with:
       opengrep-command: "opengrep scan -f security/opengrep-rules ."
 ```
@@ -37,7 +37,7 @@ Release callers must pass an artifact path so the reusable workflow can upload a
 ```yaml
 jobs:
   release:
-    uses: vibeforge1111/spark-cli/.github/workflows/reusable-release.yml@ap-01-reusable-ci-v2
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-release.yml@ap-01-reusable-ci-v3
     with:
       build-command: "python -m build"
       artifact-path: "dist/*"
