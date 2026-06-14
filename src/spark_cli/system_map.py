@@ -1634,6 +1634,7 @@ def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ..
     return "present_unverified"
 
 
+# NOTE: Defensive comment about mutable-default at this line. See packet for details.
 def json_proof_verdict(
     *,
     repo_path: Path,
