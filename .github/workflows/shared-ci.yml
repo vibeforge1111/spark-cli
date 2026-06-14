@@ -1,0 +1,27 @@
+name: Spark shared CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - "codex/**"
+      - "reconcile/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  conformance:
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-conformance.yml@main
+    with:
+      python-version: "3.11"
+      install-command: "python -m pip install -e . pytest pip-audit"
+      test-command: "python -m pytest -q"
+      conformance-command: "python -m spark_cli.cli verify --registry-pins --json"
+
+  scanners:
+    uses: vibeforge1111/spark-cli/.github/workflows/reusable-scanners.yml@main

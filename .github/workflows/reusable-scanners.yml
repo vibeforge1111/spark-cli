@@ -1,0 +1,75 @@
+name: Spark reusable scanners
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Directory to scan.
+        required: false
+        type: string
+        default: "."
+      gitleaks-config-path:
+        description: Optional gitleaks config path.
+        required: false
+        type: string
+        default: ""
+      trivy-scan-type:
+        description: Trivy scan type.
+        required: false
+        type: string
+        default: "fs"
+      trivy-severity:
+        description: Comma-separated Trivy severities.
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+      opengrep-command:
+        description: Optional OpenGrep command, for example a pinned install plus scan.
+        required: false
+        type: string
+        default: ""
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scanners:
+    name: scanners
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_CONFIG: ${{ inputs.gitleaks-config-path }}
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        with:
+          scan-type: ${{ inputs.trivy-scan-type }}
+          scan-ref: ${{ inputs.working-directory }}
+          severity: ${{ inputs.trivy-severity }}
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Run OpenGrep
+        if: ${{ inputs.opengrep-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.opengrep-command }}

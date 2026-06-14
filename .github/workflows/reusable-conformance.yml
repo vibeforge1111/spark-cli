@@ -1,0 +1,79 @@
+name: Spark reusable conformance
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to install. Leave empty to skip Python setup.
+        required: false
+        type: string
+        default: "3.11"
+      node-version:
+        description: Node.js version to install. Leave empty to skip Node setup.
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        description: Directory where install, test, and conformance commands run.
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: Dependency installation command.
+        required: false
+        type: string
+        default: "python -m pip install -e ."
+      test-command:
+        description: Test command. Leave empty to skip.
+        required: false
+        type: string
+        default: "python -m pytest -q"
+      conformance-command:
+        description: Repo-specific conformance command. Leave empty to skip.
+        required: false
+        type: string
+        default: ""
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        if: ${{ inputs.python-version != '' }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Set up Node
+        if: ${{ inputs.node-version != '' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install
+        if: ${{ inputs.install-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: Test
+        if: ${{ inputs.test-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.test-command }}
+
+      - name: Conformance
+        if: ${{ inputs.conformance-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.conformance-command }}

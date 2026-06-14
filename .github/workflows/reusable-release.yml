@@ -1,0 +1,91 @@
+name: Spark reusable release
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version to install. Leave empty to skip Python setup.
+        required: false
+        type: string
+        default: "3.11"
+      node-version:
+        description: Node.js version to install. Leave empty to skip Node setup.
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        description: Directory where release commands run.
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: Dependency installation command.
+        required: false
+        type: string
+        default: "python -m pip install -e ."
+      build-command:
+        description: Release build command.
+        required: false
+        type: string
+        default: "python -m build"
+      artifact-path:
+        description: Artifact path to upload and attest.
+        required: true
+        type: string
+      artifact-name:
+        description: Uploaded artifact name.
+        required: false
+        type: string
+        default: "release-artifacts"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        if: ${{ inputs.python-version != '' }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Set up Node
+        if: ${{ inputs.node-version != '' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install
+        if: ${{ inputs.install-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.build-command }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          if-no-files-found: error
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ inputs.artifact-path }}
