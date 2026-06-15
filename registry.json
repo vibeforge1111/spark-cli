@@ -52,19 +52,19 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+      "commit": "147f3e535d69928989fb83f887c2c7319af480b3",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+        "commit": "147f3e535d69928989fb83f887c2c7319af480b3",
         "verify_ref": "refs/heads/codex/launch-readiness-20260615",
-        "canonical_head": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
-        "runtime_mirror_head": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+        "canonical_head": "147f3e535d69928989fb83f887c2c7319af480b3",
+        "runtime_mirror_head": "147f3e535d69928989fb83f887c2c7319af480b3",
         "tree_clean": true,
-        "validated_at": "2026-06-15T05:35:00Z",
+        "validated_at": "2026-06-15T05:42:00Z",
         "evidence": [
           "npm run build passed after metadata-only PRD result polling fix",
           "buildE2E regression passed: PRD canvas ready notifier accepts metadata-only result summaries",
@@ -73,7 +73,8 @@
           "2026-06-10 route divergence diagnose telemetry: tests/diagnose.test.ts and tests/naturalRouteLedger.test.ts passed; npm run build passed",
           "2026-06-12 TGB-03 restart:safe guard landed at 1834176; build:sync passed; sync:check:strict passed; missing runtime strict check returned 1; spark-recursive restarted on :8791 pid 34328",
           "2026-06-12 HC-06 fail-closed Governor HMAC landed at 3cc9170 on release/stability-2026-06-02-turnintent-harness; focused telegramActionAuthority test, npm run build, and npm run sync:check passed; live Telegram and Spawner unsigned probes refused with governor_signature_missing; release branch push has no CI trigger by workflow design",
-          "2026-06-15 launch readiness: full Telegram test suite passed; build and sync:check:strict passed; CUA /status produced turn trace telegram-update:749543443; bot audit tail passed with turn/update identifiers."
+          "2026-06-15 launch readiness: full Telegram test suite passed; build and sync:check:strict passed; CUA /status produced turn trace telegram-update:749543443; bot audit tail passed with turn/update identifiers.",
+          "2026-06-15 launch readiness: Harness vendor manifest provenance refreshed to f8277ba; sync:check:strict passed."
         ]
       },
       "verify_ref": "refs/heads/codex/launch-readiness-20260615"
@@ -232,7 +233,7 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "39f6f0567043779b97f3ba74958740a845197292",
+      "commit": "30e78251af1b2596e1feddfbcf04f2554dd75b49",
       "verify_ref": "refs/heads/codex/launch-readiness-20260615",
       "require_signed_commit": false,
       "blessed": true,
@@ -240,12 +241,12 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "39f6f0567043779b97f3ba74958740a845197292",
+        "commit": "30e78251af1b2596e1feddfbcf04f2554dd75b49",
         "verify_ref": "refs/heads/codex/launch-readiness-20260615",
-        "canonical_head": "39f6f0567043779b97f3ba74958740a845197292",
-        "runtime_mirror_head": "39f6f0567043779b97f3ba74958740a845197292",
+        "canonical_head": "30e78251af1b2596e1feddfbcf04f2554dd75b49",
+        "runtime_mirror_head": "30e78251af1b2596e1feddfbcf04f2554dd75b49",
         "tree_clean": true,
-        "validated_at": "2026-06-15T05:35:00Z",
+        "validated_at": "2026-06-15T05:42:00Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
@@ -267,7 +268,8 @@
           "2026-06-12 SPU-10 CI push triggers for codex/** and spark-fix/** landed at 82af647; branch run 27393575404 and main run 27393640614 passed secret-scan and test-and-audit; runtime sync check passed",
           "2026-06-12 SPU-09 retired runtime copy/watch sync into check-only drift detection; npm ci passed; focused sync-runtime tests 4/4 passed; full test:run 954/954 passed; sync:runtime, check, and build passed; CI run 27393334910 passed",
           "2026-06-12 SPU-10 widened CI triggers for codex/** and spark-fix/** branches; verification branch CI run 27393575404 passed; main CI run 27393640614 passed",
-          "2026-06-15 launch readiness: npm run check and npm run build passed; Harness Core manifest points at promoted canonical commit."
+          "2026-06-15 launch readiness: npm run check and npm run build passed; Harness Core manifest points at promoted canonical commit.",
+          "2026-06-15 launch readiness: Harness vendor manifest provenance refreshed to f8277ba; svelte-check passed."
         ]
       }
     }
