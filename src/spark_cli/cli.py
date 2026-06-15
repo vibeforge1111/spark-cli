@@ -9407,6 +9407,7 @@ SECRET_SURFACE_TOKEN_PATTERNS = [
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}"),
 ]
 SECRET_SURFACE_MAX_FILE_BYTES = 2 * 1024 * 1024
+MAX_PROCESS_LOG_BYTES = 10 * 1024 * 1024
 
 
 def secret_surface_value_is_redacted(value: str) -> bool:
@@ -15989,6 +15990,12 @@ def module_log_path(module_name: str, profile: str | None = None) -> Path:
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
     path = module_log_path(module_name, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Rotate log if it exceeds max size to prevent unbounded disk growth
+    if path.exists() and path.stat().st_size > MAX_PROCESS_LOG_BYTES:
+        rotated = path.with_suffix(".log.1")
+        if rotated.exists():
+            rotated.unlink()
+        path.rename(rotated)
     with path.open("a", encoding="utf-8", errors="replace") as handle:
         handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
 
@@ -15996,11 +16003,37 @@ def append_process_log(module_name: str, message: str, profile: str | None = Non
 def tail_log_lines(path: Path, line_count: int) -> list[str]:
     if not path.exists():
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
-    if line_count <= 0:
-        return lines
-    return lines[-line_count:]
+    if line_count == 0:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            return handle.readlines()
+    if line_count < 0:
+        return []
+    # Efficient tail: seek near end and read only last chunk(s)
+    chunk_size = 8192
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        file_size = handle.tell()
+        if file_size == 0:
+            return []
+        if file_size <= chunk_size:
+            handle.seek(0)
+            data = handle.read()
+            lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+            return [line.replace("\r\n", "\n").rstrip("\r") for line in lines[-line_count:]]
+        # Read from end in chunks
+        lines: list[str] = []
+        position = file_size
+        while position > 0 and len(lines) < line_count:
+            read_size = min(chunk_size, position)
+            position -= read_size
+            handle.seek(position)
+            chunk = handle.read(read_size)
+            chunk_lines = chunk.decode("utf-8", errors="replace").splitlines(keepends=True)
+            if position > 0 and not chunk.endswith(b"\n"):
+                # First fragment is incomplete; will be completed by next chunk
+                chunk_lines = chunk_lines[1:]
+            lines = [line.replace("\r\n", "\n").rstrip("\r") for line in chunk_lines] + lines
+        return lines[-line_count:]
 
 
 def console_safe_text(text: str, encoding: str | None = None) -> str:
