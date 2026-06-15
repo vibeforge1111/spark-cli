@@ -324,6 +324,27 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve docker credential change",
         )
 
+    if (first == "pipx" and second == "run") or first == "uvx":
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Python tool runner can download package code and execute it.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve package runner execution",
+        )
+    if first == "uv" and lowered[1:3] == ["tool", "run"]:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "Python tool runner can download package code and execute it.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve package runner execution",
+        )
+
     if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
         r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
         joined,
