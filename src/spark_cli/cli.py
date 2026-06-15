@@ -17525,6 +17525,7 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
+    autostart_status_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
     _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
 
