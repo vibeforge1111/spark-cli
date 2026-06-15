@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,9 +62,17 @@ def is_agent_context_path(path_label: str) -> bool:
     return any(part.lower() in {"docs", ".github", "prompts", "instructions"} for part in path.parts)
 
 
+_INVISIBLE_CODEPOINTS = {0x200B, 0x200C, 0x200D, 0xFEFF, 0x00AD, 0x2060, 0x180E}
+
+
+def _strip_invisible(text: str) -> str:
+    return ''.join(c for c in text if ord(c) not in _INVISIBLE_CODEPOINTS and unicodedata.category(c) != 'Cf')
+
+
 def scan_prompt_injection_text(path_label: str, text: str) -> list[PromptInjectionFinding]:
     if not is_agent_context_path(path_label):
         return []
+    text = _strip_invisible(text)
     findings: list[PromptInjectionFinding] = []
     for category, severity, pattern, detail in PROMPT_INJECTION_PATTERNS:
         if pattern.search(text):
