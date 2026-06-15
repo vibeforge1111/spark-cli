@@ -8079,6 +8079,27 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
+
+    # Validate out_dir is within safe boundaries (spark home or its state subdirectory)
+    # to prevent path traversal attacks
+    spark_home_resolved = spark_home.resolve()
+    resolved_out = out_dir.resolve()
+
+    # Allow only outputs within spark home's state directory or spark home itself
+    state_dir = spark_home_resolved / "state"
+    allowed_roots = [spark_home_resolved, state_dir]
+
+    is_allowed = any(
+        resolved_out.is_relative_to(root) or resolved_out == root
+        for root in allowed_roots
+    )
+
+    if not is_allowed:
+        raise SystemExit(
+            f"Output directory must be inside Spark home ({spark_home}) or its state subdirectory.\n"
+            f"Refusing: {out_dir}"
+        )
+
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
     written = write_compiled_outputs(out_dir, compiled)
     summary = compile_summary(compiled, written)
