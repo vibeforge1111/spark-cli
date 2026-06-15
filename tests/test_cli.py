@@ -1534,6 +1534,29 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_git_credential_plumbing(self) -> None:
+        blocked_commands = (
+            ["git", "credential", "approve"],
+            ["git", "credential", "fill"],
+            ["git", "credential", "reject"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve git credential access")
+
+        fill = approval_required_for_command(["git", "credential", "fill"], CommandContext(non_interactive=True))
+        self.assertEqual(fill.risk, "critical")
+        approve = approval_required_for_command(["git", "credential", "approve"], CommandContext(non_interactive=True))
+        self.assertEqual(approve.risk, "high")
+
+        decision = approval_required_for_command(["git", "status"], CommandContext(non_interactive=True))
+        self.assertFalse(decision.requires_approval)
+        self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
