@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -5464,7 +5465,12 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temp_path.write_text("\n".join(lines), encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
