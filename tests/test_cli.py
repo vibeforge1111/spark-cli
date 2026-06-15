@@ -1653,6 +1653,67 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_sns_mutations(self) -> None:
+        topic_arn = "arn:aws:sns:us-east-1:000000000000:spark-topic"
+        subscription_arn = "arn:aws:sns:us-east-1:000000000000:spark-topic:subscription"
+        cases = [
+            (["aws", "sns", "publish", "--topic-arn", topic_arn, "--message", "demo"], "external_publish", "high"),
+            (["aws", "sns", "create-topic", "--name", "spark-topic"], "external_publish", "high"),
+            (
+                [
+                    "aws",
+                    "sns",
+                    "subscribe",
+                    "--topic-arn",
+                    topic_arn,
+                    "--protocol",
+                    "https",
+                    "--notification-endpoint",
+                    "https://example.test/hook",
+                ],
+                "external_publish",
+                "high",
+            ),
+            (
+                ["aws", "sns", "set-topic-attributes", "--topic-arn", topic_arn, "--attribute-name", "DisplayName", "--attribute-value", "spark"],
+                "external_publish",
+                "high",
+            ),
+            (
+                ["aws", "sns", "add-permission", "--topic-arn", topic_arn, "--label", "spark", "--aws-account-id", "000000000000", "--action-name", "Publish"],
+                "external_publish",
+                "high",
+            ),
+            (["aws", "sns", "tag-resource", "--resource-arn", topic_arn, "--tags", "Key=team,Value=spark"], "external_publish", "high"),
+            (["aws", "sns", "unsubscribe", "--subscription-arn", subscription_arn], "external_publish", "critical"),
+            (["aws", "sns", "remove-permission", "--topic-arn", topic_arn, "--label", "spark"], "external_publish", "critical"),
+            (["aws", "sns", "delete-topic", "--topic-arn", topic_arn], "external_publish", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve sns change")
+
+    def test_approval_classifier_allows_aws_sns_report_commands(self) -> None:
+        topic_arn = "arn:aws:sns:us-east-1:000000000000:spark-topic"
+        cases = [
+            ["aws", "sns", "list-topics"],
+            ["aws", "sns", "list-subscriptions-by-topic", "--topic-arn", topic_arn],
+            ["aws", "sns", "get-topic-attributes", "--topic-arn", topic_arn],
+            ["aws", "sns", "list-tags-for-resource", "--resource-arn", topic_arn],
+            ["aws", "sns", "check-if-phone-number-is-opted-out", "--phone-number", "+15555550100"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
