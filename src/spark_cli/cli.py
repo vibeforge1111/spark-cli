@@ -15836,12 +15836,14 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         plist_path = macos_autostart_path()
         uid = str(os.getuid()) if hasattr(os, "getuid") else ""
         bootstrap_domain = f"gui/{uid}" if uid else "gui"
-        if plist_path.exists():
+        try:
             result = run_autostart_helper(["launchctl", "bootout", bootstrap_domain, str(plist_path)])
             if result.returncode != 0:
                 print_helper_failure(["launchctl", "bootout", bootstrap_domain, str(plist_path)], result)
             plist_path.unlink()
             print(f"Removed Spark LaunchAgent: {plist_path}")
+        except FileNotFoundError:
+            pass
         return 0
 
     if sys.platform == "win32":
