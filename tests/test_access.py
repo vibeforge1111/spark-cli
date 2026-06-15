@@ -382,6 +382,17 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["checks"][0]["name"], "docker_cli")
         self.assertIn("Install Docker", payload["next"])
 
+    def test_docker_doctor_hides_cli_path(self) -> None:
+        with patch("spark_cli.sandbox.docker.shutil.which", return_value="/Users/example/private/bin/docker"), \
+             patch("spark_cli.sandbox.docker.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "25.0.0\n"
+            payload = collect_docker_doctor_payload()
+
+        detail = payload["checks"][0]["detail"]
+        self.assertEqual(detail, "Docker CLI is available on PATH.")
+        self.assertNotIn("/Users/example/private/bin/docker", json.dumps(payload))
+
     def test_sandbox_docker_doctor_cli_json_runs_payload(self) -> None:
         args = build_parser().parse_args(["sandbox", "docker", "doctor", "--json"])
         stdout = StringIO()
