@@ -288,6 +288,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve github token reveal",
         )
 
+    if first == "ssh-add":
+        if len(lowered) >= 2 and lowered[1] in {"-l", "-L"}:
+            return _decision(parts, ctx, "none", "none", "`ssh-add -l/-L` is read-only.")
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can add, remove, lock, or unlock SSH agent identities.",
+            target_display="ssh-add",
+            confirmation_phrase="approve ssh agent credential change",
+        )
+
     if first == "aws" and (
         lowered[1:3] in [["secretsmanager", "get-secret-value"], ["ssm", "get-parameter"]]
         or ("configure" in lowered and "get" in lowered and any("secret" in part or "key" in part for part in lowered))
