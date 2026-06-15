@@ -56,9 +56,13 @@ def is_agent_context_path(path_label: str) -> bool:
     name = path.name.lower()
     if name in CONTEXT_FILE_NAMES:
         return True
-    if path.suffix.lower() not in CONTEXT_FILE_SUFFIXES:
-        return False
-    return any(part.lower() in {"docs", ".github", "prompts", "instructions"} for part in path.parts)
+    # Check directory context FIRST so files in docs/.github/prompts/instructions
+    # folders are scanned regardless of suffix (e.g. JSON files in docs/).
+    # The suffix check below is an optimization to avoid scanning every file,
+    # but must not gate the directory-context check.
+    if any(part.lower() in {"docs", ".github", "prompts", "instructions"} for part in path.parts):
+        return True
+    return path.suffix.lower() in CONTEXT_FILE_SUFFIXES
 
 
 def scan_prompt_injection_text(path_label: str, text: str) -> list[PromptInjectionFinding]:
