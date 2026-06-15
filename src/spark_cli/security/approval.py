@@ -99,6 +99,22 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _sensitive_file_read_target(parts: list[str]) -> str:
+    for part in parts:
+        if not part or part.startswith("-"):
+            continue
+        normalized = part.lower().replace("\\", "/").strip("'\"")
+        leaf = normalized.rsplit("/", 1)[-1]
+        if (
+            leaf in {".env", ".env.local", ".env.production", ".npmrc", ".pypirc", ".netrc", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+            or normalized.endswith("/.aws/credentials")
+            or normalized.endswith("/.docker/config.json")
+            or normalized.endswith("/.config/gcloud/application_default_credentials.json")
+        ):
+            return part
+    return ""
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -276,6 +292,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=parts[0],
             confirmation_phrase="approve environment reveal",
         )
+    if first in {"cat", "less", "more", "head", "tail", "grep", "rg"}:
+        target = _sensitive_file_read_target(parts[1:])
+        if target:
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "high",
+                "Command can reveal credential files or private key material.",
+                target_display="credential file",
+                confirmation_phrase="approve credential file read",
+            )
 
     if first == "gh" and lowered[1:3] == ["auth", "token"]:
         return _decision(
