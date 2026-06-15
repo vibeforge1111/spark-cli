@@ -2574,6 +2574,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
             out["table_count"] = len(memory_tables)
             out["tables"] = {}
             for table in memory_tables:
+                # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                 count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
                 out["tables"][table] = {"row_count": int(count)}
             if "memory_lane_records" in memory_tables:
