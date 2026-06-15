@@ -364,7 +364,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         "--privileged" in lowered
         or "--network=host" in lowered
         or ("--network" in lowered and "host" in lowered)
-        or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
+        or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/usr", "/var/run/docker.sock"})
     ):
         return _decision(
             parts,
