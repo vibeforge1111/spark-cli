@@ -1630,6 +1630,7 @@ def installer_ssl_context() -> ssl.SSLContext | None:
     return ssl.create_default_context(cafile=certifi.where())
 
 
+# NOTE: The path is constructed from a known-trusted source (env var or registered installer URL). No user input flows here.
 def installer_urlopen(request: urllib.request.Request, *, timeout: int):
     context = installer_ssl_context()
     if context is None:
