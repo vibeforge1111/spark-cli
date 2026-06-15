@@ -1653,6 +1653,45 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_kms_sensitive_actions(self) -> None:
+        key_id = "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000"
+        cases = [
+            (["aws", "kms", "decrypt", "--ciphertext-blob", "fileb://ciphertext.bin"], "credential_mutation", "critical"),
+            (["aws", "kms", "generate-data-key", "--key-id", key_id, "--key-spec", "AES_256"], "credential_mutation", "high"),
+            (["aws", "kms", "generate-data-key-pair", "--key-id", key_id, "--key-pair-spec", "RSA_2048"], "credential_mutation", "high"),
+            (["aws", "kms", "create-key", "--description", "spark synthetic key"], "credential_mutation", "high"),
+            (["aws", "kms", "create-alias", "--alias-name", "alias/spark-synthetic", "--target-key-id", key_id], "credential_mutation", "high"),
+            (["aws", "kms", "enable-key-rotation", "--key-id", key_id], "credential_mutation", "high"),
+            (["aws", "kms", "put-key-policy", "--key-id", key_id, "--policy-name", "default", "--policy", "{}"], "credential_mutation", "critical"),
+            (["aws", "kms", "disable-key", "--key-id", key_id], "credential_mutation", "critical"),
+            (["aws", "kms", "revoke-grant", "--key-id", key_id, "--grant-id", "grant"], "credential_mutation", "critical"),
+            (["aws", "kms", "schedule-key-deletion", "--key-id", key_id, "--pending-window-in-days", "7"], "credential_mutation", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kms change")
+
+    def test_approval_classifier_allows_aws_kms_report_commands(self) -> None:
+        key_id = "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000"
+        cases = [
+            ["aws", "kms", "describe-key", "--key-id", key_id],
+            ["aws", "kms", "list-keys"],
+            ["aws", "kms", "list-aliases"],
+            ["aws", "kms", "get-key-policy", "--key-id", key_id, "--policy-name", "default"],
+            ["aws", "kms", "get-key-rotation-status", "--key-id", key_id],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
