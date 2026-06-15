@@ -33,6 +33,9 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
     re.compile(r"\b(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
 )
+LOCAL_USER_PATH_RE = re.compile(
+    r"(?i)(?<![\w/\\])(?:[A-Z]:[\\/](?:Users|Documents and Settings)[\\/][^\s'\"<>]+|/(?:Users|home)/[^\s'\"<>]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,7 @@ def redact_sandbox_text(text: str) -> str:
             return _mask_secret(match.group(0))
 
         redacted = pattern.sub(replace, redacted)
+    redacted = LOCAL_USER_PATH_RE.sub("[REDACTED_LOCAL_PATH]", redacted)
     return redacted
 
 
