@@ -1534,6 +1534,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_gpg_secret_key_access(self) -> None:
+        blocked_commands = (
+            ["gpg", "--export-secret-keys"],
+            ["gpg", "--export-secret-subkeys", "user@example.test"],
+            ["gpg", "--delete-secret-keys", "user@example.test"],
+            ["gpg2", "--delete-secret-and-public-keys", "user@example.test"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve gpg secret key access")
+
+        allowed_commands = (
+            ["gpg", "--list-secret-keys"],
+            ["gpg", "--list-keys"],
+            ["gpg", "--import", "public-key.asc"],
+        )
+        for command in allowed_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)

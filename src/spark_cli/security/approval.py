@@ -288,6 +288,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve github token reveal",
         )
 
+    if first in {"gpg", "gpg2"} and _contains_any(
+        lowered,
+        {"--export-secret-keys", "--export-secret-subkeys", "--delete-secret-keys", "--delete-secret-and-public-keys"},
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Command can reveal or delete GPG secret key material.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve gpg secret key access",
+        )
+
     if first == "aws" and (
         lowered[1:3] in [["secretsmanager", "get-secret-value"], ["ssm", "get-parameter"]]
         or ("configure" in lowered and "get" in lowered and any("secret" in part or "key" in part for part in lowered))
