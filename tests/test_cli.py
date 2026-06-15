@@ -377,7 +377,7 @@ def make_module(
         }
     return Module(
         name=name,
-        path=Path(f"C:/tmp/{name}"),
+        path=Path(tempfile.gettempdir()) / name,
         manifest={
             "module": {
                 "name": name,
@@ -400,7 +400,7 @@ def make_module(
 def make_telegram_gateway(needs_capabilities: list[str] | None = None) -> Module:
     return Module(
         name="spark-telegram-bot",
-        path=Path("C:/tmp/spark-telegram-bot"),
+        path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
         manifest={
             "module": {
                 "name": "spark-telegram-bot",
@@ -2602,7 +2602,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_start_warns_but_continues_when_runtime_is_dirty(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -2627,7 +2627,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_start_blocks_dirty_runtime_in_strict_mode(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -2688,7 +2688,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_start_json_captures_human_output_inside_messages(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -3525,7 +3525,7 @@ class SparkCliTests(unittest.TestCase):
     def test_describe_install_risk_lists_commands_and_hooks(self) -> None:
         module = Module(
             name="thirdparty",
-            path=Path("C:/tmp/thirdparty"),
+            path=Path(tempfile.gettempdir()) / "thirdparty",
             manifest={
                 "module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["npm ci", "npm run build"]}},
@@ -3547,7 +3547,7 @@ class SparkCliTests(unittest.TestCase):
     def test_ensure_trust_for_install_passes_for_blessed_target(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "install": {"dev": {"commands": ["npm ci"]}},
@@ -3564,7 +3564,7 @@ class SparkCliTests(unittest.TestCase):
     def test_ensure_trust_for_install_rejects_non_blessed_non_interactive(self) -> None:
         module = Module(
             name="thirdparty",
-            path=Path("C:/tmp/thirdparty"),
+            path=Path(tempfile.gettempdir()) / "thirdparty",
             manifest={
                 "module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["node evil.js"]}},
@@ -3584,7 +3584,7 @@ class SparkCliTests(unittest.TestCase):
     def test_ensure_trust_for_install_accepts_trust_flag_non_interactive(self) -> None:
         module = Module(
             name="thirdparty",
-            path=Path("C:/tmp/thirdparty"),
+            path=Path(tempfile.gettempdir()) / "thirdparty",
             manifest={
                 "module": {"name": "thirdparty", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["node evil.js"]}},
@@ -3806,7 +3806,7 @@ class SparkCliTests(unittest.TestCase):
     def test_run_install_commands_with_progress_skips_when_resume_and_completed(self) -> None:
         module = Module(
             name="skip-me",
-            path=Path("C:/tmp/skip-me"),
+            path=Path(tempfile.gettempdir()) / "skip-me",
             manifest={
                 "module": {"name": "skip-me", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["exit 1"]}},
@@ -3848,7 +3848,7 @@ class SparkCliTests(unittest.TestCase):
     def test_setup_should_skip_install_commands_for_installed_modules_by_default(self) -> None:
         module = Module(
             name="already-installed",
-            path=Path("C:/tmp/already-installed"),
+            path=Path(tempfile.gettempdir()) / "already-installed",
             manifest={
                 "module": {"name": "already-installed", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["npm ci"]}},
@@ -3865,7 +3865,7 @@ class SparkCliTests(unittest.TestCase):
     def test_setup_should_run_install_commands_when_forced(self) -> None:
         module = Module(
             name="already-installed",
-            path=Path("C:/tmp/already-installed"),
+            path=Path(tempfile.gettempdir()) / "already-installed",
             manifest={
                 "module": {"name": "already-installed", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["npm ci"]}},
@@ -3881,7 +3881,7 @@ class SparkCliTests(unittest.TestCase):
     def test_setup_explicit_skip_install_commands_wins_over_force(self) -> None:
         module = Module(
             name="fresh",
-            path=Path("C:/tmp/fresh"),
+            path=Path(tempfile.gettempdir()) / "fresh",
             manifest={
                 "module": {"name": "fresh", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "install": {"dev": {"commands": ["npm ci"]}},
@@ -3928,7 +3928,7 @@ class SparkCliTests(unittest.TestCase):
     def test_check_runtime_version_for_module_skips_when_no_runtime_block(self) -> None:
         module = Module(
             name="no-runtime",
-            path=Path("C:/tmp/no-runtime"),
+            path=Path(tempfile.gettempdir()) / "no-runtime",
             manifest={"module": {"name": "no-runtime", "version": "0.1.0", "kind": "service", "plane": "execution"}},
         )
         ok, detail = check_runtime_version_for_module(module)
@@ -3938,7 +3938,7 @@ class SparkCliTests(unittest.TestCase):
     def test_check_runtime_version_for_module_fails_when_binary_missing(self) -> None:
         module = Module(
             name="missing-runtime",
-            path=Path("C:/tmp/missing"),
+            path=Path(tempfile.gettempdir()) / "missing",
             manifest={
                 "module": {"name": "missing-runtime", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "runtime": {"kind": "definitely-not-a-real-tool-xyz", "version": ">=1"},
@@ -3951,7 +3951,7 @@ class SparkCliTests(unittest.TestCase):
     def test_check_runtime_version_for_module_passes_for_present_python(self) -> None:
         module = Module(
             name="python-module",
-            path=Path("C:/tmp/python-module"),
+            path=Path(tempfile.gettempdir()) / "python-module",
             manifest={
                 "module": {"name": "python-module", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "runtime": {"kind": "python", "version": ">=3.0"},
@@ -3964,7 +3964,7 @@ class SparkCliTests(unittest.TestCase):
     def test_enforce_runtime_versions_raises_with_all_failures(self) -> None:
         missing_a = Module(
             name="missing-a",
-            path=Path("C:/tmp/a"),
+            path=Path(tempfile.gettempdir()) / "a",
             manifest={
                 "module": {"name": "missing-a", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "runtime": {"kind": "definitely-not-a-real-tool-xyz", "version": ">=1"},
@@ -3972,7 +3972,7 @@ class SparkCliTests(unittest.TestCase):
         )
         missing_b = Module(
             name="missing-b",
-            path=Path("C:/tmp/b"),
+            path=Path(tempfile.gettempdir()) / "b",
             manifest={
                 "module": {"name": "missing-b", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "runtime": {"kind": "also-fake-tool-xyz", "version": ">=1"},
@@ -3985,13 +3985,13 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing-b", text)
 
     def test_manifest_schema_version_defaults_to_one(self) -> None:
-        module = Module(name="m", path=Path("C:/tmp/m"), manifest={"module": {"name": "m"}})
+        module = Module(name="m", path=Path(tempfile.gettempdir()) / "m", manifest={"module": {"name": "m"}})
         self.assertEqual(manifest_schema_version(module), 1)
 
     def test_validate_manifest_schema_rejects_future_schema(self) -> None:
         future = Module(
             name="from-future",
-            path=Path("C:/tmp/from-future"),
+            path=Path(tempfile.gettempdir()) / "from-future",
             manifest={"schema": 99, "module": {"name": "from-future"}},
         )
         with self.assertRaises(SystemExit) as error:
@@ -3999,15 +3999,15 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("schema 99", str(error.exception))
 
     def test_validate_manifest_schema_accepts_current_and_missing(self) -> None:
-        current = Module(name="c", path=Path("C:/tmp/c"), manifest={"schema": 1, "module": {"name": "c"}})
-        implicit = Module(name="i", path=Path("C:/tmp/i"), manifest={"module": {"name": "i"}})
+        current = Module(name="c", path=Path(tempfile.gettempdir()) / "c", manifest={"schema": 1, "module": {"name": "c"}})
+        implicit = Module(name="i", path=Path(tempfile.gettempdir()) / "i", manifest={"module": {"name": "i"}})
         validate_manifest_schema(current)
         validate_manifest_schema(implicit)
 
     def test_needs_capabilities_reads_manifest_block(self) -> None:
         module = Module(
             name="consumer",
-            path=Path("C:/tmp/consumer"),
+            path=Path(tempfile.gettempdir()) / "consumer",
             manifest={
                 "module": {"name": "consumer", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["memory.store", "spark.runtime"]},
@@ -4029,7 +4029,7 @@ class SparkCliTests(unittest.TestCase):
     def test_validate_capability_needs_satisfied_by_same_batch(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["spark.runtime"]},
@@ -4042,7 +4042,7 @@ class SparkCliTests(unittest.TestCase):
     def test_validate_capability_needs_suggests_discoverable_provider(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["spark.runtime"]},
@@ -4061,7 +4061,7 @@ class SparkCliTests(unittest.TestCase):
     def test_validate_capability_needs_reports_completely_missing(self) -> None:
         consumer = Module(
             name="consumer",
-            path=Path("C:/tmp/consumer"),
+            path=Path(tempfile.gettempdir()) / "consumer",
             manifest={
                 "module": {"name": "consumer", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["nobody.has.this"]},
@@ -4079,7 +4079,7 @@ class SparkCliTests(unittest.TestCase):
     def test_validate_capability_needs_accepts_already_installed_provider(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["spark.runtime"]},
@@ -4092,7 +4092,7 @@ class SparkCliTests(unittest.TestCase):
     def test_validate_capability_needs_names_selected_bundle_and_repair(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"capabilities": ["spark.runtime"]},
@@ -5084,7 +5084,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_setup_configuration_builds_state_without_install_side_effects(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {
@@ -6970,7 +6970,7 @@ class SparkCliTests(unittest.TestCase):
 
         envs = build_module_envs(args, modules, secret_values)
         builder_env = envs["spark-intelligence-builder"]
-        self.assertEqual(builder_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
+        self.assertEqual(builder_env["SPARK_VOICE_COMMS_ROOT"], str(Path(tempfile.gettempdir()) / "spark-voice-comms"))
         self.assertEqual(builder_env["ELEVENLABS_API_KEY"], "eleven-secret")
         self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
 
@@ -7051,7 +7051,7 @@ class SparkCliTests(unittest.TestCase):
     def test_start_command_repairs_relay_secret_before_launching_gateway(self) -> None:
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "needs": {"secrets": ["telegram.relay_secret"]},
@@ -7060,7 +7060,7 @@ class SparkCliTests(unittest.TestCase):
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spawner-ui"], "secrets": ["telegram.relay_secret"]},
@@ -7261,12 +7261,12 @@ class SparkCliTests(unittest.TestCase):
     def test_detect_uninstall_blockers_respects_needs_modules(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder"]},
@@ -7278,17 +7278,17 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_start_modules_orders_dependencies_before_gateway(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
         )
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={"module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"}},
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder", "spawner-ui"]},
@@ -7310,7 +7310,7 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_start_modules_fails_when_dependency_not_installed(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder"]},
@@ -7323,12 +7323,12 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_start_modules_lists_installed_names_in_unknown_module_error(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
         )
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={"module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"}},
         )
         with self.assertRaises(SystemExit) as error:
@@ -7342,12 +7342,12 @@ class SparkCliTests(unittest.TestCase):
     def test_start_command_does_not_warn_for_non_runnable_dependencies(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
         )
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -7355,7 +7355,7 @@ class SparkCliTests(unittest.TestCase):
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder", "spawner-ui"]},
@@ -7376,7 +7376,7 @@ class SparkCliTests(unittest.TestCase):
     def test_start_command_uses_configured_telegram_profiles_instead_of_default_bot(self) -> None:
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -7384,7 +7384,7 @@ class SparkCliTests(unittest.TestCase):
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spawner-ui"]},
@@ -7414,17 +7414,17 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_stop_module_names_stops_dependents_before_dependency(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={"module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}},
         )
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={"module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"}},
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder", "spawner-ui"]},
@@ -7447,7 +7447,7 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_restart_modules_starts_dependents_stopped_with_dependency(self) -> None:
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -7455,7 +7455,7 @@ class SparkCliTests(unittest.TestCase):
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spawner-ui"]},
@@ -7478,7 +7478,7 @@ class SparkCliTests(unittest.TestCase):
     def test_resolve_exact_stop_module_names_does_not_stop_dependents(self) -> None:
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "run": {"default": {"command": "npm run dev"}},
@@ -7486,7 +7486,7 @@ class SparkCliTests(unittest.TestCase):
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spawner-ui"]},
@@ -7629,7 +7629,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_requirements_maps_manifest_secret_blocks(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token", "telegram.admin_ids"]},
@@ -7646,7 +7646,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_accepts_generic_secret_flags(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -8209,7 +8209,7 @@ class SparkCliTests(unittest.TestCase):
     def test_ready_timeout_seconds_reads_healthcheck_timeout(self) -> None:
         module = Module(
             name="timeout-target",
-            path=Path("C:/tmp/timeout-target"),
+            path=Path(tempfile.gettempdir()) / "timeout-target",
             manifest={
                 "module": {"name": "timeout-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "healthcheck": {"timeout_seconds": 17},
@@ -8220,7 +8220,7 @@ class SparkCliTests(unittest.TestCase):
     def test_post_ready_watch_seconds_reads_run_override(self) -> None:
         module = Module(
             name="telegram-target",
-            path=Path("C:/tmp/telegram-target"),
+            path=Path(tempfile.gettempdir()) / "telegram-target",
             manifest={
                 "module": {"name": "telegram-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"post_ready_watch_seconds": 20}},
@@ -8232,7 +8232,7 @@ class SparkCliTests(unittest.TestCase):
     def test_post_ready_watch_seconds_defaults_to_bounded_health_timeout(self) -> None:
         module = Module(
             name="quick-target",
-            path=Path("C:/tmp/quick-target"),
+            path=Path(tempfile.gettempdir()) / "quick-target",
             manifest={
                 "module": {"name": "quick-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "healthcheck": {"timeout_seconds": 30},
@@ -8258,7 +8258,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_watches_process_after_shell_ready_passes(self) -> None:
         module = Module(
             name="telegram-target",
-            path=Path("C:/tmp/telegram-target"),
+            path=Path(tempfile.gettempdir()) / "telegram-target",
             manifest={
                 "module": {"name": "telegram-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"ready_check": "npm run health:polling"}},
@@ -8291,7 +8291,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_describes_http_timeout(self) -> None:
         module = Module(
             name="http-target",
-            path=Path("C:/tmp/http-target"),
+            path=Path(tempfile.gettempdir()) / "http-target",
             manifest={
                 "module": {"name": "http-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
@@ -8311,7 +8311,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_retries_transient_http_reset(self) -> None:
         module = Module(
             name="http-target",
-            path=Path("C:/tmp/http-target"),
+            path=Path(tempfile.gettempdir()) / "http-target",
             manifest={
                 "module": {"name": "http-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
@@ -8339,7 +8339,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_stops_when_http_process_exits(self) -> None:
         module = Module(
             name="http-target",
-            path=Path("C:/tmp/http-target"),
+            path=Path(tempfile.gettempdir()) / "http-target",
             manifest={
                 "module": {"name": "http-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "run": {"default": {"ready_check": "http://127.0.0.1:3333/api/providers"}},
@@ -8361,7 +8361,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_includes_shell_ready_detail_when_process_exits(self) -> None:
         module = Module(
             name="telegram-target",
-            path=Path("C:/tmp/telegram-target"),
+            path=Path(tempfile.gettempdir()) / "telegram-target",
             manifest={
                 "module": {"name": "telegram-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"ready_check": "npm run health:polling"}},
@@ -8392,7 +8392,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_accepts_running_process(self) -> None:
         module = Module(
             name="polling-target",
-            path=Path("C:/tmp/polling-target"),
+            path=Path(tempfile.gettempdir()) / "polling-target",
             manifest={
                 "module": {"name": "polling-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"ready_check": "process"}},
@@ -8414,7 +8414,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_rejects_exited_process(self) -> None:
         module = Module(
             name="polling-target",
-            path=Path("C:/tmp/polling-target"),
+            path=Path(tempfile.gettempdir()) / "polling-target",
             manifest={
                 "module": {"name": "polling-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"ready_check": "process"}},
@@ -8434,7 +8434,7 @@ class SparkCliTests(unittest.TestCase):
     def test_wait_for_ready_check_rejects_process_that_exits_after_initial_poll(self) -> None:
         module = Module(
             name="polling-target",
-            path=Path("C:/tmp/polling-target"),
+            path=Path(tempfile.gettempdir()) / "polling-target",
             manifest={
                 "module": {"name": "polling-target", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "run": {"default": {"ready_check": "process"}},
@@ -8462,7 +8462,7 @@ class SparkCliTests(unittest.TestCase):
     def test_evaluate_module_health_passes_configured_timeout(self) -> None:
         module = Module(
             name="health-target",
-            path=Path("C:/tmp/health-target"),
+            path=Path(tempfile.gettempdir()) / "health-target",
             manifest={
                 "module": {"name": "health-target", "version": "0.1.0", "kind": "service", "plane": "execution"},
                 "healthcheck": {"command": "npm run health", "timeout_seconds": 7},
@@ -8481,7 +8481,7 @@ class SparkCliTests(unittest.TestCase):
     def test_evaluate_module_health_uses_primary_telegram_profile_env(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"},
                 "healthcheck": {"command": "npm run health:polling"},
@@ -8509,7 +8509,7 @@ class SparkCliTests(unittest.TestCase):
     def test_format_start_warning_mentions_running_process_and_logs(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={"module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}},
         )
 
@@ -8524,7 +8524,7 @@ class SparkCliTests(unittest.TestCase):
     def test_format_start_warning_mentions_exited_process_and_logs(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={"module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}},
         )
 
@@ -8539,7 +8539,7 @@ class SparkCliTests(unittest.TestCase):
     def test_format_start_warning_does_not_repeat_embedded_exit_detail(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={"module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}},
         )
 
@@ -8559,7 +8559,7 @@ class SparkCliTests(unittest.TestCase):
     def test_format_start_warning_hides_telegram_relay_secret_env_name(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={"module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}},
         )
 
@@ -8857,7 +8857,7 @@ class SparkCliTests(unittest.TestCase):
 
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "healthcheck": {"command": "npm run health:spark"},
@@ -8877,7 +8877,7 @@ class SparkCliTests(unittest.TestCase):
     def test_spawner_health_records_liveness_url_error(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "healthcheck": {"command": "npm run health:spark"},
@@ -8897,7 +8897,7 @@ class SparkCliTests(unittest.TestCase):
     def test_spawner_health_records_liveness_timeout(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "healthcheck": {"command": "npm run health:spark"},
@@ -8917,7 +8917,7 @@ class SparkCliTests(unittest.TestCase):
     def test_spawner_health_does_not_trust_untracked_local_port(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "healthcheck": {"command": "npm run health:spark"},
@@ -8939,7 +8939,7 @@ class SparkCliTests(unittest.TestCase):
     def test_external_telegram_health_skips_local_bot_token_check(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "healthcheck": {"command": "npm run health:polling"},
@@ -9085,7 +9085,7 @@ class SparkCliTests(unittest.TestCase):
     def test_required_runtimes_for_modules_dedups_across_bundle(self) -> None:
         python_module = Module(
             name="python-a",
-            path=Path("C:/tmp/python-a"),
+            path=Path(tempfile.gettempdir()) / "python-a",
             manifest={
                 "module": {"name": "python-a", "version": "0.1.0", "kind": "runtime", "plane": "runtime"},
                 "runtime": {"kind": "python", "package_manager": "uv"},
@@ -9093,7 +9093,7 @@ class SparkCliTests(unittest.TestCase):
         )
         python_module_b = Module(
             name="python-b",
-            path=Path("C:/tmp/python-b"),
+            path=Path(tempfile.gettempdir()) / "python-b",
             manifest={
                 "module": {"name": "python-b", "version": "0.1.0", "kind": "runtime", "plane": "runtime"},
                 "runtime": {"kind": "python", "package_manager": "uv"},
@@ -9101,7 +9101,7 @@ class SparkCliTests(unittest.TestCase):
         )
         node_module = Module(
             name="node-app",
-            path=Path("C:/tmp/node-app"),
+            path=Path(tempfile.gettempdir()) / "node-app",
             manifest={
                 "module": {"name": "node-app", "version": "0.1.0", "kind": "app", "plane": "execution"},
                 "runtime": {"kind": "node", "package_manager": "bun"},
@@ -9919,7 +9919,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_prompts_when_interactive_and_missing(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -9944,7 +9944,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_reuses_stored_secrets_before_prompting(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -9970,7 +9970,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_reuses_generated_env_before_prompting(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.admin_ids"]},
@@ -10000,7 +10000,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_non_interactive_raises_on_missing(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -10025,7 +10025,7 @@ class SparkCliTests(unittest.TestCase):
     def test_collect_secret_values_allow_missing_prefills_without_failing(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -10427,7 +10427,7 @@ class SparkCliTests(unittest.TestCase):
     def test_module_secret_env_bindings_returns_env_var_mapping(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token", "telegram.admin_ids"]},
@@ -10446,7 +10446,7 @@ class SparkCliTests(unittest.TestCase):
     def test_split_secret_bindings_separates_keychain_and_file(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token", "telegram.admin_ids"]},
@@ -10463,7 +10463,7 @@ class SparkCliTests(unittest.TestCase):
     def test_strip_keychain_env_vars_removes_keychain_backed_keys(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token"]},
@@ -10688,7 +10688,7 @@ class SparkCliTests(unittest.TestCase):
     def test_persist_keychain_secrets_stores_only_keychain_declared(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token", "telegram.admin_ids"]},
@@ -10714,7 +10714,7 @@ class SparkCliTests(unittest.TestCase):
     def test_keychain_env_for_module_returns_only_stored_bindings(self) -> None:
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"secrets": ["telegram.bot_token", "telegram.relay_secret"]},
@@ -10852,7 +10852,7 @@ class SparkCliTests(unittest.TestCase):
             registry_path = Path(tmp_dir) / "installed.json"
             module = Module(
                 name="spark-telegram-bot",
-                path=Path("C:/tmp/spark-telegram-bot"),
+                path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
                 manifest={
                     "module": {
                         "name": "spark-telegram-bot",
@@ -10985,7 +10985,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_stops_running_module_before_install_commands(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
             },
@@ -11017,7 +11017,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_reloads_manifest_after_git_update_before_install_commands(self) -> None:
         stale = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "install": {"dev": {"commands": ["npm ci"]}},
@@ -11025,7 +11025,7 @@ class SparkCliTests(unittest.TestCase):
         )
         refreshed = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "install": {"dev": {"commands": ["npm ci", "npm run build"]}},
@@ -11062,7 +11062,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_restarts_live_when_autostart_enabled(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
             },
@@ -11099,7 +11099,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_no_live_restart_overrides_autostart(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
             },
@@ -11135,7 +11135,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_does_not_stop_processes_when_git_pull_fails(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
             },
@@ -11162,14 +11162,14 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_skip_dirty_continues_to_clean_modules(self) -> None:
         dirty = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}
             },
         )
         clean = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={
                 "module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}
             },
@@ -11207,14 +11207,14 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_preflights_dirty_modules_before_stopping_processes(self) -> None:
         dirty = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}
             },
         )
         clean = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.1.0", "kind": "app", "plane": "execution"}
             },
@@ -11244,7 +11244,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_stash_local_runtime_then_updates_cleanly(self) -> None:
         dirty = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}
             },
@@ -11286,7 +11286,7 @@ class SparkCliTests(unittest.TestCase):
     def test_cmd_update_stops_all_profiled_module_processes(self) -> None:
         module = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "0.1.0", "kind": "service", "plane": "ingress"}
             },
@@ -11354,7 +11354,7 @@ class SparkCliTests(unittest.TestCase):
     def test_build_module_repair_hints_reports_runtime_version_mismatch(self) -> None:
         module = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
                 "runtime": {"kind": "node", "version": ">=22"},
@@ -11371,14 +11371,14 @@ class SparkCliTests(unittest.TestCase):
     def test_build_status_repair_hints_reports_missing_ingress_owner_and_unhealthy_dependency(self) -> None:
         builder = Module(
             name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
+            path=Path(tempfile.gettempdir()) / "spark-intelligence-builder",
             manifest={
                 "module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}
             },
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"},
                 "needs": {"modules": ["spark-intelligence-builder"]},
@@ -11412,14 +11412,14 @@ class SparkCliTests(unittest.TestCase):
     def test_build_status_repair_hints_reports_missing_starter_runtime_process(self) -> None:
         spawner = Module(
             name="spawner-ui",
-            path=Path("C:/tmp/spawner-ui"),
+            path=Path(tempfile.gettempdir()) / "spawner-ui",
             manifest={
                 "module": {"name": "spawner-ui", "version": "1.0.0", "kind": "app", "plane": "execution"}
             },
         )
         gateway = Module(
             name="spark-telegram-bot",
-            path=Path("C:/tmp/spark-telegram-bot"),
+            path=Path(tempfile.gettempdir()) / "spark-telegram-bot",
             manifest={
                 "module": {"name": "spark-telegram-bot", "version": "1.0.0", "kind": "service", "plane": "ingress"}
             },
