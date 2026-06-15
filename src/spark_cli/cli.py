@@ -21,6 +21,7 @@ import ssl
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -15529,14 +15530,25 @@ def vbs_string(value: str) -> str:
 def write_windows_startup_script(path: Path, start_command: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     hidden_command = f"%ComSpec% /d /s /c {start_command}"
-    path.write_text(
+    content = (
         "Set shell = CreateObject(\"WScript.Shell\")\r\n"
         f"shell.CurrentDirectory = {vbs_string(str(SPARK_HOME))}\r\n"
         f"shell.Environment(\"PROCESS\")(\"SPARK_HOME\") = {vbs_string(str(SPARK_HOME))}\r\n"
-        f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n",
-        encoding="ascii",
+        f"shell.Run {vbs_string(hidden_command)}, 0, False\r\n"
     )
-
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(path.parent), suffix=".vbs.tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(content)
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 def windows_cmd_c(command: str) -> str:
     return "cmd.exe /c " + subprocess.list2cmdline([command])
