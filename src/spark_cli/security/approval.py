@@ -212,6 +212,42 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
         )
 
+    if first == "git" and second == "symbolic-ref":
+        symbolic_args = parts[2:]
+        symbolic_lowered = _lower_parts(symbolic_args)
+        positionals: list[str] = []
+        index = 0
+        while index < len(symbolic_args):
+            option = symbolic_lowered[index]
+            if option in {"--delete", "-d"}:
+                return _decision(
+                    parts,
+                    ctx,
+                    "git_history_mutation",
+                    "critical",
+                    "Command can delete symbolic refs such as HEAD.",
+                    target_display=" ".join(parts[:4]),
+                    confirmation_phrase="approve git history mutation",
+                )
+            if option in {"-m", "--message"}:
+                index += 2
+                continue
+            if option.startswith("-"):
+                index += 1
+                continue
+            positionals.append(symbolic_args[index])
+            index += 1
+        if len(positionals) >= 2:
+            return _decision(
+                parts,
+                ctx,
+                "git_history_mutation",
+                "critical",
+                "Command can change symbolic refs such as HEAD.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve git history mutation",
+            )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "filter-branch" in lowered
