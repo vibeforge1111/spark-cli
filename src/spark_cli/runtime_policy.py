@@ -35,7 +35,16 @@ def resolve_runtime_executable(name: str) -> str:
     )
 
 
+_NPM_ALLOWED_SUBCOMMANDS: frozenset[str] = frozenset({"install", "ci"})
+
+
 def npm_runtime_command_argv(args: list[str]) -> list[str]:
+    if not args or args[0].lower() not in _NPM_ALLOWED_SUBCOMMANDS:
+        allowed = ", ".join(sorted(_NPM_ALLOWED_SUBCOMMANDS))
+        raise SystemExit(
+            f"npm subcommand {args[0]!r} is not permitted in Spark module commands. "
+            f"Allowed: {allowed}."
+        )
     npm_path = resolve_runtime_executable("npm")
     if os.name == "nt" and os.path.splitext(npm_path)[1].lower() in {".cmd", ".bat"}:
         npm_dir = os.path.dirname(npm_path)
