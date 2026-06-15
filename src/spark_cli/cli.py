@@ -8170,6 +8170,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
             proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
 
     payload = {
+        "ok": True,
         "schema_version": "spark.os_capabilities.summary.v0",
         "generated_at": catalog.get("generated_at"),
         "card_count": len(cards),
