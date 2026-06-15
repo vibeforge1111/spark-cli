@@ -2138,8 +2138,10 @@ def atomic_write_json(path: Path, payload: Any) -> None:
             pass
     finally:
         try:
-            if temp_path.exists():
+            try:
                 temp_path.unlink()
+            except FileNotFoundError:
+                pass
         except OSError:
             pass
 
