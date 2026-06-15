@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 
+import re
+
 SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
@@ -56,6 +58,13 @@ def runtime_command_argv(command: str) -> list[str]:
     if executable == "npm":
         return npm_runtime_command_argv(parts[1:])
     if executable == "uv" and len(parts) >= 2 and parts[1] == "run":
+        if len(parts) >= 3 and not parts[2].startswith("-"):
+            tool = parts[2]
+            if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', tool):
+                raise SystemExit(
+                    f"uv run tool name must be a valid package reference: {tool}. "
+                    "Only direct tool invocations with alphanumeric names are allowed."
+                )
         return [resolve_runtime_executable("uv"), *parts[1:]]
     raise SystemExit(
         "Unsupported runtime command executable. Allowed runtime commands must start with "
