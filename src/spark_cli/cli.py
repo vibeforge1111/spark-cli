@@ -8578,7 +8578,9 @@ def follow_live_logs(*, lines: int = 80) -> None:
         initial = initial_follow_log_lines(path, lines)
         for line in initial:
             write_console_text(f"[{label}] {line if line.endswith(chr(10)) else line + chr(10)}")
-        positions[path] = path.stat().st_size
+        with path.open("r", encoding="utf-8", errors="replace") as _fh:
+            _fh.seek(0, 2)
+            positions[path] = _fh.tell()
     try:
         while True:
             for label, path in targets:
