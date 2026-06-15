@@ -99,6 +99,39 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _pip_config_parts(parts: list[str]) -> list[str]:
+    lowered = _lower_parts(parts)
+    if lowered[:2] == ["pip", "config"]:
+        return parts[2:]
+    if len(lowered) >= 4 and lowered[0] in {"python", "python3", "py"} and lowered[1:4] == ["-m", "pip", "config"]:
+        return parts[4:]
+    return []
+
+
+def _pip_config_requires_approval(config_parts: list[str]) -> bool:
+    if not config_parts:
+        return False
+    action = config_parts[0].lower()
+    if action in {"list", "debug"}:
+        return True
+    if action not in {"get", "set", "unset"} or len(config_parts) < 2:
+        return False
+    key = config_parts[1].lower()
+    sensitive_fragments = (
+        "index-url",
+        "extra-index-url",
+        "trusted-host",
+        "cert",
+        "client-cert",
+        "proxy",
+        "password",
+        "token",
+        "auth",
+        "username",
+    )
+    return any(fragment in key for fragment in sensitive_fragments)
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -250,6 +283,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve secret change",
         )
+
+    pip_config = _pip_config_parts(parts)
+    if _pip_config_requires_approval(pip_config):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can reveal or mutate Python package index credentials or routing config.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve pip config access",
+        )
+
     if first == "spark" and lowered[1:3] == ["security", "revoke-all"]:
         if "--dry-run" in lowered:
             return _decision(parts, ctx, "none", "none", "`spark security revoke-all --dry-run` is report-only.")
