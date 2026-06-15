@@ -2723,6 +2723,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
 
             quoted = ", ".join(f'"{column}"' for column in selected)
             order_column = "created_at" if "created_at" in columns else "rowid"
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             rows = conn.execute(
                 f'select {quoted} from builder_events order by "{order_column}" desc limit ?',
                 (max(0, min(int(limit), 100)),),
