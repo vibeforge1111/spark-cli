@@ -612,6 +612,23 @@ class SparkCliTests(unittest.TestCase):
             self.assertNotIn(token, text)
         self.assertEqual(text.count("[REDACTED]"), len(tokens))
 
+    def test_sandbox_redaction_catches_python_repr_secret_fields(self) -> None:
+        text = redact_sandbox_text(
+            "{'api_key': 'synthetic-api-key-value', "
+            "'access_token': 'synthetic-access-token-value', "
+            "'client_secret': 'synthetic-client-secret-value', "
+            "'password': 'synthetic-password-value'}"
+        )
+
+        for leaked in (
+            "synthetic-api-key-value",
+            "synthetic-access-token-value",
+            "synthetic-client-secret-value",
+            "synthetic-password-value",
+        ):
+            self.assertNotIn(leaked, text)
+        self.assertEqual(text.count("[REDACTED]"), 4)
+
     def test_sandbox_redaction_catches_url_credentials_and_jwts(self) -> None:
         jwt = (
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
