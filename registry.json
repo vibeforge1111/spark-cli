@@ -2,27 +2,28 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "906592e2bb025ef485c6320339f714433714c9b6",
+      "commit": "8552efb23eb90826081827ac4acd6f71c688ed91",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "906592e2bb025ef485c6320339f714433714c9b6",
-        "verify_ref": "refs/heads/main",
-        "canonical_head": "906592e2bb025ef485c6320339f714433714c9b6",
-        "runtime_mirror_head": "906592e2bb025ef485c6320339f714433714c9b6",
+        "commit": "8552efb23eb90826081827ac4acd6f71c688ed91",
+        "verify_ref": "refs/heads/codex/launch-readiness-20260615",
+        "canonical_head": "8552efb23eb90826081827ac4acd6f71c688ed91",
+        "runtime_mirror_head": "8552efb23eb90826081827ac4acd6f71c688ed91",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-09T20:31:48Z",
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "SPDX decision: MIT",
           "focused pytest: 31/31",
-          "canonical Harness Core memory-write binding guard preserved"
+          "canonical Harness Core memory-write binding guard preserved",
+          "2026-06-15 launch readiness: researcher bridge API export committed and pushed for Builder import boundary."
         ]
       },
-      "verify_ref": "refs/heads/main"
+      "verify_ref": "refs/heads/codex/launch-readiness-20260615"
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
@@ -51,19 +52,19 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
+      "commit": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
-        "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
-        "canonical_head": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
-        "runtime_mirror_head": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
-        "tree_clean": false,
-        "validated_at": "2026-06-12T07:05:11Z",
+        "commit": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+        "verify_ref": "refs/heads/codex/launch-readiness-20260615",
+        "canonical_head": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+        "runtime_mirror_head": "a94e65b96346d2f973ead0bd9cde06dfa9fae04a",
+        "tree_clean": true,
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "npm run build passed after metadata-only PRD result polling fix",
           "buildE2E regression passed: PRD canvas ready notifier accepts metadata-only result summaries",
@@ -71,36 +72,38 @@
           "2026-06-10 rendered-file proof route replay: tests/naturalRouteReplay.test.ts passed; tests/naturalRouteDecision.test.ts passed",
           "2026-06-10 route divergence diagnose telemetry: tests/diagnose.test.ts and tests/naturalRouteLedger.test.ts passed; npm run build passed",
           "2026-06-12 TGB-03 restart:safe guard landed at 1834176; build:sync passed; sync:check:strict passed; missing runtime strict check returned 1; spark-recursive restarted on :8791 pid 34328",
-          "2026-06-12 HC-06 fail-closed Governor HMAC landed at 3cc9170 on release/stability-2026-06-02-turnintent-harness; focused telegramActionAuthority test, npm run build, and npm run sync:check passed; live Telegram and Spawner unsigned probes refused with governor_signature_missing; release branch push has no CI trigger by workflow design"
+          "2026-06-12 HC-06 fail-closed Governor HMAC landed at 3cc9170 on release/stability-2026-06-02-turnintent-harness; focused telegramActionAuthority test, npm run build, and npm run sync:check passed; live Telegram and Spawner unsigned probes refused with governor_signature_missing; release branch push has no CI trigger by workflow design",
+          "2026-06-15 launch readiness: full Telegram test suite passed; build and sync:check:strict passed; CUA /status produced turn trace telegram-update:749543443; bot audit tail passed with turn/update identifiers."
         ]
       },
-      "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness"
+      "verify_ref": "refs/heads/codex/launch-readiness-20260615"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
+      "commit": "4a7819cb9fc97a69e83de7759cb173a312569900",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
-        "verify_ref": "refs/heads/reconcile/20260610-mit-recovery",
-        "canonical_head": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
-        "runtime_mirror_head": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
-        "tree_clean": false,
+        "commit": "4a7819cb9fc97a69e83de7759cb173a312569900",
+        "verify_ref": "refs/heads/spark-fix/2026-06-09-spark-recovery",
+        "canonical_head": "4a7819cb9fc97a69e83de7759cb173a312569900",
+        "runtime_mirror_head": "4a7819cb9fc97a69e83de7759cb173a312569900",
+        "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-12T06:25:01Z",
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "SPDX decision: MIT",
           "focused pytest: 169/169",
           "runtime recovery line marked as source truth",
           "2026-06-12 INT-07 standalone Swarm bridge uses SPARK_SWARM_RUNTIME_ROOT only; PR #859 merged at 9c95233 after secret-scan and test-and-audit passed",
-          "2026-06-12 installed SIB mirror moved to 9c95233 with pre-existing local overlay reapplied; swarm bridge focused tests 26/26 passed; spark status OK"
+          "2026-06-12 installed SIB mirror moved to 9c95233 with pre-existing local overlay reapplied; swarm bridge focused tests 26/26 passed; spark status OK",
+          "2026-06-15 launch readiness: Builder prelaunch regressions fixed for event_log and Governor wire contract; failed cases rerun 2/2 passed after focused suite exposed the issue."
         ]
       },
-      "verify_ref": "refs/heads/reconcile/20260610-mit-recovery"
+      "verify_ref": "refs/heads/spark-fix/2026-06-09-spark-recovery"
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
@@ -127,7 +130,7 @@
     },
     "domain-chip-spark-qa-evidence-lane": {
       "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-      "commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+      "commit": "da1a54b628308f15a2a28e9a0c8bb8cf7a7898a3",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -135,25 +138,26 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-        "commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
-        "verify_ref": "refs/heads/reconcile/20260610-metadata-authority",
-        "canonical_head": "476644de047edc7e3f42a5d28ac842877ffb522f",
-        "runtime_mirror_head": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "commit": "da1a54b628308f15a2a28e9a0c8bb8cf7a7898a3",
+        "verify_ref": "refs/heads/codex/qal-02-pytest-ci-20260611",
+        "canonical_head": "da1a54b628308f15a2a28e9a0c8bb8cf7a7898a3",
+        "runtime_mirror_head": "da1a54b628308f15a2a28e9a0c8bb8cf7a7898a3",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-09T21:40:00Z",
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "focused pytest -q: 7/7",
           "metadata cleanup removes aspirational spark-harness-core dependency claim",
-          "MIT license metadata aligned"
+          "MIT license metadata aligned",
+          "2026-06-15 launch readiness: QA evidence lane pytest passed 7/7 with 6 expected xfails; shared CI uplift branch pushed."
         ]
       },
-      "verify_ref": "refs/heads/reconcile/20260610-metadata-authority"
+      "verify_ref": "refs/heads/codex/qal-02-pytest-ci-20260611"
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-      "verify_ref": "refs/tags/v1.0.0-rc.2",
+      "commit": "f8277ba15fbaa0a4096a1abf53571990c86c0de4",
+      "verify_ref": "refs/heads/codex/launch-readiness-20260615",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -161,12 +165,12 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "verify_ref": "refs/tags/v1.0.0-rc.2",
-        "canonical_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "runtime_mirror_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "commit": "f8277ba15fbaa0a4096a1abf53571990c86c0de4",
+        "verify_ref": "refs/heads/codex/launch-readiness-20260615",
+        "canonical_head": "f8277ba15fbaa0a4096a1abf53571990c86c0de4",
+        "runtime_mirror_head": "f8277ba15fbaa0a4096a1abf53571990c86c0de4",
         "tree_clean": true,
-        "validated_at": "2026-06-12T06:47:30Z",
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "HS-13 reconciled codex/genesis-harness-core-20260602 and rescue docs into origin/main",
           "origin/main, installed mirror, and v1.0.0-rc peel to 25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
@@ -174,7 +178,8 @@
           "2026-06-12 HS-07 governed_turn and withGovernedTurn SDK landed at 04b9f85; local pytest 67/67 plus 11 subtests passed; npm test passed",
           "2026-06-12 main CI run 27399143658 passed conformance, test-and-audit, and secret-scan; v1.0.0-rc.1 points to 04b9f850b8e5239c5358e9320bb4698362e5077b",
           "2026-06-12 HS-08 consumer conformance kit landed at 71e564b; local pytest 70/70 plus 11 subtests passed; npm test and npm run build passed",
-          "2026-06-12 main CI run 27399578389 passed conformance, test-and-audit, and secret-scan; v1.0.0-rc.2 points to 71e564b36b932474738ced79b48ab9e1716da5e4"
+          "2026-06-12 main CI run 27399578389 passed conformance, test-and-audit, and secret-scan; v1.0.0-rc.2 points to 71e564b36b932474738ced79b48ab9e1716da5e4",
+          "2026-06-15 launch readiness: pytest tests passed 83/83 plus 11 subtests; governed turn dry-run SDK behavior validated."
         ]
       }
     },
@@ -227,20 +232,20 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "82af647532457863ef36a92d132b346f74cc3415",
-      "verify_ref": "refs/heads/main",
+      "commit": "39f6f0567043779b97f3ba74958740a845197292",
+      "verify_ref": "refs/heads/codex/launch-readiness-20260615",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "82af647532457863ef36a92d132b346f74cc3415",
-        "verify_ref": "refs/heads/main",
-        "canonical_head": "82af647532457863ef36a92d132b346f74cc3415",
-        "runtime_mirror_head": "82af647532457863ef36a92d132b346f74cc3415",
-        "tree_clean": false,
-        "validated_at": "2026-06-12T04:04:32Z",
+        "commit": "39f6f0567043779b97f3ba74958740a845197292",
+        "verify_ref": "refs/heads/codex/launch-readiness-20260615",
+        "canonical_head": "39f6f0567043779b97f3ba74958740a845197292",
+        "runtime_mirror_head": "39f6f0567043779b97f3ba74958740a845197292",
+        "tree_clean": true,
+        "validated_at": "2026-06-15T05:35:00Z",
         "evidence": [
           "focused authority tests: fdb8fded 50/50, 0012490 55/55",
           "genesis watchdog/probe tests on 0012490: 26/26",
@@ -261,7 +266,8 @@
           "2026-06-12 SPU-09 retired copy-based sync-runtime; CI run 27393334910 passed secret-scan and test-and-audit; live runtime sync check/check/build passed at 311a624",
           "2026-06-12 SPU-10 CI push triggers for codex/** and spark-fix/** landed at 82af647; branch run 27393575404 and main run 27393640614 passed secret-scan and test-and-audit; runtime sync check passed",
           "2026-06-12 SPU-09 retired runtime copy/watch sync into check-only drift detection; npm ci passed; focused sync-runtime tests 4/4 passed; full test:run 954/954 passed; sync:runtime, check, and build passed; CI run 27393334910 passed",
-          "2026-06-12 SPU-10 widened CI triggers for codex/** and spark-fix/** branches; verification branch CI run 27393575404 passed; main CI run 27393640614 passed"
+          "2026-06-12 SPU-10 widened CI triggers for codex/** and spark-fix/** branches; verification branch CI run 27393575404 passed; main CI run 27393640614 passed",
+          "2026-06-15 launch readiness: npm run check and npm run build passed; Harness Core manifest points at promoted canonical commit."
         ]
       }
     }
