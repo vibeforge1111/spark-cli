@@ -212,6 +212,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
         )
 
+    if first == "git" and second == "stash" and len(lowered) > 2 and lowered[2] in {"clear", "drop", "pop"}:
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can delete saved stash entries or remove saved work after applying it.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve git stash mutation",
+        )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "filter-branch" in lowered
