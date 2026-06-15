@@ -13515,18 +13515,31 @@ def hosted_api_key_strength_errors(ui_key: str, bridge_key: str) -> list[str]:
 def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
     errors: list[str] = []
     blocked = {"*", "0.0.0.0", "::", "localhost", "127.0.0.1", "::1"}
+    metadata_hosts = {"metadata.google.internal"}
     for host in allowed_hosts:
         normalized = host.strip().lower()
         host_without_port = normalized
-        if normalized.startswith("[") and "]" in normalized:
-            bracket_end = normalized.index("]")
-            host_without_port = normalized[1:bracket_end]
-            if normalized[bracket_end + 1 :]:
-                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
+        if normalized.startswith("["):
+            if "]" not in normalized:
+                errors.append(f"SPARK_ALLOWED_HOSTS contains malformed bracketed IPv6 host ({host!r}).")
+            else:
+                bracket_end = normalized.index("]")
+                host_without_port = normalized[1:bracket_end]
+                remainder = normalized[bracket_end + 1 :]
+                if remainder.startswith(":"):
+                    errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
+                elif remainder:
+                    errors.append(f"SPARK_ALLOWED_HOSTS contains malformed bracketed IPv6 host ({host!r}).")
+            if not host_without_port:
+                errors.append(f"SPARK_ALLOWED_HOSTS contains malformed bracketed IPv6 host ({host!r}).")
         elif normalized.count(":") == 1:
             host_without_port = normalized.split(":", 1)[0]
+            if host_without_port in metadata_hosts:
+                errors.append(f"SPARK_ALLOWED_HOSTS must not include ports ({host!r}).")
         if normalized in blocked:
             errors.append(f"SPARK_ALLOWED_HOSTS contains unsafe host {host!r}.")
+        if host_without_port.rstrip(".") in metadata_hosts:
+            errors.append(f"SPARK_ALLOWED_HOSTS must not contain cloud metadata hosts ({host!r}).")
         if "*" in normalized:
             errors.append(f"SPARK_ALLOWED_HOSTS must not contain wildcards ({host!r}).")
         if "://" in normalized or "/" in normalized:
