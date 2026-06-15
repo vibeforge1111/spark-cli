@@ -1528,6 +1528,30 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertNotIn("1234567890:", decision.command_digest)
 
+    def test_approval_classifier_flags_local_secret_file_reads(self) -> None:
+        cases = [
+            ["cat", "~/.ssh/id_ed25519"],
+            ["cat", ".env.production"],
+            ["less", "~/.aws/credentials"],
+            ["more", "~/.kube/config"],
+            ["type", "C:\\Users\\alice\\.docker\\config.json"],
+            ["Get-Content", "C:\\Users\\alice\\.ssh\\id_rsa"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve local secret file reveal")
+
+    def test_approval_classifier_allows_plain_file_reads(self) -> None:
+        for command in (["cat", "README.md"], ["head", "logs/output.txt"], ["type", "notes.txt"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_secret_set(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "set", "llm.zai.api_key"], CommandContext())
         self.assertTrue(decision.requires_approval)
