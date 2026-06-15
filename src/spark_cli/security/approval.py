@@ -230,6 +230,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve git history mutation",
         )
 
+    if first == "git" and lowered[1:3] == ["worktree", "remove"]:
+        target = _target_after(parts, {"remove"})
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "critical",
+            "Command can delete a Git worktree and its local files.",
+            target_display=target or "git worktree",
+            confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve worktree deletion",
+        )
+
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
             parts,
