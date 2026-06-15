@@ -15852,10 +15852,12 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         else:
             print(f"Removed Windows logon task: {AUTOSTART_WINDOWS_TASK_NAME}")
         startup_path = windows_startup_script_path()
-        if startup_path.exists():
+        try:
             startup_path.unlink()
             print(f"Removed Windows Startup fallback: {startup_path}")
             failures = 0 if failures else failures
+        except FileNotFoundError:
+            pass
         legacy_cmd_path = windows_startup_legacy_cmd_path()
         if legacy_cmd_path.exists():
             legacy_cmd_path.unlink()
