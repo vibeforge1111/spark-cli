@@ -1219,7 +1219,7 @@ def harden_secret_file(path: Path) -> None:
         return
     try:
         subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{getpass.getuser()}:F"],
             check=False,
             capture_output=True,
             text=True,
