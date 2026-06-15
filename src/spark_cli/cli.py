@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_RUN_INSTALL_COMMAND_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -7580,6 +7582,8 @@ def run_install_command(command: str, cwd: Path) -> subprocess.CompletedProcess[
             encoding="utf-8",
             errors="replace",
             env=write_boundary_env(shell_command_env(filtered=True)),
+
+        timeout=SPARK_CLI_RUN_INSTALL_COMMAND_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout if isinstance(error.stdout, str) else ""
