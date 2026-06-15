@@ -2775,7 +2775,7 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
     except OSError:
         pass
 
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     try:
         temp_path.write_text(content, encoding="utf-8")
         if executable and os.name != "nt":
