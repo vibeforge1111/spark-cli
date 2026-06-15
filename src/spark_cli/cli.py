@@ -15817,9 +15817,11 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
         if result.returncode != 0:
             failures += 1
             print_helper_failure(disable_command, result)
-        if service_path.exists():
+        try:
             service_path.unlink()
             print(f"Removed Spark autostart service: {service_path}")
+        except FileNotFoundError:
+            pass
         xdg_path = linux_xdg_autostart_path()
         if xdg_path.exists():
             xdg_path.unlink()
