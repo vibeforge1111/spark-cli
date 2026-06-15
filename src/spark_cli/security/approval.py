@@ -230,6 +230,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve git history mutation",
         )
 
+    if first == "git" and second in {"checkout", "switch"} and any(part in {"-B", "-C", "--force-create"} for part in parts):
+        return _decision(
+            parts,
+            ctx,
+            "git_history_mutation",
+            "critical",
+            "Command can force-create or reset a branch ref.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git history mutation",
+        )
+
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
             parts,
