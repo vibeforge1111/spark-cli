@@ -195,14 +195,31 @@ def _is_metadata_host(value: str) -> bool:
     return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
 
 
+def _is_valid_dns_hostname(value: str) -> bool:
+    labels = value.split(".")
+    if not labels:
+        return False
+    for label in labels:
+        if not label or len(label) > 63:
+            return False
+        if label.startswith("-") or label.endswith("-"):
+            return False
+        if not re.fullmatch(r"[a-z0-9-]+", label):
+            return False
+    return True
+
+
 def validate_ssh_host(host: str) -> str:
     value = str(host or "").strip().lower().rstrip(".")
     if not value:
         raise ValueError("SSH host is required.")
     if "://" in value or "/" in value or "\\" in value or "@" in value:
         raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
-    if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
+    if not SSH_HOST_PATTERN.fullmatch(value):
         raise ValueError("SSH host contains unsupported characters.")
+    ip = _ssh_host_ip(value)
+    if ip is None and (":" in value or not _is_valid_dns_hostname(value)):
+        raise ValueError("SSH host must be a valid hostname or IP address.")
     if _is_metadata_host(value):
         raise ValueError("SSH host must not point at a cloud metadata service.")
     return value

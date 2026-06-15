@@ -944,6 +944,12 @@ class SparkCliTests(unittest.TestCase):
             "169.254.43518",
             "0251.0376.0251.0376",
             "-badhost",
+            ":",
+            "example.test:",
+            "g:bad",
+            "example..test",
+            "good.-bad",
+            "bad-.example",
         ]:
             with self.subTest(host=host):
                 with self.assertRaises(ValueError):
