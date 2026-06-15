@@ -10916,8 +10916,11 @@ def redact_shareable_text(value: str) -> str:
     redacted = redacted.replace("~/.spark", "<spark-home>")
     redacted = redacted.replace("~\\.spark", "<spark-home>")
     redacted = re.sub(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s]+", "%USERPROFILE%", redacted)
-    redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
-    redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
+    # Use a lookbehind instead of \b so a unix home path is redacted even when it is
+    # preceded by whitespace (e.g. inside a log tail line "loaded /Users/<name>/..."),
+    # where \b fails because both the space and the slash are non-word characters.
+    redacted = re.sub(r"(?i)(?<![\w/])/Users/[^/\s]+", "$HOME", redacted)
+    redacted = re.sub(r"(?i)(?<![\w/])/home/[^/\s]+", "$HOME", redacted)
     redacted = re.sub(
         r"(?i)\b(Telegram(?:\s+admin)?\s+ID|Admin\s+ID|ALLOWED_TELEGRAM_IDS)(\s*[:=]\s*)(\d{5,16})\b",
         lambda match: f"{match.group(1)}{match.group(2)}[TELEGRAM_ID_REDACTED]",
@@ -11002,7 +11005,7 @@ def redact_for_llm(value: Any) -> Any:
     if isinstance(value, list):
         return [redact_for_llm(item) for item in value]
     if isinstance(value, str):
-        return redact_sensitive_text(value)
+        return redact_shareable_text(value)
     return value
 
 
@@ -11203,7 +11206,7 @@ def collect_llm_doctor_context(problem: str, *, include_logs: bool = False, log_
             name = str(module["name"])
             lines = tail_log_lines(module_log_path(name), log_lines)
             if lines:
-                logs[name] = [redact_sensitive_text(line.rstrip()) for line in lines]
+                logs[name] = [redact_shareable_text(line.rstrip()) for line in lines]
         context["logs"] = logs
     return redact_for_llm(context)
 
