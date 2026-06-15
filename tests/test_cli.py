@@ -9775,7 +9775,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn('service_tier = "fast"\n\n[profiles.speed]', updated)
         self.assertIn('[profiles.speed]\nservice_tier = "default"', updated)
 
-    def test_provider_status_adds_codex_client_only_to_codex_roles(self) -> None:
+    def test_provider_status_adds_codex_client_to_codex_oauth_roles(self) -> None:
         setup = {
             "llm": {
                 "provider": "codex",
@@ -9801,6 +9801,31 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["roles"]["memory"]["codex_client"], codex_payload)
         self.assertNotIn("codex_client", payload["roles"]["builder"])
         self.assertNotIn("codex_client", payload["roles"]["mission"])
+
+    def test_provider_status_prefers_codex_client_model_for_oauth_roles(self) -> None:
+        setup = {
+            "llm": {
+                "provider": "openai",
+                "roles": {
+                    role: {"provider": "openai", "model": "gpt-5.3-codex-spark", "auth_mode": "codex_oauth", "bot_provider": "codex"}
+                    for role in ("chat", "builder", "memory", "mission")
+                },
+            },
+            "secret_keys": [],
+        }
+        codex_payload = {
+            "ok": True,
+            "values": {"model": "gpt-5.5", "model_reasoning_effort": "high"},
+        }
+        auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
+        with patch("spark_cli.cli.load_json", return_value=setup), \
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value=codex_payload):
+            payload = provider_status_payload()
+
+        for role in ("chat", "builder", "memory", "mission"):
+            self.assertEqual(payload["roles"][role]["model"], "gpt-5.5")
+            self.assertEqual(payload["roles"][role]["codex_client"], codex_payload)
 
     def test_provider_status_marks_codex_oauth_unready_without_auth(self) -> None:
         setup = {
