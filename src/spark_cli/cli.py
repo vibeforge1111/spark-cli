@@ -1264,7 +1264,7 @@ def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str
 def fetch_secret(secret_id: str) -> str | None:
     index = load_secrets_index()
     backend = index.get(secret_id)
-    if backend == "keychain" and HAS_KEYRING:
+    if backend == "keychain" and keychain_available():
         try:
             value = _keyring.get_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             if value is not None:
@@ -1349,7 +1349,7 @@ def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
     backend = index.pop(secret_id, None)
     removed = False
-    if backend == "keychain" and HAS_KEYRING:
+    if backend == "keychain" and keychain_available():
         try:
             _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
