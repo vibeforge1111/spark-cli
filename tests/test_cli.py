@@ -2931,6 +2931,22 @@ class SparkCliTests(unittest.TestCase):
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
 
+    def test_url_policy_blocks_alternate_loopback_ipv4_forms(self) -> None:
+        for host in ("2130706433", "0x7f000001", "0177.0.0.1"):
+            with self.subTest(host=host):
+                errors = validate_url_safety(
+                    f"http://{host}:11434",
+                    label="hosted provider",
+                    policy=UrlPolicy(allow_local=False),
+                )
+                self.assertTrue(any("local-only host" in error for error in errors))
+
+    def test_url_policy_blocks_alternate_metadata_ipv4_forms(self) -> None:
+        for host in ("2852039166", "0xa9fea9fe", "0251.0376.0251.0376"):
+            with self.subTest(host=host):
+                errors = validate_url_safety(f"http://{host}/latest/meta-data", label="metadata")
+                self.assertTrue(any("unsafe network address" in error for error in errors))
+
     def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
         with patch("spark_cli.cli.resolve_provider_test_target", return_value={
             "provider": "zai",
