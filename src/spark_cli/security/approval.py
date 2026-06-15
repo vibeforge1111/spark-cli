@@ -302,6 +302,33 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "secretsmanager" and len(lowered) > 2:
+        secretsmanager_mutation_prefixes = (
+            "cancel-",
+            "create-",
+            "delete-",
+            "put-",
+            "remove-",
+            "restore-",
+            "rotate-",
+            "stop-",
+            "tag-",
+            "untag-",
+            "update-",
+        )
+        if lowered[2].startswith(secretsmanager_mutation_prefixes):
+            secretsmanager_action = lowered[2]
+            critical_prefixes = ("delete-", "remove-")
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "critical" if secretsmanager_action.startswith(critical_prefixes) else "high",
+                "AWS Secrets Manager command can create, rotate, delete, restore, tag, or overwrite managed secret material and metadata.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve secretsmanager change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
