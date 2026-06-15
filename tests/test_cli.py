@@ -1593,6 +1593,40 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_compose_service_startup(self) -> None:
+        cases = [
+            ["docker", "compose", "up"],
+            ["docker", "compose", "up", "-d", "app"],
+            ["docker", "compose", "start", "app"],
+            ["docker", "compose", "restart", "app"],
+            ["docker-compose", "up", "--build"],
+            ["docker-compose", "start", "app"],
+            ["docker-compose", "restart", "app"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve compose service start")
+
+    def test_approval_classifier_allows_docker_compose_status_commands(self) -> None:
+        cases = [
+            ["docker", "compose", "ps"],
+            ["docker", "compose", "config"],
+            ["docker", "compose", "logs", "app"],
+            ["docker-compose", "ps"],
+            ["docker-compose", "config"],
+            ["docker-compose", "logs", "app"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
