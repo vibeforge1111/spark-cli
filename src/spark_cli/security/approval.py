@@ -198,6 +198,29 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="delete spark home",
         )
 
+    if first == "pulumi" and second in {"login", "logout"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Pulumi command can store, change, or remove backend credentials.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve pulumi credential change",
+        )
+    if first == "pulumi" and lowered[1:2] == ["stack"]:
+        stack_action = lowered[2] if len(lowered) > 2 else ""
+        if stack_action in {"select", "init", "rm", "remove"}:
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Pulumi stack command can change, create, or remove the stack targeted by future operations.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve pulumi stack change",
+            )
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
