@@ -1505,6 +1505,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.risk, "critical")
         self.assertEqual(decision.target_display, "/tmp/spark-test")
 
+    def test_approval_classifier_flags_disk_destruction_commands(self) -> None:
+        for command in (
+            ["mkfs.ext4", "/dev/sdx1"],
+            ["diskutil", "eraseDisk", "APFS", "Demo", "/dev/disk9"],
+            ["parted", "/dev/sdx", "mklabel", "gpt"],
+            ["fdisk", "/dev/sdx"],
+            ["dd", "if=/dev/zero", "of=/dev/disk9", "bs=1m"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve disk destruction")
+
+    def test_approval_classifier_allows_disk_inspection_commands(self) -> None:
+        for command in (
+            ["diskutil", "list"],
+            ["lsblk"],
+            ["fdisk", "-l", "/dev/sdx"],
+            ["parted", "/dev/sdx", "print"],
+            ["dd", "if=/dev/disk9", "of=disk.img", "bs=1m"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_git_history_mutation(self) -> None:
         decision = approval_required_for_command(["git", "push", "--force-with-lease"], CommandContext())
         self.assertTrue(decision.requires_approval)

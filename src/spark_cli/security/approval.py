@@ -99,6 +99,14 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _targets_device_path(parts: list[str]) -> bool:
+    return any(re.search(r"(?i)(?:^|=)(?:/dev/(?:disk|sd|xvd|nvme|mapper/)|\\\\\.\\physicaldrive)", part) for part in parts)
+
+
+def _option_targets_device_path(parts: list[str], option_prefix: str) -> bool:
+    return any(part.lower().startswith(option_prefix) and _targets_device_path([part.split("=", 1)[1]]) for part in parts if "=" in part)
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -210,6 +218,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+
+    if (
+        first.startswith("mkfs")
+        or first in {"fdisk", "sfdisk", "gdisk"} and _targets_device_path(parts[1:]) and not _contains_any(lowered, {"-l", "--list"})
+        or first == "parted" and _targets_device_path(parts[1:]) and _contains_any(lowered, {"mklabel", "mkpart", "rm", "resizepart"})
+        or first == "diskutil" and second in {"erasedisk", "erasevolume", "partitiondisk"}
+        or first == "dd" and _option_targets_device_path(parts[1:], "of=")
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "critical",
+            "Command can erase, format, repartition, or overwrite disk/device data.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve disk destruction",
         )
 
     if first == "git" and (
