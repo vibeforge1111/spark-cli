@@ -99,6 +99,22 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+PACKAGE_CONFIG_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)(authtoken|(^|[:._-])(auth(token)?|_auth|password|credential|secret|api[_-]?key)([:._-]|$))"
+)
+
+
+def _package_manager_credential_config(lowered: list[str]) -> bool:
+    if len(lowered) < 4:
+        return False
+    first, second, third = lowered[:3]
+    if first not in {"npm", "pnpm", "yarn"} or second != "config":
+        return False
+    if third not in {"get", "set", "delete", "unset", "rm", "remove"}:
+        return False
+    return any(PACKAGE_CONFIG_CREDENTIAL_PATTERN.search(part) for part in lowered[3:])
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +302,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _package_manager_credential_config(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Package manager config command can reveal or mutate registry credentials.",
+            target_display="package manager credentials",
+            confirmation_phrase="approve package credential access",
         )
 
     if first == "aws" and (

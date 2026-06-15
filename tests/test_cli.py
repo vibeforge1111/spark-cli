@@ -1543,6 +1543,35 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_package_manager_credential_config(self) -> None:
+        cases = [
+            ["npm", "config", "get", "//registry.npmjs.org/:_authToken"],
+            ["npm", "config", "set", "//registry.npmjs.org/:_authToken", "placeholder-value"],
+            ["npm", "config", "delete", "//registry.npmjs.org/:_authToken"],
+            ["pnpm", "config", "get", "//registry.npmjs.org/:_authToken"],
+            ["pnpm", "config", "set", "//registry.npmjs.org/:_authToken", "placeholder-value"],
+            ["yarn", "config", "get", "npmAuthToken"],
+            ["yarn", "config", "set", "npmAuthToken", "placeholder-value"],
+            ["yarn", "config", "unset", "npmAuthToken"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve package credential access")
+
+        for command in (
+            ["npm", "config", "get", "registry"],
+            ["pnpm", "config", "get", "store-dir"],
+            ["yarn", "config", "get", "npmRegistryServer"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)
