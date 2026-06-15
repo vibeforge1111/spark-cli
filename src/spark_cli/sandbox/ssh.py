@@ -122,6 +122,21 @@ def _timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 def ssh_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
     source = os.environ if env is None else env
     return {
@@ -475,7 +490,7 @@ def trust_ssh_target_host_key(
             if raw_line.strip() and not raw_line.startswith(f"{alias} "):
                 lines.append(raw_line)
     lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _atomic_write_text(known_hosts, "\n".join(lines) + "\n")
     try:
         known_hosts.chmod(0o600)
     except OSError:
