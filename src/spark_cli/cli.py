@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_STOP_MODULE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -15100,7 +15102,9 @@ def cmd_start_plain(args: argparse.Namespace) -> int:
 
 def stop_module(name: str, pid: int) -> None:
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True
+        timeout=SPARK_CLI_STOP_MODULE_TIMEOUT_SECONDS,
+        )
     else:
         try:
             os.killpg(pid, signal.SIGTERM)
