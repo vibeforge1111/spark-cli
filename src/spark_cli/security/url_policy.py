@@ -44,7 +44,9 @@ def _parse_url(raw_url: str) -> urllib.parse.ParseResult:
 
 def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
-        return ipaddress.ip_address(host.strip("[]"))
+        # Strip brackets and any IPv6 scope ID (e.g. fe80::1%eth0 -> fe80::1)
+        cleaned = host.strip("[]").split("%", 1)[0]
+        return ipaddress.ip_address(cleaned)
     except ValueError:
         return None
 
