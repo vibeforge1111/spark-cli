@@ -360,7 +360,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve submodule code fetch",
         )
 
-    if first == "docker" and (
+    if first in {"docker", "podman"} and (
         "--privileged" in lowered
         or "--network=host" in lowered
         or ("--network" in lowered and "host" in lowered)
@@ -371,7 +371,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             ctx,
             "container_privilege_escalation",
             "critical",
-            "Docker command can expose the host, Docker socket, host network, or privileged container capabilities.",
+            "Container command can expose the host, container runtime socket, host network, or privileged container capabilities.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve container privilege",
         )

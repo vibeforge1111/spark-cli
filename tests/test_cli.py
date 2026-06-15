@@ -1593,6 +1593,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_podman_privilege_escalation(self) -> None:
+        risky_cases = [
+            ["podman", "run", "--privileged", "alpine"],
+            ["podman", "run", "--network=host", "alpine"],
+            ["podman", "run", "--network", "host", "alpine"],
+            ["podman", "run", "-v", "/:/host", "alpine"],
+            ["podman", "run", "--mount", "type=bind,source=/home,target=/host-home", "alpine"],
+        ]
+        for command in risky_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "container_privilege_escalation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve container privilege")
+
+        safe_cases = [
+            ["podman", "ps"],
+            ["podman", "images"],
+            ["podman", "run", "--rm", "alpine", "echo", "ok"],
+        ]
+        for command in safe_cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
