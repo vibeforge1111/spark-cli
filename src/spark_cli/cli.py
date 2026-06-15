@@ -983,7 +983,22 @@ def keychain_available() -> bool:
     return True
 
 
+def spark_runtime_is_root() -> bool:
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:
+        return False
+    try:
+        return int(geteuid()) == 0
+    except OSError:
+        return False
+
+
 def default_spark_home() -> Path:
+    if spark_runtime_is_root():
+        for candidate in (Path("/opt/spark"), Path("/var/lib/spark")):
+            if candidate.exists():
+                return candidate
+        return Path("/opt/spark")
     return Path.home().joinpath(".spark").expanduser()
 
 
@@ -2864,7 +2879,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        home_resolved = resolve_policy_path(home_path)
+        for prefix in WRITE_DENIED_POSIX_PREFIXES:
+            prefix_path = Path(prefix)
+            if spark_runtime_is_root() and resolve_policy_path(prefix_path) == home_resolved:
+                continue
+            denied.append(prefix_path)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")

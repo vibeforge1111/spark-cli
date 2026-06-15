@@ -268,6 +268,8 @@ from spark_cli.cli import (
     write_browser_use_screenshot,
     write_doctor_report,
     write_denied_paths,
+    default_spark_home,
+    spark_runtime_is_root,
     write_denied_prefixes,
     write_support_bundle,
     windows_service_creationflags,
@@ -9186,6 +9188,21 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn(home / ".spark" / "config" / "secrets.local.json", write_denied_paths(home))
             self.assertIn(home / ".ssh", write_denied_prefixes(home))
             self.assertIn(home / ".config" / "gh", write_denied_prefixes(home))
+
+    def test_default_spark_home_uses_opt_spark_for_root(self) -> None:
+        with patch("spark_cli.cli.spark_runtime_is_root", return_value=True), \
+             patch("spark_cli.cli.Path") as path_cls:
+            path_cls.return_value.exists.return_value = True
+            path_cls.side_effect = lambda value: Path(str(value))
+            home = default_spark_home()
+        self.assertEqual(home, Path("/opt/spark"))
+
+    def test_write_denied_prefixes_skips_root_when_spark_home_is_root(self) -> None:
+        with patch("spark_cli.cli.spark_runtime_is_root", return_value=True), \
+             patch("spark_cli.cli.policy_home_path", return_value=Path("/root")), \
+             patch("spark_cli.cli.resolve_policy_path", side_effect=lambda p: Path(str(p))):
+            denied = write_denied_prefixes()
+        self.assertNotIn(Path("/root"), denied)
 
     def test_path_is_write_denied_blocks_sensitive_home_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
