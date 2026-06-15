@@ -302,6 +302,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first in {"cdk", "aws-cdk"} and second in {"deploy", "destroy", "bootstrap"}:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if second == "destroy" else "high",
+            "AWS CDK command can deploy, destroy, or bootstrap cloud infrastructure.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cdk infrastructure change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
