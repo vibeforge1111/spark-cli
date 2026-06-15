@@ -131,7 +131,9 @@ def parse_command_text(command: str) -> list[str]:
     try:
         return shlex.split(command, posix=True)
     except ValueError:
-        return command.split()
+        raise ValueError(
+            f"Failed to parse command (unbalanced quotes or invalid syntax): {command!r}"
+        ) from None
 
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
