@@ -1399,7 +1399,13 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password|passwd|credential|private[_-]?key|auth)"
+        r"([=:\s]+)(\S+)",
+        r"\1\2[redacted]",
+        value.strip(),
+    )
+    cleaned = re.sub(r"(?i)(Bearer|Basic)\s+\S+", r"\1 [redacted]", cleaned)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
