@@ -5363,6 +5363,19 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
                 "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
             }
         health_url = spawner_runtime_health_url(module, runtime_env)
+        url_errors = validate_url_safety(health_url, label=f"{module.name} health check")
+        if url_errors:
+            return {
+                "name": module.name,
+                "version": module.version,
+                "kind": module.kind,
+                "plane": module.plane,
+                "healthy": False,
+                "detail": f"Health check URL blocked: {'; '.join(url_errors)}",
+                "healthcheck_command": f"GET {health_url}",
+                "failure_hint": "The health check URL failed safety validation.",
+                "success_hint": str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None,
+            }
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
         try:
@@ -14520,14 +14533,18 @@ def wait_for_ready_check(
                     return False, f"{ready_detail}. Process exited with code {exit_code}"
                 return False, f"process exited with code {exit_code}"
         if ready_check.startswith(("http://", "https://")):
-            try:
-                request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
-                with urllib.request.urlopen(request, timeout=2) as response:
-                    if 200 <= int(response.status) < 400:
-                        return True, ready_check
-                    last_error = f"ready check returned HTTP {response.status}"
-            except (urllib.error.URLError, TimeoutError, OSError) as error:
-                last_error = str(error)
+            url_errors = validate_url_safety(ready_check, label=f"{module.name} ready check")
+            if url_errors:
+                last_error = f"ready check URL blocked: {'; '.join(url_errors)}"
+            else:
+                try:
+                    request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
+                    with urllib.request.urlopen(request, timeout=2) as response:
+                        if 200 <= int(response.status) < 400:
+                            return True, ready_check
+                        last_error = f"ready check returned HTTP {response.status}"
+                except (urllib.error.URLError, TimeoutError, OSError) as error:
+                    last_error = str(error)
         else:
             result = run_runtime_command(
                 ready_check,
