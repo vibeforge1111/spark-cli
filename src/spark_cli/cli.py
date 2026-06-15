@@ -14613,7 +14613,9 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
 
 def user_safe_startup_detail(detail: str) -> str:
     if "TELEGRAM_RELAY_SECRET" in detail or "telegram.relay_secret" in detail:
-        return "Spark could not finish connecting Telegram. Run `spark setup telegram-starter --resume`, then `spark start telegram-starter`."
+        setup_state = load_json(CONFIG_PATH, {})
+        bundle_name = str(setup_state.get("bundle") or "telegram-starter") if isinstance(setup_state, dict) else "telegram-starter"
+        return f"Spark could not finish connecting Telegram. Run `spark setup {bundle_name} --resume`, then `spark start {bundle_name}`."
     return detail
 
 
