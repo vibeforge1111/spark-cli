@@ -1406,7 +1406,10 @@ def split_secret_bindings(module: Module) -> tuple[list[dict[str, str]], list[di
 def strip_keychain_env_vars(env_values: dict[str, str], module: Module) -> dict[str, str]:
     _, keychain_backed = split_secret_bindings(module)
     keychain_env_vars = {b["env_var"] for b in keychain_backed}
-    return {key: value for key, value in env_values.items() if key not in keychain_env_vars}
+    stripped = {key: value for key, value in env_values.items() if key not in keychain_env_vars}
+    if "TELEGRAM_RELAY_SECRET" in keychain_env_vars and env_values.get("TELEGRAM_RELAY_SECRET"):
+        stripped["SPARK_RELAY_SECRET_CONFIGURED"] = "1"
+    return stripped
 
 
 def keychain_env_for_module(module: Module) -> dict[str, str]:
