@@ -1593,6 +1593,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_buildx_publish(self) -> None:
+        cases = [
+            ["docker", "buildx", "build", "--push", "-t", "registry.example.test/spark:latest", "."],
+            ["docker", "buildx", "build", "--push=true", "-t", "registry.example.test/spark:latest", "."],
+            ["docker", "buildx", "build", "--output", "type=registry", "-t", "registry.example.test/spark:latest", "."],
+            ["docker", "buildx", "build", "--output=type=registry", "-t", "registry.example.test/spark:latest", "."],
+            ["docker", "builder", "build", "-o", "type=image,push=true", "-t", "registry.example.test/spark:latest", "."],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker build publish")
+
+    def test_approval_classifier_allows_local_docker_buildx_outputs(self) -> None:
+        cases = [
+            ["docker", "buildx", "build", "."],
+            ["docker", "buildx", "build", "--load", "."],
+            ["docker", "buildx", "build", "--push=false", "."],
+            ["docker", "builder", "build", "--output", "type=docker", "."],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
