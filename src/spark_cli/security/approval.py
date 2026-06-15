@@ -198,6 +198,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="delete spark home",
         )
 
+    if first == "docker" and lowered[1:3] in (["context", "use"], ["context", "create"], ["context", "update"], ["context", "rm"], ["context", "remove"], ["context", "import"]):
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Docker context command can change the daemon endpoint used by future Docker operations.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve docker context change",
+        )
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
