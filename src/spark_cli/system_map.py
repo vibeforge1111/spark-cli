@@ -4818,7 +4818,11 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
             continue
         dirty, untracked = git_dirty_from_repo(repo)
         if dirty or untracked:
-            runtime_module = {"spark-intelligence-builder": "spark-intelligence-builder", "spawner-ui": "spawner-ui"}.get(repo_name)
+            runtime_module = {
+                "spark-intelligence-builder": "spark-intelligence-builder",
+                "spark-telegram-bot": "spark-telegram-bot",
+                "spawner-ui": "spawner-ui",
+            }.get(repo_name)
             runtime_summary = installed_runtime_clean_summary(installed_modules, runtime_module) if runtime_module else {}
             repo_path = str(repo.get("path") or "")
             installed_path = str(runtime_summary.get("path") or "")

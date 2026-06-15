@@ -513,12 +513,19 @@ class SparkSystemMapTests(unittest.TestCase):
             desktop = root / "Desktop"
             spark_home = root / ".spark"
             desktop_builder = desktop / "spark-intelligence-builder"
+            desktop_telegram = desktop / "spark-telegram-bot"
             installed_builder = spark_home / "modules" / "spark-intelligence-builder-release" / "source"
+            installed_telegram = spark_home / "modules" / "spark-telegram-bot" / "source"
             desktop_builder.mkdir(parents=True)
+            desktop_telegram.mkdir(parents=True)
             installed_builder.mkdir(parents=True)
+            installed_telegram.mkdir(parents=True)
             init_git_repo(desktop_builder)
+            init_git_repo(desktop_telegram)
             init_git_repo(installed_builder)
+            init_git_repo(installed_telegram)
             (desktop_builder / "README.md").write_text("dirty backlog\n", encoding="utf-8")
+            (desktop_telegram / "README.md").write_text("dirty backlog\n", encoding="utf-8")
 
             duplicate_truths = build_duplicate_truths(
                 {
@@ -527,17 +534,28 @@ class SparkSystemMapTests(unittest.TestCase):
                         "spark-intelligence-builder": {
                             "path": str(installed_builder),
                             "source": str(installed_builder),
-                        }
+                        },
+                        "spark-telegram-bot": {
+                            "path": str(installed_telegram),
+                            "source": str(installed_telegram),
+                        },
                     },
-                    "discovered_repos": [collect_repo_metadata(desktop_builder)],
+                    "discovered_repos": [
+                        collect_repo_metadata(desktop_builder),
+                        collect_repo_metadata(desktop_telegram),
+                    ],
                 }
             )
 
-        item = next(item for item in duplicate_truths["items"] if item["id"] == "spark-intelligence-builder-dirty-owner-repo")
-        self.assertEqual(item["classification"], "read_only_backlog")
-        self.assertEqual(item["severity"], "warning")
-        self.assertIn("non-authoritative backlog", item["evidence"])
-        self.assertTrue(item["evidence_details"]["installed_runtime"]["clean"])
+        for item_id in [
+            "spark-intelligence-builder-dirty-owner-repo",
+            "spark-telegram-bot-dirty-owner-repo",
+        ]:
+            item = next(item for item in duplicate_truths["items"] if item["id"] == item_id)
+            self.assertEqual(item["classification"], "read_only_backlog")
+            self.assertEqual(item["severity"], "warning")
+            self.assertIn("non-authoritative backlog", item["evidence"])
+            self.assertTrue(item["evidence_details"]["installed_runtime"]["clean"])
 
     def test_published_release_runtime_pin_drift_is_batch_decision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
