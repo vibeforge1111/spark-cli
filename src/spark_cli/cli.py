@@ -5224,10 +5224,12 @@ def clear_install_progress(target: str) -> None:
     data.pop(target)
     if data:
         save_json(INSTALL_PROGRESS_PATH, data)
-    elif INSTALL_PROGRESS_PATH.exists():
+    try:
         INSTALL_PROGRESS_PATH.unlink()
 
 
+    except FileNotFoundError:
+        pass
 def record_install_step(target: str, step: str) -> None:
     progress = load_install_progress(target)
     completed = progress.setdefault("steps_completed", [])
