@@ -212,6 +212,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
         )
 
+    if first == "git" and second == "clean" and not _contains_any(lowered, {"-n", "--dry-run"}):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "critical" if _contains_any(lowered, {"-d", "-x", "-X", "-fd", "-df", "-fdx", "-xdf"}) else "high",
+            "Command can delete untracked files or directories from the worktree.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git clean",
+        )
+
     if first == "git" and (
         "filter-repo" in lowered
         or "filter-branch" in lowered

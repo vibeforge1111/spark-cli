@@ -1510,6 +1510,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "git_history_mutation")
 
+    def test_approval_classifier_flags_git_clean_delete(self) -> None:
+        decision = approval_required_for_command(["git", "clean", "-fdx"], CommandContext(non_interactive=True))
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "destructive_filesystem")
+        self.assertEqual(decision.risk, "critical")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.confirmation_phrase, "approve git clean")
+
+        dry_run = approval_required_for_command(["git", "clean", "--dry-run"], CommandContext(non_interactive=True))
+        self.assertFalse(dry_run.requires_approval)
+
     def test_approval_classifier_flags_git_filter_branch(self) -> None:
         decision = approval_required_for_command(["git", "filter-branch", "--all"], CommandContext())
         self.assertTrue(decision.requires_approval)
