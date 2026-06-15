@@ -99,6 +99,26 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _password_manager_secret_access(lowered: list[str]) -> bool:
+    first = lowered[0] if lowered else ""
+    second = lowered[1] if len(lowered) > 1 else ""
+    third = lowered[2] if len(lowered) > 2 else ""
+    if first == "pass" and second in {"show", "otp"}:
+        return True
+    if first == "op" and (
+        second == "read"
+        or lowered[1:3] in [["item", "get"], ["document", "get"]]
+    ):
+        return True
+    if first == "bw" and second == "get" and third in {"item", "password", "notes", "totp"}:
+        return True
+    if first == "security" and second in {"find-generic-password", "find-internet-password"} and "-w" in lowered:
+        return True
+    if first == "secret-tool" and second == "lookup":
+        return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +306,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _password_manager_secret_access(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Password-manager command can reveal stored secrets or one-time passwords.",
+            target_display="password manager secret",
+            confirmation_phrase="approve password manager access",
         )
 
     if first == "aws" and (
