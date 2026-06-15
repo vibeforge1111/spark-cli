@@ -1214,8 +1214,8 @@ main() {
   confirm_install
   mkdir -p "$SPARK_PREFIX"
   ensure_python_runtime
-  start_install_log
   acquire_install_lock
+  start_install_log
   install_node
   export PATH="$SPARK_NODE_BIN_DIR:$PATH"
   log "Node runtime: $(node -v)"
