@@ -3883,6 +3883,9 @@ def run_llm_provider_wizard(args: argparse.Namespace, secret_values: dict[str, s
     if provider is None:
         return secret_values
     if provider == "not_configured":
+        print("")
+        print("LLM provider skipped; telegram-starter setup will continue without an LLM provider.")
+        print("You can finish Telegram setup now and add an LLM later with spark setup --llm-provider ....")
         return secret_values
     setattr(args, "llm_provider", provider)
     print_selected_provider_status(provider)
