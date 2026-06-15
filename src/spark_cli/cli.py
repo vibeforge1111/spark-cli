@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -952,7 +954,9 @@ def remove_tree(path: Path) -> None:
     grant_windows_delete_access(path)
     target = long_path_aware(path)
     try:
-        shutil.rmtree(target, onexc=retry_remove_readonly)
+        shutil.rmtree(target, onexc=retry_remove_readonly
+        timeout=SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS,
+        )
     except TypeError:  # pragma: no cover - Python <3.12 fallback
         shutil.rmtree(target, onerror=retry_remove_readonly)
 
