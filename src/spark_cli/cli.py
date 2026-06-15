@@ -16917,6 +16917,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+    list_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
