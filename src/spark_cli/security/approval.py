@@ -302,6 +302,30 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "wafv2":
+        waf_action = lowered[2]
+        mutating_prefixes = (
+            "associate-",
+            "create-",
+            "delete-",
+            "disassociate-",
+            "put-",
+            "tag-",
+            "untag-",
+            "update-",
+        )
+        if waf_action.startswith(mutating_prefixes):
+            critical_prefixes = ("delete-", "disassociate-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if waf_action.startswith(critical_prefixes) else "high",
+                "AWS WAFv2 command can change web ACLs, request filtering, logging, permissions, associations, or resource tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve wafv2 change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

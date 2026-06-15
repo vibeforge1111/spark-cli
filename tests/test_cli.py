@@ -1599,6 +1599,61 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_wafv2_mutations(self) -> None:
+        cases = [
+            (["aws", "wafv2", "create-web-acl", "--name", "spark", "--scope", "REGIONAL", "--default-action", "{}"], "high"),
+            (["aws", "wafv2", "update-web-acl", "--name", "spark", "--scope", "REGIONAL", "--id", "acl-1", "--lock-token", "lock-1"], "high"),
+            (["aws", "wafv2", "delete-web-acl", "--name", "spark", "--scope", "REGIONAL", "--id", "acl-1", "--lock-token", "lock-1"], "critical"),
+            (
+                [
+                    "aws",
+                    "wafv2",
+                    "associate-web-acl",
+                    "--web-acl-arn",
+                    "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl",
+                    "--resource-arn",
+                    "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/spark/123",
+                ],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "wafv2",
+                    "disassociate-web-acl",
+                    "--resource-arn",
+                    "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/spark/123",
+                ],
+                "critical",
+            ),
+            (["aws", "wafv2", "put-logging-configuration", "--logging-configuration", "{}"], "high"),
+            (["aws", "wafv2", "delete-logging-configuration", "--resource-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl"], "critical"),
+            (["aws", "wafv2", "put-permission-policy", "--resource-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl", "--policy", "{}"], "high"),
+            (["aws", "wafv2", "delete-permission-policy", "--resource-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl"], "critical"),
+            (["aws", "wafv2", "tag-resource", "--resource-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve wafv2 change")
+
+    def test_approval_classifier_allows_aws_wafv2_report_commands(self) -> None:
+        for command in (
+            ["aws", "wafv2", "list-web-acls", "--scope", "REGIONAL"],
+            ["aws", "wafv2", "get-web-acl", "--name", "spark", "--scope", "REGIONAL", "--id", "acl-1"],
+            ["aws", "wafv2", "get-logging-configuration", "--resource-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl"],
+            ["aws", "wafv2", "list-resources-for-web-acl", "--web-acl-arn", "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/spark/acl"],
+            ["aws", "wafv2", "check-capacity", "--scope", "REGIONAL", "--rules", "[]"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
