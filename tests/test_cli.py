@@ -1584,6 +1584,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_tar_command_execution(self) -> None:
+        for command in (
+            ["tar", "-xf", "archive.tar", "--to-command", "sh -c echo ok"],
+            ["tar", "--extract", "--file", "archive.tar", "--to-command=sh -c echo ok"],
+            ["tar", "-cf", "archive.tar", "project", "--checkpoint-action=exec=sh hook.sh"],
+            ["tar", "--checkpoint-action=exec=sh hook.sh", "-cf", "archive.tar", "project"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve tar execution")
+
+    def test_approval_classifier_allows_plain_tar_archive_commands(self) -> None:
+        for command in (
+            ["tar", "-tf", "archive.tar"],
+            ["tar", "-xf", "archive.tar"],
+            ["tar", "-cf", "archive.tar", "project"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
