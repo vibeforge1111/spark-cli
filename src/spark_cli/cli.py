@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -913,7 +915,9 @@ def module_is_git_managed(module_path: Path) -> bool:
     try:
         return module_path.is_relative_to(SPARK_HOME / "modules")
     except AttributeError:  # pragma: no cover - Python <3.9 fallback
-        return str(SPARK_HOME / "modules") in str(module_path)
+        return str(SPARK_HOME / "modules") in str(module_path
+        timeout=SPARK_CLI_UPDATE_MODULE_SOURCE_TIMEOUT_SECONDS,
+        )
 
 
 def long_path_aware(path: Path) -> str:
