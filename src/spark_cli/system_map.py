@@ -1405,6 +1405,37 @@ def safe_short_string(value: str, limit: int = 240) -> str:
     return cleaned[: limit - 3] + "..."
 
 
+def _local_path_redaction_roots(system_map: dict[str, Any]) -> list[tuple[str, str]]:
+    source_roots = as_dict(system_map.get("source_roots"))
+    roots: list[tuple[str, str]] = []
+    for key, label in (("desktop", "[desktop]"), ("spark_home", "[spark-home]"), ("registry", "[registry]")):
+        value = source_roots.get(key)
+        if isinstance(value, str) and value.strip():
+            roots.append((Path(value).expanduser().as_posix().rstrip("/"), label))
+    roots.sort(key=lambda item: len(item[0]), reverse=True)
+    return [(root, label) for root, label in roots if root]
+
+
+def _redact_local_path_text(value: str, roots: list[tuple[str, str]]) -> str:
+    redacted = value
+    for root, label in roots:
+        redacted = redacted.replace(root, label)
+    return redacted
+
+
+def redact_local_paths_for_export(value: Any, roots: list[tuple[str, str]]) -> Any:
+    if isinstance(value, str):
+        return _redact_local_path_text(value, roots)
+    if isinstance(value, list):
+        return [redact_local_paths_for_export(item, roots) for item in value]
+    if isinstance(value, dict):
+        return {
+            redact_local_paths_for_export(key, roots) if isinstance(key, str) else key: redact_local_paths_for_export(item, roots)
+            for key, item in value.items()
+        }
+    return value
+
+
 def sensitive_identifier(value: str) -> bool:
     lowered = value.lower()
     return bool(
@@ -5469,6 +5500,9 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
     system_map = as_dict(compiled["system_map"])
+    path_roots = _local_path_redaction_roots(system_map)
+    export_compiled = redact_local_paths_for_export(compiled, path_roots)
+    export_system_map = as_dict(export_compiled["system_map"])
     paths = {
         "system_map": out_dir / "system-map.json",
         "authority_view": out_dir / "authority-view.json",
@@ -5480,15 +5514,15 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
         "operating_cockpit": out_dir / "operating-cockpit.json",
         "gaps": out_dir / "gaps.md",
     }
-    write_json(paths["system_map"], system_map)
-    write_json(paths["authority_view"], compiled["authority_view"])
-    write_json(paths["capability_catalog"], compiled["capability_catalog"])
-    write_json(paths["trace_index"], compiled["trace_index"])
-    write_json(paths["memory_movement_index"], compiled["memory_movement_index"])
-    write_json(paths["repo_board"], compiled["repo_board"])
-    write_json(paths["voice_surface_view"], compiled["voice_surface_view"])
-    write_json(paths["operating_cockpit"], compiled["operating_cockpit"])
-    write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map)
+    write_json(paths["system_map"], export_system_map)
+    write_json(paths["authority_view"], export_compiled["authority_view"])
+    write_json(paths["capability_catalog"], export_compiled["capability_catalog"])
+    write_json(paths["trace_index"], export_compiled["trace_index"])
+    write_json(paths["memory_movement_index"], export_compiled["memory_movement_index"])
+    write_json(paths["repo_board"], export_compiled["repo_board"])
+    write_json(paths["voice_surface_view"], export_compiled["voice_surface_view"])
+    write_json(paths["operating_cockpit"], export_compiled["operating_cockpit"])
+    write_gaps_markdown(paths["gaps"], as_list(export_system_map.get("gaps")), export_system_map)
     return {key: str(path) for key, path in paths.items()}
 
 
