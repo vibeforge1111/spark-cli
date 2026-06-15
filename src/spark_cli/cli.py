@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import binascii
 import ctypes
 import getpass
 import hashlib
@@ -1182,10 +1183,22 @@ def dpapi_protect(value: str) -> str:
 def dpapi_unprotect(value: str) -> str:
     if value.startswith(INSECURE_FILE_SECRET_PREFIX):
         encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
-        return base64.b64decode(encoded).decode("utf-8")
+        try:
+            return base64.b64decode(encoded).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ValueError(
+                "Stored secret has invalid base64 or encoding. "
+                "Delete the entry and re-enter it with `spark setup`."
+            ) from exc
     if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
         return value
-    protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
+    try:
+        protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
+    except binascii.Error as exc:
+        raise ValueError(
+            "Stored DPAPI secret has invalid base64. "
+            "Delete the entry and re-enter it with `spark setup`."
+        ) from exc
     buffer = ctypes.create_string_buffer(protected)
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
     out_blob = _DataBlob()
@@ -1202,7 +1215,14 @@ def dpapi_unprotect(value: str) -> str:
         raw = ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
         _kernel32().LocalFree(out_blob.pbData)
-    return raw.decode("utf-8")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            "Decrypted secret contains invalid UTF-8. "
+            "The stored entry may be corrupted. Delete it "
+            "and re-enter it with `spark setup`."
+        ) from exc
 
 
 def allow_insecure_file_secrets() -> bool:
