@@ -582,6 +582,8 @@ class SparkCliTests(unittest.TestCase):
             "X-Api-Key: custom-header-secret-value",
             "Cookie: sessionid=private-cookie-value",
             "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+            "Authorization: Token custom-token-secret-value",
+            "Authorization: ApiKey custom-apikey-secret-value",
         ]
         text = redact_sandbox_text("\n".join(samples))
         for leaked in [
@@ -593,6 +595,8 @@ class SparkCliTests(unittest.TestCase):
             "custom-header-secret-value",
             "sessionid=private-cookie-value",
             "dXNlcjpwYXNzd29yZA==",
+            "custom-token-secret-value",
+            "custom-apikey-secret-value",
         ]:
             self.assertNotIn(leaked, text)
         self.assertIn("[REDACTED]", text)
