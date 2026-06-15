@@ -12,7 +12,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m
     volumes:
-      - ./spark-data:/data/spark
+      - ./spark-data:/data/spark:z
     ports:
       - "5173:5173"
     env_file:
