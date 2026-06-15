@@ -1522,6 +1522,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "git_history_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve git history mutation")
 
+    def test_approval_classifier_flags_git_config_mutation(self) -> None:
+        blocked_commands = (
+            ["git", "config", "--global", "credential.helper", "store"],
+            ["git", "config", "--global", "url.ssh://example.test/.insteadOf", "https://github.com/"],
+            ["git", "config", "user.email", "dev@example.test"],
+            ["git", "config", "--unset", "credential.helper"],
+            ["git", "config", "--rename-section", "alias", "alias2"],
+        )
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve git config mutation")
+
+        allowed_commands = (
+            ["git", "config", "--get", "user.email"],
+            ["git", "config", "user.email"],
+            ["git", "config", "--file", "repo-config", "user.email"],
+            ["git", "config", "--list"],
+            ["git", "config", "--show-origin", "--get-regexp", "remote\\..*\\.url"],
+        )
+        for command in allowed_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_secret_reveal(self) -> None:
         decision = approval_required_for_command(["spark", "secrets", "get", "telegram.bot_token", "--reveal"], CommandContext())
         self.assertTrue(decision.requires_approval)
