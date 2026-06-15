@@ -99,6 +99,12 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _github_cli_auth_mutation(lowered: list[str]) -> bool:
+    if lowered[0:2] != ["gh", "auth"] or len(lowered) < 3:
+        return False
+    return lowered[2] in {"login", "logout", "refresh", "setup-git", "switch"}
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -286,6 +292,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "GitHub command can reveal the active authentication token.",
             target_display="gh auth token",
             confirmation_phrase="approve github token reveal",
+        )
+
+    if _github_cli_auth_mutation(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "GitHub CLI auth command can store, remove, switch, or expand local GitHub credentials.",
+            target_display="github cli auth",
+            confirmation_phrase="approve github auth change",
         )
 
     if first == "aws" and (

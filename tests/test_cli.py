@@ -1543,6 +1543,31 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_github_cli_auth_mutation(self) -> None:
+        cases = [
+            ["gh", "auth", "login", "--with-token"],
+            ["gh", "auth", "logout"],
+            ["gh", "auth", "refresh", "-s", "repo"],
+            ["gh", "auth", "setup-git"],
+            ["gh", "auth", "switch"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve github auth change")
+
+        status = approval_required_for_command(["gh", "auth", "status"], CommandContext(non_interactive=True))
+        self.assertFalse(status.requires_approval)
+
+        token = approval_required_for_command(["gh", "auth", "token"], CommandContext(non_interactive=True))
+        self.assertTrue(token.requires_approval)
+        self.assertEqual(token.risk, "critical")
+        self.assertEqual(token.confirmation_phrase, "approve github token reveal")
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)
