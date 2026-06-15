@@ -558,7 +558,13 @@ detect_node_platform() {
   arch="$(uname -m)"
 
   case "$os_name" in
-    Linux) os_id="linux" ;;
+    Linux)
+      os_id="linux"
+      if [ -f /proc/version ] && grep -qi microsoft /proc/version 2>/dev/null; then
+        log "Detected WSL environment. This script installs the Linux/WSL version of Spark."
+        log "If you also need Spark in Windows PowerShell, run install.ps1 separately."
+      fi
+      ;;
     Darwin) os_id="darwin" ;;
     *)
       echo "Unsupported OS for install.sh: $os_name. Use install.ps1 on Windows." >&2
