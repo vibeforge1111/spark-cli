@@ -15857,10 +15857,12 @@ def cmd_autostart_uninstall(_: argparse.Namespace) -> int:
             print(f"Removed Windows Startup fallback: {startup_path}")
             failures = 0 if failures else failures
         legacy_cmd_path = windows_startup_legacy_cmd_path()
-        if legacy_cmd_path.exists():
+        try:
             legacy_cmd_path.unlink()
             print(f"Removed legacy Windows Startup fallback: {legacy_cmd_path}")
             failures = 0 if failures else failures
+        except FileNotFoundError:
+            pass
         run_key_command = ["reg", "delete", windows_run_key_path(), "/v", AUTOSTART_WINDOWS_TASK_NAME, "/F"]
         result = run_autostart_helper(run_key_command)
         if result.returncode == 0:
