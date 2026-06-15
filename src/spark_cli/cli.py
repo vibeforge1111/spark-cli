@@ -3435,7 +3435,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "ollama": {
         "base_url_arg": "ollama_url",
         "base_url_env": "OLLAMA_URL",
-        "base_url_default": "http://localhost:11434",
+        "base_url_default": "http://localhost:11434/v1",
         "model_arg": "ollama_model",
         "model_env": "OLLAMA_MODEL",
         "model_default": "llama3.2:3b",
@@ -17080,7 +17080,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--minimax-base-url", default="https://api.minimax.io/v1")
     setup_parser.add_argument("--minimax-model", default="MiniMax-M2.7")
     setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
-    setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
+    setup_parser.add_argument("--ollama-url", default="http://localhost:11434/v1")
     setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
     setup_parser.add_argument("--codex-model", default="gpt-5.5")
     setup_parser.set_defaults(func=cmd_setup)
