@@ -5311,8 +5311,10 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
         return
     remaining = [name for name in setup_state.get("modules", []) if name not in module_names]
     if not remaining:
-        if CONFIG_PATH.exists():
-            CONFIG_PATH.unlink()
+        setup_state["modules"] = []
+        if setup_state.get("telegram_ingress_owner") in module_names:
+            setup_state["telegram_ingress_owner"] = None
+        save_json(CONFIG_PATH, setup_state)
         return
     setup_state["modules"] = remaining
     if setup_state.get("telegram_ingress_owner") in module_names:
