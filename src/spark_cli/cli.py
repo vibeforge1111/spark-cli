@@ -9147,7 +9147,12 @@ def load_json_best_effort(path: Path, default: Any) -> Any:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Configuration error: '{path}' contains invalid JSON at "
+            f"line {exc.lineno}, column {exc.colno}: {exc.msg}."
+        ) from None
+    except (OSError, TypeError, ValueError):
         return default
 
 
