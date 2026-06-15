@@ -15555,8 +15555,10 @@ def install_windows_fallback_autostart(start_command: str) -> tuple[Path, bool]:
     startup_path = windows_startup_script_path()
     write_windows_startup_script(startup_path, start_command)
     legacy_cmd_path = windows_startup_legacy_cmd_path()
-    if legacy_cmd_path.exists():
+    try:
         legacy_cmd_path.unlink()
+    except FileNotFoundError:
+        pass
     run_key_command = [
         "reg",
         "add",
