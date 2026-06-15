@@ -302,6 +302,39 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "eks" and len(lowered) > 2 and lowered[2] in {
+        "associate-encryption-config",
+        "associate-identity-provider-config",
+        "create-addon",
+        "create-cluster",
+        "create-fargate-profile",
+        "create-nodegroup",
+        "create-pod-identity-association",
+        "delete-addon",
+        "delete-cluster",
+        "delete-fargate-profile",
+        "delete-nodegroup",
+        "delete-pod-identity-association",
+        "deregister-cluster",
+        "disassociate-identity-provider-config",
+        "register-cluster",
+        "update-addon",
+        "update-cluster-config",
+        "update-cluster-version",
+        "update-nodegroup-config",
+        "update-nodegroup-version",
+        "update-pod-identity-association",
+    }:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if lowered[2].startswith("delete") or lowered[2] == "deregister-cluster" else "high",
+            "AWS EKS command can create, update, or delete live Kubernetes cluster infrastructure.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve eks infrastructure change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
