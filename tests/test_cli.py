@@ -1593,6 +1593,24 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_isolation_bypass_flags(self) -> None:
+        cases = (
+            ["docker", "run", "--cap-add=SYS_ADMIN", "alpine"],
+            ["docker", "run", "--cap-add", "SYS_ADMIN", "alpine"],
+            ["docker", "run", "--device", "/dev/kvm", "alpine"],
+            ["docker", "run", "--pid=host", "alpine"],
+            ["docker", "run", "--ipc", "host", "alpine"],
+            ["docker", "run", "--security-opt", "seccomp=unconfined", "alpine"],
+            ["docker", "run", "--security-opt=apparmor=unconfined", "alpine"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "container_privilege_escalation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
