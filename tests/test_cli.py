@@ -1653,6 +1653,61 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_acm_mutations(self) -> None:
+        certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+        cases = [
+            (
+                ["aws", "acm", "import-certificate", "--certificate", "fileb://cert.pem", "--private-key", "fileb://key.pem"],
+                "credential_mutation",
+                "critical",
+            ),
+            (["aws", "acm", "export-certificate", "--certificate-arn", certificate_arn, "--passphrase", "fileb://passphrase.bin"], "credential_mutation", "critical"),
+            (["aws", "acm", "request-certificate", "--domain-name", "example.test"], "credential_mutation", "high"),
+            (["aws", "acm", "renew-certificate", "--certificate-arn", certificate_arn], "credential_mutation", "high"),
+            (
+                [
+                    "aws",
+                    "acm",
+                    "resend-validation-email",
+                    "--certificate-arn",
+                    certificate_arn,
+                    "--domain",
+                    "example.test",
+                    "--validation-domain",
+                    "example.test",
+                ],
+                "credential_mutation",
+                "high",
+            ),
+            (["aws", "acm", "update-certificate-options", "--certificate-arn", certificate_arn], "credential_mutation", "high"),
+            (["aws", "acm", "add-tags-to-certificate", "--certificate-arn", certificate_arn, "--tags", "Key=team,Value=spark"], "credential_mutation", "high"),
+            (["aws", "acm", "remove-tags-from-certificate", "--certificate-arn", certificate_arn, "--tags", "Key=team,Value=spark"], "credential_mutation", "critical"),
+            (["aws", "acm", "delete-certificate", "--certificate-arn", certificate_arn], "credential_mutation", "critical"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve acm change")
+
+    def test_approval_classifier_allows_aws_acm_report_commands(self) -> None:
+        certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+        cases = [
+            ["aws", "acm", "describe-certificate", "--certificate-arn", certificate_arn],
+            ["aws", "acm", "list-certificates"],
+            ["aws", "acm", "list-tags-for-certificate", "--certificate-arn", certificate_arn],
+            ["aws", "acm", "get-account-configuration"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
