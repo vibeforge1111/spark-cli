@@ -302,6 +302,34 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "sqs" and len(lowered) > 2:
+        sqs_mutation_prefixes = (
+            "add-",
+            "cancel-",
+            "change-",
+            "create-",
+            "delete-",
+            "purge-",
+            "remove-",
+            "send-",
+            "set-",
+            "start-",
+            "tag-",
+            "untag-",
+        )
+        if lowered[2].startswith(sqs_mutation_prefixes):
+            sqs_action = lowered[2]
+            critical_prefixes = ("delete-", "purge-", "remove-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if sqs_action.startswith(critical_prefixes) else "high",
+                "AWS SQS command can publish queue messages or mutate queues, queue policies, attributes, visibility, tags, or message state.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve sqs change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
