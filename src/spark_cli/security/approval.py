@@ -99,6 +99,10 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _has_input_redirection(parts: list[str]) -> bool:
+    return "<" in parts or any(part.startswith("<") and len(part) > 1 for part in parts)
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -501,6 +505,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "medium",
             "Command may upload local data to a network endpoint.",
             target_display=parts[0],
+            confirmation_phrase="approve network upload",
+        )
+    if first == "openssl" and second == "s_client" and _has_input_redirection(parts[2:]):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "OpenSSL s_client may stream local file data to a TLS endpoint.",
+            target_display="openssl s_client",
             confirmation_phrase="approve network upload",
         )
 

