@@ -930,14 +930,18 @@ class SparkCliTests(unittest.TestCase):
     def test_ssh_target_validation_rejects_root_urls_and_metadata(self) -> None:
         with self.assertRaises(ValueError):
             validate_ssh_user("root")
+        self.assertEqual(validate_ssh_host("::1"), "::1")
         for host in [
             "ssh://example.test",
             "spark@example.test",
             "example.test/path",
+            "example.test:22",
             "169.254.169.254",
+            "169.254.169.254:22",
             "169.254.169.254.",
             "::ffff:169.254.169.254",
             "fd00:ec2::254",
+            "metadata.google.internal:22",
             "metadata.google.internal.",
             "2852039166",
             "0xa9fea9fe",
