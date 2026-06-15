@@ -338,6 +338,21 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve remote code execution",
         )
 
+    if (
+        first == "npx"
+        or (first == "npm" and second == "exec")
+        or (first in {"pnpm", "yarn"} and second == "dlx")
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "critical",
+            "Command can download and execute package code through a package runner.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve remote code execution",
+        )
+
     if first == "find" and any(part in {"-exec", "-execdir"} for part in lowered):
         return _decision(
             parts,
