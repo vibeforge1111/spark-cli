@@ -144,6 +144,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+    third = lowered[2] if len(lowered) > 2 else ""
 
     if first in {"sudo", "doas"}:
         nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
@@ -219,6 +220,9 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "--force-with-lease" in lowered
         or "-f" in lowered and second in {"push", "tag"}
         or second in {"rebase", "reset"}
+        or (second == "reflog" and third in {"expire", "delete"})
+        or second == "prune"
+        or (second == "gc" and "--dry-run" not in lowered and any(part == "--prune" or part.startswith("--prune=") for part in lowered))
     ):
         return _decision(
             parts,
