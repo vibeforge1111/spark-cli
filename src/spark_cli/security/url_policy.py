@@ -44,9 +44,14 @@ def _parse_url(raw_url: str) -> urllib.parse.ParseResult:
 
 def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
-        return ipaddress.ip_address(host.strip("[]"))
+        addr = ipaddress.ip_address(host.strip("[]"))
     except ValueError:
         return None
+    # Unwrap IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1)
+    # so that loopback/private/metadata checks apply to the embedded IPv4.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        return addr.ipv4_mapped
+    return addr
 
 
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
