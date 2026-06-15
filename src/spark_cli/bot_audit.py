@@ -18,6 +18,7 @@ class BotAuditSpec:
     name: str
     filename: str
     identifier_fields: tuple[str, ...]
+    legacy_idless_events: tuple[str, ...] = ()
 
 
 BOT_AUDIT_SPECS: tuple[BotAuditSpec, ...] = (
@@ -54,6 +55,7 @@ BOT_AUDIT_SPECS: tuple[BotAuditSpec, ...] = (
             "update_id",
             "legacy_audit_ref",
         ),
+        legacy_idless_events=("telegram_node_delivered",),
     ),
     BotAuditSpec(
         name="route_confidence",
@@ -84,6 +86,21 @@ def _truthy_identifier(value: Any) -> bool:
     return True
 
 
+def _is_legacy_idless_row(payload: dict[str, Any], spec: BotAuditSpec) -> bool:
+    """Classify pre-schema metadata-only rows as legacy warnings, not current failures."""
+    if not spec.legacy_idless_events:
+        return False
+    if _truthy_identifier(payload.get("schema_version")):
+        return False
+    if str(payload.get("event") or "") not in spec.legacy_idless_events:
+        return False
+    if payload.get("privacy") != "metadata_only":
+        return False
+    if not _truthy_identifier(payload.get("chat_ref")):
+        return False
+    return _truthy_identifier(payload.get("text_length"))
+
+
 def _read_tail(path: Path, limit: int) -> tuple[list[tuple[int, str]], dict[str, Any]]:
     tail: deque[tuple[int, str]] = deque(maxlen=max(1, int(limit)))
     nonempty_lines = 0
@@ -108,6 +125,7 @@ def inspect_bot_audit_file(path: Path, spec: BotAuditSpec, *, limit: int) -> dic
     parsed_count = 0
     parse_errors: list[dict[str, Any]] = []
     missing_id_rows: list[dict[str, Any]] = []
+    legacy_idless_rows: list[dict[str, Any]] = []
     identifier_presence = {field: 0 for field in spec.identifier_fields}
 
     for line_number, line in rows:
@@ -123,6 +141,15 @@ def inspect_bot_audit_file(path: Path, spec: BotAuditSpec, *, limit: int) -> dic
         present = [field for field in spec.identifier_fields if _truthy_identifier(payload.get(field))]
         for field in present:
             identifier_presence[field] += 1
+        if not present and _is_legacy_idless_row(payload, spec):
+            legacy_idless_rows.append(
+                {
+                    "line_number": line_number,
+                    "event": str(payload.get("event") or payload.get("schema_version") or "unknown")[:80],
+                    "outcome": str(payload.get("outcome") or payload.get("decision") or "unknown")[:80],
+                }
+            )
+            continue
         if not present:
             missing_id_rows.append(
                 {
@@ -143,6 +170,8 @@ def inspect_bot_audit_file(path: Path, spec: BotAuditSpec, *, limit: int) -> dic
         "identifier_presence": {key: value for key, value in identifier_presence.items() if value},
         "missing_id_count": len(missing_id_rows),
         "missing_id_rows": missing_id_rows[:20],
+        "legacy_idless_count": len(legacy_idless_rows),
+        "legacy_idless_rows": legacy_idless_rows[:20],
     }
 
 
@@ -156,6 +185,7 @@ def build_bot_audit_payload(*, spark_home: Path, limit: int = DEFAULT_BOT_AUDIT_
     missing_files = [source["filename"] for source in sources if not source["exists"]]
     missing_id_count = sum(int(source["missing_id_count"]) for source in sources)
     parse_error_count = sum(int(source["parse_error_count"]) for source in sources)
+    legacy_idless_count = sum(int(source["legacy_idless_count"]) for source in sources)
     return {
         "schema_version": BOT_AUDIT_SCHEMA_VERSION,
         "ok": not missing_files and missing_id_count == 0 and parse_error_count == 0,
@@ -167,6 +197,7 @@ def build_bot_audit_payload(*, spark_home: Path, limit: int = DEFAULT_BOT_AUDIT_
             "missing_file_count": len(missing_files),
             "missing_id_count": missing_id_count,
             "parse_error_count": parse_error_count,
+            "legacy_idless_count": legacy_idless_count,
         },
         "sources": sources,
         "redaction": "metadata only; raw audit payloads, chat text, previews, prompts, and identifiers are omitted",
@@ -192,11 +223,17 @@ def cmd_bot_audit(args: argparse.Namespace) -> int:
         print(
             f"- {source['filename']}: {status}; "
             f"parsed={source['parsed_count']} missing_ids={source['missing_id_count']} "
-            f"parse_errors={source['parse_error_count']}"
+            f"parse_errors={source['parse_error_count']} "
+            f"legacy_idless={source['legacy_idless_count']}"
         )
         for row in source["missing_id_rows"][:5]:
             print(
                 f"  - missing id at line {row['line_number']}: "
+                f"event={row['event']} outcome={row['outcome']}"
+            )
+        for row in source["legacy_idless_rows"][:3]:
+            print(
+                f"  - legacy idless row at line {row['line_number']}: "
                 f"event={row['event']} outcome={row['outcome']}"
             )
     print("Redaction: metadata only; raw audit payloads, chat text, previews, prompts, and ids are omitted.")

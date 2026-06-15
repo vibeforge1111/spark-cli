@@ -29,7 +29,7 @@ def test_bot_audit_tails_three_sources_and_flags_idless_rows(tmp_path: Path) -> 
         state_dir / "node-outbound-audit.jsonl",
         [
             {"event": "telegram_node_delivered", "request_id": "request-2", "delivered_text": "private fixture text"},
-            {"event": "telegram_node_delivered", "text_preview": "private fixture text"},
+            {"schema_version": "spark.node_outbound_audit.v1", "event": "telegram_node_delivered", "text_preview": "private fixture text"},
         ],
     )
     _write_jsonl(
@@ -47,11 +47,63 @@ def test_bot_audit_tails_three_sources_and_flags_idless_rows(tmp_path: Path) -> 
     assert payload["summary"]["source_count"] == 3
     assert payload["summary"]["missing_file_count"] == 0
     assert payload["summary"]["missing_id_count"] == 3
+    assert payload["summary"]["legacy_idless_count"] == 0
     sources = {source["name"]: source for source in payload["sources"]}
     assert sources["final_answer_gate"]["missing_id_rows"][0]["line_number"] == 3
     assert sources["node_outbound"]["missing_id_rows"][0]["line_number"] == 2
     assert sources["route_confidence"]["missing_id_rows"][0]["line_number"] == 2
     assert "private fixture text" not in json.dumps(payload)
+
+
+def test_bot_audit_reports_pre_schema_node_outbound_idless_rows_as_legacy_warnings(tmp_path: Path) -> None:
+    spark_home = tmp_path / ".spark"
+    state_dir = spark_home / "state" / "spark-telegram-bot"
+    _write_jsonl(state_dir / "final-answer-gate-audit.jsonl", [{"event": "ok", "request_id": "request-1"}])
+    _write_jsonl(
+        state_dir / "node-outbound-audit.jsonl",
+        [
+            {
+                "event": "telegram_node_delivered",
+                "privacy": "metadata_only",
+                "chat_ref": "chat_abc123",
+                "text_length": 42,
+            }
+        ],
+    )
+    _write_jsonl(state_dir / "route-confidence-audit.jsonl", [{"event": "ok", "request_ref": "request-2"}])
+
+    payload = build_bot_audit_payload(spark_home=spark_home, limit=10)
+
+    assert payload["ok"] is True
+    assert payload["summary"]["missing_id_count"] == 0
+    assert payload["summary"]["legacy_idless_count"] == 1
+    sources = {source["name"]: source for source in payload["sources"]}
+    assert sources["node_outbound"]["legacy_idless_rows"][0]["line_number"] == 1
+
+
+def test_bot_audit_still_fails_current_schema_node_outbound_idless_rows(tmp_path: Path) -> None:
+    spark_home = tmp_path / ".spark"
+    state_dir = spark_home / "state" / "spark-telegram-bot"
+    _write_jsonl(state_dir / "final-answer-gate-audit.jsonl", [{"event": "ok", "request_id": "request-1"}])
+    _write_jsonl(
+        state_dir / "node-outbound-audit.jsonl",
+        [
+            {
+                "schema_version": "spark.node_outbound_audit.v1",
+                "event": "telegram_node_delivered",
+                "privacy": "metadata_only",
+                "chat_ref": "chat_abc123",
+                "text_length": 42,
+            }
+        ],
+    )
+    _write_jsonl(state_dir / "route-confidence-audit.jsonl", [{"event": "ok", "request_ref": "request-2"}])
+
+    payload = build_bot_audit_payload(spark_home=spark_home, limit=10)
+
+    assert payload["ok"] is False
+    assert payload["summary"]["missing_id_count"] == 1
+    assert payload["summary"]["legacy_idless_count"] == 0
 
 
 def test_cmd_bot_audit_emits_json_metadata(tmp_path: Path, capsys) -> None:
