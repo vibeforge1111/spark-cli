@@ -302,6 +302,27 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "ssm" and len(lowered) > 2:
+        ssm_parameter_mutation_actions = {
+            "add-tags-to-resource",
+            "delete-parameter",
+            "delete-parameters",
+            "label-parameter-version",
+            "put-parameter",
+            "remove-tags-from-resource",
+        }
+        if lowered[2] in ssm_parameter_mutation_actions:
+            critical_actions = {"delete-parameter", "delete-parameters", "remove-tags-from-resource"}
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation",
+                "critical" if lowered[2] in critical_actions else "high",
+                "AWS SSM Parameter Store command can create, overwrite, delete, label, or retag stored configuration and secret-like values.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve ssm parameter change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

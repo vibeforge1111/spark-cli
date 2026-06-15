@@ -1653,6 +1653,73 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_ssm_parameter_mutations(self) -> None:
+        parameter = "/spark/synthetic/setting"
+        cases = [
+            (
+                ["aws", "ssm", "put-parameter", "--name", parameter, "--value", "placeholder", "--type", "String", "--overwrite"],
+                "credential_mutation",
+                "high",
+            ),
+            (
+                ["aws", "ssm", "put-parameter", "--name", parameter, "--value", "placeholder", "--type", "SecureString"],
+                "credential_mutation",
+                "high",
+            ),
+            (["aws", "ssm", "label-parameter-version", "--name", parameter, "--labels", "prod"], "credential_mutation", "high"),
+            (
+                [
+                    "aws",
+                    "ssm",
+                    "add-tags-to-resource",
+                    "--resource-type",
+                    "Parameter",
+                    "--resource-id",
+                    parameter,
+                    "--tags",
+                    "Key=team,Value=spark",
+                ],
+                "credential_mutation",
+                "high",
+            ),
+            (["aws", "ssm", "delete-parameter", "--name", parameter], "credential_mutation", "critical"),
+            (["aws", "ssm", "delete-parameters", "--names", parameter], "credential_mutation", "critical"),
+            (
+                ["aws", "ssm", "remove-tags-from-resource", "--resource-type", "Parameter", "--resource-id", parameter, "--tag-keys", "team"],
+                "credential_mutation",
+                "critical",
+            ),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssm parameter change")
+
+    def test_approval_classifier_preserves_aws_ssm_reports_and_reveal_guard(self) -> None:
+        parameter = "/spark/synthetic/setting"
+        reveal = approval_required_for_command(["aws", "ssm", "get-parameter", "--name", parameter, "--with-decryption"], CommandContext(non_interactive=True))
+        self.assertTrue(reveal.requires_approval)
+        self.assertEqual(reveal.action_class, "credential_mutation")
+        self.assertEqual(reveal.risk, "critical")
+        self.assertEqual(reveal.confirmation_phrase, "approve cloud secret reveal")
+
+        cases = [
+            ["aws", "ssm", "describe-parameters"],
+            ["aws", "ssm", "get-parameters", "--names", parameter],
+            ["aws", "ssm", "get-parameter-history", "--name", parameter],
+            ["aws", "ssm", "list-tags-for-resource", "--resource-type", "Parameter", "--resource-id", parameter],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
