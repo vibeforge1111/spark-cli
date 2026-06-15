@@ -10303,11 +10303,20 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
     ))
 
     supply_chain_errors = module_supply_chain_errors()
+    if not supply_chain_errors:
+        supply_chain_detail = "Installed modules match blessed registry pins and provenance boundaries."
+        supply_chain_repair = "Run `spark update --skip-dirty`, review local module edits, or reinstall the affected module from the blessed registry pin."
+    else:
+        supply_chain_detail = "; ".join(supply_chain_errors[:6])
+        if any("No installed module registry" in err for err in supply_chain_errors):
+            supply_chain_repair = "Run `spark setup telegram-starter` to install the starter bundle."
+        else:
+            supply_chain_repair = "Run `spark update --skip-dirty`, review local module edits, or reinstall the affected module from the blessed registry pin."
     checks.append(security_check(
         "module_supply_chain",
         not supply_chain_errors,
-        "Installed modules match blessed registry pins and provenance boundaries." if not supply_chain_errors else "; ".join(supply_chain_errors[:6]),
-        "Run `spark update --skip-dirty`, review local module edits, or reinstall the affected module from the blessed registry pin.",
+        supply_chain_detail,
+        supply_chain_repair,
         severity="high",
     ))
 
