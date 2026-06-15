@@ -3234,6 +3234,7 @@ def builder_trace_missing_source_state(
                 """,
                 count_params,
             ).fetchone()[0]
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             missing = conn.execute(
                 f"""
                 select count(*)
