@@ -4184,6 +4184,8 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BUILDER_REPO": str(builder.path),
+        "SPARK_BUILDER_HOME": str(builder_home),
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
