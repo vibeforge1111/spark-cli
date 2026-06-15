@@ -301,6 +301,28 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "cloudwatch":
+        cloudwatch_action = lowered[2]
+        if cloudwatch_action.startswith(
+            (
+                "delete-",
+                "disable-",
+                "enable-",
+                "put-",
+                "set-",
+                "tag-",
+                "untag-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if cloudwatch_action.startswith(("delete-", "disable-", "set-")) else "high",
+                "AWS CloudWatch command can mutate alarms, dashboards, alarm actions, metric data, tags, or monitoring state.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve cloudwatch change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
