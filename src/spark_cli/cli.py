@@ -5322,7 +5322,29 @@ def update_setup_state_after_uninstall(module_names: list[str]) -> None:
 
 def resolve_installed_modules() -> dict[str, Module]:
     installed = load_json(REGISTRY_PATH, {})
-    return {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    return _safe_load_installed_modules(installed)
+
+
+def _safe_load_installed_modules(installed: dict[str, Any]) -> dict[str, Module]:
+    """Load Module objects from a raw installed registry dict, skipping malformed entries."""
+    modules: dict[str, Module] = {}
+    for name, data in installed.items():
+        if not isinstance(data, dict):
+            print(f"Warning: skipping malformed registry entry for `{name}` (not an object).", file=sys.stderr)
+            continue
+        path_value = data.get("path")
+        if not path_value or not isinstance(path_value, str):
+            print(f"Warning: skipping `{name}` in registry (missing or invalid path).", file=sys.stderr)
+            continue
+        path = Path(path_value)
+        if not path.exists():
+            print(f"Warning: skipping `{name}` in registry (path does not exist: {path}).", file=sys.stderr)
+            continue
+        try:
+            modules[name] = load_module(path)
+        except Exception as exc:
+            print(f"Warning: skipping `{name}` in registry (could not load module: {exc}).", file=sys.stderr)
+    return modules
 
 
 def detect_uninstall_blockers(removing_modules: list[Module], installed_modules: dict[str, Module]) -> list[str]:
@@ -7659,7 +7681,7 @@ def collect_status_payload() -> dict[str, Any]:
             payload["setup_refresh"] = setup_refresh
         return payload
 
-    modules = {name: load_module(Path(data["path"])) for name, data in installed.items()}
+    modules = _safe_load_installed_modules(installed)
     module_results = [public_diagnostic_payload(evaluate_module_health(module)) for module in modules.values()]
     module_results_by_name = {item["name"]: item for item in module_results}
     for item in module_results:
@@ -9393,7 +9415,22 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
 
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
-    re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
+    re.compile(
+        r"\b(?:"
+        r"sk-[A-Za-z0-9_\-]{16,}"           # OpenAI
+        r"|sk-proj-[A-Za-z0-9_\-]{16,}"      # OpenAI project
+        r"|sk-ant-[A-Za-z0-9_\-]{16,}"       # Anthropic
+        r"|gho_[A-Za-z0-9_]{16,}"            # GitHub OAuth
+        r"|ghp_[A-Za-z0-9_]{16,}"            # GitHub personal
+        r"|github_pat_[A-Za-z0-9_]{16,}"     # GitHub PAT (fine-grained)
+        r"|glpat-[A-Za-z0-9_\-]{16,}"        # GitLab
+        r"|xox[baprs]-[A-Za-z0-9_\-]{16,}"   # Slack (bot/app/user/page/signing)
+        r"|AIza[A-Za-z0-9_\-]{16,}"          # Google
+        r"|AKI[AI][A-Z0-9]{16}"              # AWS access key
+        r"|hf_[A-Za-z0-9]{16,}"              # HuggingFace
+        r"|npm_[A-Za-z0-9]{10,}"             # npm
+        r")\b"
+    ),
     re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)([^\s,;\"']+)"),
     re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{16,})"),
 ]
@@ -9403,7 +9440,22 @@ SECRET_SURFACE_ENV_PATTERN = re.compile(
 SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES = {"TELEGRAM_RELAY_SECRET"}
 SECRET_SURFACE_TOKEN_PATTERNS = [
     re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
-    re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
+    re.compile(
+        r"\b(?:"
+        r"sk-[A-Za-z0-9_\-]{16,}"
+        r"|sk-proj-[A-Za-z0-9_\-]{16,}"
+        r"|sk-ant-[A-Za-z0-9_\-]{16,}"
+        r"|gho_[A-Za-z0-9_]{16,}"
+        r"|ghp_[A-Za-z0-9_]{16,}"
+        r"|github_pat_[A-Za-z0-9_]{16,}"
+        r"|glpat-[A-Za-z0-9_\-]{16,}"
+        r"|xox[baprs]-[A-Za-z0-9_\-]{16,}"
+        r"|AIza[A-Za-z0-9_\-]{16,}"
+        r"|AKI[AI][A-Z0-9]{16}"
+        r"|hf_[A-Za-z0-9]{16,}"
+        r"|npm_[A-Za-z0-9]{10,}"
+        r")\b"
+    ),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}"),
 ]
 SECRET_SURFACE_MAX_FILE_BYTES = 2 * 1024 * 1024
