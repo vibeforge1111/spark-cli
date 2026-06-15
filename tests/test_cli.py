@@ -1543,6 +1543,24 @@ class SparkCliTests(unittest.TestCase):
         dry_run = approval_required_for_command(["spark", "security", "revoke-all", "--dry-run"], CommandContext())
         self.assertFalse(dry_run.requires_approval)
 
+    def test_approval_classifier_flags_ssh_keygen_private_key_access(self) -> None:
+        cases = [
+            ["ssh-keygen", "-p", "-f", "synthetic-key"],
+            ["ssh-keygen", "-y", "-f", "synthetic-key"],
+            ["ssh-keygen", "-yf", "synthetic-key"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh key access")
+
+        fingerprint = approval_required_for_command(["ssh-keygen", "-l", "-f", "synthetic-key.pub"], CommandContext(non_interactive=True))
+        self.assertFalse(fingerprint.requires_approval)
+
     def test_approval_classifier_flags_purge_home_uninstall(self) -> None:
         decision = approval_required_for_command(["spark", "uninstall", "--all", "--purge-home"], CommandContext())
         self.assertTrue(decision.requires_approval)
