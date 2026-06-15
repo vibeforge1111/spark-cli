@@ -302,6 +302,31 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "batch" and len(lowered) > 2:
+        batch_action = lowered[2]
+        batch_mutation_prefixes = (
+            "cancel-",
+            "create-",
+            "delete-",
+            "deregister-",
+            "register-",
+            "submit-",
+            "terminate-",
+            "update-",
+        )
+        if batch_action.startswith(batch_mutation_prefixes):
+            destructive = batch_action.startswith(("cancel-", "delete-", "deregister-", "terminate-"))
+            remote_execution = batch_action == "submit-job"
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution" if remote_execution else "external_publish",
+                "critical" if destructive else "high",
+                "AWS Batch command can submit remote jobs or mutate live compute environments, queues, and job definitions.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve batch job change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
