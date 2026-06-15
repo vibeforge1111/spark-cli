@@ -9147,7 +9147,9 @@ def load_json_best_effort(path: Path, default: Any) -> Any:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        import logging
+        logging.getLogger(__name__).warning("Corrupted JSON file %s: %s — returning default", path, exc)
         return default
 
 
