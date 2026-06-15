@@ -16921,6 +16921,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
     install_parser.add_argument("target")
+    install_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     install_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-install commands (pip install, npm install) for this module")
     install_parser.add_argument("--skip-runtime-check", action="store_true", help="Skip [runtime].version constraint enforcement")
     install_parser.add_argument(
