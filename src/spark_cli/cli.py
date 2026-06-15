@@ -3319,6 +3319,7 @@ def write_generated_env(path: Path, values: dict[str, str]) -> None:
     lines = [f"{key}={value}" for key, value in values.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    harden_secret_file(path)
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
