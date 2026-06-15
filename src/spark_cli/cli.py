@@ -10781,6 +10781,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
                 build=not bool(getattr(args, "no_build", False)),
                 image=getattr(args, "image", "") or None,
                 network=bool(getattr(args, "network", False)),
+                timeout=int(getattr(args, "timeout", 180)),
             )
         exit_code = 0 if payload.get("ok") else 1
         if getattr(args, "json", False):
@@ -17346,6 +17347,7 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_docker_smoke_parser.add_argument("--image", default="", help="Docker image tag to build/run")
     sandbox_docker_smoke_parser.add_argument("--no-build", action="store_true", help="Use an existing sandbox image instead of building")
     sandbox_docker_smoke_parser.add_argument("--network", action="store_true", help="Allow bridge networking for this explicit smoke")
+    sandbox_docker_smoke_parser.add_argument("--timeout", type=int, default=180, help="Maximum seconds for build and run steps (default: 180)")
     sandbox_docker_smoke_parser.set_defaults(func=cmd_sandbox)
 
     sandbox_ssh_parser = sandbox_subparsers.add_parser("ssh", help="Manage SSH remote sandbox targets")
