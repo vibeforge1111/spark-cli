@@ -226,6 +226,7 @@ from spark_cli.cli import (
     discover_runtime_pid,
     generated_module_env_path,
     listening_pid_for_tcp_port,
+    listening_tcp_ports_for_pid,
     remove_managed_env_block,
     pid_is_running,
     pid_registry_errors,
@@ -3277,13 +3278,16 @@ class SparkCliTests(unittest.TestCase):
     def test_telegram_profile_runtime_status_reports_running_profiles(self) -> None:
         setup_state = {"primary_telegram_profile": "qa-bot", "telegram_profiles": {"qa-bot": {"relay_port": 8789}}}
         pids = {"spark-telegram-bot:qa-bot": {"pid": 1234}}
-        with patch("spark_cli.cli.pid_is_running", return_value=True):
+        with patch("spark_cli.cli.pid_is_running", return_value=True), \
+             patch("spark_cli.cli.listening_tcp_ports_for_pid", return_value=[8789]):
             statuses = telegram_profile_runtime_status(setup_state, pids)
         self.assertEqual(statuses[0]["profile"], "qa-bot")
         self.assertEqual(statuses[0]["process_key"], "spark-telegram-bot:qa-bot")
         self.assertEqual(statuses[0]["pid"], 1234)
         self.assertTrue(statuses[0]["running"])
         self.assertEqual(statuses[0]["relay_port"], 8789)
+        self.assertEqual(statuses[0]["configured_relay_port"], 8789)
+        self.assertFalse(statuses[0]["relay_port_mismatch"])
         self.assertTrue(statuses[0]["primary"])
         self.assertTrue(statuses[0]["autostart"])
 
@@ -3295,6 +3299,18 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertIsNone(statuses[0]["pid"])
         self.assertFalse(statuses[0]["running"])
+
+    def test_telegram_profile_runtime_status_uses_live_relay_port_when_config_is_stale(self) -> None:
+        setup_state = {"primary_telegram_profile": "primary", "telegram_profiles": {"primary": {"relay_port": 8789}}}
+        pids = {"spark-telegram-bot:primary": {"pid": 54520}}
+
+        with patch("spark_cli.cli.pid_is_running", return_value=True), \
+             patch("spark_cli.cli.listening_tcp_ports_for_pid", return_value=[3333, 8790]):
+            statuses = telegram_profile_runtime_status(setup_state, pids)
+
+        self.assertEqual(statuses[0]["relay_port"], 8790)
+        self.assertEqual(statuses[0]["configured_relay_port"], 8789)
+        self.assertTrue(statuses[0]["relay_port_mismatch"])
 
     def test_telegram_profile_runtime_status_marks_manual_profiles(self) -> None:
         setup_state = {
@@ -8684,6 +8700,28 @@ class SparkCliTests(unittest.TestCase):
         with patch("spark_cli.cli.os.name", "nt"), \
              patch("spark_cli.cli.subprocess.run", side_effect=FileNotFoundError("netstat")):
             self.assertIsNone(listening_pid_for_tcp_port(8788))
+
+    def test_listening_tcp_ports_for_pid_parses_unix_lsof(self) -> None:
+        lsof = """COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+node    54520 user   17u  IPv4 0xabc      0t0  TCP 127.0.0.1:8790 (LISTEN)
+node    54520 user   18u  IPv4 0xdef      0t0  TCP *:3333 (LISTEN)
+"""
+        completed = subprocess.CompletedProcess(["lsof"], 0, stdout=lsof, stderr="")
+
+        with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.subprocess.run", return_value=completed):
+            self.assertEqual(listening_tcp_ports_for_pid(54520), [3333, 8790])
+
+    def test_listening_tcp_ports_for_pid_parses_windows_netstat(self) -> None:
+        netstat = """
+  TCP    127.0.0.1:3333         0.0.0.0:0              LISTENING       111
+  TCP    127.0.0.1:8790         0.0.0.0:0              LISTENING       54520
+"""
+        completed = subprocess.CompletedProcess(["netstat"], 0, stdout=netstat, stderr="")
+
+        with patch("spark_cli.cli.os.name", "nt"), \
+             patch("spark_cli.cli.subprocess.run", return_value=completed):
+            self.assertEqual(listening_tcp_ports_for_pid(54520), [8790])
 
     def test_discover_runtime_pid_uses_listener_when_windows_launcher_exits(self) -> None:
         module = make_module("spark-telegram-bot", ["telegram.ingress"])
