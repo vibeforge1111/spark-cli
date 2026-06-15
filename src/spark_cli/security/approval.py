@@ -302,6 +302,48 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "iam" and len(lowered) > 2:
+        iam_action = lowered[2]
+        iam_mutation_prefixes = (
+            "add-",
+            "attach-",
+            "change-",
+            "create-",
+            "deactivate-",
+            "delete-",
+            "detach-",
+            "enable-",
+            "put-",
+            "remove-",
+            "reset-",
+            "set-",
+            "tag-",
+            "untag-",
+            "update-",
+            "upload-",
+        )
+        if iam_action.startswith(iam_mutation_prefixes):
+            credential_terms = {
+                "access-key",
+                "login-profile",
+                "server-certificate",
+                "service-specific-credential",
+                "signing-certificate",
+                "ssh-public-key",
+                "virtual-mfa-device",
+            }
+            credential_related = any(term in iam_action for term in credential_terms)
+            destructive = iam_action.startswith(("deactivate-", "delete-", "detach-", "remove-"))
+            return _decision(
+                parts,
+                ctx,
+                "credential_mutation" if credential_related else "identity_access_mutation",
+                "critical" if credential_related or destructive else "high",
+                "AWS IAM command can mutate cloud identities, policy bindings, groups, roles, or login credentials.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve iam identity change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

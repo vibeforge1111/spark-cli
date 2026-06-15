@@ -1599,6 +1599,62 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_iam_identity_mutations(self) -> None:
+        cases = [
+            (["aws", "iam", "create-user", "--user-name", "spark"], "identity_access_mutation", "high"),
+            (["aws", "iam", "delete-user", "--user-name", "spark"], "identity_access_mutation", "critical"),
+            (
+                ["aws", "iam", "attach-user-policy", "--user-name", "spark", "--policy-arn", "arn:aws:iam::aws:policy/ReadOnlyAccess"],
+                "identity_access_mutation",
+                "high",
+            ),
+            (
+                ["aws", "iam", "detach-role-policy", "--role-name", "spark", "--policy-arn", "arn:aws:iam::aws:policy/ReadOnlyAccess"],
+                "identity_access_mutation",
+                "critical",
+            ),
+            (["aws", "iam", "put-role-policy", "--role-name", "spark", "--policy-name", "inline"], "identity_access_mutation", "high"),
+            (["aws", "iam", "add-user-to-group", "--user-name", "spark", "--group-name", "operators"], "identity_access_mutation", "high"),
+            (["aws", "iam", "update-assume-role-policy", "--role-name", "spark"], "identity_access_mutation", "high"),
+        ]
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve iam identity change")
+
+    def test_approval_classifier_flags_aws_iam_credential_mutations(self) -> None:
+        cases = [
+            ["aws", "iam", "create-access-key", "--user-name", "spark"],
+            ["aws", "iam", "update-access-key", "--user-name", "spark", "--access-key-id", "SYNTHETICKEY"],
+            ["aws", "iam", "delete-login-profile", "--user-name", "spark"],
+            ["aws", "iam", "reset-service-specific-credential", "--user-name", "spark", "--service-specific-credential-id", "demo"],
+            ["aws", "iam", "upload-ssh-public-key", "--user-name", "spark", "--ssh-public-key-body", "ssh-rsa SYNTHETIC_PUBLIC_KEY"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_allows_aws_iam_report_commands(self) -> None:
+        for command in (
+            ["aws", "iam", "list-users"],
+            ["aws", "iam", "get-user", "--user-name", "spark"],
+            ["aws", "iam", "list-attached-user-policies", "--user-name", "spark"],
+            ["aws", "iam", "get-policy", "--policy-arn", "arn:aws:iam::aws:policy/ReadOnlyAccess"],
+            ["aws", "iam", "simulate-principal-policy", "--policy-source-arn", "arn:aws:iam::123456789012:user/spark"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
