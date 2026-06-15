@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -4743,8 +4743,13 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     # the open() and the final flush, leaving zero-byte or truncated state).
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(tmp, PRIVATE_FILE_MODE)
-    os.replace(tmp, path)
+    try:
+        os.chmod(tmp, PRIVATE_FILE_MODE)
+        os.replace(tmp, path)
+    except BaseException:
+        with suppress(OSError):
+            tmp.unlink()
+        raise
     os.chmod(path, PRIVATE_FILE_MODE)
 
 
