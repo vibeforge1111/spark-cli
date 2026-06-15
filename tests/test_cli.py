@@ -3649,7 +3649,7 @@ class SparkCliTests(unittest.TestCase):
             findings = scan_module_trust(module, trust_tier="community")
         self.assertTrue(any(finding.category == "embedded-private-key" for finding in findings))
 
-    def test_scan_module_trust_downgrades_private_key_redaction_fixtures(self) -> None:
+    def test_scan_module_trust_keeps_embedded_private_key_severity_in_fixtures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             module_path = Path(tmp_dir)
             tests_dir = module_path / "tests"
@@ -3668,8 +3668,8 @@ class SparkCliTests(unittest.TestCase):
 
         private_key_findings = [finding for finding in findings if finding.category == "embedded-private-key"]
         self.assertEqual(len(private_key_findings), 1)
-        self.assertEqual(private_key_findings[0].severity, "low")
-        self.assertFalse(any(chip_scan_blocks_tier(finding.severity, "trusted") for finding in private_key_findings))
+        self.assertEqual(private_key_findings[0].severity, "critical")
+        self.assertTrue(any(chip_scan_blocks_tier(finding.severity, "trusted") for finding in private_key_findings))
 
     def test_scan_module_trust_flags_package_install_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

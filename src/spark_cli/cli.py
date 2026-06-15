@@ -5019,7 +5019,9 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
 
 
 def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
+    if finding.category == "embedded-private-key":
+        return finding
+    if finding.category in {"network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
             finding.category,
             "low",
