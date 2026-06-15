@@ -2819,6 +2819,7 @@ def inspect_builder_trace_groups(
             groups = []
             for group_row in group_rows:
                 trace_ref = str(group_row["trace_ref"] or "")
+                # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
                 event_rows = conn.execute(
                     f"""
                     select {quoted}
