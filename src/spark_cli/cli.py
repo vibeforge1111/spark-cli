@@ -1218,8 +1218,14 @@ def harden_secret_file(path: Path) -> None:
     if os.name != "nt" or not path.exists():
         return
     try:
+        user = os.environ.get('USERNAME', '') or os.environ.get('USER', '')
+        if not user:
+            try:
+                user = os.getlogin()
+            except OSError:
+                user = ''
         subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"],
             check=False,
             capture_output=True,
             text=True,
