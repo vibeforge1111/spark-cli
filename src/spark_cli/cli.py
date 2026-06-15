@@ -17535,6 +17535,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="Scaffold a new Spark module in a directory")
     init_parser.add_argument("name", help="Module name (lowercase + dashes)")
+    init_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     init_parser.add_argument("--kind", choices=["python", "node"], default="python", help="Runtime kind (default: python)")
     init_parser.add_argument("--path", help="Target directory (default: ./<name>)")
     init_parser.add_argument("--description", help="One-line module description for spark.toml and README")
