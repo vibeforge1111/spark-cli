@@ -65,6 +65,16 @@ That check looks for `spark-domain-chip-labs`, `spark-swarm`, and at least one u
 
 If another `spark` binary is already on your PATH, use `spark-local`. The package exposes both names to the same entrypoint.
 
+# Windows VPS Setup Troubleshooting
+
+If `spark setup` fails with `URLError` during Telegram token validation:
+1. Confirm your token is valid at `https://api.telegram.org/bot<<YOUR_TOKEN>/getMe`
+2. If your VPS blocks outbound HTTPS to Telegram, resume setup with:
+   ```bash
+   spark setup telegram-starter --resume --skip-telegram-token-check
+
+   Then verify: spark verify --onboarding
+
 ## What Spark CLI Does
 
 Spark CLI is the installer and operator shell for the Spark ecosystem. It gives a normal user one path instead of several separate repo installs.
@@ -568,3 +578,5 @@ LICENSE file says otherwise. Spark Pro hosted services, private corpuses,
 brand assets, deployment secrets, and Pro drops are not included in
 open-source licenses. Pro drops do not grant redistribution rights unless
 a separate written license says so.
+
+
