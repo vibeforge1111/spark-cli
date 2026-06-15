@@ -2126,11 +2126,16 @@ def atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
     try:
-        temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
+        # Create file with restrictive permissions atomically to prevent TOCTOU race.
+        #
+        # `O_EXCL` refuses to follow an existing file, and the mode bits are
+        # applied at the syscall boundary so there is no readable window
+        # between create and chmod. The umask still applies, but
+        # PRIVATE_FILE_MODE (0o600) is already the strictest mask the
+        # callers expect, so even an unusually loose umask cannot widen it.
+        fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(payload, indent=2) + "\n")
         os.replace(temp_path, path)
         try:
             os.chmod(path, PRIVATE_FILE_MODE)
