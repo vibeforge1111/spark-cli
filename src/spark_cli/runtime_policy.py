@@ -12,7 +12,10 @@ SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
-    parts = shlex.split(command, posix=True)
+    try:
+        parts = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise SystemExit(f"{subject} has invalid quoting: {exc}")
     if not parts:
         raise SystemExit(f"{subject} cannot be empty.")
     if any(part in SHELL_CHAIN_TOKENS for part in parts):
