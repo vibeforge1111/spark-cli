@@ -466,6 +466,18 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve autostart change",
         )
+    if first == "crontab":
+        if _contains_any(lowered, {"-l", "--list"}):
+            return _decision(parts, ctx, "none", "none", "`crontab -l` is read-only.")
+        return _decision(
+            parts,
+            ctx,
+            "process_autostart_mutation",
+            "high",
+            "Command can install, edit, or remove recurring scheduled jobs.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve scheduled job change",
+        )
     if first in {"schtasks", "setx", "reg", "systemctl", "launchctl"}:
         return _decision(
             parts,

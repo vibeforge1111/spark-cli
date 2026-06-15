@@ -1478,6 +1478,30 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
 
+    def test_approval_classifier_flags_crontab_mutations(self) -> None:
+        for command in (
+            ["crontab", "schedule.txt"],
+            ["crontab", "-r"],
+            ["crontab", "-e"],
+            ["crontab", "-u", "spark", "schedule.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "process_autostart_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve scheduled job change")
+
+    def test_approval_classifier_allows_crontab_list(self) -> None:
+        for command in (
+            ["crontab", "-l"],
+            ["crontab", "--list"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_blocks_level5_access_mutation_non_interactively(self) -> None:
         decision = approval_required_for_command(
             ["spark", "access", "setup", "--level", "5", "--enable-high-agency"],
