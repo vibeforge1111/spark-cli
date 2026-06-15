@@ -2753,6 +2753,56 @@ class SparkCliTests(unittest.TestCase):
         guard.assert_called_once_with([module], args)
         stop.assert_not_called()
 
+    def test_restart_spawner_blocks_active_missions_before_stopping(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "run": {"default": {"command": "npm run dev", "ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+        args = build_parser().parse_args(["restart", "spawner-ui"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spawner-ui": module}), \
+             patch("spark_cli.cli.resolve_start_modules", return_value=[module]), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=True), \
+             patch("spark_cli.cli.spawner_active_mission_summaries", return_value=["mission-active (Active Build) - Build task"]), \
+             patch("spark_cli.cli.cmd_stop_plain") as stop, \
+             patch("spark_cli.cli.start_module") as start, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(cmd_restart(args), 1)
+
+        self.assertIn("Refusing to restart spawner-ui while Mission Control has running work.", stdout.getvalue())
+        self.assertIn("--interrupt-active-missions", stdout.getvalue())
+        stop.assert_not_called()
+        start.assert_not_called()
+
+    def test_restart_spawner_interrupt_flag_allows_active_missions(self) -> None:
+        module = Module(
+            name="spawner-ui",
+            path=Path("C:/tmp/spawner-ui"),
+            manifest={
+                "module": {"name": "spawner-ui", "version": "0.0.1", "kind": "app", "plane": "execution"},
+                "run": {"default": {"command": "npm run dev", "ready_check": "http://127.0.0.1:3333/api/providers"}},
+            },
+        )
+        args = build_parser().parse_args(["restart", "spawner-ui", "--interrupt-active-missions"])
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.resolve_installed_modules", return_value={"spawner-ui": module}), \
+             patch("spark_cli.cli.resolve_start_modules", return_value=[module]), \
+             patch("spark_cli.cli.emit_runtime_supply_chain_guard", return_value=True), \
+             patch("spark_cli.cli.spawner_active_mission_summaries", return_value=["mission-active (Active Build) - Build task"]) as active, \
+             patch("spark_cli.cli.cmd_stop_plain", return_value=0) as stop, \
+             patch("spark_cli.cli.start_module", return_value=True) as start:
+            self.assertEqual(cmd_restart(args), 0)
+
+        active.assert_not_called()
+        stop.assert_called_once()
+        start.assert_called_once_with(module, allow_boot_warnings=False)
+
     def test_dependency_lockfile_errors_flag_unlocked_node_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             module_path = Path(tmp_dir) / "module"

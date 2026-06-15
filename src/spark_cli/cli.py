@@ -14566,6 +14566,53 @@ def ready_check_headers(ready_check: str) -> dict[str, str]:
     return {"x-spawner-ui-key": key, "x-api-key": key}
 
 
+def spawner_mission_control_board_url(module: Module, env: dict[str, str]) -> str:
+    return f"http://127.0.0.1:{spawner_runtime_port(module, env)}/api/mission-control/board"
+
+
+def spawner_active_mission_summaries(module: Module) -> list[str]:
+    env = module_runtime_env(module)
+    url = spawner_mission_control_board_url(module, env)
+    try:
+        request = urllib.request.Request(url, headers=ready_check_headers(url), method="GET")
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    board = payload.get("board")
+    if not isinstance(board, dict):
+        return []
+    running = board.get("running")
+    if not isinstance(running, list):
+        return []
+    summaries: list[str] = []
+    for entry in running:
+        if not isinstance(entry, dict):
+            continue
+        mission_id = str(entry.get("missionId") or "unknown-mission")
+        mission_name = str(entry.get("missionName") or mission_id)
+        task_name = str(entry.get("taskName") or "active task")
+        summaries.append(f"{mission_id} ({mission_name}) - {task_name}")
+    return summaries
+
+
+def restart_preflight_allows_active_spawner_work(modules: list[Module], args: argparse.Namespace) -> bool:
+    spawner_modules = [module for module in modules if module.name == "spawner-ui"]
+    if not spawner_modules or getattr(args, "interrupt_active_missions", False):
+        return True
+    active = spawner_active_mission_summaries(spawner_modules[0])
+    if not active:
+        return True
+    print("Refusing to restart spawner-ui while Mission Control has running work.")
+    print("Restarting now can stale active provider sessions and fail user builds.")
+    for summary in active[:5]:
+        print(f"  - {summary}")
+    if len(active) > 5:
+        print(f"  - ...and {len(active) - 5} more")
+    print("Wait for the missions to finish, cancel/pause them intentionally, or rerun with --interrupt-active-missions.")
+    return False
+
+
 def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None:
     parts = split_single_argv_command(command, "Runtime command")
     if len(parts) < 3 or parts[0].lower() != "npm" or parts[1] != "run":
@@ -15207,6 +15254,8 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
         else resolve_start_modules(args.target, installed_modules)
     )
     if not emit_runtime_supply_chain_guard(restart_modules, args):
+        return 1
+    if not restart_preflight_allows_active_spawner_work(restart_modules, args):
         return 1
     stop_code = cmd_stop_plain(args)
     start_code = 0
@@ -17525,6 +17574,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     restart_parser = subparsers.add_parser("restart", help="Restart startable modules")
     restart_parser.add_argument("--allow-dirty-runtime", action="store_true", help="Restart even when installed runtime code has local edits or is off the registry pin")
+    restart_parser.add_argument("--interrupt-active-missions", action="store_true", help="Allow restarting Spawner even when Mission Control reports running missions")
     restart_parser.add_argument("--profile", default=DEFAULT_TELEGRAM_PROFILE, help="Named Telegram bot profile to restart")
     restart_parser.add_argument("--cascade", action="store_true", help="Also restart running modules that depend on the target")
     restart_parser.add_argument("--json", action="store_true", help="Emit a machine-readable restart result")
