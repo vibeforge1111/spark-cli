@@ -42,6 +42,8 @@ from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
+SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -728,7 +730,9 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
     source = str(registry_metadata.get("source", ""))
     pinned_commit = validate_commit_pin(str(registry_metadata.get("commit", "")))
     if not (is_git_source(source) and pinned_commit):
-        return pull_module_source(module.path)
+        return pull_module_source(module.path
+        timeout=SPARK_CLI_CLONE_MODULE_SOURCE_TIMEOUT_SECONDS,
+        )
 
     status = subprocess.run(
         git_command("-C", str(module.path), "status", "--porcelain"),
