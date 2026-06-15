@@ -1584,6 +1584,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_kubectl_cp_uploads(self) -> None:
+        for command in (
+            ["kubectl", "cp", "report.txt", "spark-pod:/tmp/report.txt"],
+            ["kubectl", "cp", "./payload", "default/spark-pod:/tmp/payload", "-c", "app"],
+            ["kubectl", "-n", "default", "cp", "report.txt", "spark-pod:/tmp/report.txt"],
+            ["kubectl", "cp", "--container=app", "report.txt", "spark-pod:/tmp/report.txt"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve kubernetes file upload")
+
+    def test_approval_classifier_allows_kubectl_cp_downloads_and_reads(self) -> None:
+        for command in (
+            ["kubectl", "cp", "spark-pod:/tmp/report.txt", "report.txt"],
+            ["kubectl", "-n", "default", "cp", "spark-pod:/tmp/report.txt", "report.txt"],
+            ["kubectl", "get", "pods"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
