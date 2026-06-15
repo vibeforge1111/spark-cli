@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -614,15 +615,27 @@ def ssh_smoke_probe_hash(probe_content: str = SSH_SMOKE_PROBE) -> str:
     return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
 
 
-def ssh_smoke_remote_path(target: SshTarget, probe_hash: str) -> str:
+def ssh_smoke_remote_path(target: SshTarget, probe_hash: str, *, nonce: str | None = None) -> str:
     safe_name = validate_target_name(target.name)
     if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
         raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
-    return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
+    safe_nonce = nonce or secrets.token_hex(16)
+    if not re.fullmatch(r"[0-9a-f]{16,64}", safe_nonce):
+        raise ValueError("SSH smoke nonce must be a hex string.")
+    return f"/tmp/spark-sandbox-smoke-{safe_name}-{safe_nonce}-{probe_hash[:12]}.sh"
 
 
 def ssh_smoke_upload_argv(target: SshTarget, remote_path: str, *, home: Path | None = None) -> list[str]:
-    return [*build_ssh_base_argv(target, home=home), f"umask 077; cat > {shlex.quote(remote_path)}"]
+    quoted_path = shlex.quote(remote_path)
+    command = (
+        f"file={quoted_path}; umask 077; "
+        "if [ -e \"$file\" ] || [ -L \"$file\" ]; then "
+        "printf 'SPARK_SSH_REMOTE_PATH_EXISTS %s\\n' \"$file\"; "
+        "exit 73; "
+        "fi; "
+        "set -C; cat > \"$file\""
+    )
+    return [*build_ssh_base_argv(target, home=home), command]
 
 
 def ssh_smoke_execute_argv(
