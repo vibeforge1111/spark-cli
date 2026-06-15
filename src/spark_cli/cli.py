@@ -17570,6 +17570,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
 
     secrets_list_parser = secrets_sub.add_parser("list", help="List stored secret ids and their backend")
+    secrets_list_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
