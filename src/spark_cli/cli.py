@@ -1300,7 +1300,7 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
     try:
         with urllib.request.urlopen(url, timeout=TELEGRAM_BOT_TOKEN_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
+    except (urllib.error.HTTPError, json.JSONDecodeError) as error:
         if error.code in {401, 404}:
             raise SystemExit(
                 f"Telegram rejected the bot token for {secret_id}. Nothing was changed. "
@@ -1616,7 +1616,10 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     )
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
-    parsed = json.loads(payload)
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        raise ValueError(f"Hosted JSON metadata at {url} is corrupted and cannot be parsed.")
     if not isinstance(parsed, dict):
         raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
     return parsed
