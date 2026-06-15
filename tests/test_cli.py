@@ -4233,6 +4233,30 @@ class SparkCliTests(unittest.TestCase):
             update_env_file(env_path, {"BOT_TOKEN": "abc"})
 
             self.assertIn("BOT_TOKEN=abc", env_path.read_text(encoding="utf-8"))
+
+    def test_update_env_file_handles_orphan_start_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            env_path.write_text("STAY=1\n# --- spark-cli managed start ---\nLOSE=1\n", encoding="utf-8")
+
+            update_env_file(env_path, {"NEW": "1"})
+            contents = env_path.read_text(encoding="utf-8")
+
+            self.assertIn("STAY=1", contents)
+            self.assertIn("LOSE=1", contents)
+            self.assertIn("NEW=1", contents)
+
+    def test_remove_managed_env_block_handles_orphan_start_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            env_path.write_text("STAY=1\n# --- spark-cli managed start ---\nKEEP=1\n", encoding="utf-8")
+
+            remove_managed_env_block(env_path)
+            contents = env_path.read_text(encoding="utf-8")
+
+            self.assertIn("STAY=1", contents)
+            self.assertIn("# --- spark-cli managed start ---", contents)
+            self.assertIn("KEEP=1", contents)
             self.assertEqual(list(Path(tmp_dir).glob(".env.*.tmp")), [])
 
     def test_resolve_install_target_prefers_registry_module_name(self) -> None:
