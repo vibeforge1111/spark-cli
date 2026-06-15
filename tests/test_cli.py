@@ -8019,6 +8019,40 @@ class SparkCliTests(unittest.TestCase):
         self.assertNotIn("SPARK_ZAI_API_KEY", envs["spawner-ui"])
         self.assertNotIn("SPARK_ZAI_API_KEY", envs["spark-intelligence-builder"])
 
+    def test_build_module_envs_forwards_mission_provider_key_to_spawner(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+            llm_provider = "openrouter"
+            openrouter_base_url = "https://openrouter.ai/api/v1"
+            openrouter_model = "anthropic/claude-sonnet-4"
+
+        envs = build_module_envs(
+            Args(),
+            {
+                gateway.name: gateway,
+                builder.name: builder,
+                spawner.name: spawner,
+            },
+            {
+                "telegram.bot_token": "abc",
+                "telegram.admin_ids": "123",
+                "llm.openrouter.api_key": "or-key",
+            },
+        )
+
+        gateway_env = envs["spark-telegram-bot"]
+        spawner_env = envs["spawner-ui"]
+        self.assertEqual(gateway_env["OPENROUTER_API_KEY"], "or-key")
+        self.assertEqual(spawner_env["DEFAULT_MISSION_PROVIDER"], "openrouter")
+        self.assertEqual(spawner_env["OPENROUTER_API_KEY"], "or-key")
+        self.assertEqual(spawner_env["SPARK_OPENROUTER_MODEL"], "anthropic/claude-sonnet-4")
+        self.assertEqual(spawner_env["SPARK_MISSION_LLM_PROVIDER"], "openrouter")
+
     def test_build_module_envs_supports_role_specific_llm_providers(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         builder = make_module("spark-intelligence-builder", ["spark.runtime"])
