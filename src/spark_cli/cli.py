@@ -2864,7 +2864,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        posix_denied = [Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES]
+        # Do not deny writes inside SPARK_HOME even when SPARK_HOME lives under a
+        # denied prefix such as /root.  Excluding SPARK_HOME lets the CLI manage
+        # its own modules and configs on root-user / headless-server installs.
+        posix_denied = [p for p in posix_denied if not policy_path_is_same_or_child(SPARK_HOME, p)]
+        denied.extend(posix_denied)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")
