@@ -302,6 +302,36 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and second == "rds" and len(lowered) > 2:
+        rds_action = lowered[2]
+        rds_mutation_prefixes = (
+            "add-",
+            "apply-",
+            "copy-",
+            "create-",
+            "delete-",
+            "failover-",
+            "modify-",
+            "promote-",
+            "reboot-",
+            "remove-",
+            "reset-",
+            "restore-",
+            "start-",
+            "stop-",
+        )
+        if rds_action.startswith(rds_mutation_prefixes):
+            destructive = rds_action.startswith(("delete-", "failover-", "remove-", "reset-"))
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if destructive else "high",
+                "AWS RDS command can create, modify, delete, restart, fail over, restore, or otherwise change live database infrastructure.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve rds database change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

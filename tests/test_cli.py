@@ -1599,6 +1599,41 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_rds_database_mutations(self) -> None:
+        cases = [
+            (["aws", "rds", "create-db-instance", "--db-instance-identifier", "spark-db"], "high"),
+            (["aws", "rds", "modify-db-instance", "--db-instance-identifier", "spark-db"], "high"),
+            (["aws", "rds", "delete-db-instance", "--db-instance-identifier", "spark-db"], "critical"),
+            (["aws", "rds", "reboot-db-instance", "--db-instance-identifier", "spark-db"], "high"),
+            (["aws", "rds", "failover-db-cluster", "--db-cluster-identifier", "spark-cluster"], "critical"),
+            (["aws", "rds", "restore-db-instance-from-db-snapshot", "--db-instance-identifier", "spark-db"], "high"),
+            (["aws", "rds", "start-db-cluster", "--db-cluster-identifier", "spark-cluster"], "high"),
+            (["aws", "rds", "stop-db-instance", "--db-instance-identifier", "spark-db"], "high"),
+            (["aws", "rds", "remove-role-from-db-cluster", "--db-cluster-identifier", "spark-cluster"], "critical"),
+            (["aws", "rds", "reset-db-parameter-group", "--db-parameter-group-name", "spark-params"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve rds database change")
+
+    def test_approval_classifier_allows_aws_rds_report_commands(self) -> None:
+        for command in (
+            ["aws", "rds", "describe-db-instances"],
+            ["aws", "rds", "describe-db-clusters"],
+            ["aws", "rds", "describe-events"],
+            ["aws", "rds", "list-tags-for-resource", "--resource-name", "arn:aws:rds:us-east-1:000000000000:db:spark-db"],
+            ["aws", "rds", "download-db-log-file-portion", "--db-instance-identifier", "spark-db"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
