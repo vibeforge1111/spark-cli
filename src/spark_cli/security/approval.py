@@ -302,6 +302,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and lowered[1:3] in [["ssm", "send-command"], ["ssm", "start-session"], ["ssm", "resume-session"]]:
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            "AWS SSM command can run commands or open interactive sessions on managed instances.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve ssm remote execution",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
