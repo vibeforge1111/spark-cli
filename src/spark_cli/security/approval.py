@@ -99,6 +99,18 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _truncate_zeroes_file(lowered: list[str]) -> bool:
+    for index, part in enumerate(lowered):
+        value = ""
+        if part.startswith("--size="):
+            value = part.split("=", 1)[1]
+        elif part in {"-s", "--size"} and index + 1 < len(lowered):
+            value = lowered[index + 1]
+        if value.strip().lower() == "0":
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -210,6 +222,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+    if first in {"shred", "srm", "wipe"} or (first == "truncate" and _truncate_zeroes_file(lowered)):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can overwrite, securely remove, or zero local file contents.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve file wipe",
         )
 
     if first == "git" and (
