@@ -17589,6 +17589,7 @@ def build_parser() -> argparse.ArgumentParser:
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
     logs_parser = subparsers.add_parser("logs", help="Show process logs for an installed module")
+    logs_parser.add_argument("--json", action="store_true", help="Emit results as JSON")
     logs_parser.add_argument("--profile", default=None, help="Named Telegram bot profile logs to read")
     logs_parser.add_argument("target")
     logs_parser.add_argument("-n", "--lines", type=int, default=200, help="Lines of history to show before following (default: 200, 0 = all)")
