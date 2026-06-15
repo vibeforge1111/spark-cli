@@ -302,6 +302,32 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and lowered[1:3] == ["cloudformation", "deploy"]:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "AWS CloudFormation command can deploy stack changes to cloud infrastructure.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloudformation change",
+        )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "cloudformation" and lowered[2] in {
+        "create-stack",
+        "update-stack",
+        "delete-stack",
+        "execute-change-set",
+    }:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if lowered[2] == "delete-stack" else "high",
+            "AWS CloudFormation command can create, update, delete, or execute stack changes.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloudformation change",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

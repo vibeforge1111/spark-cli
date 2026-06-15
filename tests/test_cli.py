@@ -1534,6 +1534,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve secret change")
 
+    def test_approval_classifier_flags_aws_cloudformation_stack_mutations(self) -> None:
+        cases = [
+            (["aws", "cloudformation", "deploy", "--stack-name", "spark"], "high"),
+            (["aws", "cloudformation", "create-stack", "--stack-name", "spark"], "high"),
+            (["aws", "cloudformation", "update-stack", "--stack-name", "spark"], "high"),
+            (["aws", "cloudformation", "execute-change-set", "--change-set-name", "spark"], "high"),
+            (["aws", "cloudformation", "delete-stack", "--stack-name", "spark"], "critical"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve cloudformation change")
+
+    def test_approval_classifier_allows_aws_cloudformation_report_commands(self) -> None:
+        cases = [
+            ["aws", "cloudformation", "describe-stacks"],
+            ["aws", "cloudformation", "list-stacks"],
+            ["aws", "cloudformation", "validate-template", "--template-body", "file://template.yml"],
+            ["aws", "cloudformation", "describe-change-set", "--change-set-name", "spark"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_classifier_flags_security_revoke_all(self) -> None:
         decision = approval_required_for_command(["spark", "security", "revoke-all"], CommandContext())
         self.assertTrue(decision.requires_approval)
