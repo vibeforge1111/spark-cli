@@ -3496,6 +3496,7 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
         "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        "capability_cards_gap": "No capability cards generated: modules require docs/creator_system/schemas directory and creator run artifacts to produce cards. See spark-domain-chip-labs for the expected structure." if not creator_system_surfaces and not specialization_path_surfaces else None,
     }
 
 
