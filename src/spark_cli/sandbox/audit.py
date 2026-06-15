@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -53,10 +54,9 @@ def write_audit_event(
         "target": validate_target_name(target),
         **_redact_value(event),
     }
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+        os.write(fd, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
     return path
