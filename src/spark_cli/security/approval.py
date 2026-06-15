@@ -95,6 +95,11 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
     return False
 
 
+def _has_option(parts: list[str], option_names: set[str]) -> bool:
+    lowered = _lower_parts(parts)
+    return any(part in option_names or any(part.startswith(f"{name}=") for name in option_names) for part in lowered)
+
+
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
@@ -322,6 +327,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Docker command can store or change registry credentials.",
             target_display="docker login",
             confirmation_phrase="approve docker credential change",
+        )
+
+    if first == "docker" and (
+        second == "build"
+        or lowered[1:3] in (["buildx", "build"], ["builder", "build"])
+    ) and _has_option(lowered, {"--secret", "--ssh"}):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Docker build command can expose local secrets or SSH agent credentials to the build.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve docker build credential forwarding",
         )
 
     if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
