@@ -9278,6 +9278,18 @@ class SparkCliTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             runtime_command_argv("cmd /c echo unsafe")
 
+    def test_runtime_command_argv_preserves_windows_backslash_paths(self) -> None:
+        command = "python C:\\tmp\\spark\\health.py"
+        with patch("spark_cli.runtime_policy.os.name", "nt"):
+            argv = runtime_command_argv(command)
+        self.assertEqual(argv, [str(Path(sys.executable)), "C:\\tmp\\spark\\health.py"])
+
+    def test_runtime_command_argv_preserves_quoted_windows_backslash_paths(self) -> None:
+        command = 'python "C:\\tmp\\spark module\\health.py"'
+        with patch("spark_cli.runtime_policy.os.name", "nt"):
+            argv = runtime_command_argv(command)
+        self.assertEqual(argv, [str(Path(sys.executable)), "C:\\tmp\\spark module\\health.py"])
+
     def test_runtime_command_argv_avoids_npm_cmd_wrapper_on_windows(self) -> None:
         if os.name != "nt":
             self.skipTest("Windows npm .cmd wrapper behavior")
