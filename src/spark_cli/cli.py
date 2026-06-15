@@ -3954,7 +3954,7 @@ def openai_base_url_kind(base_url: str | None) -> str:
         return "default"
     parsed = urllib.parse.urlparse(normalized)
     host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "::1"}:
+    if host in {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback", "127.0.0.1", "::1"}:
         return "local"
     return "remote_custom"
 
@@ -13514,7 +13514,7 @@ def hosted_api_key_strength_errors(ui_key: str, bridge_key: str) -> list[str]:
 
 def hosted_allowed_host_errors(allowed_hosts: list[str]) -> list[str]:
     errors: list[str] = []
-    blocked = {"*", "0.0.0.0", "::", "localhost", "127.0.0.1", "::1"}
+    blocked = {"*", "0.0.0.0", "::", "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback", "127.0.0.1", "::1"}
     for host in allowed_hosts:
         normalized = host.strip().lower()
         host_without_port = normalized
@@ -13611,7 +13611,7 @@ def hosted_local_provider_endpoint_errors(env: dict[str, str] | None = None) -> 
         if not url:
             continue
         host = (urllib.parse.urlparse(url).hostname or "").lower()
-        if host in {"localhost", "127.0.0.1", "::1"}:
+        if host in {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback", "127.0.0.1", "::1"}:
             errors.append(
                 f"{role} uses {provider} at {url}; hosted Docker/Railway should use host.docker.internal or a reachable private provider URL."
             )
@@ -14556,7 +14556,7 @@ def ready_check_headers(ready_check: str) -> dict[str, str]:
     if not ready_check.startswith(("http://", "https://")):
         return {}
     parsed = urllib.parse.urlparse(ready_check)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    if parsed.hostname not in {"127.0.0.1", "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback", "::1"}:
         return {}
     key = os.environ.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY")
     if not key:
