@@ -12664,6 +12664,26 @@ def telegram_gateway_candidates(installed: object) -> list[Path]:
     return candidates
 
 
+def repo_root_candidates(
+    installed: object,
+    *,
+    env_names: Iterable[str],
+    installed_names: Iterable[str],
+    sibling_root: Path | None = None,
+) -> list[Path]:
+    candidates: list[Path] = []
+    for name in env_names:
+        candidates.extend(env_path_candidates(name))
+    for name in installed_names:
+        candidate = installed_path_candidate(installed, name)
+        if candidate is not None:
+            candidates.append(candidate)
+    if sibling_root:
+        for name in installed_names:
+            candidates.append(sibling_root / name)
+    return unique_path_candidates(candidates)
+
+
 def telegram_gateway_is_usable(path: Path) -> bool:
     return any(
         candidate.exists()
@@ -12674,6 +12694,159 @@ def telegram_gateway_is_usable(path: Path) -> bool:
             path / "src",
         )
     )
+
+
+def startup_bench_is_usable(path: Path) -> bool:
+    return (path / "pyproject.toml").exists() and (path / "src" / "thestartupbench").exists()
+
+
+def domain_chip_labs_is_usable(path: Path) -> bool:
+    schema_dir = path / "docs" / "creator_system" / "schemas"
+    return bool(
+        (path / "src" / "chip_labs").exists()
+        and (schema_dir / "creator-mission-status.schema.json").exists()
+        and (schema_dir / "specialization-loop-status.schema.json").exists()
+        and (schema_dir / "startup-bench-promotion-dossier.schema.json").exists()
+    )
+
+
+def latest_startup_bench_bound_dossier_path(qa_operator_root: Path | None) -> Path | None:
+    if not qa_operator_root:
+        return None
+    runs_root = qa_operator_root / ".spark-swarm" / "autoloop" / "runs"
+    if not runs_root.exists():
+        return None
+    candidates = [path for path in runs_root.glob("*/startup_bench_proof_report.bound.json") if path.is_file()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def read_json_object(path: Path | None) -> dict[str, Any] | None:
+    if not path or not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def claim_flag_allowed(*values: Any) -> bool:
+    flags = [value for value in values if isinstance(value, bool)]
+    return bool(flags) and all(flags)
+
+
+def startup_bench_dossier_claims(dossier: dict[str, Any]) -> dict[str, bool]:
+    promotion = dossier.get("promotionDossier") if isinstance(dossier.get("promotionDossier"), dict) else {}
+    score_allowed = claim_flag_allowed(dossier.get("scoreClaimAllowed"), promotion.get("scoreClaimAllowed"))
+    improvement_allowed = claim_flag_allowed(
+        dossier.get("improvementClaimAllowed"),
+        promotion.get("improvementClaimAllowed"),
+    )
+    return {
+        "score_claim_allowed": score_allowed,
+        "improvement_claim_allowed": improvement_allowed,
+        "claim_allowed": score_allowed and improvement_allowed,
+    }
+
+
+def startup_bench_dossier_score_summary(dossier: dict[str, Any]) -> dict[str, Any]:
+    private_summary = dossier.get("privateScoreSummary")
+    if not isinstance(private_summary, dict):
+        return {}
+    baseline = private_summary.get("baseline") if isinstance(private_summary.get("baseline"), dict) else {}
+    candidate = private_summary.get("candidate") if isinstance(private_summary.get("candidate"), dict) else {}
+    comparison = private_summary.get("comparison") if isinstance(private_summary.get("comparison"), dict) else {}
+    return {
+        "baseline": baseline.get("scenarioScore") if baseline.get("scenarioScore") is not None else baseline.get("outcomeScore"),
+        "candidate": candidate.get("scenarioScore") if candidate.get("scenarioScore") is not None else candidate.get("outcomeScore"),
+        "delta": comparison.get("candidateMinusBaseline"),
+        "candidate_beats_baseline": comparison.get("candidateBeatsBaseline"),
+        "metric": comparison.get("metric"),
+    }
+
+
+def startup_bench_dossier_blockers(dossier: dict[str, Any]) -> list[str]:
+    blockers = dossier.get("blockers")
+    if isinstance(blockers, list):
+        return [str(item) for item in blockers if str(item).strip()]
+    promotion = dossier.get("promotionDossier") if isinstance(dossier.get("promotionDossier"), dict) else {}
+    promotion_blockers = promotion.get("blockers")
+    if isinstance(promotion_blockers, list):
+        return [str(item) for item in promotion_blockers if str(item).strip()]
+    return []
+
+
+def startup_bench_dossier_target_sha256(dossier: dict[str, Any]) -> str | None:
+    startup_bench = dossier.get("startupBench") if isinstance(dossier.get("startupBench"), dict) else {}
+    run_signature = startup_bench.get("runSignature") if isinstance(startup_bench.get("runSignature"), dict) else {}
+    payload = run_signature.get("payload") if isinstance(run_signature.get("payload"), dict) else {}
+    raw = payload.get("toolCallsSha256")
+    return str(raw).strip() if isinstance(raw, str) and raw.strip() else None
+
+
+def summarize_startup_bench_bound_dossier(path: Path, dossier: dict[str, Any]) -> dict[str, Any]:
+    promotion = dossier.get("promotionDossier") if isinstance(dossier.get("promotionDossier"), dict) else {}
+    claims = startup_bench_dossier_claims(dossier)
+    score = startup_bench_dossier_score_summary(dossier)
+    status = str(dossier.get("status") or promotion.get("status") or "unknown")
+    blockers = startup_bench_dossier_blockers(dossier)
+    issues: list[str] = []
+    if status.strip().lower() in {"improved", "promoted", "public_ready", "network_absorbable"} and not claims["claim_allowed"]:
+        issues.append("startup bench dossier claims improvement while score/improvement claims are blocked")
+    return {
+        "path": str(path),
+        "ok": not issues,
+        "status": status,
+        "score_claim_allowed": claims["score_claim_allowed"],
+        "improvement_claim_allowed": claims["improvement_claim_allowed"],
+        "claim_allowed": claims["claim_allowed"],
+        "score": score,
+        "blockers": blockers,
+        "target_sha256": startup_bench_dossier_target_sha256(dossier),
+        "bundle_id": (dossier.get("proofGateBundle") or {}).get("bundleId") if isinstance(dossier.get("proofGateBundle"), dict) else None,
+        "issues": issues,
+        "detail": (
+            f"bound dossier says {status}; scoreClaimAllowed={claims['score_claim_allowed']}, "
+            f"improvementClaimAllowed={claims['improvement_claim_allowed']}."
+        ),
+    }
+
+
+def latest_startup_operator_hygiene_report_path(startup_operator_root: Path | None) -> Path | None:
+    if not startup_operator_root:
+        return None
+    path = startup_operator_root / ".spark-swarm" / "startup-operator-target-hygiene" / "latest" / "target_hygiene_report.json"
+    return path if path.exists() else None
+
+
+def summarize_startup_operator_hygiene_report(path: Path, report: dict[str, Any]) -> dict[str, Any]:
+    target = report.get("target") if isinstance(report.get("target"), dict) else {}
+    clean_target = report.get("cleanTarget") if isinstance(report.get("cleanTarget"), dict) else {}
+    blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
+    ok = bool(report.get("pass") is True and not blockers)
+    return {
+        "path": str(path),
+        "ok": ok,
+        "status": str(report.get("status") or "unknown"),
+        "target_sha256": target.get("sha256"),
+        "tool_call_count": target.get("toolCallCount"),
+        "clean_target": {
+            "path": clean_target.get("path"),
+            "sha256": clean_target.get("sha256"),
+            "tool_call_count": clean_target.get("toolCallCount"),
+            "pass": bool(clean_target.get("pass") is True),
+            "blockers": clean_target.get("blockers") if isinstance(clean_target.get("blockers"), list) else [],
+        } if clean_target else None,
+        "blockers": [str(item) for item in blockers if str(item).strip()],
+        "score_claim_allowed": bool(report.get("scoreClaimAllowed") is True),
+        "improvement_claim_allowed": bool(report.get("improvementClaimAllowed") is True),
+        "detail": (
+            f"Startup Operator target hygiene is {report.get('status', 'unknown')}; "
+            f"target sha256={target.get('sha256', 'unknown')}, toolCallCount={target.get('toolCallCount', 'unknown')}."
+        ),
+    }
 
 
 def specialization_path_is_usable(path: Path) -> bool:
@@ -12782,7 +12955,18 @@ def validate_specialization_loop_status_packet(packet: dict[str, Any]) -> tuple[
         trap = str(packet.get("trapStatus") or "").strip().lower()
         if held_out not in {"passed", "pass"}:
             issues.append("improved claim requires held-out proof")
-        if trap not in {"passed", "pass"}:
+        proof_bundle = packet.get("proofGateBundle")
+        promotion_dossier = packet.get("promotionDossier")
+        startup_bundle_allows_claim = (
+            isinstance(proof_bundle, dict)
+            and proof_bundle.get("status") == "ready"
+            and bool(proof_bundle.get("bundleId"))
+            and isinstance(promotion_dossier, dict)
+            and promotion_dossier.get("status") == "score_claim_ready"
+            and bool(promotion_dossier.get("scoreClaimAllowed"))
+            and bool(promotion_dossier.get("improvementClaimAllowed"))
+        )
+        if trap not in {"passed", "pass"} and not (trap == "not_required" and startup_bundle_allows_claim):
             issues.append("improved claim requires trap proof")
     return not issues, issues
 
@@ -12801,6 +12985,23 @@ def summarize_specialization_loop_status_packet(packet: dict[str, Any]) -> str:
     if baseline is not None and candidate is not None and delta is not None:
         return f"{label} status packet says {decision}; baseline {baseline}, candidate {candidate}, delta {delta}; {proof}."
     return f"{label} status packet says {decision}; {proof}."
+
+
+def status_packet_is_startup_improvement_claim(path_key: str, packet: dict[str, Any]) -> bool:
+    decision = str(packet.get("decision") or "").strip().lower()
+    if decision != "improved":
+        return False
+    haystack = " ".join(
+        str(value)
+        for value in (
+            path_key,
+            packet.get("pathKey"),
+            packet.get("pathLabel"),
+            packet.get("category"),
+            (packet.get("benchmark") or {}).get("adapter") if isinstance(packet.get("benchmark"), dict) else "",
+        )
+    ).lower()
+    return "startup" in haystack or "startup-bench" in haystack
 
 
 def collect_specialization_loop_proofs(paths: list[Path], swarm_root: Path | None) -> list[dict[str, Any]]:
@@ -12861,28 +13062,137 @@ def collect_specialization_loop_payload(*, proof: bool = False) -> dict[str, Any
         *(candidate for candidate in [installed_path_candidate(installed, "spark-swarm")] if candidate is not None),
     ])
     sibling_root = swarm_root.parent if swarm_root else None
+    if not sibling_root:
+        for root in (telegram_root, labs_root):
+            if root:
+                sibling_root = root.parent
+                break
     if not labs_root and sibling_root:
         labs_root = first_existing_path([sibling_root / "spark-domain-chip-labs"])
+    startup_bench_root = first_existing_path(
+        repo_root_candidates(
+            installed,
+            env_names=("SPARK_STARTUP_BENCH_ROOT", "SPARK_STARTUP_BENCH_REPO"),
+            installed_names=("startup-bench",),
+            sibling_root=sibling_root,
+        )
+    )
+    spark_qa_operator_root = first_existing_path(
+        repo_root_candidates(
+            installed,
+            env_names=(
+                "SPARK_QA_OPERATOR_ROOT",
+                "SPARK_QA_OPERATOR_REPO",
+                "SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO",
+            ),
+            installed_names=("specialization-path-spark-qa-operator",),
+            sibling_root=sibling_root,
+        )
+    )
+    startup_operator_root = first_existing_path(
+        repo_root_candidates(
+            installed,
+            env_names=(
+                "SPARK_STARTUP_OPERATOR_ROOT",
+                "SPARK_STARTUP_OPERATOR_REPO",
+                "SPARK_SWARM_SPECIALIZATION_PATH_STARTUP_OPERATOR_REPO",
+            ),
+            installed_names=("specialization-path-startup-operator",),
+            sibling_root=sibling_root,
+        )
+    )
+    startup_yc_root = first_existing_path(
+        repo_root_candidates(
+            installed,
+            env_names=(
+                "SPARK_STARTUP_YC_ROOT",
+                "SPARK_STARTUP_YC_REPO",
+                "SPARK_SWARM_SPECIALIZATION_PATH_STARTUP_YC_REPO",
+            ),
+            installed_names=("specialization-path-startup-yc",),
+            sibling_root=sibling_root,
+        )
+    )
     path_roots = specialization_path_candidates(installed)
     if sibling_root:
         path_roots = unique_path_candidates([*path_roots, *sibling_root.glob("specialization-path-*")])
+    path_roots = unique_path_candidates(
+        [
+            *path_roots,
+            *(path for path in (spark_qa_operator_root, startup_operator_root, startup_yc_root) if path is not None),
+        ]
+    )
     usable_paths = [candidate for candidate in path_roots if specialization_path_is_usable(candidate)]
 
     telegram_ok = bool(telegram_root and telegram_gateway_is_usable(telegram_root))
-    labs_schema_dir = labs_root / "docs" / "creator_system" / "schemas" if labs_root else None
-    labs_ok = bool(
-        labs_root
-        and (labs_root / "src" / "chip_labs").exists()
-        and labs_schema_dir
-        and (labs_schema_dir / "creator-mission-status.schema.json").exists()
-        and (labs_schema_dir / "specialization-loop-status.schema.json").exists()
-    )
+    labs_ok = bool(labs_root and domain_chip_labs_is_usable(labs_root))
     swarm_ok = bool(
         swarm_root
         and (swarm_root / "config" / "specialization-paths.json").exists()
     )
+    startup_bench_ok = bool(startup_bench_root and startup_bench_is_usable(startup_bench_root))
+    spark_qa_operator_ok = bool(spark_qa_operator_root and specialization_path_is_usable(spark_qa_operator_root))
+    startup_operator_ok = bool(startup_operator_root and specialization_path_is_usable(startup_operator_root))
+    startup_yc_ok = bool(startup_yc_root and specialization_path_is_usable(startup_yc_root))
     path_ok = bool(usable_paths)
+    dossier_path = latest_startup_bench_bound_dossier_path(spark_qa_operator_root)
+    dossier = read_json_object(dossier_path)
+    startup_dossier_proof = (
+        summarize_startup_bench_bound_dossier(dossier_path, dossier)
+        if dossier_path and dossier
+        else {
+            "path": str(dossier_path) if dossier_path else None,
+            "ok": False,
+            "status": "missing",
+            "score_claim_allowed": False,
+            "improvement_claim_allowed": False,
+            "claim_allowed": False,
+            "score": {},
+            "blockers": [],
+            "bundle_id": None,
+            "issues": ["bound startup bench promotion dossier is missing"],
+            "detail": "No bound Startup Bench promotion dossier was found under Spark QA Operator.",
+        }
+    )
+    hygiene_path = latest_startup_operator_hygiene_report_path(startup_operator_root)
+    hygiene_report = read_json_object(hygiene_path)
+    startup_operator_hygiene = (
+        summarize_startup_operator_hygiene_report(hygiene_path, hygiene_report)
+        if hygiene_path and hygiene_report
+        else {
+            "path": str(hygiene_path) if hygiene_path else None,
+            "ok": False,
+            "status": "missing",
+            "target_sha256": None,
+            "tool_call_count": None,
+            "clean_target": None,
+            "blockers": ["startup_operator_target_hygiene_missing"],
+            "score_claim_allowed": False,
+            "improvement_claim_allowed": False,
+            "detail": "Startup Operator target hygiene report is missing.",
+        }
+    )
+    bound_target_sha = startup_dossier_proof.get("target_sha256")
+    hygiene_target_sha = startup_operator_hygiene.get("target_sha256")
+    target_binding_ok = bool(
+        bound_target_sha
+        and hygiene_target_sha
+        and str(bound_target_sha) == str(hygiene_target_sha)
+    )
     status_proofs = collect_specialization_loop_proofs(usable_paths, swarm_root) if proof and usable_paths else []
+    if status_proofs and not startup_dossier_proof.get("claim_allowed"):
+        for status_proof in status_proofs:
+            if not isinstance(status_proof, dict):
+                continue
+            packet = status_proof.get("packet") if isinstance(status_proof.get("packet"), dict) else {}
+            path_key = str(status_proof.get("path_key") or packet.get("pathKey") or "")
+            if status_packet_is_startup_improvement_claim(path_key, packet):
+                issues = status_proof.get("issues")
+                if not isinstance(issues, list):
+                    issues = []
+                    status_proof["issues"] = issues
+                issues.append("startup status says improved while bound Startup Bench dossier blocks claims")
+                status_proof["ok"] = False
     status_proof_ok = bool(status_proofs) and all(bool(item.get("ok")) for item in status_proofs)
 
     checks = [
@@ -12902,9 +13212,9 @@ def collect_specialization_loop_payload(*, proof: bool = False) -> dict[str, Any
             "ok": labs_ok,
             "required": True,
             "detail": (
-                f"spark-domain-chip-labs found at {labs_root} with creator and specialization-loop schemas."
+                f"spark-domain-chip-labs found at {labs_root} with creator, specialization-loop, and Startup Bench promotion schemas."
                 if labs_ok
-                else "spark-domain-chip-labs is not installed or discoverable as SPARK_DOMAIN_CHIP_LABS_ROOT."
+                else "spark-domain-chip-labs is not installed, is not discoverable as SPARK_DOMAIN_CHIP_LABS_ROOT, or is missing required specialization/startup schemas."
             ),
             "repair": "Install or update spark-domain-chip-labs, or set SPARK_DOMAIN_CHIP_LABS_ROOT to its repo path.",
         },
@@ -12918,6 +13228,80 @@ def collect_specialization_loop_payload(*, proof: bool = False) -> dict[str, Any
                 else "spark-swarm is not installed or discoverable as SPARK_SWARM_ROOT."
             ),
             "repair": "Install spark-swarm or set SPARK_SWARM_ROOT to its repo path.",
+        },
+        {
+            "name": "startup_bench_root",
+            "ok": startup_bench_ok,
+            "required": True,
+            "detail": (
+                f"startup-bench found at {startup_bench_root}."
+                if startup_bench_ok
+                else "startup-bench is not installed or discoverable as SPARK_STARTUP_BENCH_ROOT."
+            ),
+            "repair": "Install startup-bench or set SPARK_STARTUP_BENCH_ROOT to its repo path.",
+        },
+        {
+            "name": "spark_qa_operator_root",
+            "ok": spark_qa_operator_ok,
+            "required": True,
+            "detail": (
+                f"Spark QA Operator specialization path found at {spark_qa_operator_root}."
+                if spark_qa_operator_ok
+                else "Spark QA Operator specialization path is not discoverable as SPARK_QA_OPERATOR_REPO."
+            ),
+            "repair": "Install specialization-path-spark-qa-operator or set SPARK_QA_OPERATOR_REPO.",
+        },
+        {
+            "name": "startup_operator_root",
+            "ok": startup_operator_ok,
+            "required": True,
+            "detail": (
+                f"Startup Operator specialization path found at {startup_operator_root}."
+                if startup_operator_ok
+                else "Startup Operator specialization path is not discoverable as SPARK_STARTUP_OPERATOR_REPO."
+            ),
+            "repair": "Install specialization-path-startup-operator or set SPARK_STARTUP_OPERATOR_REPO.",
+        },
+        {
+            "name": "startup_yc_root",
+            "ok": startup_yc_ok,
+            "required": True,
+            "detail": (
+                f"Startup YC specialization path found at {startup_yc_root}."
+                if startup_yc_ok
+                else "Startup YC specialization path is not discoverable as SPARK_STARTUP_YC_REPO."
+            ),
+            "repair": "Install specialization-path-startup-yc or set SPARK_STARTUP_YC_REPO.",
+        },
+        {
+            "name": "startup_bench_bound_dossier",
+            "ok": bool(startup_dossier_proof.get("ok")),
+            "required": True,
+            "detail": str(startup_dossier_proof.get("detail") or ""),
+            "repair": "Bind the latest Startup Bench proof report into a promotion dossier before claiming improvement.",
+            "proof": startup_dossier_proof,
+        },
+        {
+            "name": "startup_operator_target_hygiene",
+            "ok": bool(startup_operator_hygiene.get("ok")),
+            "required": True,
+            "detail": str(startup_operator_hygiene.get("detail") or ""),
+            "repair": "Run Startup Operator target hygiene and keep advisory/proof material out of executable tool calls.",
+            "proof": startup_operator_hygiene,
+        },
+        {
+            "name": "startup_operator_target_binding",
+            "ok": target_binding_ok,
+            "required": True,
+            "detail": (
+                f"Startup Operator target hash matches the bound Startup Bench dossier: {bound_target_sha}."
+                if target_binding_ok
+                else f"Startup Operator target hash does not match the bound Startup Bench dossier; bound={bound_target_sha or 'missing'}, current={hygiene_target_sha or 'missing'}."
+            ),
+            "repair": "Use a target-hash-bound proof bundle for the current executable target, or restore/apply the exact target hash before claiming improvement.",
+            "bound_target_sha256": bound_target_sha,
+            "current_target_sha256": hygiene_target_sha,
+            "clean_target": startup_operator_hygiene.get("clean_target"),
         },
         {
             "name": "specialization_path",
@@ -12955,12 +13339,18 @@ def collect_specialization_loop_payload(*, proof: bool = False) -> dict[str, Any
         "telegram_root": str(telegram_root) if telegram_root else None,
         "labs_root": str(labs_root) if labs_root else None,
         "swarm_root": str(swarm_root) if swarm_root else None,
+        "startup_bench_root": str(startup_bench_root) if startup_bench_root else None,
+        "spark_qa_operator_root": str(spark_qa_operator_root) if spark_qa_operator_root else None,
+        "startup_operator_root": str(startup_operator_root) if startup_operator_root else None,
+        "startup_yc_root": str(startup_yc_root) if startup_yc_root else None,
         "specialization_paths": [str(path) for path in usable_paths],
+        "startup_bench_dossier": startup_dossier_proof,
+        "startup_operator_hygiene": startup_operator_hygiene,
         "proof_requested": bool(proof),
         "status_proofs": status_proofs,
         "safe_next_moves": [
             "Run `spark doctor specialization-loop` for plain-language repair guidance.",
-            "Set SPARK_TELEGRAM_BOT_ROOT, SPARK_DOMAIN_CHIP_LABS_ROOT, SPARK_SWARM_ROOT, or SPARK_SPECIALIZATION_PATH_ROOTS when repos live outside Spark's installed registry.",
+            "Set SPARK_TELEGRAM_BOT_ROOT, SPARK_DOMAIN_CHIP_LABS_ROOT, SPARK_SWARM_ROOT, SPARK_STARTUP_BENCH_ROOT, SPARK_QA_OPERATOR_REPO, SPARK_STARTUP_OPERATOR_REPO, SPARK_STARTUP_YC_REPO, or SPARK_SPECIALIZATION_PATH_ROOTS when repos live outside Spark's installed registry.",
             "Use `spark verify --specialization-loop --proof` when you want canonical status-packet proof without starting a run.",
         ],
         "next_commands": [
