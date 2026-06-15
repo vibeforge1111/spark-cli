@@ -1599,6 +1599,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_terraform_credentials(self) -> None:
+        for command in (["terraform", "login"], ["terraform", "login", "app.terraform.io"], ["terraform", "logout"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve terraform credential change")
+
+    def test_approval_classifier_flags_terraform_workspace_routing(self) -> None:
+        for command in (["terraform", "workspace", "select", "prod"], ["terraform", "workspace", "new", "prod"], ["terraform", "workspace", "delete", "prod"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve terraform workspace change")
+
+    def test_approval_classifier_allows_terraform_workspace_inspection(self) -> None:
+        for command in (["terraform", "workspace", "list"], ["terraform", "workspace", "show"], ["terraform", "plan"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

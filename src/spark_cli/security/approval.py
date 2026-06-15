@@ -410,6 +410,28 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
+    if first == "terraform" and second in {"login", "logout"}:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Terraform command can store, rotate, or remove Terraform Cloud credentials.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve terraform credential change",
+        )
+    if first == "terraform" and lowered[1:2] == ["workspace"]:
+        workspace_action = lowered[2] if len(lowered) > 2 else ""
+        if workspace_action in {"select", "new", "delete"}:
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "high",
+                "Terraform workspace command can change or remove the workspace targeted by future operations.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve terraform workspace change",
+            )
     if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,
