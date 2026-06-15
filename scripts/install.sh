@@ -520,7 +520,7 @@ validate_install_settings() {
   esac
 
   case "$SPARK_NODE_PLATFORM" in
-    ""|linux-x64|linux-arm64|darwin-x64|darwin-arm64) ;;
+    ""|linux-x64|linux-arm64|darwin-x64|darwin-arm64|windows-x64|windows-arm64) ;;
     *)
       echo "Unsafe managed Node platform value: $SPARK_NODE_PLATFORM" >&2
       exit 1
@@ -560,6 +560,7 @@ detect_node_platform() {
   case "$os_name" in
     Linux) os_id="linux" ;;
     Darwin) os_id="darwin" ;;
+    MINGW*|MSYS*|CYGWIN*) os_id="windows" ;;
     *)
       echo "Unsupported OS for install.sh: $os_name. Use install.ps1 on Windows." >&2
       exit 1
