@@ -1653,6 +1653,96 @@ class SparkCliTests(unittest.TestCase):
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_flags_aws_cognito_access_mutations(self) -> None:
+        cases = [
+            (
+                ["aws", "cognito-idp", "admin-create-user", "--user-pool-id", "us-east-1_synthetic", "--username", "demo@example.test"],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "cognito-idp",
+                    "admin-set-user-password",
+                    "--user-pool-id",
+                    "us-east-1_synthetic",
+                    "--username",
+                    "demo@example.test",
+                    "--password",
+                    "placeholder",
+                    "--permanent",
+                ],
+                "critical",
+            ),
+            (
+                [
+                    "aws",
+                    "cognito-idp",
+                    "admin-add-user-to-group",
+                    "--user-pool-id",
+                    "us-east-1_synthetic",
+                    "--username",
+                    "demo@example.test",
+                    "--group-name",
+                    "admins",
+                ],
+                "high",
+            ),
+            (["aws", "cognito-idp", "create-user-pool", "--pool-name", "spark-pool"], "high"),
+            (["aws", "cognito-idp", "delete-user-pool", "--user-pool-id", "us-east-1_synthetic"], "critical"),
+            (
+                ["aws", "cognito-identity", "create-identity-pool", "--identity-pool-name", "spark", "--allow-unauthenticated-identities"],
+                "high",
+            ),
+            (
+                [
+                    "aws",
+                    "cognito-identity",
+                    "set-identity-pool-roles",
+                    "--identity-pool-id",
+                    "us-east-1:00000000-0000-0000-0000-000000000000",
+                    "--roles",
+                    "{}",
+                ],
+                "critical",
+            ),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.confirmation_phrase, "approve cognito access change")
+
+    def test_approval_classifier_allows_aws_cognito_report_commands(self) -> None:
+        cases = [
+            ["aws", "cognito-idp", "list-user-pools", "--max-results", "10"],
+            ["aws", "cognito-idp", "describe-user-pool", "--user-pool-id", "us-east-1_synthetic"],
+            ["aws", "cognito-idp", "list-users", "--user-pool-id", "us-east-1_synthetic"],
+            [
+                "aws",
+                "cognito-identity",
+                "describe-identity-pool",
+                "--identity-pool-id",
+                "us-east-1:00000000-0000-0000-0000-000000000000",
+            ],
+            [
+                "aws",
+                "cognito-identity",
+                "list-identities",
+                "--identity-pool-id",
+                "us-east-1:00000000-0000-0000-0000-000000000000",
+            ],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+                self.assertEqual(decision.risk, "none")
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)

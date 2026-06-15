@@ -301,6 +301,38 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] in {"cognito-idp", "cognito-identity"}:
+        cognito_action = lowered[2]
+        if cognito_action.startswith(
+            (
+                "admin-",
+                "associate-",
+                "change-",
+                "confirm-",
+                "create-",
+                "delete-",
+                "disable-",
+                "enable-",
+                "global-sign-out",
+                "revoke-",
+                "set-",
+                "sign-up",
+                "tag-",
+                "unlink-",
+                "untag-",
+                "update-",
+            )
+        ):
+            critical_prefixes = ("admin-set-", "delete-", "disable-", "global-sign-out", "revoke-", "set-")
+            return _decision(
+                parts,
+                ctx,
+                "identity_access_mutation",
+                "critical" if cognito_action.startswith(critical_prefixes) else "high",
+                "AWS Cognito command can create users, change passwords or groups, mutate user pools, route identity-pool roles, revoke sessions, or change identity access.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve cognito access change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
