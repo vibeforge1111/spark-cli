@@ -14903,7 +14903,8 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
     if not listener_pid or not pid_is_running(listener_pid):
         return None
     listener_uid = proc_uid_for_pid(listener_pid)
-    if listener_uid is not None and listener_uid != os.getuid():
+    current = getattr(os, "getuid", lambda: None)()
+    if listener_uid is not None and current is not None and listener_uid != current:
         return f"{label} port {port} is already held by pid {listener_pid} owned by another user."
     try:
         os.kill(listener_pid, signal.SIGTERM)
