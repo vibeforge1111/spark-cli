@@ -99,6 +99,46 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _option_values(parts: list[str], option_names: set[str]) -> list[str]:
+    values: list[str] = []
+    lowered = _lower_parts(parts)
+    for index, part in enumerate(lowered):
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if name in option_names:
+                values.append(value)
+        elif part in option_names and index + 1 < len(lowered):
+            values.append(lowered[index + 1])
+    return values
+
+
+def _bind_host(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized.startswith("[") and "]" in normalized:
+        return normalized[1 : normalized.index("]")]
+    if normalized.count(":") == 1:
+        return normalized.rsplit(":", 1)[0]
+    return normalized
+
+
+def _is_public_bind(value: str) -> bool:
+    return _bind_host(value) in {"0.0.0.0", "::", "*", "+"}
+
+
+def _is_public_file_server(lowered: list[str]) -> bool:
+    if lowered[0] in {"python", "python3", "py"} or re.fullmatch(r"python\d+(?:\.\d+)?", lowered[0]):
+        if "-m" in lowered:
+            module_index = lowered.index("-m")
+            if module_index + 1 < len(lowered) and lowered[module_index + 1] == "http.server":
+                return any(_is_public_bind(value) for value in _option_values(lowered, {"--bind", "-b"}))
+    if lowered[0] == "php" and "-s" in lowered:
+        server_index = lowered.index("-s")
+        return server_index + 1 < len(lowered) and _is_public_bind(lowered[server_index + 1])
+    if (lowered[0] == "httpd") or (lowered[:2] == ["busybox", "httpd"]):
+        return any(_is_public_bind(value) for value in _option_values(lowered, {"-p", "--port"}))
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -486,6 +526,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Doctor logs may be sent to a configured LLM provider after redaction.",
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
+        )
+    if _is_public_file_server(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "Command can serve local files on a public network interface.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve public file server",
         )
     if first in {"curl", "wget"} and (
         _contains_any(
