@@ -976,6 +976,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
                 return out
             candidates = sorted(trace_refs)[:500]
             placeholders = ",".join("?" for _ in candidates)
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             matched = conn.execute(
                 f"""
                 select count(distinct trace_ref)
