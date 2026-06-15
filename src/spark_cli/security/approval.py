@@ -313,6 +313,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve kubernetes secret reveal",
         )
 
+    if first == "kubectl" and second in {"drain", "cordon", "uncordon", "taint"}:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Kubernetes command can mutate node scheduling, eviction, or taint state.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve kubernetes node change",
+        )
+
     if first == "docker" and second == "login":
         return _decision(
             parts,
