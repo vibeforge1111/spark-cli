@@ -119,6 +119,8 @@ from spark_cli.cli import (
     long_path_aware,
     module_log_path,
     live_log_targets,
+    local_control_surface_errors,
+    local_secret_file_permission_errors,
     module_process_key,
     module_runtime_command_argv,
     module_runtime_env,
@@ -2402,6 +2404,40 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertFalse(checks["control_surface"]["ok"])
         self.assertIn("SPARK_ALLOWED_HOSTS", checks["control_surface"]["detail"])
+
+    def test_local_control_surface_catches_env_override_mismatch(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "127.0.0.1"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {"SPARK_SPAWNER_HOST": "192.168.1.100"}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertTrue(any("mismatch" in e.lower() for e in errors), f"Expected mismatch error, got: {errors}")
+        self.assertTrue(any("publicly bound" in e.lower() for e in errors), f"Expected public bind error, got: {errors}")
+
+    def test_local_control_surface_catches_lan_ip_as_public(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "10.0.0.5"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertTrue(any("publicly bound" in e.lower() for e in errors), f"Expected public bind error for LAN IP, got: {errors}")
+
+    def test_local_control_surface_allows_localhost(self) -> None:
+        def fake_read_generated_env(path: Path) -> dict[str, str]:
+            if Path(path).name == "spawner-ui.env":
+                return {"SPARK_SPAWNER_HOST": "127.0.0.1"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read_generated_env), \
+             patch.dict(os.environ, {}, clear=False):
+            errors = local_control_surface_errors()
+        self.assertEqual(errors, [])
 
     def test_security_audit_can_include_hosted_checks(self) -> None:
         hosted_payload = {
@@ -8203,6 +8239,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(spawner_env["SPARK_ALLOWED_HOSTS"], "spark-live-production.up.railway.app")
         self.assertNotIn("OPENAI_API_KEY", spawner_env)
 
+    def test_build_module_envs_writes_secrets_file(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+
+        envs = build_module_envs(
+            Args(),
+            {gateway.name: gateway, builder.name: builder, spawner.name: spawner},
+            {"telegram.bot_token": "abc", "telegram.relay_secret": "secret123"},
+        )
+        # SPARK_SECRETS_FILE should be set for modules with sensitive secrets
+        self.assertIn("SPARK_SECRETS_FILE", envs["spark-telegram-bot"])
+        secrets_path = Path(envs["spark-telegram-bot"]["SPARK_SECRETS_FILE"])
+        self.assertTrue(secrets_path.exists())
+        secrets = json.loads(secrets_path.read_text(encoding="utf-8"))
+        self.assertEqual(secrets.get("BOT_TOKEN"), "abc")
+
+    def test_build_module_envs_strips_sensitive_in_secure_mode(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+
+        with patch.dict(os.environ, {"SPARK_SECURE_MODULE_SECRETS": "1"}, clear=False):
+            envs = build_module_envs(
+                Args(),
+                {gateway.name: gateway, builder.name: builder, spawner.name: spawner},
+                {"telegram.bot_token": "abc", "telegram.relay_secret": "secret123"},
+            )
+        # In secure mode, sensitive keys should be removed from env
+        self.assertNotIn("BOT_TOKEN", envs["spark-telegram-bot"])
+        self.assertIn("SPARK_SECRETS_FILE", envs["spark-telegram-bot"])
+
     def test_pid_is_running_detects_current_process(self) -> None:
         self.assertTrue(pid_is_running(os.getpid()))
 
@@ -10761,6 +10837,38 @@ class SparkCliTests(unittest.TestCase):
     def test_tail_log_lines_empty_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.assertEqual(tail_log_lines(Path(tmp_dir) / "missing.log", 50), [])
+
+    def test_tail_log_lines_large_file_efficient(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = Path(tmp_dir) / "big.log"
+            # Write a 2MB log file (1000-byte lines)
+            line = "X" * 999 + "\n"
+            lines_needed = (2 * 1024 * 1024) // len(line.encode())
+            with log_path.open("w", encoding="utf-8") as f:
+                for i in range(lines_needed):
+                    f.write(f"{i:08d}{line[8:]}")
+            result = tail_log_lines(log_path, 5)
+            self.assertEqual(len(result), 5)
+            # Verify we got the last lines
+            self.assertTrue(result[-1].startswith(f"{lines_needed - 1:08d}"))
+
+    def test_append_process_log_rotates_when_oversized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir)
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_BYTES", 1024):
+                # Write enough to exceed 1KB limit
+                for i in range(50):
+                    append_process_log("test-module", f"line {i} " + "X" * 50)
+                main_log = log_dir / "test-module" / "process.log"
+                rotated = main_log.with_suffix(".log.1")
+                # Either main exists and is under limit, or rotated was created
+                if rotated.exists():
+                    self.assertTrue(rotated.stat().st_size > 1024)
+                    self.assertTrue(main_log.exists())
+                    self.assertLessEqual(main_log.stat().st_size, 2048)
+                else:
+                    self.assertLessEqual(main_log.stat().st_size, 2048)
 
     def test_module_log_path_points_under_spark_log_dir(self) -> None:
         path = module_log_path("spark-telegram-bot")
