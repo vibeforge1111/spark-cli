@@ -3317,8 +3317,7 @@ def spark_builder_home() -> Path:
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
     lines = [f"{key}={value}" for key, value in values.items()]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
