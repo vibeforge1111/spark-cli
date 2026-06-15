@@ -2901,6 +2901,7 @@ def builder_trace_topology(
     child_event_type_expr = 'child."event_type"' if "event_type" in columns else "null"
     child_component_expr = 'child."component"' if "component" in columns else "null"
     parent_event_type_expr = 'parent."event_type"' if "event_type" in columns else "null"
+    # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
     edge_rows = conn.execute(
         f"""
         select
