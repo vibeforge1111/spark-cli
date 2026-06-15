@@ -136,6 +136,7 @@ def parse_command_text(command: str) -> list[str]:
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
     ctx = context or CommandContext()
+    raw_lowered = _lower_parts(argv)
     parts = [part for part in argv if part != "--"]
     lowered = _lower_parts(parts)
     if not lowered:
@@ -228,6 +229,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can rewrite published history or discard local work.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve git history mutation",
+        )
+
+    if first == "git" and (
+        second == "restore"
+        or (second == "checkout" and ("--" in raw_lowered or "." in lowered[2:]))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can discard tracked worktree or staged changes.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve git worktree discard",
         )
 
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
