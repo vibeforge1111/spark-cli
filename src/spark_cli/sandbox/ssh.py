@@ -772,7 +772,7 @@ def collect_ssh_doctor_payload(
     checks.append(_check(
         "local_ssh_client",
         bool(ssh_path),
-        f"SSH client found at {ssh_path}." if ssh_path else "SSH client not found on PATH.",
+        "SSH client is available on PATH." if ssh_path else "SSH client not found on PATH.",
         repair="Install OpenSSH client, reopen the terminal, then rerun this command.",
     ))
 
