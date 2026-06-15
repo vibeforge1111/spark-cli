@@ -302,6 +302,37 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "guardduty":
+        guardduty_action = lowered[2]
+        mutating_prefixes = (
+            "accept-",
+            "archive-",
+            "create-",
+            "decline-",
+            "delete-",
+            "disable-",
+            "disassociate-",
+            "enable-",
+            "invite-",
+            "start-",
+            "stop-",
+            "tag-",
+            "unarchive-",
+            "untag-",
+            "update-",
+        )
+        if guardduty_action.startswith(mutating_prefixes):
+            critical_prefixes = ("delete-", "disable-", "stop-")
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if guardduty_action.startswith(critical_prefixes) else "high",
+                "AWS GuardDuty command can change threat detection, finding state, members, destinations, or resource tags.",
+                target_display=" ".join(parts[:4]),
+                confirmation_phrase="approve guardduty change",
+            )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,

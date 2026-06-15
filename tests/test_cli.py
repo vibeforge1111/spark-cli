@@ -1599,6 +1599,58 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_aws_guardduty_mutations(self) -> None:
+        cases = [
+            (["aws", "guardduty", "create-detector", "--enable"], "high"),
+            (["aws", "guardduty", "update-detector", "--detector-id", "spark", "--enable"], "high"),
+            (["aws", "guardduty", "delete-detector", "--detector-id", "spark"], "critical"),
+            (["aws", "guardduty", "archive-findings", "--detector-id", "spark", "--finding-ids", "finding-1"], "high"),
+            (["aws", "guardduty", "unarchive-findings", "--detector-id", "spark", "--finding-ids", "finding-1"], "high"),
+            (
+                [
+                    "aws",
+                    "guardduty",
+                    "create-threat-intel-set",
+                    "--detector-id",
+                    "spark",
+                    "--name",
+                    "demo",
+                    "--format",
+                    "TXT",
+                    "--location",
+                    "s3://example/list.txt",
+                    "--activate",
+                ],
+                "high",
+            ),
+            (["aws", "guardduty", "update-threat-intel-set", "--detector-id", "spark", "--threat-intel-set-id", "set-1", "--activate"], "high"),
+            (["aws", "guardduty", "delete-threat-intel-set", "--detector-id", "spark", "--threat-intel-set-id", "set-1"], "critical"),
+            (["aws", "guardduty", "create-publishing-destination", "--detector-id", "spark", "--destination-type", "S3"], "high"),
+            (["aws", "guardduty", "delete-publishing-destination", "--detector-id", "spark", "--destination-id", "dest-1"], "critical"),
+            (["aws", "guardduty", "tag-resource", "--resource-arn", "arn:aws:guardduty:us-east-1:000000000000:detector/spark"], "high"),
+        ]
+        for command, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve guardduty change")
+
+    def test_approval_classifier_allows_aws_guardduty_report_commands(self) -> None:
+        for command in (
+            ["aws", "guardduty", "list-detectors"],
+            ["aws", "guardduty", "get-detector", "--detector-id", "spark"],
+            ["aws", "guardduty", "list-findings", "--detector-id", "spark"],
+            ["aws", "guardduty", "get-findings", "--detector-id", "spark", "--finding-ids", "finding-1"],
+            ["aws", "guardduty", "list-threat-intel-sets", "--detector-id", "spark"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
