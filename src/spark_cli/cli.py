@@ -11800,7 +11800,7 @@ def build_fix_route_context(target: str, payload: dict[str, Any]) -> dict[str, A
     }
     credential_checks = {"bot_token", "llm_roles", "provider roles"}
     consequence_risk = "credential" if any(name in credential_checks for name in failed_check_names) else "medium"
-    route_fit = "blocked" if ok else "exact"
+    route_fit = "exact" if ok else "blocked"
     return {
         "schema_version": "spark.repair_route_context.v1",
         "candidate_route": "spark.repair",
