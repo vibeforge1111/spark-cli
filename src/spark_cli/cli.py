@@ -8939,7 +8939,9 @@ def generated_env_files_for_revoke_all() -> list[Path]:
         return []
 
 
-def module_name_from_generated_env_path(path: Path) -> str | None:
+def module_name_from_generated_env_path(path: Any) -> str | None:
+    if not path or not hasattr(path, "stem"):
+        return None
     stem = path.stem
     if "." in stem:
         return None
@@ -9059,6 +9061,8 @@ def disable_revoke_all_custom_mcp(*, dry_run: bool = False) -> dict[str, Any]:
 
 def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, str]]:
     tokens: list[dict[str, str]] = []
+    if not isinstance(secret_ids, (list, tuple, set, dict)):
+        return tokens
     seen: set[str] = set()
     for secret_id in sorted(secret_ids):
         if not is_telegram_bot_token_secret(secret_id):
@@ -9077,6 +9081,8 @@ def telegram_tokens_for_revoke_all(secret_ids: Iterable[str]) -> list[dict[str, 
 def clear_telegram_webhook_state(tokens: list[dict[str, str]], *, dry_run: bool = False) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    if not isinstance(tokens, (list, tuple, set)):
+        return {"ok": True, "planned": dry_run, "tokens": results, "failures": failures}
     for item in tokens:
         secret_id = item["secret_id"]
         if dry_run:
@@ -9142,8 +9148,12 @@ def spawner_state_dir_for_revoke_all() -> Path:
     return Path(raw).expanduser()
 
 
-def load_json_best_effort(path: Path, default: Any) -> Any:
-    if not path.exists():
+def load_json_best_effort(path: Any, default: Any) -> Any:
+    if not path:
+        return default
+    path = Path(path)
+    try:
+        if not path.exists():
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -9153,6 +9163,8 @@ def load_json_best_effort(path: Path, default: Any) -> Any:
 
 def latest_mission_events(recent: list[Any]) -> dict[str, dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
+    if not isinstance(recent, (list, tuple, set)):
+        return latest
     for entry in recent:
         if not isinstance(entry, dict):
             continue
@@ -9555,7 +9567,11 @@ def spark_home_boundary_errors(spark_home: Path = SPARK_HOME) -> list[str]:
 
 def spark_home_write_errors(paths: list[Path] | None = None) -> list[str]:
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SPARK_HOME, STATE_DIR, CONFIG_DIR, LOG_DIR]:
+        if not path or not hasattr(path, "exists"):
+            continue
         if path.exists() and not os.access(path, os.R_OK | os.W_OK):
             errors.append(f"{redact_shareable_text(str(path))} is not readable/writable by the current user.")
     return errors
@@ -9565,7 +9581,11 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     if os.name == "nt":
         return []
     errors: list[str] = []
+    if paths is not None and not isinstance(paths, (list, tuple, set)):
+        paths = [paths]
     for path in paths or [SECRETS_FILE_PATH, SECRETS_INDEX_PATH]:
+        if not path or not hasattr(path, "stat"):
+            continue
         try:
             mode = path.stat().st_mode & 0o777
         except FileNotFoundError:
@@ -9673,9 +9693,11 @@ def security_provider_detail(provider_payload: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def git_short_status(path: Path) -> str:
-    result = subprocess.run(
-        git_command("-C", str(path), "status", "--porcelain"),
+def git_short_status(path: Any) -> str:
+    if not path:
+        return ""
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "status", "--porcelain"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9683,9 +9705,11 @@ def git_short_status(path: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def git_current_head(path: Path) -> str | None:
-    result = subprocess.run(
-        git_command("-C", str(path), "rev-parse", "HEAD"),
+def git_current_head(path: Any) -> str | None:
+    if not path:
+        return None
+    path = Path(path)
+    result = run_git_subprocess(git_command("-C", str(path), "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         timeout=10,
@@ -9812,7 +9836,9 @@ def runtime_supply_chain_warnings(modules: Iterable[Module]) -> list[str]:
     return warnings
 
 
-def truthy_env(name: str) -> bool:
+def truthy_env(name: Any) -> bool:
+    if not isinstance(name, str):
+        return False
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -11007,7 +11033,7 @@ def redact_for_llm(value: Any) -> Any:
 
 
 def codex_config_path(env: dict[str, str] | None = None) -> Path:
-    source = env if env is not None else os.environ
+    source = env if isinstance(env, dict) else os.environ
     codex_home = str(source.get("CODEX_HOME") or "").strip()
     if codex_home:
         return Path(codex_home).expanduser() / "config.toml"
@@ -11074,6 +11100,8 @@ def codex_active_roles() -> list[str]:
 
 
 def codex_client_config_payload(env: dict[str, str] | None = None) -> dict[str, Any]:
+    if env is not None and not isinstance(env, dict):
+        env = None
     path = codex_config_path(env)
     payload: dict[str, Any] = {
         "provider": "codex",
@@ -11169,6 +11197,10 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def save_codex_client_config(updates: dict[str, str], env: dict[str, str] | None = None) -> dict[str, Any]:
+    if not isinstance(updates, dict):
+        updates = {}
+    if env is not None and not isinstance(env, dict):
+        env = None
     normalized = {key: validate_codex_config_value(key, value) for key, value in updates.items() if value is not None}
     path = codex_config_path(env)
     before = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -11239,14 +11271,15 @@ def render_llm_doctor_prompt(context: dict[str, Any]) -> str:
     )
 
 
-def configured_llm_role_state(role: str) -> dict[str, Any]:
+def configured_llm_role_state(role: Any) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
     if not isinstance(llm_state, dict):
         return {}
     roles = llm_state.get("roles")
-    if isinstance(roles, dict) and isinstance(roles.get(role), dict):
-        state = dict(roles[role])
+    role_str = str(role or "")
+    if isinstance(roles, dict) and isinstance(roles.get(role_str), dict):
+        state = dict(roles[role_str])
     else:
         state = dict(llm_state)
     state.setdefault("provider", llm_state.get("provider"))
