@@ -301,6 +301,30 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve cloud secret reveal",
         )
+    if first == "aws" and len(lowered) > 2 and lowered[1] == "cloudtrail":
+        cloudtrail_action = lowered[2]
+        if cloudtrail_action.startswith(
+            (
+                "add-",
+                "create-",
+                "delete-",
+                "put-",
+                "remove-",
+                "restore-",
+                "start-",
+                "stop-",
+                "update-",
+            )
+        ):
+            return _decision(
+                parts,
+                ctx,
+                "external_publish",
+                "critical" if cloudtrail_action.startswith(("delete-", "remove-", "stop-")) else "high",
+                "AWS CloudTrail command can create/delete trails, stop audit logging, change event/insight selectors, mutate trail storage, or retag audit resources.",
+                target_display=" ".join(parts[:3]),
+                confirmation_phrase="approve cloudtrail change",
+            )
 
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
