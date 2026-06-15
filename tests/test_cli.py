@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import ctypes
 import os
 import hashlib
@@ -41,7 +42,6 @@ from spark_cli.cli import (
     collect_secret_values,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
-    collect_drift_sentinel_payload,
     collect_harness_vendor_integrity_payload,
     collect_registry_pin_drift_payload,
     collect_sandbox_verify_payload,
@@ -79,6 +79,7 @@ from spark_cli.cli import (
     evaluate_module_health,
     clone_module_source,
     clone_target_for_module,
+    canonical_installer_script_bytes,
     ensure_generated_setup_secrets,
     installer_script_sha256,
     ensure_runtime_telegram_relay_secret,
@@ -159,7 +160,6 @@ from spark_cli.cli import (
     enforce_runtime_versions,
     ensure_trust_for_install,
     extract_telegram_bot_token,
-    INSTALL_PROGRESS_PATH,
     INSECURE_FILE_SECRET_PREFIX,
     is_blessed_registry_entry,
     load_install_progress,
@@ -192,10 +192,10 @@ from spark_cli.cli import (
     redact_shareable_text,
     redact_sensitive_text,
     non_secret_llm_env,
-    read_clipboard_text,
     read_secret_interactive,
     redact_secret_surface_logs,
     resolve_secret_input,
+    rotate_process_log_if_oversized,
     runtime_command_argv,
     runtime_version_satisfies,
     validate_capability_needs_for_install,
@@ -10752,6 +10752,36 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertIn("[spark-cli 2026-04-25T12:00:00Z] start warning detail", contents)
 
+    def test_append_process_log_rotates_oversized_log_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "logs"
+            log_path = log_dir / "spawner-ui" / "process.log"
+            log_path.parent.mkdir(parents=True)
+            log_path.write_text("old\n" * 4, encoding="utf-8")
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.PROCESS_LOG_MAX_BYTES", 8), \
+                 patch("spark_cli.cli.timestamp_now", return_value="2026-06-11T12:00:00Z"):
+                append_process_log("spawner-ui", "ready pid=123")
+
+            rotated_path = log_dir / "spawner-ui" / "process.log.1"
+            self.assertEqual(rotated_path.read_text(encoding="utf-8"), "old\n" * 4)
+            self.assertEqual(
+                log_path.read_text(encoding="utf-8"),
+                "[spark-cli 2026-06-11T12:00:00Z] ready pid=123\n",
+            )
+
+    def test_rotate_process_log_copies_and_truncates_when_rename_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = Path(tmp_dir) / "process.log"
+            log_path.write_text("old\n" * 4, encoding="utf-8")
+
+            with patch.object(Path, "replace", side_effect=OSError("locked")):
+                rotated = rotate_process_log_if_oversized(log_path, max_bytes=8, backups=1)
+
+            self.assertTrue(rotated)
+            self.assertEqual(log_path.with_name("process.log.1").read_text(encoding="utf-8"), "old\n" * 4)
+            self.assertEqual(log_path.read_text(encoding="utf-8"), "")
+
     def test_tail_log_lines_returns_all_when_lines_is_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             log_path = Path(tmp_dir) / "process.log"
@@ -11369,13 +11399,6 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(any(str(SPARK_HOME) in hint for hint in hints))
 
     def test_build_status_repair_hints_reports_missing_ingress_owner_and_unhealthy_dependency(self) -> None:
-        builder = Module(
-            name="spark-intelligence-builder",
-            path=Path("C:/tmp/spark-intelligence-builder"),
-            manifest={
-                "module": {"name": "spark-intelligence-builder", "version": "0.1.0", "kind": "runtime", "plane": "runtime"}
-            },
-        )
         gateway = Module(
             name="spark-telegram-bot",
             path=Path("C:/tmp/spark-telegram-bot"),
@@ -12213,8 +12236,8 @@ class SparkCliTests(unittest.TestCase):
         source = installer_manifest_payload()["source"]
         repo_root = Path(__file__).resolve().parents[1]
         hosted_installers = {
-            "install.sh": (repo_root / "scripts" / "install.sh").read_bytes(),
-            "install.ps1": (repo_root / "scripts" / "install.ps1").read_bytes(),
+            "install.sh": canonical_installer_script_bytes(repo_root / "scripts" / "install.sh"),
+            "install.ps1": canonical_installer_script_bytes(repo_root / "scripts" / "install.ps1"),
         }
         hosted_hashes = {
             name: hashlib.sha256(payload).hexdigest()

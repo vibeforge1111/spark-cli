@@ -35,12 +35,14 @@ from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
 
+from .bot_audit import cmd_bot_audit
 from .env_files import normalize_env_file_value
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
+from .trace_command import cmd_trace
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -56,6 +58,8 @@ STATE_DIR = SPARK_HOME / "state"
 CONFIG_DIR = SPARK_HOME / "config"
 MODULE_CONFIG_DIR = CONFIG_DIR / "modules"
 LOG_DIR = SPARK_HOME / "logs"
+PROCESS_LOG_MAX_BYTES = 25 * 1024 * 1024
+PROCESS_LOG_BACKUPS = 3
 REGISTRY_PATH = STATE_DIR / "installed.json"
 CONFIG_PATH = STATE_DIR / "setup.json"
 SETUP_PENDING_PATH = STATE_DIR / "setup.pending.json"
@@ -3791,7 +3795,7 @@ def collect_provider_api_keys(providers: list[str], secret_values: dict[str, str
             continue
         label = LLM_PROVIDER_LABELS.get(provider, provider)
         hint = LLM_PROVIDER_AUTH_HINTS.get(provider, "API key")
-        print(f"")
+        print("")
         print(f"{label} needs {hint} for this setup.")
         if provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"}:
             print(f"  Endpoint: {spec['base_url_default']}")
@@ -8861,7 +8865,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     print("  - Nothing was uploaded.")
     print("")
     print("Useful next:")
-    print(f"  spark doctor llm \"Describe the Spark issue\" --save-report")
+    print("  spark doctor llm \"Describe the Spark issue\" --save-report")
     return 0
 
 
@@ -11638,8 +11642,6 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
     }
     telegram_result = modules_by_name.get("spark-telegram-bot")
     pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
-    telegram_pid = pids.get("spark-telegram-bot") if isinstance(pids, dict) else None
-
     env_values = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
     builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
     llm_state = status_payload.get("llm") if isinstance(status_payload.get("llm"), dict) else {}
@@ -15989,8 +15991,42 @@ def module_log_path(module_name: str, profile: str | None = None) -> Path:
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
     path = module_log_path(module_name, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
+    rotate_process_log_if_oversized(path)
     with path.open("a", encoding="utf-8", errors="replace") as handle:
         handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
+
+
+def rotate_process_log_if_oversized(
+    path: Path,
+    *,
+    max_bytes: int | None = None,
+    backups: int | None = None,
+) -> bool:
+    max_size = PROCESS_LOG_MAX_BYTES if max_bytes is None else max_bytes
+    backup_count = PROCESS_LOG_BACKUPS if backups is None else backups
+    try:
+        if not path.exists() or path.stat().st_size < max_size:
+            return False
+    except OSError:
+        return False
+    for index in range(backup_count, 0, -1):
+        rotated = path.with_name(f"{path.name}.{index}")
+        previous = path if index == 1 else path.with_name(f"{path.name}.{index - 1}")
+        if not previous.exists():
+            continue
+        try:
+            if rotated.exists():
+                rotated.unlink()
+            previous.replace(rotated)
+        except OSError:
+            if previous != path:
+                return False
+            try:
+                shutil.copy2(previous, rotated)
+                previous.write_text("", encoding="utf-8")
+            except OSError:
+                return False
+    return True
 
 
 def tail_log_lines(path: Path, line_count: int) -> list[str]:
@@ -16734,6 +16770,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark browser-use screenshot <url>", "use": "Open a URL and capture a screenshot." },
             { "command": "spark browser-use task [--url <url>] <goal>", "use": "Run a multi-step Browser Use Agent task and save a receipt." },
             { "command": "spark security audit", "use": "Check secrets, provider wiring, Telegram long polling, and runtime health." },
+            { "command": "spark bot audit", "use": "Tail Telegram bot audit JSONLs and flag rows missing join ids." },
             { "command": "spark support bundle", "use": "Create a local redacted support archive. Nothing uploads automatically." },
             { "command": "spark doctor --json", "use": "Structured diagnostics for agents and support." },
             { "command": "spark drift sentinel", "use": "Run registry, OS compile, release-lane, runtime-health, and Harness vendor drift checks." },
@@ -16741,6 +16778,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark os authority", "use": "Inspect redacted access, sandbox, browser approval, and publication authority contracts." },
             { "command": "spark os capabilities", "use": "Inspect redacted capability cards for Labs and Swarm surfaces." },
             { "command": "spark os trace", "use": "Inspect redacted trace health, repair gaps, and cross-system join shape." },
+            { "command": "spark trace <id>", "use": "Reconstruct metadata-only turn, authority, state, and health-plane trace joins." },
             { "command": "spark os memory", "use": "Inspect redacted memory movement counts and authority buckets." },
             { "command": "spark doctor llm \"<problem>\" --save-report", "use": "Ask the user's configured LLM for a redacted repair plan." },
             { "command": "spark autostart on --now", "use": "Turn on the Telegram agent now and every time this computer logs in." },
@@ -16766,6 +16804,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark os authority [--json]", "use": "Inspect metadata-only authority levels, sandbox lanes, guarded actions, browser approvals, and publication gates." },
             { "command": "spark os capabilities [--json]", "use": "Inspect metadata-only capability cards and promotion blockers." },
             { "command": "spark os trace [--json]", "use": "Inspect metadata-only trace health, missing refs, high-severity open events, and cross-system joins." },
+            { "command": "spark trace <turn|telegram|mission|request|ledger>", "use": "Reconstruct a metadata-only cross-plane trace without raw payloads." },
             { "command": "spark os memory [--json]", "use": "Inspect metadata-only memory movement, authority buckets, record counts, and KB artifact counts." },
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
@@ -16779,6 +16818,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark browser-use status|install|probe|open|screenshot|task", "use": "Inspect, prove, and use the browser-use adapter for browser evidence and task loops." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
+            { "command": "spark bot audit [--json]", "use": "Inspect Telegram bot audit JSONLs for rows missing request, trace, mission, or update ids." },
             { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
             { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
@@ -17100,6 +17140,18 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_parser.add_argument("--wait-first-message-seconds", type=int, default=None, help="Override the first-message wait timeout")
     onboard_parser.set_defaults(func=cmd_onboard)
 
+    trace_parser = subparsers.add_parser("trace", help="Reconstruct a Spark turn from exact trace ids")
+    trace_parser.add_argument("target", help="turn_id, update_id, mission_id, request_id, or trace_ref")
+    trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
+    trace_parser.add_argument("--builder-home", default=None, help="Builder state directory containing state.db")
+    trace_parser.add_argument("--state-db", default=None, help="Override Builder state.db path")
+    trace_parser.add_argument("--bot-turn-trace", default=None, help="Override Telegram turn trace JSONL path")
+    trace_parser.add_argument("--spawner-prd-trace", default=None, help="Override Spawner PRD auto trace JSONL path")
+    trace_parser.add_argument("--spawner-agent-events", default=None, help="Override Spawner agent events JSONL path")
+    trace_parser.add_argument("--limit", type=int, default=100, help="Maximum recent records to retain from each source")
+    trace_parser.add_argument("--json", action="store_true", help="Emit reconstructed trace metadata as JSON")
+    trace_parser.set_defaults(func=cmd_trace)
+
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
     os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
@@ -17401,6 +17453,15 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
     _wrap_subgroup_help(approval_parser, ["classify"])
+
+    bot_parser = subparsers.add_parser("bot", help="Inspect Spark Telegram bot diagnostics")
+    bot_subparsers = bot_parser.add_subparsers(dest="bot_command", required=True)
+    bot_audit_parser = bot_subparsers.add_parser("audit", help="Tail bot audit JSONLs and flag rows missing ids")
+    bot_audit_parser.add_argument("--spark-home", help="Spark home to inspect, defaulting to ~/.spark")
+    bot_audit_parser.add_argument("--limit", type=int, default=200, help="Tail this many non-empty lines from each audit file")
+    bot_audit_parser.add_argument("--json", action="store_true", help="Emit a machine-readable metadata-only report")
+    bot_audit_parser.set_defaults(func=cmd_bot_audit)
+    _wrap_subgroup_help(bot_parser, ["audit"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)

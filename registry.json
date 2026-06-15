@@ -51,50 +51,53 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "1834176dba71367a4f29fd3a2bd98d473183b1d5",
+      "commit": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "1834176dba71367a4f29fd3a2bd98d473183b1d5",
+        "commit": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
         "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness",
-        "canonical_head": "1834176dba71367a4f29fd3a2bd98d473183b1d5",
-        "runtime_mirror_head": "1834176dba71367a4f29fd3a2bd98d473183b1d5",
+        "canonical_head": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
+        "runtime_mirror_head": "3cc9170883f4528ba83a09decdf5f351dd01ecdd",
         "tree_clean": false,
-        "validated_at": "2026-06-12T04:12:04Z",
+        "validated_at": "2026-06-12T07:05:11Z",
         "evidence": [
           "npm run build passed after metadata-only PRD result polling fix",
           "buildE2E regression passed: PRD canvas ready notifier accepts metadata-only result summaries",
           "Installed runtime will be fast-forwarded to 06f3083 and restarted under Spark supervision before installer proof",
           "2026-06-10 rendered-file proof route replay: tests/naturalRouteReplay.test.ts passed; tests/naturalRouteDecision.test.ts passed",
           "2026-06-10 route divergence diagnose telemetry: tests/diagnose.test.ts and tests/naturalRouteLedger.test.ts passed; npm run build passed",
-          "2026-06-12 TGB-03 restart:safe guard landed at 1834176; build:sync passed; sync:check:strict passed; missing runtime strict check returned 1; spark-recursive restarted on :8791 pid 34328"
+          "2026-06-12 TGB-03 restart:safe guard landed at 1834176; build:sync passed; sync:check:strict passed; missing runtime strict check returned 1; spark-recursive restarted on :8791 pid 34328",
+          "2026-06-12 HC-06 fail-closed Governor HMAC landed at 3cc9170 on release/stability-2026-06-02-turnintent-harness; focused telegramActionAuthority test, npm run build, and npm run sync:check passed; live Telegram and Spawner unsigned probes refused with governor_signature_missing; release branch push has no CI trigger by workflow design"
         ]
       },
       "verify_ref": "refs/heads/release/stability-2026-06-02-turnintent-harness"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "b78db66ae3ce062c209279db6e3c041c84120009",
+      "commit": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "b78db66ae3ce062c209279db6e3c041c84120009",
+        "commit": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
         "verify_ref": "refs/heads/reconcile/20260610-mit-recovery",
-        "canonical_head": "b78db66ae3ce062c209279db6e3c041c84120009",
-        "runtime_mirror_head": "b78db66ae3ce062c209279db6e3c041c84120009",
-        "tree_clean": true,
+        "canonical_head": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
+        "runtime_mirror_head": "9c95233255619c7d595e3a0c7532c20bbd1c080c",
+        "tree_clean": false,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-09T20:31:48Z",
+        "validated_at": "2026-06-12T06:25:01Z",
         "evidence": [
           "SPDX decision: MIT",
           "focused pytest: 169/169",
-          "runtime recovery line marked as source truth"
+          "runtime recovery line marked as source truth",
+          "2026-06-12 INT-07 standalone Swarm bridge uses SPARK_SWARM_RUNTIME_ROOT only; PR #859 merged at 9c95233 after secret-scan and test-and-audit passed",
+          "2026-06-12 installed SIB mirror moved to 9c95233 with pre-existing local overlay reapplied; swarm bridge focused tests 26/26 passed; spark status OK"
         ]
       },
       "verify_ref": "refs/heads/reconcile/20260610-mit-recovery"
@@ -149,8 +152,8 @@
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
-      "verify_ref": "refs/tags/v1.0.0-rc",
+      "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+      "verify_ref": "refs/tags/v1.0.0-rc.2",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -158,16 +161,20 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
-        "verify_ref": "refs/tags/v1.0.0-rc",
-        "canonical_head": "25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
-        "runtime_mirror_head": "25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
+        "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "verify_ref": "refs/tags/v1.0.0-rc.2",
+        "canonical_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "runtime_mirror_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
         "tree_clean": true,
-        "validated_at": "2026-06-12T00:00:00Z",
+        "validated_at": "2026-06-12T06:47:30Z",
         "evidence": [
           "HS-13 reconciled codex/genesis-harness-core-20260602 and rescue docs into origin/main",
           "origin/main, installed mirror, and v1.0.0-rc peel to 25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
-          "bot and spawner-ui harness-core SOURCE_MANIFEST files point to v1.0.0-rc commit"
+          "bot and spawner-ui harness-core SOURCE_MANIFEST files point to v1.0.0-rc commit",
+          "2026-06-12 HS-07 governed_turn and withGovernedTurn SDK landed at 04b9f85; local pytest 67/67 plus 11 subtests passed; npm test passed",
+          "2026-06-12 main CI run 27399143658 passed conformance, test-and-audit, and secret-scan; v1.0.0-rc.1 points to 04b9f850b8e5239c5358e9320bb4698362e5077b",
+          "2026-06-12 HS-08 consumer conformance kit landed at 71e564b; local pytest 70/70 plus 11 subtests passed; npm test and npm run build passed",
+          "2026-06-12 main CI run 27399578389 passed conformance, test-and-audit, and secret-scan; v1.0.0-rc.2 points to 71e564b36b932474738ced79b48ab9e1716da5e4"
         ]
       }
     },
@@ -247,6 +254,12 @@
           "2026-06-10 canonical PRD webhook sanitizer: focused relay/PRD suite 63/63, full Spawner suite 957/957, npm run build passed",
           "2026-06-10 PRD auto-dispatch prefers structured project lineage over command-like verification text: prd-auto-dispatch.test 23/23, npm run check passed, npm run build passed",
           "2026-06-10 PRD analysis completion is non-terminal for Codex auto-analysis: prd-bridge write 10/10, auto-dispatch/load-to-canvas 39/39, npm run check passed, npm run build passed",
+          "2026-06-12 SPU-05 PR #880 merged watchdog branch to main at 1769e3d after CI run 27392534162 passed secret-scan and test-and-audit",
+          "2026-06-12 runtime mirror switched to main at 1769e3d with local INT-09 harness-core distribution edits reapplied",
+          "2026-06-12 SPU-04 fast_direct completion guard landed on main at 30c92cf; CI run 27392992245 passed secret-scan and test-and-audit",
+          "2026-06-12 SPU-04 live smoke passed with smoke-fastdirect-completion against :3333",
+          "2026-06-12 SPU-09 retired copy-based sync-runtime; CI run 27393334910 passed secret-scan and test-and-audit; live runtime sync check/check/build passed at 311a624",
+          "2026-06-12 SPU-10 CI push triggers for codex/** and spark-fix/** landed at 82af647; branch run 27393575404 and main run 27393640614 passed secret-scan and test-and-audit; runtime sync check passed",
           "2026-06-12 SPU-09 retired runtime copy/watch sync into check-only drift detection; npm ci passed; focused sync-runtime tests 4/4 passed; full test:run 954/954 passed; sync:runtime, check, and build passed; CI run 27393334910 passed",
           "2026-06-12 SPU-10 widened CI triggers for codex/** and spark-fix/** branches; verification branch CI run 27393575404 passed; main CI run 27393640614 passed"
         ]

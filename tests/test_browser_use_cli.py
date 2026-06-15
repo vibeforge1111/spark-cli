@@ -158,7 +158,6 @@ class BrowserUseCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             status_path = Path(tmp_dir) / "state" / "browser-use" / "status.json"
             completed = subprocess.CompletedProcess(["browser-use"], 0, stdout="ok", stderr="")
-            screenshot_path = status_path.parent / "probe-screenshot.png"
 
             def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 if "screenshot" in argv:
