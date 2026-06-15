@@ -11,6 +11,20 @@ from pathlib import Path
 SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
+def managed_node_tool_candidates(name: str) -> list[Path]:
+    if os.name != "nt":
+        return []
+    spark_home = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+    managed_node_dir = spark_home / "tools" / "node-v22.18.0-win-x64"
+    if not managed_node_dir.exists():
+        return []
+
+    raw_name = Path(name).name
+    suffix = Path(raw_name).suffix
+    candidate_names = [raw_name] if suffix else [raw_name + extension for extension in (".cmd", ".exe", ".bat", ".ps1")]
+    return [managed_node_dir / candidate_name for candidate_name in candidate_names]
+
+
 def split_single_argv_command(command: str, subject: str) -> list[str]:
     parts = shlex.split(command, posix=True)
     if not parts:
@@ -29,6 +43,9 @@ def resolve_runtime_executable(name: str) -> str:
             path = shutil.which(name + suffix)
             if path:
                 return path
+    for candidate in managed_node_tool_candidates(name):
+        if candidate.exists():
+            return str(candidate)
     raise SystemExit(
         f"Missing required runtime tool `{name}`. Install it, reopen the terminal, then rerun the command. "
         "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
