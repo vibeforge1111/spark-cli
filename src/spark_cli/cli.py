@@ -2787,8 +2787,10 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
         raise
     finally:
         try:
-            if temp_path.exists():
+            try:
                 temp_path.unlink()
+            except FileNotFoundError:
+                pass
         except OSError:
             pass
 
