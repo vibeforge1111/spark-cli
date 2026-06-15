@@ -99,6 +99,28 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _is_recursive_file_metadata_mutation(first: str, lowered: list[str]) -> bool:
+    if first not in {"chmod", "chown", "chgrp"}:
+        return False
+    return any(part in {"-r", "--recursive"} or (part.startswith("-") and not part.startswith("--") and "r" in part[1:]) for part in lowered[1:])
+
+
+def _chmod_opens_broad_access(lowered: list[str]) -> bool:
+    if not lowered or lowered[0] != "chmod":
+        return False
+    for part in lowered[1:]:
+        if part.startswith("-"):
+            continue
+        normalized = part.replace(",", "")
+        if re.fullmatch(r"[0-7]{3,4}", normalized):
+            mode = normalized[-3:]
+            if mode[1] in {"6", "7"} or mode[2] in {"6", "7"}:
+                return True
+        if re.search(r"(?:^|[,+])(?:a|g|o)?[+=][rwx]*w|(?:^|[,+])(?:a|g|o)\+[rwx]*", normalized):
+            return True
+    return False
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -210,6 +232,17 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+
+    if _is_recursive_file_metadata_mutation(first, lowered) or _chmod_opens_broad_access(lowered):
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can recursively change file ownership/permissions or broaden file access.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve permission change",
         )
 
     if first == "git" and (
