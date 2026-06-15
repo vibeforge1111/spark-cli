@@ -302,6 +302,20 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve cloud secret reveal",
         )
 
+    if (
+        first == "age-keygen"
+        or (first == "openssl" and (second in {"genrsa", "genpkey"} or (second == "ecparam" and "-genkey" in lowered) or (second == "req" and "-newkey" in lowered)))
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Command can generate a new private key credential.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve private key generation",
+        )
+
     if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
         return _decision(
             parts,
