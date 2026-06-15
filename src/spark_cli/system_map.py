@@ -3345,6 +3345,7 @@ def builder_high_severity_source_state(
                 """,
                 count_params,
             ).fetchone()[0]
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             high_open = conn.execute(
                 f"""
                 select count(*)
