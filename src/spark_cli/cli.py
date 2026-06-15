@@ -538,14 +538,28 @@ def validate_commit_pin(commit: str | None) -> str | None:
     return value.lower()
 
 
-def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_git_or_exit(
+    name: str,
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    effective_timeout = GIT_OPERATION_TIMEOUT_SECONDS if timeout is None else timeout
     try:
         result = subprocess.run(
             git_command(*args),
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
+            timeout=effective_timeout,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git operation timed out for {name} after {exc.timeout:g}s: "
+            f"`git {' '.join(args[:6])}{' ...' if len(args) > 6 else ''}`. "
+            "Check network connectivity and remote availability, then retry."
+        ) from exc
     except OSError as exc:
         raise SystemExit(
             f"git operation failed for {name}: could not start git. "
@@ -558,11 +572,17 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
 
 
 def verify_pinned_commit(name: str, target: Path, commit: str, *, require_signed_commit: bool) -> None:
-    verify_result = subprocess.run(
-        git_command("-C", str(target), "verify-commit", commit),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        verify_result = subprocess.run(
+            git_command("-C", str(target), "verify-commit", commit),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git verify-commit timed out for {name} after {exc.timeout:g}s"
+        ) from exc
     if require_signed_commit and verify_result.returncode != 0:
         detail = (verify_result.stderr or verify_result.stdout).strip() or "commit is not signed or cannot be verified"
         raise SystemExit(f"git signature verification failed for {name} at {commit}: {detail}")
@@ -703,11 +723,18 @@ def clone_module_source(
         run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
         verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command("clone", "--depth=1", url, str(target)),
+            capture_output=True,
+            text=True,
+            timeout=GIT_CLONE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"git clone timed out for {name} after {exc.timeout:g}s: {url}. "
+            "Check network connectivity and remote availability, then retry."
+        ) from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
         raise SystemExit(f"git clone failed for {name}: {detail}")
@@ -715,11 +742,15 @@ def clone_module_source(
 
 
 def pull_module_source(path: Path) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(path), "pull", "--ff-only"),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command("-C", str(path), "pull", "--ff-only"),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git pull timed out after {exc.timeout:g}s"
     return result.returncode == 0, summarize_command_output(result)
 
 
@@ -730,32 +761,44 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
     if not (is_git_source(source) and pinned_commit):
         return pull_module_source(module.path)
 
-    status = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        status = subprocess.run(
+            git_command("-C", str(module.path), "status", "--porcelain"),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git status timed out after {exc.timeout:g}s"
     if status.returncode != 0:
         return False, summarize_command_output(status)
     if status.stdout.strip():
         return False, "working tree has local changes; commit or stash them before updating"
 
-    current = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        current = subprocess.run(
+            git_command("-C", str(module.path), "rev-parse", "HEAD"),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git rev-parse timed out after {exc.timeout:g}s"
     if current.returncode != 0:
         return False, summarize_command_output(current)
     current_commit = current.stdout.strip().lower()
     if current_commit == pinned_commit:
         return True, f"already at pinned commit {pinned_commit[:12]}"
 
-    fetch = subprocess.run(
-        git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        fetch = subprocess.run(
+            git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
+            capture_output=True,
+            text=True,
+            timeout=GIT_CLONE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git fetch timed out after {exc.timeout:g}s"
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
 
@@ -794,27 +837,39 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
         ancestry_note = " (ancestry undecidable, shallow history)"
 
     if bool(registry_metadata.get("require_signed_commit", False)):
-        verify = subprocess.run(
-            git_command("-C", str(module.path), "verify-commit", pinned_commit),
-            capture_output=True,
-            text=True,
-        )
+        try:
+            verify = subprocess.run(
+                git_command("-C", str(module.path), "verify-commit", pinned_commit),
+                capture_output=True,
+                text=True,
+                timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return False, f"git verify-commit timed out after {exc.timeout:g}s"
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
 
-    checkout = subprocess.run(
-        git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        checkout = subprocess.run(
+            git_command("-C", str(module.path), "checkout", "--detach", pinned_commit),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git checkout timed out after {exc.timeout:g}s"
     if checkout.returncode != 0:
         return False, summarize_command_output(checkout)
 
-    resolved = subprocess.run(
-        git_command("-C", str(module.path), "rev-parse", "HEAD"),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        resolved = subprocess.run(
+            git_command("-C", str(module.path), "rev-parse", "HEAD"),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git rev-parse timed out after {exc.timeout:g}s"
     if resolved.returncode != 0:
         return False, summarize_command_output(resolved)
     if resolved.stdout.strip().lower() != pinned_commit:
@@ -832,11 +887,15 @@ def is_dirty_update_failure(detail: str) -> bool:
 
 
 def module_git_status(module: Module) -> tuple[bool, str]:
-    result = subprocess.run(
-        git_command("-C", str(module.path), "status", "--porcelain"),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command("-C", str(module.path), "status", "--porcelain"),
+            capture_output=True,
+            text=True,
+            timeout=GIT_OPERATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return False, f"git status timed out after {exc.timeout:g}s"
     return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
 
 
@@ -1980,6 +2039,8 @@ def collect_module_provenance_payload(
 
 REMOTE_GIT_REF_TIMEOUT_SECONDS = 60
 REMOTE_GIT_REF_ATTEMPTS = 2
+GIT_OPERATION_TIMEOUT_SECONDS = 60
+GIT_CLONE_TIMEOUT_SECONDS = 300
 
 
 def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
