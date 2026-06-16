@@ -52,20 +52,21 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "c10bbbd3a7ca289eb01409b37835a6f2b6ec969f",
+      "commit": "451caf5cff46d60e7f65f639eb8e56b9e2139c9a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "c10bbbd3a7ca289eb01409b37835a6f2b6ec969f",
+        "commit": "451caf5cff46d60e7f65f639eb8e56b9e2139c9a",
         "verify_ref": "refs/heads/codex/launch-readiness-20260615",
-        "canonical_head": "c10bbbd3a7ca289eb01409b37835a6f2b6ec969f",
-        "runtime_mirror_head": "c10bbbd3a7ca289eb01409b37835a6f2b6ec969f",
+        "canonical_head": "451caf5cff46d60e7f65f639eb8e56b9e2139c9a",
+        "runtime_mirror_head": "451caf5cff46d60e7f65f639eb8e56b9e2139c9a",
         "tree_clean": true,
-        "validated_at": "2026-06-16T03:08:18Z",
+        "validated_at": "2026-06-16T05:20:56Z",
         "evidence": [
+          "2026-06-16 Telegram bridge-failure evidence preservation landed at 451caf5; builder bridge fallback now records bridge_off, bridge_unavailable, and bridge_error instead of hiding failure truth; npm run build passed; release branch pushed.",
           "2026-06-16 Telegram intent-authority governance landed at c10bbbd; open-ended authority/design discussion stays conversational, no-store/privacy language blocks memory writes, AGENTS and Harness governance docs updated, focused and broad authority packs passed, npm run build passed, and post-commit drift sentinel reduced release-lane drift to this registry pin.",
           "2026-06-16 Telegram compact runtime-status composition landed at c1daa70; explicit short health prompts collapse to a headline plus source/status sentence while preserving spark.read_only_state authority, tests/runtimeStatusNatural.test.ts passed, tests/buildE2E.test.ts passed, npm run build passed, and sync:check passed.",
           "2026-06-16 intent-authority QA hardening landed at 9626995db8f2; IntentGate selects plain_chat.qa_boundary with noExecution, runtime/restart predicates refuse authority QA, focused route/authority/bug-hunt/buildE2E tests passed, npm run build passed, sync:check passed, and governance rules were updated.",
@@ -87,21 +88,22 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "ada098985a1d7722cd3cc07fb314897b449b550a",
+      "commit": "1a115ace30af9127a736f6c6293a70eee740e70a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "ada098985a1d7722cd3cc07fb314897b449b550a",
+        "commit": "1a115ace30af9127a736f6c6293a70eee740e70a",
         "verify_ref": "refs/heads/spark-fix/2026-06-09-spark-recovery",
-        "canonical_head": "ada098985a1d7722cd3cc07fb314897b449b550a",
-        "runtime_mirror_head": "ada098985a1d7722cd3cc07fb314897b449b550a",
+        "canonical_head": "1a115ace30af9127a736f6c6293a70eee740e70a",
+        "runtime_mirror_head": "1a115ace30af9127a736f6c6293a70eee740e70a",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-16T01:26:51Z",
+        "validated_at": "2026-06-16T05:20:56Z",
         "evidence": [
+          "2026-06-16 governed researcher bridge compatibility landed at 1a115ac; legacy Telegram recall now bridges to owner-native vNext read authority, provider execution passes governance only to compatible executors, tests/test_gateway_ask_telegram.py and tests/test_researcher_bridge_provider_resolution.py passed 158 plus 23 subtests, compileall passed, and release branch pushed.",
           "SPDX decision: MIT",
           "focused pytest: 169/169",
           "runtime recovery line marked as source truth",
@@ -116,26 +118,27 @@
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "9ef470cb78f9403fc380627114e00f3475350192",
+      "commit": "61d7e928279c31ee157e845704ad6a9e69e4d4f5",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-memory",
-        "commit": "9ef470cb78f9403fc380627114e00f3475350192",
-        "verify_ref": "refs/tags/spark-cli-public-installer-2026-06-10-r27",
-        "canonical_head": "9ef470cb78f9403fc380627114e00f3475350192",
-        "runtime_mirror_head": "9ef470cb78f9403fc380627114e00f3475350192",
+        "commit": "61d7e928279c31ee157e845704ad6a9e69e4d4f5",
+        "verify_ref": "refs/heads/main",
+        "canonical_head": "61d7e928279c31ee157e845704ad6a9e69e4d4f5",
+        "runtime_mirror_head": "61d7e928279c31ee157e845704ad6a9e69e4d4f5",
         "tree_clean": true,
-        "validated_at": "2026-06-12T04:25:00Z",
+        "validated_at": "2026-06-16T05:20:56Z",
         "evidence": [
+          "2026-06-16 no-store owner veto landed at 61d7e92 on main after rebasing over CI gates; tests/test_sdk.py passed 39/39; explicit no-store/private-turn writes are blocked in the memory owner while storage-policy content remains storable.",
           "focused pytest: 206/206",
           "spark.toml declares spark-harness-core dependency",
-          "spark-cli-public-installer-2026-06-10-r27 tag preserves the live audited pin while main moves independently"
+          "spark-cli-public-installer-2026-06-10-r27 tag preserved the previous live audited pin before the 2026-06-16 owner-veto promotion"
         ]
       },
-      "verify_ref": "refs/tags/spark-cli-public-installer-2026-06-10-r27"
+      "verify_ref": "refs/heads/main"
     },
     "domain-chip-spark-qa-evidence-lane": {
       "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
