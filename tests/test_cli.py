@@ -80,6 +80,13 @@ from spark_cli.cli import (
     clone_module_source,
     clone_target_for_module,
     ensure_generated_setup_secrets,
+    is_orphan_clone,
+    remove_orphan_clone,
+    scan_orphan_module_clones,
+    windows_current_user_grantee,
+    persist_governor_hmac_secret,
+    GOVERNOR_HMAC_SECRET_ID,
+    cmd_fix,
     installer_script_sha256,
     ensure_runtime_telegram_relay_secret,
     ensure_bundle_modules_available,
@@ -7777,6 +7784,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(envs["spawner-ui"]["SPAWNER_STATE_DIR"], str(STATE_DIR / "spawner-ui"))
         self.assertNotIn("TELEGRAM_WEBHOOK_SECRET", envs["spark-telegram-bot"])
 
+    def test_build_module_envs_injects_shared_governor_hmac_key_when_present(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"])
+        spawner = make_module("spawner-ui", ["mission.execution"])
+
+        class Args:
+            spawner_ui_url = "http://127.0.0.1:3333"
+            telegram_relay_secret = None
+
+        modules = {gateway.name: gateway, builder.name: builder, spawner.name: spawner}
+        base_secrets = {"telegram.bot_token": "abc", "telegram.admin_ids": "123"}
+
+        # Key absent (older key-less install): no SPARK_GOVERNOR_HMAC_KEY anywhere.
+        with patch("spark_cli.cli.fetch_secret", return_value=None):
+            keyless = build_module_envs(Args(), dict(modules), dict(base_secrets))
+        for name in (gateway.name, spawner.name, builder.name):
+            self.assertNotIn("SPARK_GOVERNOR_HMAC_KEY", keyless[name])
+
+        # Key present: the SAME value is injected into signer and verifiers.
+        with patch("spark_cli.cli.fetch_secret", return_value=None):
+            signed = build_module_envs(
+                Args(),
+                dict(modules),
+                {**base_secrets, GOVERNOR_HMAC_SECRET_ID: "f" * 64},
+            )
+        self.assertEqual(signed[gateway.name]["SPARK_GOVERNOR_HMAC_KEY"], "f" * 64)
+        self.assertEqual(signed[spawner.name]["SPARK_GOVERNOR_HMAC_KEY"], "f" * 64)
+        self.assertEqual(signed[builder.name]["SPARK_GOVERNOR_HMAC_KEY"], "f" * 64)
+
     def test_build_module_envs_keeps_primary_telegram_profile_and_port_coherent(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         builder = make_module("spark-intelligence-builder", ["spark.runtime"])
@@ -10172,6 +10208,137 @@ class SparkCliTests(unittest.TestCase):
                     clone_module_source("git-demo", str(bare), commit=first_commit, allow_dirty_runtime=True),
                     cloned,
                 )
+
+    def test_is_orphan_clone_detects_git_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "source"
+            target.mkdir()
+            self.assertFalse(is_orphan_clone(target))  # no .git
+            (target / ".git").mkdir()
+            self.assertTrue(is_orphan_clone(target))  # .git, no spark.toml
+            (target / "spark.toml").write_text("x", encoding="utf-8")
+            self.assertFalse(is_orphan_clone(target))  # complete checkout
+
+    def test_remove_orphan_clone_removes_only_git_checkouts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            non_git = tmp / "userdata"
+            non_git.mkdir()
+            (non_git / "keep.txt").write_text("keep", encoding="utf-8")
+            remove_orphan_clone(non_git)
+            self.assertTrue(non_git.exists())  # never touches a non-git dir
+
+            git_dir = tmp / "orphan"
+            git_dir.mkdir()
+            (git_dir / ".git").mkdir()
+            remove_orphan_clone(git_dir)
+            self.assertFalse(git_dir.exists())
+
+    def test_clone_module_source_resumes_after_partial_clone(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            work = tmp / "work"
+            work.mkdir()
+            subprocess.run(["git", "-C", str(work), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+            subprocess.run(["git", "-C", str(work), "config", "user.name", "t"], check=True)
+            (work / "spark.toml").write_text(
+                '[module]\nname = "git-demo"\nversion = "0.1.0"\nkind = "service"\nplane = "execution"\n',
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(work), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(work), "commit", "-q", "-m", "init"], check=True)
+            bare = tmp / "remote.git"
+            subprocess.run(["git", "clone", "-q", "--bare", str(work), str(bare)], check=True)
+
+            clone_home = tmp / "spark-home"
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                # Simulate an interrupted clone: a .git but no spark.toml.
+                target = clone_target_for_module("git-demo")
+                target.mkdir(parents=True)
+                (target / ".git").mkdir()
+                self.assertTrue(is_orphan_clone(target))
+                # Resumable: the orphan is removed and a fresh clone takes its place.
+                cloned = clone_module_source("git-demo", str(bare))
+                self.assertTrue((cloned / "spark.toml").exists())
+                self.assertTrue((cloned / ".git").exists())
+
+    def test_clone_module_source_cleans_partial_target_on_pinned_failure(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare = tmp / "missing-remote.git"  # does not exist -> fetch fails
+            clone_home = tmp / "spark-home"
+            valid_pin = "a" * 40
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                target = clone_target_for_module("git-demo")
+                with self.assertRaises(SystemExit):
+                    clone_module_source("git-demo", str(bare), commit=valid_pin)
+                # No orphan left behind for the next attempt to trip over.
+                self.assertFalse(target.exists())
+
+    def test_scan_orphan_module_clones_lists_incomplete_checkouts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            clone_home = Path(tmp_dir) / "spark-home"
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                self.assertEqual(scan_orphan_module_clones(), [])
+                orphan = clone_target_for_module("broken")
+                orphan.mkdir(parents=True)
+                (orphan / ".git").mkdir()
+                healthy = clone_target_for_module("good")
+                healthy.mkdir(parents=True)
+                (healthy / ".git").mkdir()
+                (healthy / "spark.toml").write_text("x", encoding="utf-8")
+                found = scan_orphan_module_clones()
+                self.assertEqual([str(p) for p in found], [str(orphan)])
+
+    def test_cmd_fix_modules_clean_removes_orphans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            clone_home = Path(tmp_dir) / "spark-home"
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                orphan = clone_target_for_module("broken")
+                orphan.mkdir(parents=True)
+                (orphan / ".git").mkdir()
+                self.assertEqual(
+                    cmd_fix(Namespace(target="modules", json=True, clean=False, redact_logs=False)),
+                    1,
+                )
+                self.assertEqual(
+                    cmd_fix(Namespace(target="modules", json=True, clean=True, redact_logs=False)),
+                    0,
+                )
+                self.assertFalse(orphan.exists())
+
+    def test_ensure_generated_setup_secrets_generates_governor_hmac_key(self) -> None:
+        with patch("spark_cli.cli.fetch_secret", return_value=None):
+            values = ensure_generated_setup_secrets({}, [])
+        key = values.get(GOVERNOR_HMAC_SECRET_ID)
+        self.assertTrue(key)
+        self.assertGreaterEqual(len(key), 32)
+        # Idempotent: an already-present key is preserved, not regenerated.
+        with patch("spark_cli.cli.fetch_secret", return_value=None):
+            again = ensure_generated_setup_secrets({GOVERNOR_HMAC_SECRET_ID: key}, [])
+        self.assertEqual(again.get(GOVERNOR_HMAC_SECRET_ID), key)
+
+    def test_persist_governor_hmac_secret_noop_without_key(self) -> None:
+        with patch("spark_cli.cli.store_secret") as store:
+            persist_governor_hmac_secret({})
+            store.assert_not_called()
+        with patch("spark_cli.cli.store_secret", return_value="keychain") as store, \
+             patch("spark_cli.cli.remember_setup_secret_key") as remember:
+            persist_governor_hmac_secret({GOVERNOR_HMAC_SECRET_ID: "deadbeef"})
+            store.assert_called_once()
+            remember.assert_called_once_with(GOVERNOR_HMAC_SECRET_ID)
+
+    def test_windows_current_user_grantee_falls_back_when_username_empty(self) -> None:
+        with patch.dict(os.environ, {"USERNAME": ""}, clear=False), \
+             patch("spark_cli.cli.getpass.getuser", return_value="fallbackuser"):
+            self.assertEqual(windows_current_user_grantee(), "fallbackuser")
+        with patch.dict(os.environ, {"USERNAME": "realuser"}, clear=False):
+            self.assertEqual(windows_current_user_grantee(), "realuser")
 
     def test_update_module_source_fetches_pinned_commit_for_detached_clone(self) -> None:
         if not shutil.which("git"):

@@ -16,3 +16,4 @@ secrets.local.json
 docker/live/spark-data/
 docker/live/spark-live.env
 PROJECT.md
+live_master_registry.json
