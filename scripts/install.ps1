@@ -282,6 +282,43 @@ function Test-ExistingInstall {
     )
 }
 
+function Test-LongPathSupport {
+    # browser-use pulls litellm, whose deepest packaged file sits ~205 chars below the install
+    # prefix. With LongPathsEnabled=0 (the Windows default) that crosses the legacy 260-char
+    # MAX_PATH and aborts pip mid-install. Enable long paths when elevated, otherwise stop early
+    # with a clear fix instead of a confusing deep-in-pip OSError.
+    $suffix = 205
+    $worstCase = $Script:SparkPrefix.Length + $suffix
+    if ($worstCase -le 259) { return }
+    $enabled = $false
+    try {
+        $entry = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -ErrorAction Stop
+        $enabled = ([int]$entry.LongPathsEnabled -eq 1)
+    } catch { $enabled = $false }
+    if ($enabled) {
+        Write-SparkLog "Windows long path support is enabled; long install prefix is fine."
+        return
+    }
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+    if ($isAdmin) {
+        try {
+            New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force | Out-Null
+            Write-SparkLog "Enabled Windows long path support (LongPathsEnabled=1) so the long install prefix will not exceed the 260-character path limit."
+            return
+        } catch {
+            Write-SparkLog "Could not enable long path support automatically: $($_.Exception.Message)"
+        }
+    }
+    throw @"
+Install prefix is too long for this machine's Windows path settings.
+  Prefix: $Script:SparkPrefix ($($Script:SparkPrefix.Length) chars)
+With browser-use's dependencies this can exceed the legacy 260-character path limit and abort the install. Fix either one, then re-run install.ps1:
+  1) Enable long paths once, in an Administrator PowerShell:
+     New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
+  2) Or re-run with a shorter prefix, for example: -Prefix C:\spark
+"@
+}
+
 function Invoke-Preflight {
     Write-SparkLog "Preflight checks"
     if (Find-SystemPython) {
@@ -292,6 +329,7 @@ function Invoke-Preflight {
     }
     Require-Command git
     Write-SparkLog "Install prefix: $Script:SparkPrefix"
+    Test-LongPathSupport
     Write-SparkLog "Spark CLI source: $Source"
     Write-SparkLog "Spark CLI ref: $Ref"
     Write-SparkLog "Node version: $NodeVersion"
