@@ -145,6 +145,57 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
 
+    bin_name = re.sub(r"\.(?:exe|cmd|bat)$", "", first.replace("\\", "/").rsplit("/", 1)[-1])
+    shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "pwsh", "powershell"}
+    language_interpreters = {"python", "python2", "python3", "node", "ruby", "perl"}
+
+    if bin_name in shell_interpreters:
+        shell_code_flags = {"-c", "-lc", "-command"}
+        payload = ""
+        for index, part in enumerate(lowered[1:], start=1):
+            flag = part.split("=", 1)[0] if "=" in part else part
+            if flag in shell_code_flags:
+                if "=" in part:
+                    payload = parts[index].split("=", 1)[1]
+                elif index + 1 < len(parts):
+                    payload = parts[index + 1]
+                if not payload.strip():
+                    return _decision(
+                        parts,
+                        ctx,
+                        "remote_code_execution",
+                        "high",
+                        "Shell interpreter invoked with an inline-command flag but no payload could be isolated.",
+                        target_display=bin_name,
+                        confirmation_phrase="approve remote code execution",
+                    )
+                nested = approval_required_for_command(parse_command_text(payload), ctx)
+                if nested.requires_approval:
+                    return nested
+                break
+
+    if bin_name in language_interpreters:
+        lang_code_flags = {"-c", "-e", "--eval", "-p", "--print"}
+        for index, part in enumerate(lowered[1:], start=1):
+            flag = part.split("=", 1)[0] if "=" in part else part
+            if flag in lang_code_flags:
+                if "=" in part:
+                    payload = parts[index].split("=", 1)[1]
+                elif index + 1 < len(parts):
+                    payload = parts[index + 1]
+                else:
+                    payload = ""
+                if payload.strip():
+                    return _decision(
+                        parts,
+                        ctx,
+                        "remote_code_execution",
+                        "high",
+                        "Language interpreter invoked with inline source code.",
+                        target_display=bin_name,
+                        confirmation_phrase="approve remote code execution",
+                    )
+
     if first in {"sudo", "doas"}:
         nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
         if nested and nested.requires_approval:

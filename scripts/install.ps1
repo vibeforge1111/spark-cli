@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "spark-cli-public-installer-2026-06-10-r27",
+    [string]$Ref = "spark-cli-public-installer-2026-06-22-r28",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -13,6 +13,9 @@ param(
     [string]$OpenAIApiKey = "",
     [string]$AnthropicApiKey = "",
     [string]$MiniMaxApiKey = "",
+    [string]$KimiApiKey = "",
+    [string]$OpenRouterApiKey = "",
+    [string]$HuggingFaceApiKey = "",
     [switch]$NonInteractiveSetup,
     [switch]$InteractiveSetup,
     [switch]$SetupSkipInstallCommands,
@@ -33,7 +36,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-06-10-r27"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-06-22-r28"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -346,12 +349,23 @@ function Show-DryRunPlan {
     Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
     Write-Host "  Managed Node forced: $ManagedNode"
     Write-Host "  CLI source:          $Source"
-    Write-Host "  CLI release:         $SparkCliReleaseName"
-    Write-Host "  CLI commit:          $Ref"
+    $sourceIsLocal = Test-Path -LiteralPath $Source
+    if ($sourceIsLocal) {
+        $localHead = Get-GitHead -Path $Source
+        $localReleaseLabel = if ($localHead) { "local working tree at $localHead" } else { "local working tree (no git HEAD)" }
+        Write-Host "  CLI release:         $localReleaseLabel"
+        Write-Host "  CLI commit:          $(if ($localHead) { $localHead } else { 'local working tree' })"
+    } else {
+        Write-Host "  CLI release:         $SparkCliReleaseName"
+        Write-Host "  CLI commit:          $Ref"
+    }
     Write-Host "  Bundle:              $Bundle"
     Write-Host "  Voice included:      $voiceIncluded"
     Write-Host "  Run mode:            $(Format-InstallerRunMode)"
     Write-Host "  Setup enabled:       $setupEnabled"
+    if ($LocalRegistry) {
+        Write-Host "  Local registry:      $LocalRegistry replaces registry.json at setup"
+    }
     $providerPlan = if ($LlmProvider) { "$LlmProvider for Agent and Mission" } else { "choose during spark setup" }
     Write-Host "  Default provider:    $providerPlan"
     $userPathEdit = if ($SkipUserPath) { "no" } else { "yes" }
@@ -401,6 +415,9 @@ function Show-DryRunPlan {
         if ($OpenAIApiKey) { $setupPreviewArgs += @("--openai-api-key", "<redacted>") }
         if ($AnthropicApiKey) { $setupPreviewArgs += @("--anthropic-api-key", "<redacted>") }
         if ($MiniMaxApiKey) { $setupPreviewArgs += @("--minimax-api-key", "<redacted>") }
+        if ($KimiApiKey) { $setupPreviewArgs += @("--kimi-api-key", "<redacted>") }
+        if ($OpenRouterApiKey) { $setupPreviewArgs += @("--openrouter-api-key", "<redacted>") }
+        if ($HuggingFaceApiKey) { $setupPreviewArgs += @("--huggingface-api-key", "<redacted>") }
         $setupPreviewArgs += $SetupArg
         $setupPreview = ($setupPreviewArgs | ForEach-Object { Format-SetupPreviewArg $_ }) -join " "
         Write-Host "  `"$Script:SparkPrefix\bin\spark.cmd`" setup `"$Bundle`" $setupPreview"
@@ -837,6 +854,9 @@ function Run-Setup {
     if ($OpenAIApiKey) { $setupArgs += @("--openai-api-key", (New-SetupSecretRef $OpenAIApiKey)) }
     if ($AnthropicApiKey) { $setupArgs += @("--anthropic-api-key", (New-SetupSecretRef $AnthropicApiKey)) }
     if ($MiniMaxApiKey) { $setupArgs += @("--minimax-api-key", (New-SetupSecretRef $MiniMaxApiKey)) }
+    if ($KimiApiKey) { $setupArgs += @("--kimi-api-key", (New-SetupSecretRef $KimiApiKey)) }
+    if ($OpenRouterApiKey) { $setupArgs += @("--openrouter-api-key", (New-SetupSecretRef $OpenRouterApiKey)) }
+    if ($HuggingFaceApiKey) { $setupArgs += @("--huggingface-api-key", (New-SetupSecretRef $HuggingFaceApiKey)) }
     $setupArgs += $SetupArg
     Write-SparkLog "Running spark setup $Bundle"
     $previousSetupOptional = $env:SPARK_SETUP_OPTIONAL_ON_UPGRADE

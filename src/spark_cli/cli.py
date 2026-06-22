@@ -66,6 +66,10 @@ INSTALL_PROGRESS_PATH = STATE_DIR / "install_progress.json"
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
 SECRETS_INDEX_PATH = CONFIG_DIR / "secrets_index.json"
 SECRETS_FILE_PATH = CONFIG_DIR / "secrets.local.json"
+# Secret id for the Governor HMAC signing key. Shared (same value) by the spawner
+# (signer) and builder/harness (verifier); the harness enforces signature
+# verification whenever this key is present, so provisioning it IS the enforcement.
+GOVERNOR_HMAC_SECRET_ID = "governor.hmac_key"
 KEYCHAIN_SERVICE = "spark-cli"
 AUTOSTART_SERVICE_NAME = "spark-telegram-agent"
 AUTOSTART_LAUNCHD_LABEL = "ai.sparkswarm.spark-telegram-agent"
@@ -660,6 +664,41 @@ class ReportOnlyModuleProvenanceVerifier:
         )
 
 
+def is_orphan_clone(target: Path) -> bool:
+    """A clone dir that has a .git but no spark.toml is an incomplete/interrupted
+    clone (the manifest is checked out last). Safe to remove and re-clone."""
+    return target.is_dir() and (target / ".git").exists() and not (target / "spark.toml").exists()
+
+
+def remove_orphan_clone(target: Path) -> None:
+    """Best-effort removal of an incomplete clone so the next install can resume.
+    Only ever called on a path under SPARK_HOME/modules that is itself a git
+    checkout; never touches a non-git directory."""
+    try:
+        if target.is_dir() and (target / ".git").exists():
+            shutil.rmtree(target, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def scan_orphan_module_clones() -> list[Path]:
+    """Find interrupted module clones under ~/.spark/modules (.git present but no
+    spark.toml). These block reinstalls until removed."""
+    modules_root = SPARK_HOME / "modules"
+    orphans: list[Path] = []
+    if not modules_root.is_dir():
+        return orphans
+    try:
+        entries = sorted(modules_root.iterdir())
+    except OSError:
+        return orphans
+    for entry in entries:
+        target = entry / "source"
+        if is_orphan_clone(target):
+            orphans.append(target)
+    return orphans
+
+
 def clone_module_source(
     name: str,
     source: str,
@@ -690,27 +729,49 @@ def clone_module_source(
             )
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not (target / ".git").exists():
-        raise SystemExit(
-            f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first."
-        )
+    # Resumable installs: a prior clone that was interrupted leaves a .git but no
+    # spark.toml (partial fetch/checkout). Treat that as an orphan and re-clone it
+    # cleanly rather than aborting the whole install. A non-git directory is still
+    # refused -- that could be unrelated user data we must not delete.
+    if target.exists():
+        if (target / ".git").exists():
+            remove_orphan_clone(target)
+        else:
+            raise SystemExit(
+                f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first "
+                f"(manual fallback: rm -rf {target})."
+            )
     url = normalize_git_url(source)
     pinned_commit = validate_commit_pin(commit)
+    # Any failure during the pinned clone leaves a partial target on disk; delete it
+    # before re-raising so the next install attempt is not blocked by an orphan.
     if pinned_commit:
-        target.mkdir(parents=True, exist_ok=True)
-        run_git_or_exit(name, ["-C", str(target), "init", "-q"])
-        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
-        run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
-        verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            run_git_or_exit(name, ["-C", str(target), "init", "-q"])
+            run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+            run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
+            verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
+        except BaseException:
+            remove_orphan_clone(target)
+            raise
         return target
-    result = subprocess.run(
-        git_command("clone", "--depth=1", url, str(target)),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            git_command("clone", "--depth=1", url, str(target)),
+            capture_output=True,
+            text=True,
+        )
+    except BaseException:
+        remove_orphan_clone(target)
+        raise
     if result.returncode != 0:
+        remove_orphan_clone(target)
         detail = (result.stderr or result.stdout).strip() or "unknown git error"
-        raise SystemExit(f"git clone failed for {name}: {detail}")
+        raise SystemExit(
+            f"git clone failed for {name}: {detail} "
+            f"(manual fallback if a partial dir remains: rm -rf {target})."
+        )
     return target
 
 
@@ -1210,6 +1271,40 @@ def allow_insecure_file_secrets() -> bool:
     return value in {"1", "true", "yes"}
 
 
+def windows_current_user_grantee() -> str:
+    """Resolve a stable icacls grantee for the current user.
+
+    Prefer the account name from %USERNAME%; when it is empty (services, some
+    sandboxes) fall back to the current-user SID, which icacls accepts as
+    `*S-1-...`. An empty grantee would otherwise produce a malformed `:F` token
+    that makes icacls fail or, worse, grant nothing while breaking inheritance."""
+    username = (os.environ.get("USERNAME") or "").strip()
+    if username:
+        return username
+    try:
+        login = (getpass.getuser() or "").strip()
+    except Exception:
+        login = ""
+    if login:
+        return login
+    try:
+        whoami = subprocess.run(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if whoami.returncode == 0:
+            # CSV row: "DOMAIN\\user","S-1-5-21-..."
+            parts = [field.strip().strip('"') for field in whoami.stdout.strip().splitlines()[-1].split(",")]
+            sid = next((field for field in parts if field.startswith("S-1-")), "")
+            if sid:
+                return f"*{sid}"
+    except OSError:
+        pass
+    return ""
+
+
 def harden_secret_file(path: Path) -> None:
     try:
         os.chmod(path, 0o600)
@@ -1217,9 +1312,15 @@ def harden_secret_file(path: Path) -> None:
         pass
     if os.name != "nt" or not path.exists():
         return
+    grantee = windows_current_user_grantee()
+    if not grantee:
+        # Could not resolve a grantee; skip the grant rather than emit a malformed
+        # `:F` token. Inheritance is intentionally left intact in this case so the
+        # file does not become inaccessible to its owner.
+        return
     try:
         subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{grantee}:F"],
             check=False,
             capture_output=True,
             text=True,
@@ -2565,6 +2666,16 @@ def ensure_generated_setup_secrets(secret_values: dict[str, str], modules: list[
     needs_relay_secret = any("telegram.relay_secret" in module.needed_secrets for module in modules)
     if needs_relay_secret and not values.get("telegram.relay_secret"):
         values["telegram.relay_secret"] = py_secrets.token_urlsafe(32)
+    # Governor HMAC signing key: generate once and persist owner-only so the spawner
+    # (signer) and builder/harness (verifier) share the SAME key. When this key is
+    # present the harness enforces signature verification automatically; when it is
+    # absent (older key-less installs) signing stays off, so this is additive and
+    # never breaks an existing key-less runtime.
+    existing_hmac = (values.get(GOVERNOR_HMAC_SECRET_ID) or "").strip() or (fetch_secret(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if existing_hmac:
+        values[GOVERNOR_HMAC_SECRET_ID] = existing_hmac
+    else:
+        values[GOVERNOR_HMAC_SECRET_ID] = py_secrets.token_hex(32)
     return values
 
 
@@ -2603,6 +2714,16 @@ def remember_setup_secret_key(secret_id: str) -> None:
     keys.add(secret_id)
     setup_state["secret_keys"] = sorted(keys)
     save_json(CONFIG_PATH, setup_state)
+
+
+def persist_governor_hmac_secret(secret_values: dict[str, str]) -> None:
+    """Store the Governor HMAC signing key owner-only and remember it as a setup key.
+    No-op when no key is in play (older key-less installs stay unsigned)."""
+    value = (secret_values.get(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if not value:
+        return
+    store_secret(GOVERNOR_HMAC_SECRET_ID, value, preferred="keychain")
+    remember_setup_secret_key(GOVERNOR_HMAC_SECRET_ID)
 
 
 def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
@@ -3319,6 +3440,12 @@ def write_generated_env(path: Path, values: dict[str, str]) -> None:
     lines = [f"{key}={value}" for key, value in values.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Generated module env files hold control-plane keys (SPARK_BRIDGE_API_KEY,
+    # SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
+    # owner-only (break ACL inheritance) so a workspace-write sandbox worker cannot
+    # read the keys that gate mission execution. Same helper that protects
+    # secrets.local.json; no-op-safe on every platform.
+    harden_secret_file(path)
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
@@ -4221,6 +4348,16 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
             builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
             builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
             builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+
+    # Governor HMAC signing key: inject the SAME value into the signer (spawner) and
+    # verifier (builder + gateway harness paths) so signatures validate across
+    # processes. Only when a key is actually provisioned; absent = unsigned key-less
+    # runtime, unchanged.
+    hmac_key = (secret_values.get(GOVERNOR_HMAC_SECRET_ID) or fetch_secret(GOVERNOR_HMAC_SECRET_ID) or "").strip()
+    if hmac_key:
+        gateway_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
+        spawner_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
+        builder_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
 
     return {
         gateway.name: gateway_env,
@@ -5498,6 +5635,12 @@ def build_status_repair_hints(
     tracked_pids: dict[str, Any] | None = None,
 ) -> list[str]:
     hints: list[str] = []
+    orphan_clones = scan_orphan_module_clones()
+    if orphan_clones:
+        hints.append(
+            f"Found {len(orphan_clones)} incomplete module clone(s) (interrupted install). "
+            "Run `spark fix modules --clean`, then `spark setup` to re-clone."
+        )
     bundle_name = setup_state.get("bundle")
     installed_names = set(modules)
     if bundle_name:
@@ -6981,6 +7124,7 @@ def write_setup_runtime_config(
     """Write Builder state, keychain secrets, and generated module env files."""
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
+    persist_governor_hmac_secret(secret_values)
     generated_envs = build_module_envs(args, modules, secret_values)
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
@@ -12102,6 +12246,43 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("  - Run `spark verify --deep` again before sharing any diagnostics upstream.")
         return 0 if payload.get("ok") else 1
 
+    if args.target == "modules":
+        orphans = scan_orphan_module_clones()
+        clean = bool(getattr(args, "clean", False))
+        removed: list[str] = []
+        if clean:
+            for orphan in orphans:
+                remove_orphan_clone(orphan)
+                if not orphan.exists():
+                    removed.append(str(orphan))
+            orphans = scan_orphan_module_clones()
+        payload = {
+            "ok": not orphans,
+            "orphans": [str(path) for path in orphans],
+            "removed": removed,
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print("Spark module clone check")
+        print("")
+        if removed:
+            print(f"[OK] Removed {len(removed)} incomplete module clone(s).")
+            for path in removed:
+                print(f"      {path}")
+            print("")
+        if payload["ok"]:
+            print("[OK] No incomplete module clones found.")
+        else:
+            print(f"[FIX] Found {len(orphans)} incomplete module clone(s) (.git present, spark.toml missing).")
+            for path in payload["orphans"]:
+                print(f"      {path}")
+            print("")
+            print("Repair:")
+            print("  - Run `spark fix modules --clean` to remove them, then rerun `spark setup` to re-clone.")
+            print("  - Manual fallback for any single module: rm -rf ~/.spark/modules/<name>")
+        return 0 if payload["ok"] else 1
+
     if args.target in {"spawner", "providers", "memory", "live", "update", "autostart"}:
         payload = collect_autostart_fix_payload() if args.target == "autostart" else collect_simple_fix_payload(args.target)
         if args.json:
@@ -13751,6 +13932,134 @@ def hosted_deep_mission_smoke(timeout_seconds: int = 90) -> dict[str, Any]:
     }
 
 
+def _mission_provider_ready(provider: str) -> tuple[bool, str, str]:
+    """Pre-check the mission provider lane. Codex (the live default) is the usual cause of the audit's
+    1/97 mass-expiry, so require its CLI to be present; other providers are validated by the live
+    round-trip below."""
+    prov = (provider or "").strip().lower()
+    if prov in {"codex", "openai-codex"}:
+        if bool(detect_codex_cli().get("present")):
+            return True, "Mission provider 'codex' CLI is present.", ""
+        return (
+            False,
+            "Mission provider is codex but the OpenAI Codex CLI is not on PATH or not signed in; missions will 409 or expire.",
+            "Run `codex login` (and ensure the CLI is on PATH), then rerun `spark verify --mission`.",
+        )
+    return True, f"Mission provider '{provider}' will be validated by the live round-trip below.", ""
+
+
+def local_mission_completion_smoke(provider: str, timeout_seconds: int = 90) -> dict[str, Any]:
+    """Round-trip a real mission through the LOCAL spawner-ui and assert it COMPLETES (not expires).
+    Mirrors hosted_deep_mission_smoke for the local install; inside-out, by polling the board for a
+    unique marker the mission is told to emit. This is the authoritative mission-lane gate."""
+    ui_key = os.environ.get("SPARK_UI_API_KEY") or ""
+    bridge_key = os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+    if not ui_key or not bridge_key:
+        return {
+            "name": "mission_completes",
+            "ok": False,
+            "required": True,
+            "detail": "Mission smoke needs SPARK_UI_API_KEY and SPARK_BRIDGE_API_KEY in the environment.",
+            "repair": "Run the preflight in the spawner runtime env (keys are keychain-backed) or after `spark setup`, then rerun.",
+        }
+    base_url = (os.environ.get("SPAWNER_UI_URL") or "http://127.0.0.1:3333").rstrip("/")
+    marker = "SPARK_MISSION_PREFLIGHT_OK"
+    request_id = f"mission-preflight-{int(time.time())}"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-spawner-ui-key": ui_key,
+        "x-api-key": bridge_key,
+    }
+    payload = {
+        "goal": f"Reply with exactly: {marker}",
+        "providers": [provider or "codex"],
+        "promptMode": "simple",
+        "requestId": request_id,
+    }
+    try:
+        request = urllib.request.Request(
+            f"{base_url}/api/spark/run",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            start_payload = json.loads(response.read().decode("utf-8") or "{}")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return {
+            "name": "mission_completes",
+            "ok": False,
+            "required": True,
+            "detail": f"Could not start a mission on the local spawner at {base_url}: {exc}",
+            "repair": "Start the spawner-ui (`spark start spawner-ui`) and confirm it answers on the URL, then rerun.",
+        }
+    mission_id = str(start_payload.get("missionId") or start_payload.get("id") or request_id)
+    deadline = time.time() + timeout_seconds
+    last_detail = "Mission was accepted; waiting for it to complete."
+    while time.time() < deadline:
+        try:
+            request = urllib.request.Request(f"{base_url}/api/mission-control/board", headers=headers, method="GET")
+            with urllib.request.urlopen(request, timeout=10) as response:
+                board_text = response.read().decode("utf-8")
+            if marker in board_text:
+                return {
+                    "name": "mission_completes",
+                    "ok": True,
+                    "required": True,
+                    "detail": f"A real mission ran to completion ({mission_id}) and emitted {marker}.",
+                    "repair": "",
+                }
+            if mission_id in board_text:
+                last_detail = f"Mission {mission_id} is on the board but has not completed yet."
+        except (OSError, TimeoutError, urllib.error.URLError) as exc:
+            last_detail = f"Board poll failed: {exc}"
+        time.sleep(3)
+    return {
+        "name": "mission_completes",
+        "ok": False,
+        "required": True,
+        "detail": f"{last_detail} The mission did not complete within {timeout_seconds}s (the silent-expiry symptom).",
+        "repair": "Check `spark logs spawner-ui --lines 80`; the mission provider (codex/harness) is most likely unavailable, or the Governor decision is unsigned (SPARK_GOVERNOR_HMAC_KEY).",
+    }
+
+
+def collect_mission_preflight_payload(timeout_seconds: int = 90) -> dict[str, Any]:
+    """Fresh-install preflight for the autonomous mission-execution lane. The authoritative gate is a
+    real round-trip mission completing; the Governor HMAC key (diagnostic) and the mission provider
+    (fail-fast) checks explain a failure rather than letting missions silently 409/expire."""
+    checks: list[dict[str, Any]] = []
+    hmac_present = bool((os.environ.get("SPARK_GOVERNOR_HMAC_KEY") or "").strip()) or bool(fetch_secret(GOVERNOR_HMAC_SECRET_ID))
+    checks.append({
+        "name": "governor_hmac_key",
+        "ok": hmac_present,
+        "level": "warning",
+        "detail": "Governor HMAC signing key is provisioned." if hmac_present
+        else "SPARK_GOVERNOR_HMAC_KEY not seen here; if the mission round-trip below fails, an unsigned/blocked Governor decision (governor_hmac_key_missing) is the likely cause.",
+        "repair": "" if hmac_present else "Run `spark setup` to generate and provision the key (or set SPARK_GOVERNOR_HMAC_KEY yourself), then restart Spark.",
+    })
+    provider = (os.environ.get("SPARK_MISSION_LLM_PROVIDER") or os.environ.get("SPARK_LLM_PROVIDER") or "codex").strip()
+    prov_ok, prov_detail, prov_repair = _mission_provider_ready(provider)
+    checks.append({"name": "mission_provider", "ok": prov_ok, "detail": prov_detail, "repair": prov_repair})
+    if prov_ok:
+        smoke = local_mission_completion_smoke(provider, timeout_seconds)
+    else:
+        smoke = {
+            "name": "mission_completes",
+            "ok": False,
+            "detail": "Skipped the live mission round-trip because the provider lane is not ready (see above).",
+            "repair": "Fix the mission provider, then rerun `spark verify --mission`.",
+        }
+    checks.append(smoke)
+    ok = bool(prov_ok and smoke.get("ok"))  # HMAC is diagnostic; the real gate is provider + a completed mission
+    return {
+        "ok": ok,
+        "summary": "Mission-execution preflight "
+        + ("PASSED: a real mission completed end to end." if ok else "FAILED: missions would not complete on this install (see fixes below)."),
+        "checks": checks,
+    }
+
+
 def collect_hosted_security_payload(*, deep: bool = False) -> dict[str, Any]:
     role_providers = hosted_llm_role_providers()
     provider_errors = hosted_headless_provider_errors()
@@ -14141,6 +14450,19 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     if getattr(args, "sandboxes", False):
         payload = collect_sandbox_verify_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("repair"):
+                print(f"      {check['repair']}")
+        return 0 if payload["ok"] else 1
+
+    if getattr(args, "mission", False):
+        payload = collect_mission_preflight_payload()
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
@@ -17192,6 +17514,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
     verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
     verify_parser.add_argument("--sandboxes", action="store_true", help="Verify optional SSH/Modal sandbox readiness without running cloud smoke jobs")
+    verify_parser.add_argument("--mission", action="store_true", help="Preflight the autonomous mission lane: Governor HMAC key, mission provider, and a real round-trip mission completing (not silently expiring)")
     verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
     verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
     verify_parser.set_defaults(func=cmd_verify)
@@ -17219,10 +17542,11 @@ def build_parser() -> argparse.ArgumentParser:
     fix_parser.add_argument(
         "target",
         nargs="?",
-        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart"],
+        choices=["telegram", "secrets", "spawner", "providers", "memory", "live", "update", "autostart", "modules"],
         default="telegram",
     )
     fix_parser.add_argument("--redact-logs", action="store_true", help="For `spark fix secrets`, redact secret-like values in local generated logs")
+    fix_parser.add_argument("--clean", action="store_true", help="For `spark fix modules`, remove incomplete module clones (.git present, spark.toml missing) so they can be re-cloned")
     fix_parser.add_argument("--json", action="store_true")
     fix_parser.set_defaults(func=cmd_fix)
 
