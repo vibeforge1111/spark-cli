@@ -227,6 +227,10 @@ fi
 cleanup() {
   log "Stopping Spark Live..."
   spark live stop >/dev/null 2>&1 || true
+  if [ -n "${log_pid:-}" ]; then
+    kill "$log_pid" 2>/dev/null || true
+    wait "$log_pid" 2>/dev/null || true
+  fi
 }
 trap cleanup TERM INT
 
