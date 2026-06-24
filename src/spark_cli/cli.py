@@ -7702,6 +7702,11 @@ def install_command_argv(command: str) -> list[str]:
     if executable in {"pip", "pip3"}:
         return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
     if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
+        print(
+            "warning: `uv pip` rewritten as `python -m pip` — uv sandbox "
+            "bypasses Spark's install boundary. Use `pip` directly to suppress this warning.",
+            file=sys.stderr,
+        )
         return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
     if executable == "npm":
         return [resolve_install_executable("npm"), *parts[1:]]
