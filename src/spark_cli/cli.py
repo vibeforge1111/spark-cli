@@ -12619,6 +12619,14 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    if not getattr(args, "providers_command", None):
+        print("spark providers: choose a subcommand\n")
+        print("  spark providers status    Show configured LLM roles and auth")
+        print("  spark providers test      Send a PING_OK probe to the chat provider")
+        print("  spark providers list      List all available providers")
+        print("  spark providers recommend Show recommended setup paths")
+        print("")
+        return 1
     if args.providers_command == "recommend":
         payload = provider_recommendations_payload()
         if args.json:
@@ -12743,6 +12751,13 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
 
 
 def cmd_recommend(args: argparse.Namespace) -> int:
+    if not getattr(args, "recommend_command", None):
+        print("spark recommend: choose a subcommand")
+        print("")
+        print("  spark recommend llms        Show LLM provider options and setup commands")
+        print("  spark recommend providers   Same as llms")
+        print("")
+        return 1
     if args.recommend_command in {"llms", "providers"}:
         payload = provider_recommendations_payload()
         if args.json:
@@ -17495,9 +17510,19 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_parser.set_defaults(func=cmd_onboard)
 
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
-    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+    os_subparsers = os_parser.add_subparsers(dest="os_command", required=False)
+    def _cmd_os_help(args: argparse.Namespace) -> int:
+        print("spark os: choose a subcommand\n")
+        print("  spark os compile        Compile a read-only Spark OS system map")
+        print("  spark os capabilities   Inspect compiled capability cards")
+        print("  spark os authority      Inspect compiled authority contracts")
+        print("  spark os trace          Inspect compiled trace health")
+        print("  spark os memory         Inspect compiled memory movement")
+        print("")
+        return 1
+    os_parser.set_defaults(func=_cmd_os_help)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
-    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
@@ -17515,25 +17540,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
-    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
     os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
     os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
-    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
-    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
-    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
@@ -17569,7 +17594,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_llm_parser.set_defaults(func=cmd_doctor)
 
     support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
-    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+    support_subparsers = support_parser.add_subparsers(dest="support_command", required=False)
+    def _cmd_support_help(args: argparse.Namespace) -> int:
+        print("spark support: choose a subcommand\n")
+        print("  spark support bundle              Write a local redacted support archive")
+        print("  spark support bundle --include-logs  Include redacted log tails")
+        print("")
+        return 1
+    support_parser.set_defaults(func=_cmd_support_help)
     support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
     support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
     support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
