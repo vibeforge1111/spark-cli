@@ -5427,6 +5427,14 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+_PATH_REDACT_RE = re.compile(r"(?:[A-Za-z]:[\\/]|/)(?:[\w.\-]+[\\/])+[\w.\-]+")
+
+
+def _redact_internal_paths(text: str) -> str:
+    """Replace absolute filesystem paths with a placeholder to prevent leaking internal paths in user-facing output."""
+    return _PATH_REDACT_RE.sub("[redacted-path]", text)
+
+
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
     lines = [
         "# Spark System Map Gaps",
@@ -5450,7 +5458,9 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         for gap in gaps:
             count = int(gap.get("count", "1"))
             suffix = f" Observed {count} times." if count > 1 else ""
-            lines.append(f"- [{gap['severity']}] {gap['area']} / {gap['item']}: {gap['message']}{suffix}")
+            safe_item = _redact_internal_paths(gap["item"])
+            safe_message = _redact_internal_paths(gap["message"])
+            lines.append(f"- [{gap['severity']}] {gap['area']} / {safe_item}: {safe_message}{suffix}")
     lines.extend(
         [
             "",
