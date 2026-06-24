@@ -56,6 +56,7 @@ Use allowlisted serializers for read models. If a source payload contains unknow
 
 ## Authority and Route Rules
 
+- **Before adding or changing any route / approval / fallback logic, read `docs/harness-discipline/` (start at `00_README.md`).** It is the harness-wide fix-discipline ruleset grounded in the 2026-06-24 audit. Non-negotiables that bite CLI work directly: no route-specific regex may own execution authority (`RL-01`); the approval gate must bind to the parsed/typed action, never a re-tokenized `argv` (`R-01`, fixes `approval.py`/`cli.py:17925`); `requires_approval` must mean *enforced* (`RL-05`); a security toggle must not be re-readable from mutable runtime (`RL-06`, fixes `SPARK_APPROVAL_ENFORCE`); and a failure must never return a success-shaped value (`RL-08`). New "for now" code needs a stopgap retirement owner (`R-15`).
 - CLI may own operator diagnostics and local repair guidance, but Builder owns RouteConfidenceGateV1 and AOC route judgment.
 - `spark fix` and `spark doctor` outputs should expose metadata-only route context and verification commands, not mutate high-risk surfaces without explicit gates.
 - High-agency actions must fail closed unless authority, capability, freshness, consequence risk, confirmation, and privacy boundary are known.
