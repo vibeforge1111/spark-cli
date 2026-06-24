@@ -427,6 +427,56 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve container privilege",
         )
 
+    if (first == "docker" and second == "exec") or (
+        first == "docker" and lowered[1:3] == ["container", "exec"]
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "container_privilege_escalation",
+            "high",
+            "docker exec runs a command inside a running container, which may carry elevated privileges or host-mounted paths.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve container exec",
+        )
+
+    if first == "nsenter":
+        return _decision(
+            parts,
+            ctx,
+            "container_privilege_escalation",
+            "critical",
+            "nsenter enters one or more Linux namespaces of a target process and can escape container isolation on the host.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve namespace entry",
+        )
+
+    if first == "chroot":
+        return _decision(
+            parts,
+            ctx,
+            "container_privilege_escalation",
+            "high",
+            "chroot changes the root directory for a process, which can escape filesystem containment or grant access to an alternative OS tree.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve chroot",
+        )
+
+    if first in {
+        "adduser", "useradd", "usermod", "userdel", "deluser",
+        "groupadd", "groupmod", "groupdel",
+        "passwd", "chpasswd",
+    }:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Command modifies local user accounts, groups, or credentials.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve user account change",
+        )
+
     if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
         return _decision(
             parts,
