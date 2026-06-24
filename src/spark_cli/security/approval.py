@@ -555,6 +555,21 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             confirmation_phrase="approve network upload",
         )
 
+    if first in {
+        "adduser", "useradd", "usermod", "userdel", "deluser",
+        "groupadd", "groupmod", "groupdel",
+        "passwd", "chpasswd",
+    }:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Command modifies local user accounts, groups, or credentials.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve user account change",
+        )
+
     if first == "spark" and second == "access":
         level5_requested = "--enable-high-agency" in lowered or "disable-level5" in lowered
         return _decision(
