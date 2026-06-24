@@ -106,3 +106,4 @@ After those, the rest of Wave 0 ("stop the bleeding") makes the next self-evolut
 - **`04_AUDIT_FINDINGS_AND_BACKLOG.md`** — the 51 offenders + the Wave-0..Wave-3 remediation backlog.
 - **`05_EXTERNAL_HARNESS_LESSONS.md`** — Hermes / OpenClaw / Anthropic / OSS lessons, the comparison matrix, and the closed citation list.
 - **`06_AUTONOMY_AND_MACHINE_ORIGIN.md`** — the machine-origin approval decision (lane OFF, gated behind the P-1..P-11 precondition set); resolves the charter `:96` exception. Red-teamed 2026-06-24.
+- **`07_FLEET_DISCIPLINE.md`** — **the dev-layer extension: how many agents work on these repos at once** without entanglement (worktrees, branches, one gate, leases). **Part 1 is plain-English** — read it first if worktrees/branches are unfamiliar. Red-teamed 2026-06-24.
