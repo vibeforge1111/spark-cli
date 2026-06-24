@@ -526,7 +526,15 @@ def infer_module_name_from_url(url: str) -> str:
 
 
 def clone_target_for_module(name: str) -> Path:
+    if not MODULE_NAME_RE.fullmatch(name):
+        raise SystemExit(
+            f"Invalid module name {name!r}. "
+            "Module names must use lowercase letters, digits, and hyphens only."
+        )
     return SPARK_HOME / "modules" / name / "source"
+
+
+MODULE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
 def git_command(*args: str) -> list[str]:
@@ -15296,6 +15304,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                 print(f"Skipping {display_name}: already running (pid {existing_pid})")
                 return True
             pids.pop(process_key, None)
+            save_pids(pids)  # persist removal before attempting start
         if module.name == "spark-telegram-bot" and relay_port:
             stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
             if stale_listener_note:
