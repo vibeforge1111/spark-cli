@@ -646,6 +646,12 @@ class SparkSystemMapTests(unittest.TestCase):
 
         encoded = json.dumps(view)
         joined_blockers = " ".join(view["blockers"])
+        self.assertRegex(view["request_ref"], r"^request_ref:redacted:[a-f0-9]{12}$")
+        self.assertRegex(view["trace_ref"], r"^trace_ref:redacted:[a-f0-9]{12}$")
+        self.assertEqual(view["trace_continuity"]["authority"], "observability_non_authoritative")
+        self.assertFalse(view["trace_continuity"]["raw_audio_exported"])
+        self.assertFalse(view["trace_continuity"]["transcript_bodies_exported"])
+        self.assertEqual(view["trace_continuity"]["proof_status"], "not_execution_proof")
         self.assertEqual(view["mode"], "ingress")
         self.assertTrue(view["source_capability"]["installed_in_spark_state"])
         self.assertTrue(view["provider"]["configured"])

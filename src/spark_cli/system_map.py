@@ -5152,6 +5152,40 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_voice_surface_trace_continuity(view: dict[str, Any]) -> dict[str, Any]:
+    trace = as_dict(view.get("trace"))
+    seed_payload = {
+        "schema_version": VOICE_SURFACE_SCHEMA,
+        "source": "spark-cli.system_map.build_voice_surface_view",
+        "owner_system": view.get("owner_system"),
+        "mode": view.get("mode"),
+        "source_capability": view.get("source_capability"),
+        "provider": view.get("provider"),
+        "trace": trace,
+        "blockers": view.get("blockers"),
+    }
+    seed = json.dumps(seed_payload, sort_keys=True, separators=(",", ":"), default=str)
+    request_ref = redacted_identifier("request_ref", f"voice-surface-request:{seed}")
+    trace_ref = redacted_identifier("trace_ref", f"voice-surface-trace:{seed}")
+    return {
+        "schema_version": "spark.voice_surface_trace_continuity.v1",
+        "source": "spark-cli.system_map.build_voice_surface_view",
+        "authority": "observability_non_authoritative",
+        "request_ref": request_ref,
+        "trace_ref": trace_ref,
+        "claim_boundary": (
+            "These refs identify the redacted Spark OS voice surface compile artifact only. "
+            "They do not authorize voice transcription, speech synthesis, Telegram delivery, or action execution."
+        ),
+        "runtime_state_export_present": bool(trace.get("runtime_state_export_present")),
+        "final_answer_check_supported": bool(trace.get("final_answer_check_supported")),
+        "voice_events_supported": bool(trace.get("voice_events_supported")),
+        "raw_audio_exported": False,
+        "transcript_bodies_exported": False,
+        "proof_status": "not_execution_proof",
+    }
+
+
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
     repo_names = {str(repo.get("name")) for repo in repos}
@@ -5308,7 +5342,7 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         runtime_tts.get("voice_id_fingerprint"),
     )
 
-    return {
+    view = {
         "schema_version": VOICE_SURFACE_SCHEMA,
         "generated_at": utc_now(),
         "owner_system": "spark-voice-comms",
@@ -5358,6 +5392,10 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         "blockers": blockers,
         "redaction": "metadata only; raw audio, transcript bodies, provider secrets, and voice profile secrets omitted",
     }
+    view["trace_continuity"] = build_voice_surface_trace_continuity(view)
+    view["request_ref"] = view["trace_continuity"]["request_ref"]
+    view["trace_ref"] = view["trace_continuity"]["trace_ref"]
+    return view
 
 
 def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
