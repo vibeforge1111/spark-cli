@@ -1103,7 +1103,7 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     repo_root = REPO_ROOT.resolve()
     root = Path(resolved.anchor).resolve()
     if resolved == root or resolved == home or resolved == repo_root:
-        raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+        raise SystemExit("Refusing to purge unsafe Spark home path. The configured Spark home resolves to a system-critical directory.")
     return resolved
 
 
@@ -2263,11 +2263,11 @@ def load_module(path: Path) -> Module:
     try:
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+        raise SystemExit("Module manifest not found: module manifest") from exc
     except PermissionError as exc:
-        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+        raise SystemExit("Permission denied reading module manifest: module manifest") from exc
     except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
+        raise SystemExit(f"Invalid TOML in module manifest: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -2570,7 +2570,7 @@ def resolve_secret_input(value: str) -> str:
         try:
             return path.expanduser().read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+            raise SystemExit("Could not read secret file. Ensure the file exists and is accessible.") from exc
     return value
 
 
@@ -7072,11 +7072,11 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Browser-use is ready for the probed scope.")
             print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
             print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
-            print(f"Status file: {status_payload['status_path']}")
+            print("Status file has been written.")
             return 0
         print("Browser-use probe failed.")
         print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
-        print(f"Status file: {status_payload['status_path']}")
+        print("Status file has been written.")
         return 1
 
     if action in {"open", "screenshot"}:
@@ -7095,7 +7095,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print(str(payload["text_excerpt"]))
             if payload.get("screenshot_path"):
                 print("")
-                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+                print("Screenshot has been saved to disk.")
             return 0
         print(f"Browser-use {action} failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -7119,7 +7119,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print("")
                 print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
             print("")
-            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
+            print("Receipt has been saved to disk.")
             return 0
         print("Browser-use task failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -8570,9 +8570,9 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
             f"({next_review.get('reason_code')})"
         )
         if operator_paths:
-            print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
-            print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
-            print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
+            print(f"- provenance path: {'available' if operator_paths.get('provenance_drilldown') else 'unavailable'}")
+            print(f"- stale/current gate: {'available' if operator_paths.get('stale_current_adjudication') else 'unavailable'}")
+            print(f"- purge path: {'available' if operator_paths.get('purge_or_decay_path') else 'unavailable'}")
     print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
     return 0
 
@@ -8684,7 +8684,7 @@ def cmd_live(args: argparse.Namespace) -> int:
                 for line in tail_log_lines(path, getattr(args, "lines", 80)):
                     write_console_text(line if line.endswith("\n") else line + "\n")
             else:
-                print(f"No logs yet at {path}")
+                print("No logs yet for this target")
         if getattr(args, "follow", False):
             follow_live_logs(lines=0)
         return 0
@@ -9010,7 +9010,7 @@ def cmd_support(args: argparse.Namespace) -> int:
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
-    print(f"[OK] Wrote local redacted support bundle: {path}")
+    print("[OK] Wrote local redacted support bundle.")
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
@@ -9542,7 +9542,7 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
         print(f"{marker} {label}: {detail}")
     if payload.get("support_bundle_path"):
         print("")
-        print(f"Redacted support bundle: {payload['support_bundle_path']}")
+        print("Redacted support bundle saved locally.")
     print("")
     print("Remote cleanup still to do where applicable:")
     for item in payload.get("manual_remote_revocations") or []:
@@ -10711,7 +10711,7 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print("Spark access setup")
     print(f"Access level: {payload.get('access_level')}")
     print(f"OS: {payload.get('os_family')}")
-    print(f"Workspace: {payload.get('workspace_path')}")
+    print("Workspace: (configured)")
     print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
     if recommended.get("user_message"):
         print(str(recommended["user_message"]))
@@ -11756,7 +11756,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         prompt_path = Path(args.prompt_out).expanduser()
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
         prompt_path.write_text(prompt, encoding="utf-8")
-        print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
+        print("Wrote redacted Spark Doctor prompt.")
         return 0
     try:
         target = resolve_llm_doctor_target(args)
@@ -11797,7 +11797,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     )
     if getattr(args, "save_report", False):
         path = write_doctor_report(report)
-        print(f"Saved Spark Doctor report: {path}")
+        print("Saved Spark Doctor report.")
     if getattr(args, "upstream_report", False):
         upstream = render_upstream_pr_candidate(problem, report)
         upstream_out = getattr(args, "upstream_out", None)
@@ -11807,7 +11807,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
             upstream_path.write_text(upstream, encoding="utf-8")
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
-        print(f"Saved sanitized upstream PR candidate: {upstream_path}")
+        print("Saved sanitized upstream PR candidate.")
         print("Review the checklist before opening a PR. Spark did not upload anything.")
     print(report)
     return 0
@@ -12260,7 +12260,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             if changed:
                 print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
                 for path in changed:
-                    print(f"      {path}")
+                    print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
             print("")
@@ -12341,7 +12341,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print(f"  - {hook.get('name')}: installed={installed_text}")
                 for warning in hook.get("warnings", []):
                     print(f"      warning: {warning}")
         print("")
@@ -12981,8 +12981,7 @@ def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> t
     if swarm_root:
         bridge_src = swarm_root / "apps" / "bridge" / "src"
         if bridge_src.exists():
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
+            prepend_pythonpath(env, [bridge_src])
     return (
         [
             python,
@@ -15388,6 +15387,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
+        except OSError as exc:
+            log_handle.close()
+            safe_detail = redact_shareable_text(str(exc))
+            print(f"Failed to start {display_name}: {safe_detail}")
+            append_process_log(module.name, f"spawn failed detail={safe_detail}", profile=profile)
+            return False
         finally:
             log_handle.close()
         pids[process_key] = {
