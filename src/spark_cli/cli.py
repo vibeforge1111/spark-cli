@@ -2590,7 +2590,7 @@ def collect_secret_requirements(modules: list[Module]) -> dict[str, dict[str, An
                 },
             )
             requirement["modules"].append(module.name)
-            if definition.get("required", False):
+            if definition.get("required", True):
                 requirement["required"] = True
             if definition.get("env_var") and not requirement.get("env_var"):
                 requirement["env_var"] = definition.get("env_var")
