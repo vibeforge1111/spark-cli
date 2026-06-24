@@ -1038,10 +1038,17 @@ def keychain_available() -> bool:
     if not HAS_KEYRING:
         return False
     try:
-        _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
+        probe_key = "__spark_probe__"
+        probe_value = "spark-keychain-probe-check"
+        _keyring.set_password(KEYCHAIN_SERVICE, probe_key, probe_value)
+        retrieved = _keyring.get_password(KEYCHAIN_SERVICE, probe_key)
+        try:
+            _keyring.delete_password(KEYCHAIN_SERVICE, probe_key)
+        except Exception:
+            pass
+        return retrieved == probe_value
     except Exception:
         return False
-    return True
 
 
 def default_spark_home() -> Path:
