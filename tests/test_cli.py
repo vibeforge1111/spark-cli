@@ -8807,6 +8807,17 @@ class SparkCliTests(unittest.TestCase):
                     ["C:/node/node.exe", str(vite_bin), "dev", "--host", "127.0.0.1"],
                 )
 
+    def test_direct_node_package_script_argv_returns_none_for_malformed_package_script(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "package.json").write_text(
+                json.dumps({"scripts": {"dev": "node \"unterminated"}}),
+                encoding="utf-8",
+            )
+
+            with patch("spark_cli.cli.resolve_runtime_binary", return_value="C:/node/node.exe"):
+                self.assertIsNone(direct_node_package_script_argv("npm run dev", root))
+
     def test_spawner_runtime_command_uses_container_bind_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

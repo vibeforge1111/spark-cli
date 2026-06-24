@@ -99,7 +99,9 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+    # Strip newlines from values to prevent env var injection
+    sanitized = {k: v.replace("\n", "").replace("\r", "") for k, v in values.items()}
+    path.write_text("\n".join(f"{key}={value}" for key, value in sanitized.items()) + "\n", encoding="utf-8")
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:

@@ -294,6 +294,20 @@ RAW_MEMORY_KEY_HINTS = (
 )
 
 
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> bool:
+    """Return True if *name* is a safe SQL identifier (alphanumeric/underscore, starts with letter or underscore)."""
+    return bool(_SAFE_IDENTIFIER_RE.match(name))
+
+
+def _sanitize_identifiers(names: list[str]) -> list[str]:
+    """Filter *names* to only include safe SQL identifiers, preventing injection via malicious schema metadata."""
+    return [n for n in names if _validate_identifier(n)]
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -927,7 +941,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
                 out["table_exists"] = False
                 out["matched_builder_request_id_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "request_id" not in columns:
                 out["request_id_column_exists"] = False
                 out["matched_builder_request_id_count"] = 0
@@ -969,7 +983,7 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
                 out["table_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 out["matched_builder_trace_ref_count"] = 0
@@ -2570,7 +2584,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
         conn.row_factory = sqlite3.Row
         try:
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
-            memory_tables = [table for table in tables if "memory" in table.lower()]
+            memory_tables = _sanitize_identifiers([table for table in tables if "memory" in table.lower()])
             out["table_count"] = len(memory_tables)
             out["tables"] = {}
             for table in memory_tables:
@@ -2590,7 +2604,7 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
         "source": "memory_lane_records",
         "redaction": "aggregate trace coverage only; row ids, trace ids, evidence JSON, memory bodies, and source refs omitted",
     }
-    columns = [row[1] for row in conn.execute("pragma table_info(memory_lane_records)")]
+    columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(memory_lane_records)")])
     required = {"request_id", "trace_ref", "artifact_lane", "status"}
     missing = sorted(required - set(columns))
     if missing:
@@ -2714,7 +2728,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             selected = [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
             if not selected:
                 out["events"] = []
@@ -2794,7 +2808,7 @@ def inspect_builder_trace_groups(
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 return out
@@ -2963,7 +2977,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             group_columns = [
                 column
                 for column in (

@@ -519,10 +519,19 @@ def normalize_git_url(source: str) -> str:
     return value
 
 
+def _sanitize_module_name(name: str) -> str:
+    """Remove path traversal sequences from a module name to prevent directory escaping."""
+    # Strip path separators and traversal sequences
+    sanitized = re.sub(r"[/\\]", "", name)
+    sanitized = re.sub(r"\.\.", "", sanitized)
+    sanitized = sanitized.strip(".")
+    return sanitized or "module"
+
+
 def infer_module_name_from_url(url: str) -> str:
     cleaned = url.strip().removesuffix(".git").rstrip("/")
     last = cleaned.split("/")[-1]
-    return last or "module"
+    return _sanitize_module_name(last)
 
 
 def clone_target_for_module(name: str) -> Path:
@@ -14911,7 +14920,7 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
         return None
     try:
         script_parts = split_single_argv_command(script, "Package script")
-    except SystemExit:
+    except (SystemExit, ValueError):
         return None
     if not script_parts:
         return None
@@ -15845,7 +15854,7 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    return '"' + value.replace('"', '""').replace('%', '%%').replace('&', '^&') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
