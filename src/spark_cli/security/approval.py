@@ -131,7 +131,7 @@ def parse_command_text(command: str) -> list[str]:
     try:
         return shlex.split(command, posix=True)
     except ValueError:
-        return command.split()
+        return [command]
 
 
 def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
