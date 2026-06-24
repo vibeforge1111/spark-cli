@@ -129,8 +129,12 @@ function Require-Command {
 
 function Test-PythonCompatible {
     param([string]$PythonExe)
-    & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
-    return $LASTEXITCODE -eq 0
+    try {
+        & $PythonExe -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info < (3, 14) else 1)' 2>$null | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
 }
 
 function Find-SystemPython {

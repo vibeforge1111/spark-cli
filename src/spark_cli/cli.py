@@ -2994,7 +2994,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        posix_denied = [Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES]
+        # Do not deny writes inside SPARK_HOME even when SPARK_HOME lives under a
+        # denied prefix such as /root.  Excluding SPARK_HOME lets the CLI manage
+        # its own modules and configs on root-user / headless-server installs.
+        posix_denied = [p for p in posix_denied if not policy_path_is_same_or_child(SPARK_HOME, p)]
+        denied.extend(posix_denied)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")
@@ -11442,6 +11447,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key:
+                env_var = spec.get("api_key_env")
+                api_key = os.environ.get(str(env_var)) if env_var else None
             if api_key:
                 return {
                     "provider": provider,
@@ -11750,8 +11758,32 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         prompt_path.write_text(prompt, encoding="utf-8")
         print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
         return 0
-    target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        target = resolve_llm_doctor_target(args)
+        response = call_llm_doctor(target, prompt)
+        probe_ok = True
+        probe_error = ""
+    except SystemExit as exc:
+        target = {}
+        response = ""
+        probe_ok = False
+        probe_error = str(exc)
+    if not probe_ok:
+        error_report = (
+            "# Spark Doctor Report (probe failed)\n\n"
+            f"Problem: {problem}\n"
+            f"Probe error: {probe_error}\n\n"
+            "The LLM probe could not run. Possible causes:\n"
+            "  - API key not found in Spark secret store or environment\n"
+            "  - No network access to provider endpoint\n"
+            "  - Provider not yet configured (run `spark setup`)\n\n"
+            "Run `spark providers status` to check provider readiness.\n"
+        )
+        if getattr(args, "save_report", False):
+            path = write_doctor_report(error_report)
+            print(f"Saved partial Spark Doctor report: {path}")
+        print(error_report)
+        return 1
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
@@ -12515,6 +12547,32 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
     try:
         target = resolve_provider_test_target(role, provider)
     except SystemExit as exc:
+        # Distinguish "not configured at all" from "configured but key not reachable".
+        role_state = configured_llm_role_state(role)
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_top = setup_state.get("llm") if isinstance(setup_state, dict) else {}
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        provider_for_check = str(role_state.get("provider") or (isinstance(llm_top, dict) and llm_top.get("provider")) or "")
+        spec_for_check = LLM_PROVIDER_ENV.get(provider_for_check, {})
+        api_key_secret = spec_for_check.get("api_key_secret", "")
+        key_configured_in_setup = bool(
+            role_state.get("api_key_configured")
+            or (isinstance(llm_top, dict) and llm_top.get("api_key_configured"))
+            or (api_key_secret and api_key_secret in secret_keys)
+        )
+        if key_configured_in_setup:
+            configured_provider = str(role_state.get("provider") or provider or "configured")
+            return {
+                "ok": False,
+                "role": role,
+                "provider": configured_provider,
+                "detail": (
+                    f"Provider {configured_provider} is configured in Spark setup, "
+                    "but the API key is not reachable from the test probe. "
+                    "The key may be stored in a platform-managed secret or env var."
+                ),
+                "repair": "spark providers status",
+            }
         return {
             "ok": False,
             "role": role,
@@ -15434,6 +15492,11 @@ def stop_module(name: str, pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
         try:
+            os.kill(pid, 0)
+        except OSError:
+            print(f"{name} (pid {pid}) is not running")
+            return
+        try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
@@ -15529,7 +15592,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
                 profile=profile,
             ):
                 start_code = 1
-            return start_code or stop_code
+            return start_code
     restart_modules = (
         resolve_restart_modules(args.target, installed_modules, load_pids())
         if getattr(args, "cascade", False)
@@ -15554,7 +15617,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
             continue
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
             start_code = 1
-    return start_code or stop_code
+    return start_code
 
 
 def spark_invocation_args() -> list[str]:
