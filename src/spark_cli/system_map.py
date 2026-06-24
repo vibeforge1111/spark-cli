@@ -1419,6 +1419,20 @@ def redacted_identifier(column: str, value: str) -> str:
     return f"{column}:redacted:{digest}"
 
 
+def redacted_path_projection(path: Path, root: Path | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "path_ref": redacted_identifier("path", str(path)),
+    }
+    if root is not None:
+        try:
+            payload["relative_path"] = path.relative_to(root).as_posix()
+        except ValueError:
+            payload["relative_path"] = path.name
+    else:
+        payload["relative_path"] = path.name
+    return payload
+
+
 def safe_builder_event_value(column: str, value: Any) -> Any:
     if value is None:
         return None
@@ -1463,11 +1477,25 @@ def count_raw_memory_hint_keys(value: Any) -> int:
     return 0
 
 
+def redact_memory_index_paths(value: Any, builder_home: Path) -> Any:
+    if isinstance(value, list):
+        return [redact_memory_index_paths(item, builder_home) for item in value]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "path" and isinstance(item, str):
+                out.update(redacted_path_projection(Path(item), builder_home))
+                continue
+            out[key] = redact_memory_index_paths(item, builder_home)
+        return out
+    return value
+
+
 def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
     path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
     data, error = read_json(path)
     out: dict[str, Any] = {
-        "path": str(path),
+        **redacted_path_projection(path, builder_home),
         "exists": path.exists(),
         "redaction": "allowlisted status fields only; rows, raw memory text, and evidence bodies omitted",
     }
@@ -2652,6 +2680,46 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
         }
     )
     return out
+
+
+def build_memory_movement_trace_continuity(memory_index: dict[str, Any]) -> dict[str, Any]:
+    safe_status = as_dict(memory_index.get("safe_status_export"))
+    status = as_dict(safe_status.get("status"))
+    builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
+    trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
+    seed_payload = {
+        "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
+        "source": "spark-cli.system_map.build_memory_movement_index",
+        "status_export_exists": bool(safe_status.get("exists")),
+        "status": status.get("status"),
+        "row_count": status.get("row_count"),
+        "movement_counts": status.get("movement_counts"),
+        "trace_join_status": trace_join.get("status"),
+        "trace_join_row_count": trace_join.get("row_count"),
+        "trace_ref_present_count": trace_join.get("trace_ref_present_count"),
+        "request_id_present_count": trace_join.get("request_id_present_count"),
+    }
+    seed = json.dumps(seed_payload, sort_keys=True, separators=(",", ":"), default=str)
+    request_ref = redacted_identifier("request_ref", f"memory-movement-request:{seed}")
+    trace_ref = redacted_identifier("trace_ref", f"memory-movement-trace:{seed}")
+    return {
+        "schema_version": "spark.memory_movement_trace_continuity.v1",
+        "source": "spark-cli.system_map.build_memory_movement_index",
+        "authority": "observability_non_authoritative",
+        "request_ref": request_ref,
+        "trace_ref": trace_ref,
+        "claim_boundary": (
+            "These refs identify the redacted Spark OS memory-movement compile artifact only. "
+            "They do not authorize memory writes, memory promotion, cleanup, execution, or user-profile truth."
+        ),
+        "source_export_present": bool(safe_status.get("exists")),
+        "builder_memory_table_trace_join_status": trace_join.get("status") or "unknown",
+        "builder_memory_lane_request_id_present_count": int(trace_join.get("request_id_present_count") or 0),
+        "builder_memory_lane_trace_ref_present_count": int(trace_join.get("trace_ref_present_count") or 0),
+        "builder_memory_lane_missing_trace_ref_count": int(trace_join.get("missing_trace_ref_count") or 0),
+        "raw_memory_exported": False,
+        "proof_status": "not_execution_proof",
+    }
 
 
 def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
@@ -4333,7 +4401,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
 
 
 def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
-    builder_memory_tables = inspect_builder_memory_tables(builder_home)
+    builder_memory_tables = redact_memory_index_paths(inspect_builder_memory_tables(builder_home), builder_home)
     trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
     trace_bridge_instruction = (
         "Audit legacy memory lane rows missing trace refs before cleanup; new memory preflight events should keep request_id and trace_ref."
@@ -4350,8 +4418,8 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
         ),
         "builder_memory_tables": builder_memory_tables,
         "safe_status_export": read_memory_movement_status_export(builder_home),
-        "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
-        "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
+        "memory_kb_artifacts": redact_memory_index_paths(summarize_memory_kb_artifacts(builder_home), builder_home),
+        "memory_run_artifacts": redact_memory_index_paths(summarize_memory_run_artifacts(builder_home), builder_home),
         "next_required_bridges": [
             "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
             "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
@@ -4359,6 +4427,9 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
             "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
         ],
     }
+    memory_index["trace_continuity"] = build_memory_movement_trace_continuity(memory_index)
+    memory_index["request_ref"] = memory_index["trace_continuity"]["request_ref"]
+    memory_index["trace_ref"] = memory_index["trace_continuity"]["trace_ref"]
     memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
     return memory_index
 

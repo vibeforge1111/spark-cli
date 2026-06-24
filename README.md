@@ -458,6 +458,8 @@ Use `spark <cmd> --help` for full flags.
 | `spark secrets list|set|get|delete` | Keychain-backed secret store |
 | `spark config get|set|unset|list` | User config at `~/.spark/config/config.json` |
 
+`spark os compile` writes `memory-movement-index.json` with redacted `request_ref`/`trace_ref` compile metadata and path refs only. Those refs prove the compiled read-model lineage; they do not authorize memory movement, cleanup, promotion, or execution.
+
 `spark update` checks all selected installed-runtime clones for local edits before it stops services or runs install commands. Use `spark update --stash-local-runtime` for intentional local hotfix testing, `spark update --skip-dirty` to update only clean modules, and `spark update --continue` after manually fixing a preflight stop. If runtime processes were stopped and `SPARK_AUTOSTART=1`, update restarts Spark Live and prints a compact post-update health summary; use `--no-live-restart` to keep the stack manual.
 
 ## State Layout

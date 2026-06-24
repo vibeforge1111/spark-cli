@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from io import StringIO
@@ -1185,7 +1186,21 @@ class SparkSystemMapTests(unittest.TestCase):
             index = build_memory_movement_index(builder_home)
 
         encoded = json.dumps(index)
+        self.assertRegex(index["request_ref"], r"^request_ref:redacted:[a-f0-9]{12}$")
+        self.assertRegex(index["trace_ref"], r"^trace_ref:redacted:[a-f0-9]{12}$")
+        self.assertEqual(index["trace_continuity"]["authority"], "observability_non_authoritative")
+        self.assertFalse(index["trace_continuity"]["raw_memory_exported"])
+        self.assertEqual(index["trace_continuity"]["proof_status"], "not_execution_proof")
         self.assertEqual(index["safe_status_export"]["status"]["status"], "supported")
+        self.assertEqual(
+            index["safe_status_export"]["relative_path"],
+            "artifacts/memory-movement-index/memory-movement-status.json",
+        )
+        self.assertRegex(index["safe_status_export"]["path_ref"], r"^path:redacted:[a-f0-9]{12}$")
+        self.assertNotIn("path", index["safe_status_export"])
+        self.assertEqual(index["builder_memory_tables"]["relative_path"], "state.db")
+        self.assertRegex(index["builder_memory_tables"]["path_ref"], r"^path:redacted:[a-f0-9]{12}$")
+        self.assertNotIn("path", index["builder_memory_tables"])
         self.assertEqual(index["safe_status_export"]["status"]["movement_counts"]["accepted"], 3)
         self.assertEqual(index["memory_kb_artifacts"]["lane_counts"]["current_state"]["file_count"], 1)
         self.assertGreater(index["safe_status_export"]["raw_hint_key_count"], 0)
@@ -1224,6 +1239,7 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("trace-private-1", encoded)
         self.assertNotIn("req-private-1", encoded)
         self.assertNotIn("private memory body", encoded)
+        self.assertNotIn(str(builder_home), encoded)
         self.assertNotIn("subject", index["safe_status_export"]["omitted_top_level_keys"])
 
     def test_capability_catalog_projects_labs_and_swarm_surfaces_without_bodies(self) -> None:
