@@ -92,7 +92,7 @@ After those, the rest of Wave 0 ("stop the bleeding") makes the next self-evolut
 
 ## Two decisions this set surfaces for the founder
 
-1. **The machine-origin approval exception** (`RUNTIME_CHARTER.md:96`). The charter anticipates a *future* narrowly-scoped exception that would let an unattended run self-approve a high/critical action. No such policy exists yet, so `01`'s red lines (RL-04, RL-13) treat human approval as absolute and the autonomous resolution is **halt-and-queue (R-08)**. Decide: retire the exception (amend the charter) or specify the narrow autonomous-approval branch in `01` — what may self-approve, under what proof, with what rollback and post-hoc human audit. See `01` §3.
+1. **The machine-origin approval exception** (`RUNTIME_CHARTER.md:96`) — **DECIDED, ratifiable** (see [`06_AUTONOMY_AND_MACHINE_ORIGIN.md`](06_AUTONOMY_AND_MACHINE_ORIGIN.md)). The lane is **OFF**: nothing self-approves; RL-04/RL-13 stay absolute (halt-and-queue, R-08); high/critical/irreversible are never eligible; the default allowlist is empty and can only be populated after an 11-item precondition set (P-1..P-11) is CI-green. A 2026-06-24 red team found 15 exploit paths and established that the lane is currently *unbuilt paper* — the empty allowlist is the only present safety property. The founder's remaining action is to **ratify** (adopt off + gate enablement behind the preconditions).
 2. **Sequencing the backlog against live work.** `04` proposes Wave 0→3; the founder owns whether to gate launch on Wave 0 (the CI checkers) or run them in parallel with feature work. The smell census (962 fallbacks, 138 canned, 118 route-regex) only ratchets down once Wave 0 is green.
 
 ---
@@ -105,3 +105,4 @@ After those, the rest of Wave 0 ("stop the bleeding") makes the next self-evolut
 - **`03_CUA_ESCALATION_PROTOCOL.md`** — the planner↔CUA orchestration contract and escalation protocol.
 - **`04_AUDIT_FINDINGS_AND_BACKLOG.md`** — the 51 offenders + the Wave-0..Wave-3 remediation backlog.
 - **`05_EXTERNAL_HARNESS_LESSONS.md`** — Hermes / OpenClaw / Anthropic / OSS lessons, the comparison matrix, and the closed citation list.
+- **`06_AUTONOMY_AND_MACHINE_ORIGIN.md`** — the machine-origin approval decision (lane OFF, gated behind the P-1..P-11 precondition set); resolves the charter `:96` exception. Red-teamed 2026-06-24.
