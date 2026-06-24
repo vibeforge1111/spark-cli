@@ -9789,7 +9789,6 @@ def running_as_hosted_context() -> bool:
     return bool(
         os.environ.get("SPARK_LIVE_CONTAINER")
         or os.environ.get("RAILWAY_ENVIRONMENT")
-        or os.environ.get("SPARK_ALLOWED_HOSTS")
     )
 
 
