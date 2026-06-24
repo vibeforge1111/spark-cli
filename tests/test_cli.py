@@ -6234,6 +6234,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Skip post-install commands", commands["install"].format_help())
         self.assertIn("Skip install commands", commands["setup"].format_help())
         self.assertIn("Skip post-update install commands", commands["update"].format_help())
+        update_help = commands["update"].format_help()
+        self.assertIn("Module or bundle to update; omit to refresh installed", update_help)
+        self.assertIn("modules", update_help)
 
     def test_guide_prints_normie_onboarding_surface(self) -> None:
         args = build_parser().parse_args(["guide"])
