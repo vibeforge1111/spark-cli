@@ -1433,6 +1433,29 @@ def redacted_path_projection(path: Path, root: Path | None = None) -> dict[str, 
     return payload
 
 
+RAW_PATH_TEXT_PATTERN = re.compile(r"(/Users/\S+|/var/folders/\S+|file://\S+|[A-Za-z]:[\\/]\S+)")
+
+
+def redact_trace_index_projection(value: Any) -> Any:
+    if isinstance(value, list):
+        return [redact_trace_index_projection(item) for item in value]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text == "path" and isinstance(item, str):
+                out["path_ref"] = redacted_identifier("path", item)
+                continue
+            if key_text in {"reason_code", "reasonCode"} and item not in (None, ""):
+                out[key_text] = redacted_identifier("reason_code", str(item))
+                continue
+            out[key_text] = redact_trace_index_projection(item)
+        return out
+    if isinstance(value, str):
+        return RAW_PATH_TEXT_PATTERN.sub(lambda match: redacted_identifier("path", match.group(0)), value)
+    return value
+
+
 def safe_builder_event_value(column: str, value: Any) -> Any:
     if value is None:
         return None
@@ -4397,7 +4420,7 @@ def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
     trace_index["trace_current_health"] = build_trace_current_health(trace_index)
     trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
     trace_index["builder_trace_repair_cards"] = build_builder_trace_repair_cards(trace_index)
-    return trace_index
+    return redact_trace_index_projection(trace_index)
 
 
 def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:

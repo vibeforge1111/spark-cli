@@ -23,6 +23,7 @@ from spark_cli.system_map import (
     build_trace_current_health,
     build_trace_repair_queue,
     build_spark_os_review_candidates,
+    build_trace_index,
     build_voice_surface_view,
     collect_repo_metadata,
     compile_system_map,
@@ -1872,6 +1873,87 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertIn("missing_trace_refs", health["health_flags"])
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
+
+    def test_trace_index_output_redacts_paths_and_reason_codes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spark_home = root / ".spark"
+            spawner_state = spark_home / "state" / "spawner-ui"
+            builder_home = spark_home / "state" / "spark-intelligence"
+            spawner_state.mkdir(parents=True)
+            builder_home.mkdir(parents=True)
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        reason_code text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, reason_code, request_id, trace_ref, parent_event_id
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-policy",
+                        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                        "policy_gate_blocked",
+                        "open",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "tool_not_allowed_by_policy",
+                        "req-policy",
+                        "",
+                        None,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            (spawner_state / "prd-auto-trace.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-06-24T00:00:00Z",
+                        "event": "authority_verdict_evaluated",
+                        "requestId": "req-policy",
+                        "traceRef": "trace-policy",
+                        "workspacePath": "/Users/alchemistab/private/workspace",
+                        "authorityVerdict": {
+                            "verdict": "denied",
+                            "actionFamily": "mission_execution",
+                            "sourcePolicy": "spawner_policy",
+                            "sourceRepo": "spawner-ui",
+                            "reasonCode": "tool_not_allowed_by_policy",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            trace_index = build_trace_index(spark_home, builder_home)
+
+        encoded = json.dumps(trace_index)
+        self.assertIn("path_ref", encoded)
+        self.assertIn("reason_code:redacted:", encoded)
+        self.assertNotIn("/Users/alchemistab", encoded)
+        self.assertNotIn("tool_not_allowed_by_policy", encoded)
+        self.assertNotIn('"path":', encoded)
 
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
