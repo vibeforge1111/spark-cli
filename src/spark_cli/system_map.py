@@ -601,6 +601,8 @@ def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
             "bundle_provenance": item.get("bundle_provenance"),
             "registry_source": item.get("registry_source"),
             "registry_commit": item.get("registry_commit"),
+            "runtime_classification": item.get("runtime_classification"),
+            "runtime_classification_reason": item.get("runtime_classification_reason"),
             "last_install_status": as_dict(item.get("last_install")).get("status"),
             "last_update_status": as_dict(item.get("last_update")).get("status"),
         }
@@ -5343,31 +5345,46 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                 head_commit = str(installed_git.get("head_commit") or "").strip().lower()
                 if registry_commit and head_commit and registry_commit != head_commit:
                     branch = str(installed_git.get("branch") or "").strip()
+                    runtime_classification = str(installed.get("runtime_classification") or "").strip()
+                    runtime_classification_reason = str(installed.get("runtime_classification_reason") or "").strip()
                     remote_branch_head = str(git_remote_branch_head(installed_path, branch) or "").strip().lower()
                     release_branch_published = bool(
                         branch.startswith("release/stability-") and remote_branch_head and remote_branch_head == head_commit
                     )
-                    classification = (
-                        "release_branch_pending_registry_batch"
-                        if release_branch_published
-                        else "runtime_ahead_of_registry_pin"
-                    )
-                    severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
-                    evidence = (
-                        "Running installed source is clean and its HEAD is already present on the release branch, "
-                        "but the public registry commit still points at the previous installer batch. "
-                        "This is an intentional release metadata decision, not dirty local file drift."
-                        if release_branch_published
-                        else "Running installed source is clean but its git HEAD differs from the registry commit. "
-                        "This is release metadata drift, not dirty local file drift."
-                    )
-                    next_safe_action = (
-                        "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
-                        "current public registry pin if the batch is deferred."
-                        if release_branch_published
-                        else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
-                        "installed source classified as a local runtime test artifact."
-                    )
+                    local_runtime_test = runtime_classification == "local_runtime_test_artifact"
+                    if local_runtime_test:
+                        classification = "local_runtime_test_artifact"
+                        severity = "decision"
+                        evidence = (
+                            "Running installed source is clean and intentionally classified as a local runtime test artifact. "
+                            "The public registry pin remains the installer truth until owner repo and release metadata catch up."
+                        )
+                        next_safe_action = (
+                            "Use this runtime for local proof only; remove the local-runtime classification after the owner repo "
+                            "commit is ported/pushed and registry or release metadata is updated."
+                        )
+                    else:
+                        classification = (
+                            "release_branch_pending_registry_batch"
+                            if release_branch_published
+                            else "runtime_ahead_of_registry_pin"
+                        )
+                        severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
+                        evidence = (
+                            "Running installed source is clean and its HEAD is already present on the release branch, "
+                            "but the public registry commit still points at the previous installer batch. "
+                            "This is an intentional release metadata decision, not dirty local file drift."
+                            if release_branch_published
+                            else "Running installed source is clean but its git HEAD differs from the registry commit. "
+                            "This is release metadata drift, not dirty local file drift."
+                        )
+                        next_safe_action = (
+                            "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
+                            "current public registry pin if the batch is deferred."
+                            if release_branch_published
+                            else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
+                            "installed source classified as a local runtime test artifact."
+                        )
                     items.append(
                         duplicate_truth_item(
                             item_id=f"{module_id}-runtime-registry-pin-drift",
@@ -5390,6 +5407,8 @@ def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
                                 "release_branch_published": release_branch_published,
                                 "runtime_dirty_tracked_count": dirty,
                                 "runtime_untracked_count": untracked,
+                                "runtime_classification": runtime_classification or None,
+                                "runtime_classification_reason": runtime_classification_reason or None,
                             },
                         )
                     )

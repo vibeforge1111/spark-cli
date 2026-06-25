@@ -583,6 +583,47 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertTrue(item["evidence_details"]["release_branch_published"])
         self.assertIn("installer metadata batch", item["next_safe_action"])
 
+    def test_local_runtime_test_artifact_pin_drift_is_decision_caveat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / ".spark" / "modules" / "spark-telegram-bot" / "source"
+            runtime.mkdir(parents=True)
+            init_git_repo(runtime)
+
+            duplicate_truths = build_duplicate_truths(
+                {
+                    "installed_modules": {
+                        "spark-telegram-bot": {
+                            "path": str(runtime),
+                            "source": str(runtime),
+                            "registry_commit": "0" * 40,
+                            "registry_source": "https://example.test/telegram",
+                            "runtime_classification": "local_runtime_test_artifact",
+                            "runtime_classification_reason": "Local SparkRecursive proof branch; not installer truth.",
+                        }
+                    },
+                    "registry_modules": {
+                        "spark-telegram-bot": {
+                            "commit": "0" * 40,
+                            "source": "https://example.test/telegram",
+                        }
+                    },
+                }
+            )
+
+        item = next(
+            item for item in duplicate_truths["items"] if item["id"] == "spark-telegram-bot-runtime-registry-pin-drift"
+        )
+        self.assertEqual(item["classification"], "local_runtime_test_artifact")
+        self.assertEqual(item["severity"], "decision")
+        self.assertIn("local runtime test artifact", item["evidence"])
+        self.assertIn("local proof only", item["next_safe_action"])
+        self.assertEqual(item["evidence_details"]["runtime_classification"], "local_runtime_test_artifact")
+        self.assertEqual(
+            item["evidence_details"]["runtime_classification_reason"],
+            "Local SparkRecursive proof branch; not installer truth.",
+        )
+
     def test_voice_surface_uses_sanitized_runtime_state_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
