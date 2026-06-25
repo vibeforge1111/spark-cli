@@ -907,6 +907,22 @@ class SparkSystemMapTests(unittest.TestCase):
                             {"repair_temporal_state": "latest_clean"},
                         ]
                     },
+                    "high_severity_open_sources": {
+                        "rows": [
+                            {
+                                "event_count": 5,
+                                "latest_lifecycle_state": "latest_resolved",
+                                "latest_event_created_at": "2026-06-25 12:00:00",
+                                "summary": "private resolved family",
+                            },
+                            {
+                                "event_count": 1,
+                                "latest_lifecycle_state": "latest_open_high_severity",
+                                "latest_event_created_at": "2026-06-02 09:03:25",
+                                "summary": "private unresolved family",
+                            },
+                        ]
+                    },
                 },
                 "trace_current_health": {
                     "status": "current_missing_trace_refs",
@@ -932,6 +948,11 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(summary["builder_trace_current_health"]["high_severity_open_count"], 6)
         self.assertEqual(summary["builder_trace_current_health"]["unresolved_high_severity_open_count"], 1)
         self.assertEqual(summary["builder_trace_current_health"]["current_unresolved_high_severity_open_count"], 0)
+        self.assertEqual(summary["builder_trace_current_health"]["unresolved_high_severity_source_group_count"], 1)
+        self.assertEqual(
+            summary["builder_trace_current_health"]["latest_unresolved_high_severity_event_created_at"],
+            "2026-06-02 09:03:25",
+        )
         self.assertEqual(
             summary["builder_trace_current_health"]["repair_temporal_state_counts"],
             {

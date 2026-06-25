@@ -6018,6 +6018,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
     builder_trace_current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
     builder_trace_temporal_state_counts = builder_trace_repair_temporal_state_counts(builder_trace_health)
+    builder_high_severity_lifecycle = builder_trace_high_severity_lifecycle_summary(builder_trace_health)
     review_candidates = as_dict(trace_index.get("review_candidates"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
@@ -6053,6 +6054,13 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
             "unresolved_high_severity_open_count": builder_trace_health.get("unresolved_high_severity_open_count"),
             "current_unresolved_high_severity_open_count": builder_trace_health.get(
                 "current_unresolved_high_severity_open_count"
+            ),
+            "unresolved_high_severity_source_group_count": builder_high_severity_lifecycle.get(
+                "unresolved_source_group_count",
+                0,
+            ),
+            "latest_unresolved_high_severity_event_created_at": builder_high_severity_lifecycle.get(
+                "latest_unresolved_event_created_at"
             ),
             "repair_temporal_state_counts": builder_trace_temporal_state_counts,
             "latest_missing_source_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
@@ -6103,3 +6111,21 @@ def builder_trace_repair_temporal_state_counts(builder_trace_health: dict[str, A
             continue
         counts[state] = counts.get(state, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def builder_trace_high_severity_lifecycle_summary(builder_trace_health: dict[str, Any]) -> dict[str, Any]:
+    rows = as_list(as_dict(builder_trace_health.get("high_severity_open_sources")).get("rows"))
+    unresolved_rows = [
+        as_dict(row)
+        for row in rows
+        if str(as_dict(row).get("latest_lifecycle_state") or "") != "latest_resolved"
+    ]
+    latest_created_at = ""
+    for row in unresolved_rows:
+        created_at = str(row.get("latest_event_created_at") or "").strip()
+        if created_at and created_at > latest_created_at:
+            latest_created_at = created_at
+    return {
+        "unresolved_source_group_count": len(unresolved_rows),
+        "latest_unresolved_event_created_at": latest_created_at or None,
+    }
