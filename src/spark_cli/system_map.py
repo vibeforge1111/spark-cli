@@ -6019,6 +6019,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     builder_trace_current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
     builder_trace_temporal_state_counts = builder_trace_repair_temporal_state_counts(builder_trace_health)
     builder_high_severity_lifecycle = builder_trace_high_severity_lifecycle_summary(builder_trace_health)
+    duplicate_truth_owner_sets = duplicate_truth_owner_summary(duplicate_truths)
     review_candidates = as_dict(trace_index.get("review_candidates"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
@@ -6094,7 +6095,10 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "memory_movement_rows": memory_status.get("row_count"),
         "builder_memory_table_count": builder_memory_tables.get("table_count"),
         "repo_board": as_dict(repo_board.get("summary")),
-        "duplicate_truths": as_dict(duplicate_truths.get("summary")),
+        "duplicate_truths": {
+            **as_dict(duplicate_truths.get("summary")),
+            "owner_sets": duplicate_truth_owner_sets,
+        },
         "voice_surface_mode": voice_surface.get("mode"),
         "voice_surface_blockers": len(as_list(voice_surface.get("blockers"))),
         "privacy": system_map.get("privacy"),
@@ -6128,4 +6132,21 @@ def builder_trace_high_severity_lifecycle_summary(builder_trace_health: dict[str
     return {
         "unresolved_source_group_count": len(unresolved_rows),
         "latest_unresolved_event_created_at": latest_created_at or None,
+    }
+
+
+def duplicate_truth_owner_summary(duplicate_truths: dict[str, Any]) -> dict[str, list[str]]:
+    owners_by_classification: dict[str, set[str]] = {}
+    for item in as_list(duplicate_truths.get("items")):
+        item = as_dict(item)
+        classification = str(item.get("classification") or "").strip()
+        owner = str(item.get("owner_repo") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", classification):
+            continue
+        if not re.fullmatch(r"[a-z0-9_.-]+", owner):
+            continue
+        owners_by_classification.setdefault(classification, set()).add(owner)
+    return {
+        classification: sorted(owners)
+        for classification, owners in sorted(owners_by_classification.items())
     }

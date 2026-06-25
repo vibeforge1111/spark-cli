@@ -935,7 +935,31 @@ class SparkSystemMapTests(unittest.TestCase):
                 },
             },
             "memory_movement_index": {},
-            "repo_board": {},
+            "repo_board": {
+                "duplicate_truths": {
+                    "summary": {
+                        "item_count": 2,
+                        "classification_counts": {"local_runtime_test_artifact": 2},
+                        "severity_counts": {"decision": 2},
+                    },
+                    "items": [
+                        {
+                            "classification": "local_runtime_test_artifact",
+                            "owner_repo": "spark-telegram-bot",
+                            "canonical_path": "/private/runtime/source",
+                        },
+                        {
+                            "classification": "local_runtime_test_artifact",
+                            "owner_repo": "spawner-ui",
+                            "duplicate_path": "/private/registry",
+                        },
+                        {
+                            "classification": "unsafe class",
+                            "owner_repo": "/private/not-safe",
+                        },
+                    ],
+                }
+            },
             "voice_surface_view": {},
         }
 
@@ -966,6 +990,10 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(summary["builder_trace_current_health"]["latest_missing_group_count"], 1)
         self.assertEqual(summary["builder_trace_current_health"]["latest_clean_window_debt_group_count"], 1)
         self.assertEqual(summary["builder_trace_current_health"]["latest_clean_group_count"], 1)
+        self.assertEqual(
+            summary["duplicate_truths"]["owner_sets"],
+            {"local_runtime_test_artifact": ["spark-telegram-bot", "spawner-ui"]},
+        )
         self.assertNotIn("private", json.dumps(summary))
         self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
         self.assertEqual(summary["builder_trace_recent_windows"][0]["missing_trace_ref_count"], 0)
