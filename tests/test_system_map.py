@@ -2071,6 +2071,64 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertNotIn("private stale summary", encoded)
         self.assertNotIn("private current body", encoded)
 
+    def test_builder_trace_health_treats_sqlite_timestamp_as_current(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text
+                    )
+                    """
+                )
+                sqlite_created_at = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-current-sqlite",
+                        sqlite_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current sqlite summary",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["recent_windows"][1]["high_severity_open_count"], 1)
+        self.assertIn("open_high_severity_events", health["health_flags"])
+        self.assertNotIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertNotIn("private current sqlite summary", encoded)
+
     def test_trace_index_output_redacts_paths_and_reason_codes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

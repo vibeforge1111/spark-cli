@@ -3432,14 +3432,14 @@ def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, An
     for label, delta in windows:
         threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         total = conn.execute(
-            "select count(*) from builder_events where created_at >= ?",
+            "select count(*) from builder_events where datetime(created_at) >= datetime(?)",
             (threshold,),
         ).fetchone()[0]
         missing = conn.execute(
             """
             select count(*)
             from builder_events
-            where created_at >= ?
+            where datetime(created_at) >= datetime(?)
               and (trace_ref is null or trim(trace_ref) = '')
             """,
             (threshold,),
@@ -3448,7 +3448,7 @@ def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, An
             """
             select count(*)
             from builder_events
-            where created_at >= ?
+            where datetime(created_at) >= datetime(?)
               and lower(coalesce(severity, '')) in ('high', 'critical')
               and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
             """,
@@ -3546,7 +3546,7 @@ def builder_missing_trace_ref_source_rows(
                 mg.event_count,
                 row_number() over (
                     partition by {partition_by}
-                    order by n.created_at desc, n.source_rowid desc
+                    order by datetime(n.created_at) desc, n.source_rowid desc
                 ) as rn
             from normalized n
             join missing_groups mg on {join_on}
@@ -3554,10 +3554,10 @@ def builder_missing_trace_ref_source_rows(
         recent as (
             select
                 {select_group},
-                sum(case when n.created_at >= ? then 1 else 0 end) as recent_1h_row_count,
-                sum(case when n.created_at >= ? and n.missing_trace_ref = 1 then 1 else 0 end) as recent_1h_missing_trace_ref_count,
-                sum(case when n.created_at >= ? then 1 else 0 end) as recent_24h_row_count,
-                sum(case when n.created_at >= ? and n.missing_trace_ref = 1 then 1 else 0 end) as recent_24h_missing_trace_ref_count
+                sum(case when datetime(n.created_at) >= datetime(?) then 1 else 0 end) as recent_1h_row_count,
+                sum(case when datetime(n.created_at) >= datetime(?) and n.missing_trace_ref = 1 then 1 else 0 end) as recent_1h_missing_trace_ref_count,
+                sum(case when datetime(n.created_at) >= datetime(?) then 1 else 0 end) as recent_24h_row_count,
+                sum(case when datetime(n.created_at) >= datetime(?) and n.missing_trace_ref = 1 then 1 else 0 end) as recent_24h_missing_trace_ref_count
             from normalized n
             join missing_groups mg on {join_on}
             group by {select_group}
@@ -3621,13 +3621,13 @@ def builder_trace_missing_source_state(
         return {}
 
     where_sql, params = builder_trace_group_where(group_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
+    order_expr = "datetime(created_at)" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by {order_expr} desc
         limit 1
         """,
         params,
@@ -3655,7 +3655,7 @@ def builder_trace_missing_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                 """,
                 count_params,
@@ -3664,7 +3664,7 @@ def builder_trace_missing_source_state(
                 f"""
                 select count(*)
                 from builder_events
-                where created_at >= ?
+                where datetime(created_at) >= datetime(?)
                   and {where_sql}
                   and (trace_ref is null or trim(trace_ref) = '')
                 """,
@@ -3716,13 +3716,13 @@ def builder_high_severity_source_state(
     if not identity_columns:
         identity_columns = [column for column in ("component", "event_type") if column in columns]
     where_sql, params = builder_trace_group_where(identity_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
+    order_expr = "datetime(created_at)" if "created_at" in columns else "rowid"
     latest = conn.execute(
         f"""
         select status, severity, trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
         from builder_events
         where {where_sql}
-        order by "{order_column}" desc
+        order by {order_expr} desc
         limit 1
         """,
         params,
