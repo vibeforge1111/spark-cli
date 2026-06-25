@@ -26,6 +26,7 @@ from spark_cli.system_map import (
     build_trace_index,
     build_voice_surface_view,
     collect_repo_metadata,
+    compile_summary,
     compile_system_map,
     count_files_under,
     count_safe_jsonl,
@@ -753,6 +754,53 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(queue[0]["temporal_scope"], "historical_backlog")
         self.assertEqual(queue[0]["current_window_missing_trace_ref_count"], 0)
         self.assertIn("historical", queue[0]["rank_reason"])
+
+    def test_compile_summary_exposes_builder_trace_current_health_aggregates(self) -> None:
+        compiled = {
+            "system_map": {
+                "generated_at": "2026-06-25T12:00:00Z",
+                "modules": [],
+                "discovered_repos": [],
+                "gaps": [],
+                "privacy": {"raw_logs_read": False},
+            },
+            "capability_catalog": {},
+            "authority_view": {"observed_sources": {}},
+            "trace_index": {
+                "builder_events": {"row_count": 10},
+                "builder_event_samples": {"sample_count": 2},
+                "builder_trace_groups": {"group_count": 1},
+                "builder_trace_health": {
+                    "health_flags": ["missing_trace_refs"],
+                    "recent_windows": [
+                        {"window": "1h", "row_count": 4, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
+                        {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                    ],
+                },
+                "trace_current_health": {
+                    "status": "current_missing_trace_refs",
+                    "window": "24h",
+                    "row_count": 8,
+                    "missing_trace_ref_count": 3,
+                    "historical_missing_trace_ref_count": 20,
+                    "total_missing_trace_ref_count": 23,
+                    "missing_trace_ref_ratio": 0.375,
+                },
+            },
+            "memory_movement_index": {},
+            "repo_board": {},
+            "voice_surface_view": {},
+        }
+
+        summary = compile_summary(compiled)
+
+        self.assertEqual(summary["builder_trace_health_flags"], ["missing_trace_refs"])
+        self.assertEqual(summary["builder_trace_current_health"]["status"], "current_missing_trace_refs")
+        self.assertEqual(summary["builder_trace_current_health"]["missing_trace_ref_count"], 3)
+        self.assertEqual(summary["builder_trace_current_health"]["historical_missing_trace_ref_count"], 20)
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["missing_trace_ref_count"], 0)
+        self.assertEqual(summary["builder_trace_recent_windows"][1]["missing_trace_ref_ratio"], 0.375)
 
     def test_builder_trace_repair_cards_are_source_owned_and_metadata_only(self) -> None:
         trace_index = {

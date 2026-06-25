@@ -5659,6 +5659,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     builder_event_samples = as_dict(trace_index.get("builder_event_samples"))
     builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
     builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
+    builder_trace_current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
     review_candidates = as_dict(trace_index.get("review_candidates"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
@@ -5682,6 +5683,24 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "builder_event_samples": builder_event_samples.get("sample_count"),
         "builder_trace_groups": builder_trace_groups.get("group_count"),
         "builder_trace_health_flags": as_list(builder_trace_health.get("health_flags")),
+        "builder_trace_current_health": {
+            "status": builder_trace_current_health.get("status"),
+            "window": builder_trace_current_health.get("window"),
+            "row_count": builder_trace_current_health.get("row_count"),
+            "missing_trace_ref_count": builder_trace_current_health.get("missing_trace_ref_count"),
+            "historical_missing_trace_ref_count": builder_trace_current_health.get("historical_missing_trace_ref_count"),
+            "total_missing_trace_ref_count": builder_trace_current_health.get("total_missing_trace_ref_count"),
+            "missing_trace_ref_ratio": builder_trace_current_health.get("missing_trace_ref_ratio"),
+        },
+        "builder_trace_recent_windows": [
+            {
+                "window": as_dict(row).get("window"),
+                "row_count": as_dict(row).get("row_count"),
+                "missing_trace_ref_count": as_dict(row).get("missing_trace_ref_count"),
+                "missing_trace_ref_ratio": as_dict(row).get("missing_trace_ref_ratio"),
+            }
+            for row in as_list(builder_trace_health.get("recent_windows"))[:3]
+        ],
         "review_candidates": as_dict(review_candidates.get("counts")).get("candidate_count"),
         "memory_movement_status": memory_status.get("status"),
         "memory_movement_rows": memory_status.get("row_count"),
