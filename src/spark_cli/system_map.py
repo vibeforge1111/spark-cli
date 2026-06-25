@@ -4200,7 +4200,11 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
                 "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
                 "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
                 "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "current_health_status": current_health.get("status"),
+                "current_health_status": (
+                    "stale_missing_trace_ref" if stale_missing
+                    else "latest_clean" if latest_clean
+                    else current_health.get("status")
+                ),
                 "current_window": current_health.get("window"),
                 "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
                 "safe_fix": safe_fix,
