@@ -2437,15 +2437,20 @@ def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
     export_status = str(status.get("status") or "missing")
     row_count = int(status.get("row_count") or 0)
     if export_status != "supported":
+        is_missing = export_status in {"missing", ""}
         items.append(
             memory_review_item(
                 item_id="memory-export-not-supported",
-                severity="critical",
+                severity="warning" if is_missing else "critical",
                 category="movement_export",
                 owner_repo="spark-intelligence-builder",
                 source_surface="Builder memory movement export",
                 reason_code="memory_movement_export_not_supported",
-                recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
+                recommended_action=(
+                    "Configure Builder's metadata-only memory movement status export to enable Cockpit memory review."
+                    if is_missing
+                    else "Restore Builder's metadata-only memory movement status export before Cockpit review."
+                ),
                 count=1,
                 target_kind="status_export",
                 target_ref="memory-movement-status",
