@@ -3338,6 +3338,17 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                                 ),
                             }
                         )
+                    unresolved_rows = [
+                        row
+                        for row in row_items
+                        if str(row.get("latest_lifecycle_state") or "") != "latest_resolved"
+                    ]
+                    out["unresolved_high_severity_open_count"] = sum(
+                        int(row.get("event_count") or 0) for row in unresolved_rows
+                    )
+                    out["current_unresolved_high_severity_open_count"] = sum(
+                        int(row.get("recent_24h_high_open_count") or 0) for row in unresolved_rows
+                    )
                     out["high_severity_open_sources"] = {
                         "group_by": group_columns,
                         "limit": 30,
@@ -3371,13 +3382,20 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 flags.append("missing_trace_refs")
             if int(out.get("orphan_parent_event_id_count") or 0):
                 flags.append("orphan_parent_event_ids")
-            if int(out.get("high_severity_open_count") or 0):
-                recent_windows = [as_dict(row) for row in as_list(out.get("recent_windows"))]
-                current_high_open = sum(
-                    int(row.get("high_severity_open_count") or 0)
-                    for row in recent_windows
-                    if str(row.get("window") or "") in {"1h", "24h"}
-                )
+            unresolved_high_open = int(
+                out.get("unresolved_high_severity_open_count")
+                if "unresolved_high_severity_open_count" in out
+                else out.get("high_severity_open_count") or 0
+            )
+            if unresolved_high_open:
+                current_high_open = int(out.get("current_unresolved_high_severity_open_count") or 0)
+                if "current_unresolved_high_severity_open_count" not in out:
+                    recent_windows = [as_dict(row) for row in as_list(out.get("recent_windows"))]
+                    current_high_open = sum(
+                        int(row.get("high_severity_open_count") or 0)
+                        for row in recent_windows
+                        if str(row.get("window") or "") in {"1h", "24h"}
+                    )
                 flags.append(
                     "open_high_severity_events"
                     if current_high_open
@@ -3763,6 +3781,34 @@ def builder_high_severity_source_state(
         out["lifecycle_temporal_state"] = "latest_open_high_severity"
     else:
         out["lifecycle_temporal_state"] = str(out.get("latest_lifecycle_state") or "unknown")
+
+    if "created_at" in columns:
+        now = datetime.now(timezone.utc)
+        for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
+            threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            count_params = [threshold, *params]
+            total = conn.execute(
+                f"""
+                select count(*)
+                from builder_events
+                where datetime(created_at) >= datetime(?)
+                  and {where_sql}
+                """,
+                count_params,
+            ).fetchone()[0]
+            high_open = conn.execute(
+                f"""
+                select count(*)
+                from builder_events
+                where datetime(created_at) >= datetime(?)
+                  and {where_sql}
+                  and lower(coalesce(severity, '')) in ('high', 'critical')
+                  and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
+                """,
+                count_params,
+            ).fetchone()[0]
+            out[f"recent_{label}_row_count"] = int(total or 0)
+            out[f"recent_{label}_high_open_count"] = int(high_open or 0)
     return out
 
 

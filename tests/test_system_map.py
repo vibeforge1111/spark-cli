@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import unittest.mock
 from contextlib import redirect_stdout
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 
@@ -2128,6 +2128,98 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertIn("open_high_severity_events", health["health_flags"])
         self.assertNotIn("historical_open_high_severity_events", health["health_flags"])
         self.assertNotIn("private current sqlite summary", encoded)
+
+    def test_builder_trace_health_resolved_lifecycle_clears_open_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        evidence_lane text,
+                        reason_code text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text
+                    )
+                    """
+                )
+                open_created_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).replace(
+                    microsecond=0
+                ).isoformat().replace("+00:00", "Z")
+                resolved_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+                    "+00:00", "Z"
+                )
+                rows = [
+                    (
+                        "evt-current-open",
+                        open_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "realworld_validated",
+                        "tool_not_allowed_by_policy",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current open summary",
+                    ),
+                    (
+                        "evt-current-resolved",
+                        resolved_created_at,
+                        "tool_call_ledger_recorded",
+                        "recorded",
+                        "medium",
+                        "telegram_runtime",
+                        "telegram",
+                        "realworld_validated",
+                        "tool_not_allowed_by_policy",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current resolved summary",
+                    ),
+                ]
+                conn.executemany(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, evidence_lane, reason_code,
+                        request_id, trace_ref, parent_event_id, summary
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["unresolved_high_severity_open_count"], 0)
+        self.assertEqual(health["current_unresolved_high_severity_open_count"], 0)
+        self.assertNotIn("open_high_severity_events", health["health_flags"])
+        self.assertNotIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertEqual(
+            health["high_severity_open_sources"]["rows"][0]["latest_lifecycle_state"],
+            "latest_resolved",
+        )
+        self.assertNotIn("private current open summary", encoded)
+        self.assertNotIn("private current resolved summary", encoded)
 
     def test_trace_index_output_redacts_paths_and_reason_codes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
