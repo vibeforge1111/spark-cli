@@ -5170,7 +5170,8 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
 
 
 def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
+    # embedded-private-key is never downgraded: a real key in a test/fixture file is still a real key.
+    if finding.category in {"network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
             finding.category,
             "low",
@@ -9014,7 +9015,10 @@ def cmd_support(args: argparse.Namespace) -> int:
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
-    print("  - Logs are excluded unless you used --include-logs.")
+    if args.include_logs:
+        print("  - Logs are included. Review each log excerpt before sharing.")
+    else:
+        print("  - Logs are excluded unless you used --include-logs.")
     print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
     print("  - Nothing was uploaded.")
     print("")
@@ -10984,6 +10988,7 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
+    "high_cost_execution",
 }
 
 
