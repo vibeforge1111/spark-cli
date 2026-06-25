@@ -3084,43 +3084,16 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 if "created_at" in columns:
                     out["recent_windows"] = _builder_trace_recent_windows(conn)
                 if group_columns:
-                    expressions = [
-                        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
-                        for column in group_columns
-                    ]
-                    group_by = ", ".join(f'"{column}"' for column in group_columns)
-                    rows = conn.execute(
-                        f"""
-                        select {", ".join(expressions)}, count(*) as event_count
-                        from builder_events
-                        where trace_ref is null or trim(trace_ref) = ''
-                        group by {group_by}
-                        order by event_count desc
-                        limit 30
-                        """
-                    ).fetchall()
-                    row_items = []
-                    for row in rows:
-                        values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
-                        }
-                        row_items.append(
-                            {
-                                **values,
-                                "event_count": int(row[len(group_columns)] or 0),
-                                **builder_trace_missing_source_state(
-                                    conn,
-                                    group_columns=group_columns,
-                                    values=values,
-                                    columns=columns,
-                                ),
-                            }
-                        )
                     out["missing_trace_ref_sources"] = {
                         "group_by": group_columns,
                         "limit": 30,
                         "redaction": "aggregate counts grouped by allowlisted event metadata only",
-                        "rows": row_items,
+                        "rows": builder_missing_trace_ref_source_rows(
+                            conn,
+                            group_columns=group_columns,
+                            columns=columns,
+                            limit=30,
+                        ),
                     }
             if {"severity", "status"}.issubset(columns):
                 high_open = conn.execute(
@@ -3296,6 +3269,145 @@ def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, An
             }
         )
     return rows
+
+
+def builder_missing_trace_ref_source_rows(
+    conn: sqlite3.Connection,
+    *,
+    group_columns: list[str],
+    columns: list[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    expressions = [
+        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
+        for column in group_columns
+    ]
+    group_by = ", ".join(f'"{column}"' for column in group_columns)
+    if "created_at" not in columns:
+        rows = conn.execute(
+            f"""
+            select {", ".join(expressions)}, count(*) as event_count
+            from builder_events
+            where trace_ref is null or trim(trace_ref) = ''
+            group by {group_by}
+            order by event_count desc
+            limit ?
+            """,
+            (limit,),
+        ).fetchall()
+        row_items = []
+        for row in rows:
+            values = {column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)}
+            row_items.append(
+                {
+                    **values,
+                    "event_count": int(row[len(group_columns)] or 0),
+                    **builder_trace_missing_source_state(
+                        conn,
+                        group_columns=group_columns,
+                        values=values,
+                        columns=columns,
+                    ),
+                }
+            )
+        return row_items
+
+    now = datetime.now(timezone.utc)
+    one_hour = (now - timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    one_day = (now - timedelta(hours=24)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    join_on = " and ".join(f'n."{column}" = mg."{column}"' for column in group_columns)
+    partition_by = ", ".join(f'n."{column}"' for column in group_columns)
+    select_group = ", ".join(f'mg."{column}"' for column in group_columns)
+    latest_group = ", ".join(f'r."{column}"' for column in group_columns)
+    agg_group = ", ".join(f'a."{column}"' for column in group_columns)
+    rows = conn.execute(
+        f"""
+        with normalized as (
+            select
+                rowid as source_rowid,
+                {", ".join(expressions)},
+                trace_ref,
+                request_id,
+                created_at,
+                case when trace_ref is null or trim(trace_ref) = '' then 1 else 0 end as missing_trace_ref
+            from builder_events
+        ),
+        missing_groups as (
+            select {group_by}, count(*) as event_count
+            from normalized
+            where missing_trace_ref = 1
+            group by {group_by}
+            order by event_count desc
+            limit ?
+        ),
+        ranked as (
+            select
+                n.*,
+                mg.event_count,
+                row_number() over (
+                    partition by {partition_by}
+                    order by n.created_at desc, n.source_rowid desc
+                ) as rn
+            from normalized n
+            join missing_groups mg on {join_on}
+        ),
+        recent as (
+            select
+                {select_group},
+                sum(case when n.created_at >= ? then 1 else 0 end) as recent_1h_row_count,
+                sum(case when n.created_at >= ? and n.missing_trace_ref = 1 then 1 else 0 end) as recent_1h_missing_trace_ref_count,
+                sum(case when n.created_at >= ? then 1 else 0 end) as recent_24h_row_count,
+                sum(case when n.created_at >= ? and n.missing_trace_ref = 1 then 1 else 0 end) as recent_24h_missing_trace_ref_count
+            from normalized n
+            join missing_groups mg on {join_on}
+            group by {select_group}
+        )
+        select
+            {latest_group},
+            r.event_count,
+            r.trace_ref,
+            r.request_id,
+            r.created_at,
+            a.recent_1h_row_count,
+            a.recent_1h_missing_trace_ref_count,
+            a.recent_24h_row_count,
+            a.recent_24h_missing_trace_ref_count
+        from ranked r
+        join recent a on {" and ".join(f'r."{column}" = a."{column}"' for column in group_columns)}
+        where r.rn = 1
+        order by r.event_count desc
+        """,
+        (limit, one_hour, one_hour, one_day, one_day),
+    ).fetchall()
+    row_items = []
+    for row in rows:
+        values = {column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)}
+        latest_trace_ref = str(row[len(group_columns) + 1] or "").strip()
+        latest_request_id = str(row[len(group_columns) + 2] or "").strip()
+        item: dict[str, Any] = {
+            **values,
+            "event_count": int(row[len(group_columns)] or 0),
+            "latest_event_trace_state": "trace_ref_present" if latest_trace_ref else "missing_trace_ref",
+            "latest_event_trace_ref_present": bool(latest_trace_ref),
+            "latest_event_request_id_present": bool(latest_request_id),
+            "latest_event_created_at": str(row[len(group_columns) + 3] or ""),
+            "recent_1h_row_count": int(row[len(group_columns) + 4] or 0),
+            "recent_1h_missing_trace_ref_count": int(row[len(group_columns) + 5] or 0),
+            "recent_24h_row_count": int(row[len(group_columns) + 6] or 0),
+            "recent_24h_missing_trace_ref_count": int(row[len(group_columns) + 7] or 0),
+        }
+        latest_clean = bool(item.get("latest_event_trace_ref_present"))
+        recent_24h_missing = int(item.get("recent_24h_missing_trace_ref_count") or 0)
+        if latest_clean and recent_24h_missing:
+            item["repair_temporal_state"] = "latest_clean_historical_window_debt"
+        elif latest_clean:
+            item["repair_temporal_state"] = "latest_clean"
+        elif int(item.get("recent_24h_row_count") or 0) == 0:
+            item["repair_temporal_state"] = "stale_missing_trace_ref"
+        else:
+            item["repair_temporal_state"] = "latest_missing_trace_ref"
+        row_items.append(item)
+    return row_items
 
 
 def builder_trace_missing_source_state(
