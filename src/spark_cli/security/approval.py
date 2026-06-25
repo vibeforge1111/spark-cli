@@ -47,13 +47,25 @@ class ApprovalDecision:
 
 
 SECRET_LIKE_PATTERN = re.compile(
-    r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
+    r"(?i)("
+    r"sk-[A-Za-z0-9_-]{8,}"                          # OpenAI / Anthropic keys
+    r"|gh[pors]_[A-Za-z0-9]{36,}"                     # GitHub PATs
+    r"|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}"             # AWS access keys
+    r"|xox[baprs]-[A-Za-z0-9-]{10,}"                  # Slack tokens
+    r"|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"  # JWTs
+    r"|\d{5,}:[A-Za-z0-9_-]{20,}"                    # Telegram bot tokens
+    r")"
 )
 
 
 def _digest_command(argv: list[str]) -> str:
     redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", part) for part in argv]
     return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
+
+
+def _redact_display(text: str) -> str:
+    """Redact secret-like values from user-facing display strings."""
+    return SECRET_LIKE_PATTERN.sub("[REDACTED]", text)
 
 
 def _lower_parts(argv: list[str]) -> list[str]:
@@ -120,7 +132,7 @@ def _decision(
         requires_approval=requires,
         approval_mode="blocked" if requires and context.non_interactive else "interactive" if requires else "none",
         reason=reason,
-        target_display=target_display,
+        target_display=_redact_display(target_display),
         command_digest=_digest_command(argv),
         confirmation_phrase=phrase,
         surface=context.surface,
@@ -248,6 +260,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display="SPARK_HOME",
             confirmation_phrase="delete spark home",
         )
+    if first == "spark" and second == "uninstall" and "--all" in lowered:
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command removes all installed Spark modules and their generated config. This cannot be undone without reinstalling.",
+            target_display="all modules",
+            confirmation_phrase="uninstall all modules",
+        )
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
@@ -261,6 +283,46 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
+        )
+
+    if first in {"chmod", "chown"}:
+        target = _target_after(parts, {"chmod", "chown"})
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can change file permissions or ownership, which may enable privilege escalation.",
+            target_display=target or parts[0],
+            confirmation_phrase=f"approve {parts[0]} {target}".strip().lower()[:80] if target else f"approve {parts[0]}",
+        )
+
+    # curl/wget that writes downloaded content to disk. wget writes to the local
+    # filesystem by default (no flag required); curl only writes with -o/-O/--output.
+    # Skip when a higher-severity rule below already covers it (pipe-to-shell RCE
+    # at the curl|sh check, or an upload via --data/--upload-file), so we never
+    # downgrade those classes.
+    _curl_writes_file = first == "curl" and (
+        _contains_any(lowered, {"-o", "--output"}) or _contains_any(parts, {"-O"})
+    )
+    _fetch_writes_file = first == "wget" or _curl_writes_file
+    _fetch_is_rce = first in {"curl", "wget"} and re.search(
+        r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b", joined
+    )
+    _fetch_is_upload = first in {"curl", "wget"} and (
+        _contains_any(lowered, {"--upload-file", "--form", "--data", "--data-binary", "--data-raw", "--data-urlencode"})
+        or _contains_any(parts, {"-F", "-T"})
+    )
+    if _fetch_writes_file and not _fetch_is_rce and not _fetch_is_upload:
+        target = _target_after(parts, {"curl", "wget"})
+        return _decision(
+            parts,
+            ctx,
+            "destructive_filesystem",
+            "high",
+            "Command can write downloaded content to the local filesystem.",
+            target_display=target or parts[0],
+            confirmation_phrase=f"approve file write {target}".strip().lower()[:80] if target else "approve file write",
         )
 
     if first == "git" and (
