@@ -6038,6 +6038,11 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
             "historical_missing_trace_ref_count": builder_trace_current_health.get("historical_missing_trace_ref_count"),
             "total_missing_trace_ref_count": builder_trace_current_health.get("total_missing_trace_ref_count"),
             "missing_trace_ref_ratio": builder_trace_current_health.get("missing_trace_ref_ratio"),
+            "high_severity_open_count": builder_trace_health.get("high_severity_open_count"),
+            "unresolved_high_severity_open_count": builder_trace_health.get("unresolved_high_severity_open_count"),
+            "current_unresolved_high_severity_open_count": builder_trace_health.get(
+                "current_unresolved_high_severity_open_count"
+            ),
             "repair_temporal_state_counts": builder_trace_temporal_state_counts,
             "latest_missing_source_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
             "latest_clean_historical_window_debt_group_count": builder_trace_temporal_state_counts.get(
@@ -6060,6 +6065,8 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
                 "row_count": as_dict(row).get("row_count"),
                 "missing_trace_ref_count": as_dict(row).get("missing_trace_ref_count"),
                 "missing_trace_ref_ratio": as_dict(row).get("missing_trace_ref_ratio"),
+                "high_severity_open_count": as_dict(row).get("high_severity_open_count"),
+                "high_severity_open_ratio": as_dict(row).get("high_severity_open_ratio"),
             }
             for row in as_list(builder_trace_health.get("recent_windows"))[:3]
         ],

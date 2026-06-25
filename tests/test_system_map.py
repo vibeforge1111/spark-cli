@@ -851,9 +851,26 @@ class SparkSystemMapTests(unittest.TestCase):
                 "builder_trace_groups": {"group_count": 1},
                 "builder_trace_health": {
                     "health_flags": ["missing_trace_refs"],
+                    "high_severity_open_count": 6,
+                    "unresolved_high_severity_open_count": 1,
+                    "current_unresolved_high_severity_open_count": 0,
                     "recent_windows": [
-                        {"window": "1h", "row_count": 4, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
-                        {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                        {
+                            "window": "1h",
+                            "row_count": 4,
+                            "missing_trace_ref_count": 0,
+                            "missing_trace_ref_ratio": 0.0,
+                            "high_severity_open_count": 0,
+                            "high_severity_open_ratio": 0.0,
+                        },
+                        {
+                            "window": "24h",
+                            "row_count": 8,
+                            "missing_trace_ref_count": 3,
+                            "missing_trace_ref_ratio": 0.375,
+                            "high_severity_open_count": 2,
+                            "high_severity_open_ratio": 0.25,
+                        },
                     ],
                     "missing_trace_ref_sources": {
                         "rows": [
@@ -887,6 +904,9 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(summary["builder_trace_current_health"]["status"], "current_missing_trace_refs")
         self.assertEqual(summary["builder_trace_current_health"]["missing_trace_ref_count"], 3)
         self.assertEqual(summary["builder_trace_current_health"]["historical_missing_trace_ref_count"], 20)
+        self.assertEqual(summary["builder_trace_current_health"]["high_severity_open_count"], 6)
+        self.assertEqual(summary["builder_trace_current_health"]["unresolved_high_severity_open_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["current_unresolved_high_severity_open_count"], 0)
         self.assertEqual(
             summary["builder_trace_current_health"]["repair_temporal_state_counts"],
             {
@@ -903,7 +923,9 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("private", json.dumps(summary))
         self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
         self.assertEqual(summary["builder_trace_recent_windows"][0]["missing_trace_ref_count"], 0)
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["high_severity_open_count"], 0)
         self.assertEqual(summary["builder_trace_recent_windows"][1]["missing_trace_ref_ratio"], 0.375)
+        self.assertEqual(summary["builder_trace_recent_windows"][1]["high_severity_open_ratio"], 0.25)
 
     def test_builder_trace_repair_cards_are_source_owned_and_metadata_only(self) -> None:
         trace_index = {
