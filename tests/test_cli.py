@@ -1600,6 +1600,16 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "container_privilege_escalation")
         self.assertEqual(decision.risk, "critical")
 
+    def test_approval_classifier_flags_docker_registry_credential_changes(self) -> None:
+        for command in (["docker", "login", "ghcr.io"], ["docker", "logout", "ghcr.io"]):
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve docker credential change")
+
     def test_approval_classifier_flags_hosted_secret_mutation(self) -> None:
         decision = approval_required_for_command(["railway", "variables", "set", "OPENAI_API_KEY=secret"], CommandContext(hosted=True))
         self.assertTrue(decision.requires_approval)
