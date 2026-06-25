@@ -6099,10 +6099,86 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
             **as_dict(duplicate_truths.get("summary")),
             "owner_sets": duplicate_truth_owner_sets,
         },
+        "publish_handoffs": publish_handoff_summary(
+            repo_board=repo_board,
+            duplicate_truths=duplicate_truths,
+            builder_trace_health=builder_trace_health,
+            builder_high_severity_lifecycle=builder_high_severity_lifecycle,
+        ),
         "voice_surface_mode": voice_surface.get("mode"),
         "voice_surface_blockers": len(as_list(voice_surface.get("blockers"))),
         "privacy": system_map.get("privacy"),
         "outputs": written or {},
+    }
+
+
+def publish_handoff_summary(
+    *,
+    repo_board: dict[str, Any],
+    duplicate_truths: dict[str, Any],
+    builder_trace_health: dict[str, Any],
+    builder_high_severity_lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    blocked_repos: list[dict[str, Any]] = []
+    for row in as_list(repo_board.get("repos")):
+        row = as_dict(row)
+        if row.get("release_eligibility") != "blocked":
+            continue
+        repo = str(row.get("repo") or "").strip()
+        reason = str(row.get("do_not_merge_reason") or "").strip()
+        next_safe_action = str(row.get("next_safe_action") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", repo):
+            continue
+        if reason and not re.fullmatch(r"[A-Za-z0-9 ._/-]+", reason):
+            continue
+        if next_safe_action and not re.fullmatch(r"[A-Za-z0-9 ._/-]+", next_safe_action):
+            continue
+        item: dict[str, Any] = {
+            "repo": repo,
+            "risk_class": row.get("risk_class"),
+            "reason": reason or None,
+            "next_safe_action": next_safe_action or None,
+        }
+        behind = row.get("behind")
+        if isinstance(behind, int) and behind >= 0:
+            item["behind"] = behind
+        blocked_repos.append(item)
+
+    duplicate_summary = as_dict(duplicate_truths.get("summary"))
+    owner_sets = duplicate_truth_owner_summary(duplicate_truths)
+    local_runtime_owners = owner_sets.get("local_runtime_test_artifact", [])
+
+    unresolved_source_group_count = int(builder_high_severity_lifecycle.get("unresolved_source_group_count") or 0)
+    latest_unresolved = builder_high_severity_lifecycle.get("latest_unresolved_event_created_at")
+    builder_handoff = {
+        "flags": as_list(builder_trace_health.get("health_flags")),
+        "high_severity_open_count": builder_trace_health.get("high_severity_open_count"),
+        "unresolved_high_severity_open_count": builder_trace_health.get("unresolved_high_severity_open_count"),
+        "current_unresolved_high_severity_open_count": builder_trace_health.get(
+            "current_unresolved_high_severity_open_count"
+        ),
+        "unresolved_high_severity_source_group_count": unresolved_source_group_count,
+        "latest_unresolved_high_severity_event_created_at": latest_unresolved,
+    }
+
+    families = []
+    if blocked_repos:
+        families.append("repo_release_blocks")
+    if local_runtime_owners:
+        families.append("local_runtime_test_artifacts")
+    if unresolved_source_group_count:
+        families.append("builder_trace_health")
+
+    return {
+        "schema_version": "spark.publish_handoffs.summary.v0",
+        "family_count": len(families),
+        "families": families,
+        "blocked_release_repos": sorted(blocked_repos, key=lambda item: item["repo"]),
+        "local_runtime_test_artifacts": {
+            "count": int(as_dict(duplicate_summary.get("classification_counts")).get("local_runtime_test_artifact") or 0),
+            "owners": local_runtime_owners,
+        },
+        "builder_trace_health": builder_handoff,
     }
 
 

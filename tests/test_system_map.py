@@ -936,6 +936,22 @@ class SparkSystemMapTests(unittest.TestCase):
             },
             "memory_movement_index": {},
             "repo_board": {
+                "repos": [
+                    {
+                        "repo": "spark-intelligence-builder",
+                        "release_eligibility": "blocked",
+                        "risk_class": "critical",
+                        "do_not_merge_reason": "behind upstream",
+                        "next_safe_action": "pull or merge upstream before release",
+                        "behind": 12,
+                        "path": "/private/source",
+                    },
+                    {
+                        "repo": "unsafe/private",
+                        "release_eligibility": "blocked",
+                        "do_not_merge_reason": "behind upstream",
+                    },
+                ],
                 "duplicate_truths": {
                     "summary": {
                         "item_count": 2,
@@ -993,6 +1009,35 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(
             summary["duplicate_truths"]["owner_sets"],
             {"local_runtime_test_artifact": ["spark-telegram-bot", "spawner-ui"]},
+        )
+        self.assertEqual(summary["publish_handoffs"]["family_count"], 3)
+        self.assertEqual(
+            summary["publish_handoffs"]["families"],
+            ["repo_release_blocks", "local_runtime_test_artifacts", "builder_trace_health"],
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["blocked_release_repos"],
+            [
+                {
+                    "repo": "spark-intelligence-builder",
+                    "risk_class": "critical",
+                    "reason": "behind upstream",
+                    "next_safe_action": "pull or merge upstream before release",
+                    "behind": 12,
+                }
+            ],
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["local_runtime_test_artifacts"],
+            {"count": 2, "owners": ["spark-telegram-bot", "spawner-ui"]},
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["builder_trace_health"]["unresolved_high_severity_source_group_count"],
+            1,
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["builder_trace_health"]["latest_unresolved_high_severity_event_created_at"],
+            "2026-06-02 09:03:25",
         )
         self.assertNotIn("private", json.dumps(summary))
         self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
