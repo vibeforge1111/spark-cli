@@ -992,6 +992,49 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
     return out
 
 
+def builder_overlap_sets(builder_home: Path, *, request_ids: set[str], trace_refs: set[str]) -> dict[str, set[str]]:
+    db_path = builder_home / "state.db"
+    out: dict[str, set[str]] = {"request_ids": set(), "trace_refs": set()}
+    if not db_path.exists() or (not request_ids and not trace_refs):
+        return out
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+            if "builder_events" not in tables:
+                return out
+            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            if request_ids and "request_id" in columns:
+                candidates = sorted(request_ids)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                rows = conn.execute(
+                    f"""
+                    select distinct request_id
+                    from builder_events
+                    where request_id in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchall()
+                out["request_ids"] = {str(row[0]) for row in rows if str(row[0] or "").strip()}
+            if trace_refs and "trace_ref" in columns:
+                candidates = sorted(trace_refs)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                rows = conn.execute(
+                    f"""
+                    select distinct trace_ref
+                    from builder_events
+                    where trace_ref in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchall()
+                out["trace_refs"] = {str(row[0]) for row in rows if str(row[0] or "").strip()}
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return out
+    return out
+
+
 def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
     out: dict[str, Any] = {
         "source": "spawner_prd_auto_trace",
@@ -1158,6 +1201,22 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
+    candidate_request_ids = {
+        str(group.get("request_id")).strip()
+        for group in groups.values()
+        if isinstance(group.get("request_id"), str) and str(group.get("request_id")).strip()
+    }
+    candidate_trace_refs = {
+        str(group.get("trace_ref")).strip()
+        for group in groups.values()
+        if isinstance(group.get("trace_ref"), str) and str(group.get("trace_ref")).strip()
+    }
+    builder_join_sets = builder_overlap_sets(
+        builder_home,
+        request_ids=candidate_request_ids,
+        trace_refs=candidate_trace_refs,
+    )
+
     candidates: list[dict[str, Any]] = []
     for raw_key, group in groups.items():
         event_counts = Counter(group.get("event_counts") or {})
@@ -1192,19 +1251,9 @@ def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[
                 "reason_code": "authority_verdict_missing",
             }
 
-        builder_request_join = (
-            inspect_builder_request_id_overlap(builder_home, {raw_request_id})
-            if isinstance(raw_request_id, str) and raw_request_id
-            else {"matched_builder_request_id_count": 0}
-        )
-        builder_trace_join = (
-            inspect_builder_trace_ref_overlap(builder_home, {raw_trace_ref})
-            if isinstance(raw_trace_ref, str) and raw_trace_ref
-            else {"matched_builder_trace_ref_count": 0}
-        )
         builder_join_present = bool(
-            int(as_dict(builder_request_join).get("matched_builder_request_id_count") or 0)
-            or int(as_dict(builder_trace_join).get("matched_builder_trace_ref_count") or 0)
+            (isinstance(raw_request_id, str) and raw_request_id in builder_join_sets["request_ids"])
+            or (isinstance(raw_trace_ref, str) and raw_trace_ref in builder_join_sets["trace_refs"])
         )
         blockers = []
         if authority.get("verdict") != "allowed":
@@ -2772,11 +2821,23 @@ def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
                     f'select "{column}" as value, count(*) as n from builder_events group by "{column}" order by n desc limit 40'
                 ).fetchall()
                 out[f"{column}_counts"] = {str(row["value"]): int(row["n"]) for row in rows}
-            for column in ("trace_ref", "request_id", "correlation_id", "parent_event_id"):
-                missing = conn.execute(
-                    f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                ).fetchone()[0]
-                out[f"missing_{column}_count"] = int(missing)
+            missing_row = conn.execute(
+                """
+                select
+                  sum(case when trace_ref is null or trim(trace_ref) = '' then 1 else 0 end) as missing_trace_ref_count,
+                  sum(case when request_id is null or trim(request_id) = '' then 1 else 0 end) as missing_request_id_count,
+                  sum(case when correlation_id is null or trim(correlation_id) = '' then 1 else 0 end) as missing_correlation_id_count,
+                  sum(case when parent_event_id is null or trim(parent_event_id) = '' then 1 else 0 end) as missing_parent_event_id_count
+                from builder_events
+                """
+            ).fetchone()
+            for key in (
+                "missing_trace_ref_count",
+                "missing_request_id_count",
+                "missing_correlation_id_count",
+                "missing_parent_event_id_count",
+            ):
+                out[key] = int(missing_row[key] or 0)
         finally:
             conn.close()
     except (sqlite3.Error, OSError) as exc:
@@ -2906,34 +2967,35 @@ def inspect_builder_trace_groups(
                 """,
                 (max(0, min(int(group_limit), 50)),),
             ).fetchall()
-            quoted = ", ".join(f'"{column}"' for column in selected)
+            trace_refs = [str(row["trace_ref"] or "") for row in group_rows if str(row["trace_ref"] or "").strip()]
+            event_rows_by_trace = batched_builder_trace_event_rows(
+                conn,
+                selected,
+                trace_refs=trace_refs,
+                events_per_trace=events_per_trace,
+            )
+            topology_by_trace = batched_builder_trace_topology(
+                conn,
+                columns,
+                trace_refs=trace_refs,
+                event_counts={str(row["trace_ref"] or ""): int(row["event_count"] or 0) for row in group_rows},
+                edge_sample_limit=edge_sample_limit,
+            )
             groups = []
             for group_row in group_rows:
                 trace_ref = str(group_row["trace_ref"] or "")
-                event_rows = conn.execute(
-                    f"""
-                    select {quoted}
-                    from builder_events
-                    where trace_ref = ?
-                    order by created_at asc
-                    limit ?
-                    """,
-                    (trace_ref, max(0, min(int(events_per_trace), 50))),
-                ).fetchall()
                 groups.append(
                     {
                         "trace_ref": safe_builder_event_value("trace_ref", trace_ref),
                         "event_count": int(group_row["event_count"] or 0),
                         "first_seen_at": group_row["first_seen_at"],
                         "last_seen_at": group_row["last_seen_at"],
-                        "topology": builder_trace_topology(
-                            conn,
-                            columns,
-                            trace_ref=trace_ref,
-                            event_count=int(group_row["event_count"] or 0),
-                            edge_sample_limit=edge_sample_limit,
-                        ),
-                        "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
+                        "topology": topology_by_trace.get(trace_ref)
+                        or builder_trace_topology_unavailable(columns, int(group_row["event_count"] or 0)),
+                        "events": [
+                            sanitize_builder_event_row(row, selected)
+                            for row in event_rows_by_trace.get(trace_ref, [])
+                        ],
                     }
                 )
             out["groups"] = groups
@@ -2942,6 +3004,137 @@ def inspect_builder_trace_groups(
             conn.close()
     except (sqlite3.Error, OSError) as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def _trace_ref_placeholders(trace_refs: list[str]) -> str:
+    return ", ".join("?" for _ in trace_refs)
+
+
+def batched_builder_trace_event_rows(
+    conn: sqlite3.Connection,
+    selected: list[str],
+    *,
+    trace_refs: list[str],
+    events_per_trace: int,
+) -> dict[str, list[sqlite3.Row]]:
+    if not trace_refs:
+        return {}
+    quoted = ", ".join(f'"{column}"' for column in selected)
+    placeholders = _trace_ref_placeholders(trace_refs)
+    per_trace_limit = max(0, min(int(events_per_trace), 50))
+    rows = conn.execute(
+        f"""
+        with ranked as (
+            select {quoted},
+                   row_number() over (partition by trace_ref order by created_at asc) as trace_row_num
+            from builder_events
+            where trace_ref in ({placeholders})
+        )
+        select {quoted}
+        from ranked
+        where trace_row_num <= ?
+        order by trace_ref asc, created_at asc
+        """,
+        (*trace_refs, per_trace_limit),
+    ).fetchall()
+    out: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        out[str(row["trace_ref"] or "")].append(row)
+    return out
+
+
+def builder_trace_topology_unavailable(columns: list[str], event_count: int) -> dict[str, Any]:
+    if not {"event_id", "parent_event_id"}.issubset(columns):
+        return {"available": False, "reason": "event_id_or_parent_event_id_missing"}
+    return {
+        "available": True,
+        "event_count": int(event_count or 0),
+        "root_event_count": 0,
+        "parent_link_count": 0,
+        "orphan_parent_event_count": 0,
+        "edge_sample_count": 0,
+        "edge_sample": [],
+        "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+    }
+
+
+def batched_builder_trace_topology(
+    conn: sqlite3.Connection,
+    columns: list[str],
+    *,
+    trace_refs: list[str],
+    event_counts: dict[str, int],
+    edge_sample_limit: int,
+) -> dict[str, dict[str, Any]]:
+    if not trace_refs:
+        return {}
+    if not {"event_id", "parent_event_id"}.issubset(columns):
+        return {
+            trace_ref: builder_trace_topology_unavailable(columns, event_counts.get(trace_ref, 0))
+            for trace_ref in trace_refs
+        }
+    placeholders = _trace_ref_placeholders(trace_refs)
+    topology_rows = conn.execute(
+        f"""
+        select child.trace_ref as trace_ref,
+               child.event_id as child_event_id,
+               child.parent_event_id as parent_event_id,
+               child.event_type as child_event_type,
+               child.component as child_component,
+               parent.event_type as parent_event_type,
+               case when parent.event_id is null then 0 else 1 end as parent_exists,
+               case when parent.event_id is not null and parent.trace_ref = child.trace_ref then 1 else 0 end as parent_in_same_trace,
+               child.created_at as created_at
+        from builder_events child
+        left join builder_events parent on parent.event_id = child.parent_event_id
+        where child.trace_ref in ({placeholders})
+        order by child.trace_ref asc, child.created_at asc
+        """,
+        tuple(trace_refs),
+    ).fetchall()
+    parent_link_counts: Counter[str] = Counter()
+    root_counts: Counter[str] = Counter()
+    orphan_counts: Counter[str] = Counter()
+    edge_rows_by_trace: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    edge_limit = max(0, min(int(edge_sample_limit), 50))
+    seen_trace_rows: Counter[str] = Counter()
+    for row in topology_rows:
+        trace_ref = str(row["trace_ref"] or "")
+        seen_trace_rows[trace_ref] += 1
+        parent_event_id = str(row["parent_event_id"] or "").strip()
+        if parent_event_id:
+            parent_link_counts[trace_ref] += 1
+            if not bool(row["parent_exists"]):
+                orphan_counts[trace_ref] += 1
+            if len(edge_rows_by_trace[trace_ref]) < edge_limit:
+                edge_rows_by_trace[trace_ref].append(row)
+        else:
+            root_counts[trace_ref] += 1
+    out: dict[str, dict[str, Any]] = {}
+    for trace_ref in trace_refs:
+        edge_rows = edge_rows_by_trace.get(trace_ref, [])
+        out[trace_ref] = {
+            "available": True,
+            "event_count": int(event_counts.get(trace_ref, 0) or 0),
+            "root_event_count": int(root_counts.get(trace_ref, 0)),
+            "parent_link_count": int(parent_link_counts.get(trace_ref, 0)),
+            "orphan_parent_event_count": int(orphan_counts.get(trace_ref, 0)),
+            "edge_sample_count": len(edge_rows),
+            "edge_sample": [
+                {
+                    "parent_event_id": safe_builder_event_value("parent_event_id", row["parent_event_id"]),
+                    "child_event_id": safe_builder_event_value("event_id", row["child_event_id"]),
+                    "parent_event_type": safe_builder_event_value("event_type", row["parent_event_type"]),
+                    "child_event_type": safe_builder_event_value("event_type", row["child_event_type"]),
+                    "child_component": safe_builder_event_value("component", row["child_component"]),
+                    "parent_exists": bool(row["parent_exists"]),
+                    "parent_in_same_trace": bool(row["parent_in_same_trace"]),
+                }
+                for row in edge_rows
+            ],
+            "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+        }
     return out
 
 
@@ -3070,12 +3263,19 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             ]
             total = int(conn.execute("select count(*) from builder_events").fetchone()[0])
             out["row_count"] = total
-            for column in ("trace_ref", "request_id", "parent_event_id"):
-                if column in columns:
-                    missing = conn.execute(
-                        f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                    ).fetchone()[0]
-                    out[f"missing_{column}_count"] = int(missing)
+            missing_selects = [
+                f"sum(case when \"{column}\" is null or trim(\"{column}\") = '' then 1 else 0 end) as missing_{column}_count"
+                for column in ("trace_ref", "request_id", "parent_event_id")
+                if column in columns
+            ]
+            if missing_selects:
+                missing_row = conn.execute(f"select {', '.join(missing_selects)} from builder_events").fetchone()
+                missing_index = 0
+                for column in ("trace_ref", "request_id", "parent_event_id"):
+                    key = f"missing_{column}_count"
+                    if column in columns:
+                        out[key] = int(missing_row[missing_index] or 0)
+                        missing_index += 1
             if "trace_ref" in columns:
                 trace_group_count = conn.execute(
                     "select count(distinct trace_ref) from builder_events where trace_ref is not null and trim(trace_ref) != ''"
@@ -3161,7 +3361,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
                     if column in columns
                 ]
-                if orphan_columns:
+                if orphan_columns and int(orphaned or 0):
                     out["orphan_parent_event_sources"] = builder_trace_orphan_parent_sources(
                         conn,
                         orphan_columns,
@@ -3557,40 +3757,7 @@ def builder_high_severity_source_state(
         else:
             out["latest_lifecycle_state"] = "latest_unknown"
 
-    if "created_at" in columns:
-        now = datetime.now(timezone.utc)
-        for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
-            threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-            count_params = [threshold, *params]
-            total = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                """,
-                count_params,
-            ).fetchone()[0]
-            high_open = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                  and lower(coalesce(severity, '')) in ('high', 'critical')
-                  and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
-                """,
-                count_params,
-            ).fetchone()[0]
-            out[f"recent_{label}_row_count"] = int(total or 0)
-            out[f"recent_{label}_high_open_count"] = int(high_open or 0)
-
-    if (
-        out.get("latest_lifecycle_state") == "latest_open_high_severity"
-        and int(out.get("recent_24h_row_count") or 0) == 0
-    ):
-        out["lifecycle_temporal_state"] = "stale_open_high_severity"
-    elif out.get("latest_lifecycle_state") == "latest_resolved":
+    if out.get("latest_lifecycle_state") == "latest_resolved":
         out["lifecycle_temporal_state"] = "latest_resolved"
     elif out.get("latest_lifecycle_state") == "latest_open_high_severity":
         out["lifecycle_temporal_state"] = "latest_open_high_severity"
