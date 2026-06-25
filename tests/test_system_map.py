@@ -755,6 +755,44 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(queue[0]["current_window_missing_trace_ref_count"], 0)
         self.assertIn("historical", queue[0]["rank_reason"])
 
+    def test_trace_current_health_marks_24h_missing_refs_as_recent_backlog(self) -> None:
+        trace_index = {
+            "builder_trace_health": {
+                "missing_trace_ref_count": 53,
+                "recent_windows": [
+                    {"window": "1h", "row_count": 0, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
+                    {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                    {"window": "7d", "row_count": 100, "missing_trace_ref_count": 53, "missing_trace_ref_ratio": 0.53},
+                ],
+            }
+        }
+
+        health = build_trace_current_health(trace_index)
+
+        self.assertEqual(health["status"], "recent_missing_trace_refs")
+        self.assertEqual(health["window"], "24h")
+        self.assertEqual(health["missing_trace_ref_count"], 3)
+        self.assertEqual(health["historical_missing_trace_ref_count"], 50)
+        self.assertEqual(health["repair_scope"], "recent_backlog")
+
+    def test_trace_current_health_keeps_1h_missing_refs_as_current(self) -> None:
+        trace_index = {
+            "builder_trace_health": {
+                "missing_trace_ref_count": 8,
+                "recent_windows": [
+                    {"window": "1h", "row_count": 4, "missing_trace_ref_count": 2, "missing_trace_ref_ratio": 0.5},
+                    {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                ],
+            }
+        }
+
+        health = build_trace_current_health(trace_index)
+
+        self.assertEqual(health["status"], "current_missing_trace_refs")
+        self.assertEqual(health["window"], "1h")
+        self.assertEqual(health["missing_trace_ref_count"], 2)
+        self.assertEqual(health["repair_scope"], "current")
+
     def test_compile_summary_exposes_builder_trace_current_health_aggregates(self) -> None:
         compiled = {
             "system_map": {

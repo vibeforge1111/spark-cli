@@ -4107,7 +4107,7 @@ def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
         missing_count = int(current_window.get("missing_trace_ref_count") or 0)
         ratio = float(current_window.get("missing_trace_ref_ratio") or 0.0)
         if row_count and missing_count:
-            status = "current_missing_trace_refs"
+            status = "current_missing_trace_refs" if window == "1h" else "recent_missing_trace_refs"
         elif row_count and total_missing:
             status = "current_clean_historical_backlog"
         elif row_count:
@@ -4129,6 +4129,8 @@ def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
         "repair_scope": (
             "current"
             if status == "current_missing_trace_refs"
+            else "recent_backlog"
+            if status == "recent_missing_trace_refs"
             else "historical_backlog"
             if status in {"current_clean_historical_backlog", "no_recent_events_historical_backlog"}
             else status
