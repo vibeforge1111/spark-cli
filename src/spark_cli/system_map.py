@@ -582,6 +582,13 @@ def repo_ids(repo: dict[str, Any]) -> set[str]:
     return {module_name.strip()} if isinstance(module_name, str) and module_name.strip() else set()
 
 
+def repo_board_identity(repo: dict[str, Any], ids: set[str]) -> str:
+    name = str(repo.get("name") or "")
+    if name == "source" and len(ids) == 1:
+        return next(iter(ids))
+    return name
+
+
 def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(installed, dict):
         return {}
@@ -5475,14 +5482,18 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
         repo = as_dict(repo)
         name = str(repo.get("name") or "")
         ids = repo_ids(repo)
+        board_name = repo_board_identity(repo, ids)
         registry_present = bool(ids & registry_modules)
         installed_present = bool(ids & installed_modules)
         git = git_board_status(Path(str(repo.get("path") or "")))
         manifest = repo_manifest_presence(repo)
-        release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
+        release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(
+            board_name, git, manifest, registry_present
+        )
         rows.append(
             {
-                "repo": name,
+                "repo": board_name,
+                "repo_dir": name,
                 "path": repo.get("path"),
                 "branch": git.get("branch"),
                 "upstream": git.get("upstream"),
@@ -5496,9 +5507,9 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
                 "registry_present": registry_present,
                 "installed_present": installed_present,
                 "module_ids": sorted(ids),
-                "owner_surface": repo_owner_surface(name),
+                "owner_surface": repo_owner_surface(board_name),
                 "release_eligibility": release_eligibility,
-                "risk_class": repo_risk_class(name, release_eligibility),
+                "risk_class": repo_risk_class(board_name, release_eligibility),
                 "next_safe_action": next_safe_action,
                 "do_not_merge_reason": do_not_merge_reason,
             }

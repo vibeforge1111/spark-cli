@@ -294,6 +294,31 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("README.md", encoded)
         self.assertNotIn("transcript body", encoded.lower())
 
+    def test_repo_board_names_installed_module_source_repos_by_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / ".spark" / "modules" / "spawner-ui" / "source"
+            repo.mkdir(parents=True)
+            (repo / ".git").mkdir()
+            (repo / "spark.toml").write_text(
+                "[module]\nname = \"spawner-ui\"\n",
+                encoding="utf-8",
+            )
+
+            board = build_repo_board(
+                {
+                    "registry": {"modules": {"spawner-ui": {}}},
+                    "installed_modules": {"spawner-ui": {"path": str(repo)}},
+                    "discovered_repos": [collect_repo_metadata(repo)],
+                }
+            )
+
+        row = board["repos"][0]
+        self.assertEqual(row["repo"], "spawner-ui")
+        self.assertEqual(row["repo_dir"], "source")
+        self.assertEqual(row["module_ids"], ["spawner-ui"])
+        self.assertEqual(board["next_actions"][0]["repo"], "spawner-ui")
+
     def test_spark_skill_manifest_schema_is_bounded_untrusted_contract(self) -> None:
         schema_path = Path(__file__).resolve().parents[1] / "schemas" / "spark-skill-manifest.v1.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
