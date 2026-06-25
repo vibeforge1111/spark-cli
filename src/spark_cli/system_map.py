@@ -5774,6 +5774,7 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
     builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
     builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
     builder_trace_current_health = as_dict(trace_index.get("trace_current_health")) or build_trace_current_health(trace_index)
+    builder_trace_temporal_state_counts = builder_trace_repair_temporal_state_counts(builder_trace_health)
     review_candidates = as_dict(trace_index.get("review_candidates"))
     memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
     builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
@@ -5805,6 +5806,21 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
             "historical_missing_trace_ref_count": builder_trace_current_health.get("historical_missing_trace_ref_count"),
             "total_missing_trace_ref_count": builder_trace_current_health.get("total_missing_trace_ref_count"),
             "missing_trace_ref_ratio": builder_trace_current_health.get("missing_trace_ref_ratio"),
+            "repair_temporal_state_counts": builder_trace_temporal_state_counts,
+            "latest_missing_source_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
+            "latest_clean_historical_window_debt_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
+            "latest_missing_group_count": builder_trace_temporal_state_counts.get("latest_missing_trace_ref", 0),
+            "latest_clean_window_debt_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
+            "latest_clean_group_count": builder_trace_temporal_state_counts.get(
+                "latest_clean_historical_window_debt",
+                0,
+            ),
         },
         "builder_trace_recent_windows": [
             {
@@ -5826,3 +5842,14 @@ def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = N
         "privacy": system_map.get("privacy"),
         "outputs": written or {},
     }
+
+
+def builder_trace_repair_temporal_state_counts(builder_trace_health: dict[str, Any]) -> dict[str, int]:
+    rows = as_list(as_dict(builder_trace_health.get("missing_trace_ref_sources")).get("rows"))
+    counts: dict[str, int] = {}
+    for row in rows:
+        state = str(as_dict(row).get("repair_temporal_state") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_.-]+", state):
+            continue
+        counts[state] = counts.get(state, 0) + 1
+    return dict(sorted(counts.items()))

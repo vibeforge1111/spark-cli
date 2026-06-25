@@ -814,6 +814,16 @@ class SparkSystemMapTests(unittest.TestCase):
                         {"window": "1h", "row_count": 4, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
                         {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
                     ],
+                    "missing_trace_ref_sources": {
+                        "rows": [
+                            {"repair_temporal_state": "latest_missing_trace_ref", "summary": "private latest gap"},
+                            {
+                                "repair_temporal_state": "latest_clean_historical_window_debt",
+                                "facts_json": "private historical debt",
+                            },
+                            {"repair_temporal_state": "latest_clean"},
+                        ]
+                    },
                 },
                 "trace_current_health": {
                     "status": "current_missing_trace_refs",
@@ -836,6 +846,20 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(summary["builder_trace_current_health"]["status"], "current_missing_trace_refs")
         self.assertEqual(summary["builder_trace_current_health"]["missing_trace_ref_count"], 3)
         self.assertEqual(summary["builder_trace_current_health"]["historical_missing_trace_ref_count"], 20)
+        self.assertEqual(
+            summary["builder_trace_current_health"]["repair_temporal_state_counts"],
+            {
+                "latest_clean": 1,
+                "latest_clean_historical_window_debt": 1,
+                "latest_missing_trace_ref": 1,
+            },
+        )
+        self.assertEqual(summary["builder_trace_current_health"]["latest_missing_source_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_historical_window_debt_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_missing_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_window_debt_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_group_count"], 1)
+        self.assertNotIn("private", json.dumps(summary))
         self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
         self.assertEqual(summary["builder_trace_recent_windows"][0]["missing_trace_ref_count"], 0)
         self.assertEqual(summary["builder_trace_recent_windows"][1]["missing_trace_ref_ratio"], 0.375)
