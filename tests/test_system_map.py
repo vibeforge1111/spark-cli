@@ -1870,9 +1870,96 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["recent_24h_missing_trace_ref_count"], 1)
         self.assertEqual(health["recent_windows"][0]["row_count"], 4)
         self.assertEqual(health["recent_windows"][0]["missing_trace_ref_count"], 1)
+        self.assertEqual(health["recent_windows"][0]["high_severity_open_count"], 1)
         self.assertIn("missing_trace_refs", health["health_flags"])
+        self.assertIn("open_high_severity_events", health["health_flags"])
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
+
+    def test_builder_trace_health_marks_stale_high_severity_as_historical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text,
+                        facts_json text
+                    )
+                    """
+                )
+                old_created_at = "2026-01-01T00:00:00Z"
+                current_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary, facts_json
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-stale-open",
+                        old_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "req-old",
+                        "trace-old",
+                        None,
+                        "private stale summary",
+                        json.dumps({"message": "private stale body"}),
+                    ),
+                )
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary, facts_json
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-current-ok",
+                        current_created_at,
+                        "source_used",
+                        "recorded",
+                        "medium",
+                        "agent_event_model",
+                        "spark_intelligence_builder",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current summary",
+                        json.dumps({"message": "private current body"}),
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["recent_windows"][0]["high_severity_open_count"], 0)
+        self.assertEqual(health["recent_windows"][1]["high_severity_open_count"], 0)
+        self.assertNotIn("open_high_severity_events", health["health_flags"])
+        self.assertIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertNotIn("private stale summary", encoded)
+        self.assertNotIn("private current body", encoded)
 
     def test_trace_index_output_redacts_paths_and_reason_codes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

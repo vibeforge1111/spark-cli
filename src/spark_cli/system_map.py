@@ -3199,7 +3199,17 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
             if int(out.get("orphan_parent_event_id_count") or 0):
                 flags.append("orphan_parent_event_ids")
             if int(out.get("high_severity_open_count") or 0):
-                flags.append("open_high_severity_events")
+                recent_windows = [as_dict(row) for row in as_list(out.get("recent_windows"))]
+                current_high_open = sum(
+                    int(row.get("high_severity_open_count") or 0)
+                    for row in recent_windows
+                    if str(row.get("window") or "") in {"1h", "24h"}
+                )
+                flags.append(
+                    "open_high_severity_events"
+                    if current_high_open
+                    else "historical_open_high_severity_events"
+                )
             out["health_flags"] = flags
         finally:
             conn.close()
@@ -3261,15 +3271,28 @@ def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, An
             """,
             (threshold,),
         ).fetchone()[0]
+        high_open = conn.execute(
+            """
+            select count(*)
+            from builder_events
+            where created_at >= ?
+              and lower(coalesce(severity, '')) in ('high', 'critical')
+              and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
+            """,
+            (threshold,),
+        ).fetchone()[0]
         total_count = int(total or 0)
         missing_count = int(missing or 0)
+        high_open_count = int(high_open or 0)
         rows.append(
             {
                 "window": label,
                 "threshold": threshold,
                 "row_count": total_count,
                 "missing_trace_ref_count": missing_count,
+                "high_severity_open_count": high_open_count,
                 "missing_trace_ref_ratio": round(missing_count / total_count, 4) if total_count else 0.0,
+                "high_severity_open_ratio": round(high_open_count / total_count, 4) if total_count else 0.0,
             }
         )
     return rows
