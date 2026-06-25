@@ -215,7 +215,7 @@
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
         "commit": "f4783cc999e6864948565e3be9e0e6bcd4382032",
-        "verify_ref": "refs/heads/main",
+        "verify_ref": "refs/tags/spark-pin-2026-06-25",
         "canonical_head": "f4783cc999e6864948565e3be9e0e6bcd4382032",
         "runtime_mirror_head": "f4783cc999e6864948565e3be9e0e6bcd4382032",
         "tree_clean": true,
@@ -224,7 +224,7 @@
           "canonical and mirror already clean at remote main"
         ]
       },
-      "verify_ref": "refs/heads/main"
+      "verify_ref": "refs/tags/spark-pin-2026-06-25"
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
