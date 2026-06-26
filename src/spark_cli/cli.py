@@ -15581,6 +15581,7 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
         # `spark secrets get --reveal` is an explicit local operator command.
         # Prompt for confirmation to prevent accidental stdout leakage.
         if stdin_is_tty():
+            # codeql[py/clear-text-logging-sensitive-data]
             print(f"Warning: This will print the full value of '{args.secret_id}' to stdout.")
             confirm = input("Are you sure you want to reveal this secret? [y/N] ").strip().lower()
             if confirm not in ("y", "yes"):
