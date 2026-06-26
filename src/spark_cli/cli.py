@@ -10,6 +10,7 @@ import importlib.util
 import io
 import ipaddress
 import json
+import logging
 import os
 import plistlib
 import re
@@ -14905,7 +14906,10 @@ def pid_is_running(pid: int) -> bool:
                 return exit_code.value == still_active
             finally:
                 ctypes.windll.kernel32.CloseHandle(handle)
-        except Exception:
+        except (OSError, ValueError, AttributeError) as exc:
+            logging.getLogger(__name__).debug(
+                "pid_is_running Windows check failed for pid %s: %s", pid, exc
+            )
             return False
     try:
         os.kill(pid, 0)
