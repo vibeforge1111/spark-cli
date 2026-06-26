@@ -15586,16 +15586,17 @@ def stop_module(name: str, pid: int) -> None:
 
 
 def stop_tracked_process_key(process_key: str) -> bool:
+    pid = 0
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
         if not isinstance(record, dict):
             return False
         pid = int(record.get("pid") or 0)
-        if pid and pid_is_running(pid):
-            stop_module(process_key, pid)
         pids.pop(process_key, None)
         save_pids(pids)
+    if pid and pid_is_running(pid):
+        stop_module(process_key, pid)
     return True
 
 
