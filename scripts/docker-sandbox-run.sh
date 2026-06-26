@@ -14,10 +14,10 @@ fi
 
 docker run --rm \
   --network "${network}" \
+  "$@" \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --tmpfs /tmp:rw,noexec,nosuid,size=256m \
   --tmpfs /sandbox:rw,nosuid,uid=1000,gid=1000,size=512m \
-  "${image}" \
-  "$@"
+  "${image}"
