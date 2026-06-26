@@ -5,3 +5,6 @@
 899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:generic-api-key:1091
 899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:gitlab-pat:388
 899dca9f96d0db914649533dc3c9a1123fd56175:tests/test_cli.py:gitlab-pat:399
+f8ed470be11cc068c7c7e58e5ad6f0ab66ccf23b:tests/test_cli.py:generic-api-key:9537
+cacca70220360c4b20b310486251003cee1e349e:tests/test_cli.py:generic-api-key:391
+de95056ecf039887f9b534365717adbf7dd1a4f8:tests/test_cli.py:private-key:991
