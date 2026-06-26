@@ -6477,14 +6477,17 @@ def browser_use_probe_payload() -> dict[str, Any]:
             env = dict(os.environ)
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("PYTHONUTF8", "1")
-            subprocess.run(
-                [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-                env=env,
-            )
+            try:
+                subprocess.run(
+                    [cli_path, "--session", BROWSER_USE_PROBE_SESSION, "close"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                    env=env,
+                )
+            except OSError:
+                pass
 
     payload = {
         **base_payload,
@@ -6602,14 +6605,17 @@ def browser_use_action_payload(raw_url: str, *, screenshot: bool = False) -> dic
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
-        subprocess.run(
-            [cli_path, "--session", session, "close"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-            env=env,
-        )
+        try:
+            subprocess.run(
+                [cli_path, "--session", session, "close"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=env,
+            )
+        except OSError:
+            pass
 
 
 _PAGE_SUMMARY_TEXT_LIMIT = 2000
