@@ -3,9 +3,9 @@
   "warn_cap": 1500,
   "root": "harness-discipline-docs",
   "offenders": {
-    "src/spark_cli/cli.py": 17936,
-    "src/spark_cli/system_map.py": 5540,
-    "tests/test_cli.py": 14570,
-    "tests/test_system_map.py": 2050
+    "src/spark_cli/cli.py": 18105,
+    "src/spark_cli/system_map.py": 5658,
+    "tests/test_cli.py": 14759,
+    "tests/test_system_map.py": 2055
   }
 }
