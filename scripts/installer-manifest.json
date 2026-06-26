@@ -12,7 +12,7 @@
     },
     "install.ps1": {
       "path": "scripts/install.ps1",
-      "sha256": "7848e07ee31ae33400762a282278449324b0fd050e9410375737e86dd7bd6e57"
+      "sha256": "c2cb1330f90bcaa8396c83d202db43ce06f7098c8ea0088a9fdfd7e55dd673a4"
     }
   }
 }

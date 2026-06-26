@@ -5174,14 +5174,39 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
     return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
 
 
-def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    # embedded-private-key is never downgraded: a real key in a test/fixture file is still a real key.
+# A bare private-key block in a test file is still a real, exfiltratable key, so
+# embedded-private-key is NOT downgraded by fixture path alone. The one safe
+# exception is a redaction-test fixture: a placeholder key passed straight into a
+# redaction helper (redact/redactText/scrubSecrets/...) so the test can assert it
+# gets scrubbed. Those are intentional sample inputs, not installed key material.
+_REDACTION_FIXTURE_PRIVATE_KEY = re.compile(
+    r"(?:redact|redactText|redactSecret[s]?|scrub|scrubSecret[s]?|sanitize|sanitise|maskSecret[s]?)"
+    r"\s*\(\s*[\"'`][^\"'`]*-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
+    re.IGNORECASE,
+)
+
+
+def is_redaction_fixture_private_key(path_label: str, text: str) -> bool:
+    return bool(
+        chip_scan_is_fixture_path(path_label)
+        and _REDACTION_FIXTURE_PRIVATE_KEY.search(text)
+    )
+
+
+def normalize_fixture_finding(finding: ChipScanFinding, text: str = "") -> ChipScanFinding:
     if finding.category in {"network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
             finding.category,
             "low",
             finding.path,
             f"{finding.detail}; appears in test/fixture code and is not installed as runtime secret material",
+        )
+    if finding.category == "embedded-private-key" and is_redaction_fixture_private_key(finding.path, text):
+        return ChipScanFinding(
+            finding.category,
+            "low",
+            finding.path,
+            f"{finding.detail}; placeholder key passed to a redaction helper in test/fixture code, not installed key material",
         )
     return finding
 
@@ -5232,7 +5257,7 @@ def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
     if b"\0" in data:
         return findings
     text = data.decode("utf-8", errors="replace")
-    return [normalize_fixture_finding(finding) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
+    return [normalize_fixture_finding(finding, text) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
 
 
 def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:

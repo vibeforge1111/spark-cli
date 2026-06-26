@@ -35,7 +35,12 @@ def resolve_runtime_executable(name: str) -> str:
     )
 
 
-_NPM_ALLOWED_SUBCOMMANDS: frozenset[str] = frozenset({"install", "ci"})
+# Trusted module-boot (runtime/start) path. Module start commands come from the
+# module's own vetted, registry-pinned manifest, so booting a module with
+# `npm run <script>` (the standard Node start mechanism) must be permitted here.
+# Untrusted *install* commands are hardened separately in install_command_argv;
+# the install/ci subcommands stay allowed for install-style runtime tasks.
+_NPM_ALLOWED_SUBCOMMANDS: frozenset[str] = frozenset({"install", "ci", "run"})
 
 
 def npm_runtime_command_argv(args: list[str]) -> list[str]:
