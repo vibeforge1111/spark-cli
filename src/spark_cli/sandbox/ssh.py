@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import ipaddress
+import logging
 import os
 import re
 import shlex
@@ -14,6 +15,8 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .audit import sandbox_audit_ref, write_audit_event
 from .capabilities import CapabilityManifest
@@ -303,7 +306,11 @@ def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None)
         try:
             path.chmod(0o600)
         except OSError:
-            pass
+            logger.warning(
+                "Failed to set 0o600 permissions on SSH targets file %s; "
+                "the file may be world-readable",
+                path,
+            )
     finally:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
