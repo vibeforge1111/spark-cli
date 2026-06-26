@@ -15608,9 +15608,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
 def cmd_stop_plain(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
-    if not pids:
-        print("No tracked Spark processes.")
-        return 0
+        if not pids:
+            print("No tracked Spark processes.")
+            return 0
 
     installed_modules = resolve_installed_modules()
     profile = normalize_telegram_profile(getattr(args, "profile", None))
