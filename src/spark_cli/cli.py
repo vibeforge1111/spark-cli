@@ -16834,7 +16834,7 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
-        # `spark secrets get --reveal` is an explicit local operator command.
+        if stdin_is_tty() and input(f"Reveal {args.secret_id}? [y/N] ").strip().lower() not in ("y", "yes"): return 1
         # codeql[py/clear-text-logging-sensitive-data]
         print(value)
     else:
