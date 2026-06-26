@@ -12,7 +12,15 @@ SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
-    parts = shlex.split(command, posix=True)
+    # Explicit semicolon detection before shlex.split — shlex absorbs semicolons
+    # into adjacent tokens (e.g. "echo hello; rm -rf /" → ['echo', 'hello;',
+    # 'rm', '-rf', '/']) so the SHELL_CHAIN_TOKENS check below never fires.
+    stripped = command.strip()
+    if ";" in stripped:
+        raise SystemExit(
+            f"{subject} must be a single argv command, not a shell command chain."
+        )
+    parts = shlex.split(stripped, posix=True)
     if not parts:
         raise SystemExit(f"{subject} cannot be empty.")
     if any(part in SHELL_CHAIN_TOKENS for part in parts):
