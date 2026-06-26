@@ -710,7 +710,6 @@ class SparkCliTests(unittest.TestCase):
 
     def test_subcommand_groups_show_friendly_missing_subcommand_error(self) -> None:
         cases = {
-            "os": "compile, capabilities, authority, trace, memory",
             "recommend": "llms, providers",
             "access": "status, guide, setup, disable-level5",
             "sandbox": "docker, ssh, modal",
@@ -734,6 +733,20 @@ class SparkCliTests(unittest.TestCase):
                 )
                 self.assertNotIn("arguments are required", message)
                 self.assertNotIn("_command", message)
+
+    def test_bare_os_command_prints_friendly_menu_without_erroring(self) -> None:
+        # Bare `spark os` was migrated to a helpful runtime menu (subparsers
+        # required=False): it parses cleanly and the handler prints the available
+        # subcommands and returns a non-zero exit code, rather than raising an
+        # argparse SystemExit at parse time.
+        args = build_parser().parse_args(["os"])
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exit_code = args.func(args)
+        message = stdout.getvalue()
+        self.assertEqual(exit_code, 1)
+        for subcommand in ("compile", "capabilities", "authority", "trace", "memory"):
+            self.assertIn(f"spark os {subcommand}", message)
 
     def test_modal_doctor_cli_json_runs_payload(self) -> None:
         args = build_parser().parse_args(["sandbox", "modal", "doctor", "--json"])
@@ -5922,7 +5935,9 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn('CreateObject("WScript.Shell")', content)
             self.assertRegex(content, r'CurrentDirectory = "C:[/\\]Users[/\\]Example[/\\]\.spark"')
             self.assertRegex(content, r'Environment\("PROCESS"\)\("SPARK_HOME"\) = "C:[/\\]Users[/\\]Example[/\\]\.spark"')
-            self.assertIn(r'%ComSpec% /d /s /c ""C:\Users\Example\.spark\bin\spark.cmd"" start telegram-starter', content)
+            # VBS hardening escapes `%` as `%%` (vbs_string) so cmd.exe does not
+            # re-expand env-var tokens inside the launched command.
+            self.assertIn(r'%%ComSpec%% /d /s /c ""C:\Users\Example\.spark\bin\spark.cmd"" start telegram-starter', content)
 
     def test_windows_path_to_wsl_path_converts_drive_paths(self) -> None:
         self.assertEqual(
@@ -6969,7 +6984,10 @@ class SparkCliTests(unittest.TestCase):
                 sys.modules.update(saved_modules)
 
             self.assertIn("configured Builder telegram channel (allowlist, 2 admin IDs)", notes)
-            self.assertIn(f"activated spark-voice-comms at {voice_root}", notes)
+            # User-facing activation note no longer leaks the internal filesystem
+            # path (wave1 output redaction); the path still lands in the config below.
+            self.assertIn("activated spark-voice-comms", notes)
+            self.assertNotIn(str(voice_root), "\n".join(notes))
             env_file = state_dir / "spark-intelligence" / ".env"
             self.assertEqual(env_file.read_text(encoding="utf-8"), "TELEGRAM_BOT_TOKEN=123456:test-token\n")
             builder_home = state_dir / "spark-intelligence"
@@ -9186,7 +9204,11 @@ class SparkCliTests(unittest.TestCase):
         run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True)
 
     def test_stop_module_waits_for_process_exit(self) -> None:
+        # stop_module now does a liveness pre-check (os.kill(pid, 0)) before
+        # signalling; mock it so the target counts as running and the graceful
+        # SIGTERM-then-wait path is exercised.
         with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.kill", create=True), \
              patch("spark_cli.cli.os.killpg", create=True) as killpg, \
              patch("spark_cli.cli.time.monotonic", side_effect=[0.0, 0.1, 0.2]), \
              patch("spark_cli.cli.pid_is_running", side_effect=[True, False]), \
@@ -9199,7 +9221,11 @@ class SparkCliTests(unittest.TestCase):
 
     def test_stop_module_force_kills_when_graceful_exit_times_out(self) -> None:
         sigkill = getattr(signal, "SIGKILL", None)
+        # stop_module now does a liveness pre-check (os.kill(pid, 0)) before
+        # signalling; mock it so the target counts as running and the SIGTERM ->
+        # timeout -> SIGKILL escalation path is exercised.
         with patch("spark_cli.cli.os.name", "posix"), \
+             patch("spark_cli.cli.os.kill", create=True), \
              patch("spark_cli.cli.os.killpg", create=True) as killpg, \
              patch("spark_cli.cli.time.monotonic", side_effect=[0.0, 1.0, 6.0]), \
              patch("spark_cli.cli.pid_is_running", return_value=True), \

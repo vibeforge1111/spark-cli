@@ -1977,7 +1977,12 @@ routes = []
 
             self.assertEqual(capability_exit_code, 0)
             self.assertEqual(capability_summary["schema_version"], "spark.os_capabilities.summary.v0")
-            self.assertEqual(capability_summary["card_count"], 0)
+            # A module that declares provides_capabilities now surfaces one
+            # synthetic, explicitly-untrusted card (wave3 capability-cards
+            # fallback) instead of an empty catalog.
+            self.assertEqual(capability_summary["card_count"], 1)
+            self.assertEqual(capability_summary["trust_status_counts"], {"untrusted": 1})
+            self.assertEqual(capability_summary["proof_state_counts"], {"proof_incomplete": 1})
 
             authority_args = build_parser().parse_args(
                 [
