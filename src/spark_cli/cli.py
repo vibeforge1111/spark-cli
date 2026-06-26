@@ -15621,10 +15621,15 @@ def cmd_stop_plain(args: argparse.Namespace) -> int:
             return 0
         target_names = [module_process_key("spark-telegram-bot", profile)]
     else:
+        # Build target_names under a fresh PID snapshot to avoid stale reads.
+        # stop_tracked_process_key acquires its own lock, so we cannot hold
+        # the PID lock while calling it (fcntl.flock is not re-entrant).
+        with pid_file_lock():
+            current_pids = load_pids()
         if getattr(args, "cascade", False):
-            target_names = resolve_stop_module_names(args.target, installed_modules, pids)
+            target_names = resolve_stop_module_names(args.target, installed_modules, current_pids)
         else:
-            target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
+            target_names = resolve_exact_stop_module_names(args.target, installed_modules, current_pids)
     for name in target_names:
         if not stop_tracked_process_key(name):
             print(f"Skipping {name}: no tracked pid")
