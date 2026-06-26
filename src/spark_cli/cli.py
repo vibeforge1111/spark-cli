@@ -519,10 +519,19 @@ def normalize_git_url(source: str) -> str:
     return value
 
 
+def _sanitize_module_name(name: str) -> str:
+    """Remove path traversal sequences from a module name to prevent directory escaping."""
+    # Strip path separators and traversal sequences
+    sanitized = re.sub(r"[/\\]", "", name)
+    sanitized = re.sub(r"\.\.", "", sanitized)
+    sanitized = sanitized.strip(".")
+    return sanitized or "module"
+
+
 def infer_module_name_from_url(url: str) -> str:
     cleaned = url.strip().removesuffix(".git").rstrip("/")
     last = cleaned.split("/")[-1]
-    return last or "module"
+    return _sanitize_module_name(last)
 
 
 def clone_target_for_module(name: str) -> Path:
@@ -1094,7 +1103,7 @@ def safe_spark_home_for_purge(spark_home: Path = SPARK_HOME) -> Path:
     repo_root = REPO_ROOT.resolve()
     root = Path(resolved.anchor).resolve()
     if resolved == root or resolved == home or resolved == repo_root:
-        raise SystemExit(f"Refusing to purge unsafe Spark home path: {resolved}")
+        raise SystemExit("Refusing to purge unsafe Spark home path. The configured Spark home resolves to a system-critical directory.")
     return resolved
 
 
@@ -1244,8 +1253,13 @@ def dpapi_unprotect(value: str) -> str:
     if value.startswith(INSECURE_FILE_SECRET_PREFIX):
         encoded = value[len(INSECURE_FILE_SECRET_PREFIX) :]
         return base64.b64decode(encoded).decode("utf-8")
-    if os.name != "nt" or not value.startswith(DPAPI_SECRET_PREFIX):
+    if not value.startswith(DPAPI_SECRET_PREFIX):
         return value
+    if os.name != "nt":
+        raise OSError(
+            "DPAPI-protected secret cannot be decrypted on non-Windows. "
+            "Re-enter the secret on this platform to store it without DPAPI encryption."
+        )
     protected = base64.b64decode(value[len(DPAPI_SECRET_PREFIX) :])
     buffer = ctypes.create_string_buffer(protected)
     in_blob = _DataBlob(len(protected), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
@@ -2254,11 +2268,11 @@ def load_module(path: Path) -> Module:
     try:
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise SystemExit(f"Module manifest not found: {manifest_path}") from exc
+        raise SystemExit("Module manifest not found: module manifest") from exc
     except PermissionError as exc:
-        raise SystemExit(f"Permission denied reading module manifest: {manifest_path}") from exc
+        raise SystemExit("Permission denied reading module manifest: module manifest") from exc
     except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"Invalid TOML in module manifest {manifest_path}: {exc}") from exc
+        raise SystemExit(f"Invalid TOML in module manifest: {exc}") from exc
     name = str(manifest.get("module", {}).get("name") or path.name)
     return Module(name=name, path=path, manifest=manifest)
 
@@ -2561,7 +2575,7 @@ def resolve_secret_input(value: str) -> str:
         try:
             return path.expanduser().read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+            raise SystemExit("Could not read secret file. Ensure the file exists and is accessible.") from exc
     return value
 
 
@@ -2985,7 +2999,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
     denied = [home_path / relative for relative in WRITE_DENIED_HOME_PREFIXES]
     if sys.platform != "win32":
-        denied.extend(Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES)
+        posix_denied = [Path(prefix) for prefix in WRITE_DENIED_POSIX_PREFIXES]
+        # Do not deny writes inside SPARK_HOME even when SPARK_HOME lives under a
+        # denied prefix such as /root.  Excluding SPARK_HOME lets the CLI manage
+        # its own modules and configs on root-user / headless-server installs.
+        posix_denied = [p for p in posix_denied if not policy_path_is_same_or_child(SPARK_HOME, p)]
+        denied.extend(posix_denied)
     else:
         path_type = home_path.__class__
         appdata = os.environ.get("APPDATA")
@@ -4529,7 +4548,7 @@ def configure_telegram_profile(args: argparse.Namespace) -> int:
     save_json(CONFIG_PATH, setup_state)
 
     print(f"Telegram profile configured: {profile}")
-    print(f"Profile env: {generated_module_env_path(gateway, profile)}")
+    print(f"Profile env: {gateway} (profile {profile})")
     print(f"Secret {profile_secret_id} -> {backend}")
     if bot_identity and bot_identity.get("username"):
         print(f"Connected Telegram bot: @{bot_identity['username']}")
@@ -4608,7 +4627,7 @@ def initialize_builder_runtime_home(
             researcher_config = researcher.path / "spark-researcher.project.json"
             if researcher_config.exists():
                 config_manager.set_path("spark.researcher.config_path", str(researcher_config))
-            notes.append(f"connected spark-researcher at {researcher.path}")
+            notes.append(f"connected spark-researcher")
 
         memory = modules_by_name.get("domain-chip-memory")
         if memory is not None:
@@ -4618,7 +4637,7 @@ def initialize_builder_runtime_home(
             config_manager.set_path("spark.memory.sdk_module", "domain_chip_memory")
             activate_chip(config_manager, chip_key="domain-chip-memory")
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated domain-chip-memory at {memory.path}")
+            notes.append(f"activated domain-chip-memory")
 
             sidecar_state = setup_state.get("memory_sidecars") if isinstance(setup_state, dict) else None
             graphiti_state = sidecar_state.get("graphiti") if isinstance(sidecar_state, dict) else None
@@ -4633,7 +4652,7 @@ def initialize_builder_runtime_home(
                     "spark.memory.sidecars.graphiti.group_id",
                     str(graphiti_state.get("group_id") or DEFAULT_GRAPHITI_GROUP_ID),
                 )
-                notes.append(f"enabled Graphiti {backend} memory sidecar at {db_path}")
+                notes.append(f"enabled Graphiti {backend} memory sidecar")
             elif isinstance(graphiti_state, dict) and graphiti_state.get("enabled") is False:
                 config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
                 notes.append("disabled optional Graphiti memory sidecar")
@@ -4645,7 +4664,7 @@ def initialize_builder_runtime_home(
             config_manager.set_path("spark.voice.comms_root", str(voice.path))
             activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated {VOICE_MODULE_NAME} at {voice.path}")
+            notes.append(f"activated {VOICE_MODULE_NAME}")
 
         setup_secrets = secret_values or {}
         telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
@@ -4922,7 +4941,7 @@ def cmd_list(_: argparse.Namespace) -> int:
         blessed = "yes" if metadata.get("blessed") else "no"
         installed_marker = "installed" if module.name in installed else "available"
         print(
-            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}\t{module.path}"
+            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}"
         )
     return 0
 
@@ -5155,13 +5174,39 @@ def chip_scan_is_fixture_path(path_label: str) -> bool:
     return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
 
 
-def normalize_fixture_finding(finding: ChipScanFinding) -> ChipScanFinding:
-    if finding.category in {"embedded-private-key", "network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
+# A bare private-key block in a test file is still a real, exfiltratable key, so
+# embedded-private-key is NOT downgraded by fixture path alone. The one safe
+# exception is a redaction-test fixture: a placeholder key passed straight into a
+# redaction helper (redact/redactText/scrubSecrets/...) so the test can assert it
+# gets scrubbed. Those are intentional sample inputs, not installed key material.
+_REDACTION_FIXTURE_PRIVATE_KEY = re.compile(
+    r"(?:redact|redactText|redactSecret[s]?|scrub|scrubSecret[s]?|sanitize|sanitise|maskSecret[s]?)"
+    r"\s*\(\s*[\"'`][^\"'`]*-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
+    re.IGNORECASE,
+)
+
+
+def is_redaction_fixture_private_key(path_label: str, text: str) -> bool:
+    return bool(
+        chip_scan_is_fixture_path(path_label)
+        and _REDACTION_FIXTURE_PRIVATE_KEY.search(text)
+    )
+
+
+def normalize_fixture_finding(finding: ChipScanFinding, text: str = "") -> ChipScanFinding:
+    if finding.category in {"network-exfiltration", "environment-dump"} and chip_scan_is_fixture_path(finding.path):
         return ChipScanFinding(
             finding.category,
             "low",
             finding.path,
             f"{finding.detail}; appears in test/fixture code and is not installed as runtime secret material",
+        )
+    if finding.category == "embedded-private-key" and is_redaction_fixture_private_key(finding.path, text):
+        return ChipScanFinding(
+            finding.category,
+            "low",
+            finding.path,
+            f"{finding.detail}; placeholder key passed to a redaction helper in test/fixture code, not installed key material",
         )
     return finding
 
@@ -5212,7 +5257,7 @@ def chip_scan_file(root: Path, path: Path) -> list[ChipScanFinding]:
     if b"\0" in data:
         return findings
     text = data.decode("utf-8", errors="replace")
-    return [normalize_fixture_finding(finding) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
+    return [normalize_fixture_finding(finding, text) for finding in [*findings, *chip_scan_text(relative, text), *chip_scan_package_json(relative, text)]]
 
 
 def scan_module_trust(module: Module, *, trust_tier: str | None = None) -> list[ChipScanFinding]:
@@ -5401,7 +5446,7 @@ def print_install_summary(modules: list[Module]) -> None:
 def install_modules(modules: list[Module]) -> None:
     print_install_summary(modules)
     for module in modules:
-        print(f"Installed {module.name} from {module.path}")
+        print(f"Installed {module.name}")
         if "telegram.ingress" in module.capabilities:
             print("This module declares telegram.ingress and should be the only live Telegram token owner.")
 
@@ -7058,11 +7103,11 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
             print("Browser-use is ready for the probed scope.")
             print("Proven scope: " + ", ".join(status_payload["proven_scope"]))
             print("Still unproven: " + ", ".join(status_payload["unproven_scope"][:4]))
-            print(f"Status file: {status_payload['status_path']}")
+            print("Status file has been written.")
             return 0
         print("Browser-use probe failed.")
         print(f"Reason: {status_payload['last_failure_reason'] or payload.get('last_failure_reason') or 'unknown'}")
-        print(f"Status file: {status_payload['status_path']}")
+        print("Status file has been written.")
         return 1
 
     if action in {"open", "screenshot"}:
@@ -7081,7 +7126,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print(str(payload["text_excerpt"]))
             if payload.get("screenshot_path"):
                 print("")
-                print(f"Screenshot: {public_local_path_ref(str(payload['screenshot_path']))}")
+                print("Screenshot has been saved to disk.")
             return 0
         print(f"Browser-use {action} failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -7105,7 +7150,7 @@ def cmd_browser_use(args: argparse.Namespace) -> int:
                 print("")
                 print("Visited: " + ", ".join(str(item) for item in payload["urls"][:5]))
             print("")
-            print(f"Receipt: {public_local_path_ref(str(payload['receipt_path']))}")
+            print("Receipt has been saved to disk.")
             return 0
         print("Browser-use task failed.")
         print(f"Reason: {payload.get('last_failure_reason') or 'unknown'}")
@@ -7694,15 +7739,28 @@ def resolve_install_executable(name: str) -> str:
     )
 
 
+def _reject_custom_pip_index(args: list[str]) -> None:
+    for arg in args:
+        if arg.startswith("--index-url") or arg.startswith("--extra-index-url"):
+            raise SystemExit(
+                "Install commands must not specify custom package index URLs (--index-url / --extra-index-url). "
+                "Only the default PyPI index is allowed."
+            )
+
+
 def install_command_argv(command: str) -> list[str]:
     parts = split_single_argv_command(command, "Install command")
     executable = parts[0].lower()
     if executable in {"python", "python3"}:
         return [str(Path(sys.executable)), *parts[1:]]
     if executable in {"pip", "pip3"}:
-        return [str(Path(sys.executable)), "-m", "pip", *parts[1:]]
+        pip_args = parts[1:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
-        return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
+        pip_args = parts[2:]
+        _reject_custom_pip_index(pip_args)
+        return [str(Path(sys.executable)), "-m", "pip", *pip_args]
     if executable == "npm":
         return [resolve_install_executable("npm"), *parts[1:]]
     raise SystemExit(
@@ -8556,9 +8614,9 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
             f"({next_review.get('reason_code')})"
         )
         if operator_paths:
-            print(f"- provenance path: {operator_paths.get('provenance_drilldown')}")
-            print(f"- stale/current gate: {operator_paths.get('stale_current_adjudication')}")
-            print(f"- purge path: {operator_paths.get('purge_or_decay_path')}")
+            print(f"- provenance path: {'available' if operator_paths.get('provenance_drilldown') else 'unavailable'}")
+            print(f"- stale/current gate: {'available' if operator_paths.get('stale_current_adjudication') else 'unavailable'}")
+            print(f"- purge path: {'available' if operator_paths.get('purge_or_decay_path') else 'unavailable'}")
     print("Redaction: aggregate memory metadata only; raw memory text and row bodies are omitted.")
     return 0
 
@@ -8670,7 +8728,7 @@ def cmd_live(args: argparse.Namespace) -> int:
                 for line in tail_log_lines(path, getattr(args, "lines", 80)):
                     write_console_text(line if line.endswith("\n") else line + "\n")
             else:
-                print(f"No logs yet at {path}")
+                print("No logs yet for this target")
         if getattr(args, "follow", False):
             follow_live_logs(lines=0)
         return 0
@@ -8996,11 +9054,14 @@ def cmd_support(args: argparse.Namespace) -> int:
     path = write_support_bundle(payload)
     print("Spark support bundle")
     print("")
-    print(f"[OK] Wrote local redacted support bundle: {path}")
+    print("[OK] Wrote local redacted support bundle.")
     print("")
     print("Review before sharing:")
     print("  - No API keys, bot tokens, Authorization headers, cookies, or private logs.")
-    print("  - Logs are excluded unless you used --include-logs.")
+    if args.include_logs:
+        print("  - Logs are included. Review each log excerpt before sharing.")
+    else:
+        print("  - Logs are excluded unless you used --include-logs.")
     print("  - A sharing_manifest is included in support.json; fix any remaining_risk_findings before sharing.")
     print("  - Nothing was uploaded.")
     print("")
@@ -9528,7 +9589,7 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
         print(f"{marker} {label}: {detail}")
     if payload.get("support_bundle_path"):
         print("")
-        print(f"Redacted support bundle: {payload['support_bundle_path']}")
+        print("Redacted support bundle saved locally.")
     print("")
     print("Remote cleanup still to do where applicable:")
     for item in payload.get("manual_remote_revocations") or []:
@@ -10697,7 +10758,7 @@ def print_access_payload(payload: dict[str, Any]) -> None:
     print("Spark access setup")
     print(f"Access level: {payload.get('access_level')}")
     print(f"OS: {payload.get('os_family')}")
-    print(f"Workspace: {payload.get('workspace_path')}")
+    print("Workspace: (configured)")
     print(f"Recommended lane: {recommended.get('label') or recommended.get('id')}")
     if recommended.get("user_message"):
         print(str(recommended["user_message"]))
@@ -10970,6 +11031,7 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
+    "high_cost_execution",
 }
 
 
@@ -11433,6 +11495,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
         if provider in {"openai", "zai", "kimi", "minimax", "openrouter", "huggingface"}:
             secret_id = spec.get("api_key_secret")
             api_key = fetch_secret(str(secret_id)) if secret_id else None
+            if not api_key:
+                env_var = spec.get("api_key_env")
+                api_key = os.environ.get(str(env_var)) if env_var else None
             if api_key:
                 return {
                     "provider": provider,
@@ -11739,10 +11804,34 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         prompt_path = Path(args.prompt_out).expanduser()
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
         prompt_path.write_text(prompt, encoding="utf-8")
-        print(f"Wrote redacted Spark Doctor prompt: {prompt_path}")
+        print("Wrote redacted Spark Doctor prompt.")
         return 0
-    target = resolve_llm_doctor_target(args)
-    response = call_llm_doctor(target, prompt)
+    try:
+        target = resolve_llm_doctor_target(args)
+        response = call_llm_doctor(target, prompt)
+        probe_ok = True
+        probe_error = ""
+    except SystemExit as exc:
+        target = {}
+        response = ""
+        probe_ok = False
+        probe_error = str(exc)
+    if not probe_ok:
+        error_report = (
+            "# Spark Doctor Report (probe failed)\n\n"
+            f"Problem: {problem}\n"
+            f"Probe error: {probe_error}\n\n"
+            "The LLM probe could not run. Possible causes:\n"
+            "  - API key not found in Spark secret store or environment\n"
+            "  - No network access to provider endpoint\n"
+            "  - Provider not yet configured (run `spark setup`)\n\n"
+            "Run `spark providers status` to check provider readiness.\n"
+        )
+        if getattr(args, "save_report", False):
+            path = write_doctor_report(error_report)
+            print(f"Saved partial Spark Doctor report: {path}")
+        print(error_report)
+        return 1
     report = (
         "# Spark Doctor Report\n\n"
         f"Provider: {target['provider']} ({target.get('model') or 'default'})\n"
@@ -11756,7 +11845,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     )
     if getattr(args, "save_report", False):
         path = write_doctor_report(report)
-        print(f"Saved Spark Doctor report: {path}")
+        print("Saved Spark Doctor report.")
     if getattr(args, "upstream_report", False):
         upstream = render_upstream_pr_candidate(problem, report)
         upstream_out = getattr(args, "upstream_out", None)
@@ -11766,7 +11855,7 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
             upstream_path.write_text(upstream, encoding="utf-8")
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
-        print(f"Saved sanitized upstream PR candidate: {upstream_path}")
+        print("Saved sanitized upstream PR candidate.")
         print("Review the checklist before opening a PR. Spark did not upload anything.")
     print(report)
     return 0
@@ -12219,7 +12308,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             if changed:
                 print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
                 for path in changed:
-                    print(f"      {path}")
+                    print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
             print("")
@@ -12300,7 +12389,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
             print("Hooks:")
             for hook in payload["hooks"]:
                 installed_text = "yes" if hook.get("exists") else "no"
-                print(f"  - {hook.get('name')}: installed={installed_text}; {hook.get('path')}")
+                print(f"  - {hook.get('name')}: installed={installed_text}")
                 for warning in hook.get("warnings", []):
                     print(f"      warning: {warning}")
         print("")
@@ -12506,6 +12595,32 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
     try:
         target = resolve_provider_test_target(role, provider)
     except SystemExit as exc:
+        # Distinguish "not configured at all" from "configured but key not reachable".
+        role_state = configured_llm_role_state(role)
+        setup_state = load_json(CONFIG_PATH, {})
+        llm_top = setup_state.get("llm") if isinstance(setup_state, dict) else {}
+        secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
+        provider_for_check = str(role_state.get("provider") or (isinstance(llm_top, dict) and llm_top.get("provider")) or "")
+        spec_for_check = LLM_PROVIDER_ENV.get(provider_for_check, {})
+        api_key_secret = spec_for_check.get("api_key_secret", "")
+        key_configured_in_setup = bool(
+            role_state.get("api_key_configured")
+            or (isinstance(llm_top, dict) and llm_top.get("api_key_configured"))
+            or (api_key_secret and api_key_secret in secret_keys)
+        )
+        if key_configured_in_setup:
+            configured_provider = str(role_state.get("provider") or provider or "configured")
+            return {
+                "ok": False,
+                "role": role,
+                "provider": configured_provider,
+                "detail": (
+                    f"Provider {configured_provider} is configured in Spark setup, "
+                    "but the API key is not reachable from the test probe. "
+                    "The key may be stored in a platform-managed secret or env var."
+                ),
+                "repair": "spark providers status",
+            }
         return {
             "ok": False,
             "role": role,
@@ -12552,6 +12667,14 @@ def provider_test_payload(*, role: str = "chat", provider: str | None = None) ->
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    if not getattr(args, "providers_command", None):
+        print("spark providers: choose a subcommand\n")
+        print("  spark providers status    Show configured LLM roles and auth")
+        print("  spark providers test      Send a PING_OK probe to the chat provider")
+        print("  spark providers list      List all available providers")
+        print("  spark providers recommend Show recommended setup paths")
+        print("")
+        return 1
     if args.providers_command == "recommend":
         payload = provider_recommendations_payload()
         if args.json:
@@ -12676,6 +12799,13 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
 
 
 def cmd_recommend(args: argparse.Namespace) -> int:
+    if not getattr(args, "recommend_command", None):
+        print("spark recommend: choose a subcommand")
+        print("")
+        print("  spark recommend llms        Show LLM provider options and setup commands")
+        print("  spark recommend providers   Same as llms")
+        print("")
+        return 1
     if args.recommend_command in {"llms", "providers"}:
         payload = provider_recommendations_payload()
         if args.json:
@@ -12899,8 +13029,7 @@ def specialization_loop_status_command(path: Path, swarm_root: Path | None) -> t
     if swarm_root:
         bridge_src = swarm_root / "apps" / "bridge" / "src"
         if bridge_src.exists():
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = str(bridge_src) if not existing else f"{bridge_src}{os.pathsep}{existing}"
+            prepend_pythonpath(env, [bridge_src])
     return (
         [
             python,
@@ -14294,7 +14423,7 @@ def onboarding_checklist() -> list[str]:
         "Open your Spark bot in Telegram.",
         "If Telegram asks for a start code, send /start.",
         "Choose what Spark can do when asked. For first builds, choose Level 4 so Mission Control can inspect and build in local workspaces.",
-        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK.",
+        "Run spark providers test --role chat and confirm the selected LLM replies with PING_OK. If the key is managed externally (e.g. by a host platform), skip this step and confirm readiness with spark providers status instead.",
         "Send /diagnose in Telegram and confirm Telegram, LLM, memory, and Spawner look OK.",
         "Send a normal message, then try a tiny build with /run say exactly OK.",
         "When you are ready, ask Spark how it can improve for your workflows.",
@@ -14911,7 +15040,7 @@ def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None
         return None
     try:
         script_parts = split_single_argv_command(script, "Package script")
-    except SystemExit:
+    except (SystemExit, ValueError):
         return None
     if not script_parts:
         return None
@@ -15306,6 +15435,12 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         popen_kwargs["stdout"] = log_handle
         try:
             process = subprocess.Popen(argv, **popen_kwargs)
+        except OSError as exc:
+            log_handle.close()
+            safe_detail = redact_shareable_text(str(exc))
+            print(f"Failed to start {display_name}: {safe_detail}")
+            append_process_log(module.name, f"spawn failed detail={safe_detail}", profile=profile)
+            return False
         finally:
             log_handle.close()
         pids[process_key] = {
@@ -15425,6 +15560,11 @@ def stop_module(name: str, pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
     else:
         try:
+            os.kill(pid, 0)
+        except OSError:
+            print(f"{name} (pid {pid}) is not running")
+            return
+        try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
             subprocess.run(["kill", str(pid)], check=False, capture_output=True)
@@ -15520,7 +15660,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
                 profile=profile,
             ):
                 start_code = 1
-            return start_code or stop_code
+            return start_code
     restart_modules = (
         resolve_restart_modules(args.target, installed_modules, load_pids())
         if getattr(args, "cascade", False)
@@ -15545,7 +15685,7 @@ def cmd_restart_plain(args: argparse.Namespace) -> int:
             continue
         if not start_module(module, allow_boot_warnings=getattr(args, "allow_boot_warnings", False)):
             start_code = 1
-    return start_code or stop_code
+    return start_code
 
 
 def spark_invocation_args() -> list[str]:
@@ -15845,7 +15985,7 @@ def windows_run_key_command(startup_path: Path) -> str:
 
 
 def vbs_string(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    return '"' + value.replace('"', '""').replace('%', '%%').replace('&', '^&') + '"'
 
 
 def write_windows_startup_script(path: Path, start_command: str) -> None:
@@ -16867,13 +17007,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         failures += cmd_autostart_uninstall(argparse.Namespace())
 
     if not modules:
-        print("No installed Spark modules recorded.")
+        named_target = getattr(args, "target", None) if not getattr(args, "all", False) else None
+        if named_target:
+            print(f"Unknown installed module: {named_target}. No modules are installed; run `spark install` first.")
+        else:
+            print("No installed Spark modules recorded.")
         if getattr(args, "remove_user_path", False):
             removed = remove_spark_bin_from_windows_user_path()
             print("Removed Spark bin from Windows user PATH." if removed else "Spark bin was not present in Windows user PATH.")
         if getattr(args, "purge_home", False):
             removed_home = purge_spark_home()
             print(f"Removed Spark home: {SPARK_HOME}" if removed_home else f"Spark home was not present: {SPARK_HOME}")
+        if named_target:
+            return 1
         return 1 if failures else 0
     removed_names: list[str] = []
     for module in modules:
@@ -17423,9 +17569,19 @@ def build_parser() -> argparse.ArgumentParser:
     onboard_parser.set_defaults(func=cmd_onboard)
 
     os_parser = subparsers.add_parser("os", help="Inspect Spark as a local agent operating system")
-    os_subparsers = os_parser.add_subparsers(dest="os_command", required=True)
+    os_subparsers = os_parser.add_subparsers(dest="os_command", required=False)
+    def _cmd_os_help(args: argparse.Namespace) -> int:
+        print("spark os: choose a subcommand\n")
+        print("  spark os compile        Compile a read-only Spark OS system map")
+        print("  spark os capabilities   Inspect compiled capability cards")
+        print("  spark os authority      Inspect compiled authority contracts")
+        print("  spark os trace          Inspect compiled trace health")
+        print("  spark os memory         Inspect compiled memory movement")
+        print("")
+        return 1
+    os_parser.set_defaults(func=_cmd_os_help)
     os_compile_parser = os_subparsers.add_parser("compile", help="Compile a read-only Spark OS system map")
-    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_compile_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_compile_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_compile_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_compile_parser.add_argument("--out", default=str(STATE_DIR / "system-map"), help="Output directory for generated reports")
@@ -17443,25 +17599,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     os_compile_parser.set_defaults(func=cmd_os_compile)
     os_capabilities_parser = os_subparsers.add_parser("capabilities", help="Inspect compiled Spark capability cards")
-    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_capabilities_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_capabilities_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_capabilities_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_capabilities_parser.add_argument("--json", action="store_true", help="Emit capability cards as JSON")
     os_capabilities_parser.set_defaults(func=cmd_os_capabilities)
     os_authority_parser = os_subparsers.add_parser("authority", help="Inspect compiled Spark authority contracts")
-    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_authority_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
-    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
-    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop"), help="Desktop root containing Spark repos")
+    os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_memory_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_memory_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_memory_parser.add_argument("--json", action="store_true", help="Emit memory movement as JSON")
@@ -17497,7 +17653,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_llm_parser.set_defaults(func=cmd_doctor)
 
     support_parser = subparsers.add_parser("support", help="Create local redacted support bundles for troubleshooting")
-    support_subparsers = support_parser.add_subparsers(dest="support_command", required=True)
+    support_subparsers = support_parser.add_subparsers(dest="support_command", required=False)
+    def _cmd_support_help(args: argparse.Namespace) -> int:
+        print("spark support: choose a subcommand\n")
+        print("  spark support bundle              Write a local redacted support archive")
+        print("  spark support bundle --include-logs  Include redacted log tails")
+        print("")
+        return 1
+    support_parser.set_defaults(func=_cmd_support_help)
     support_bundle_parser = support_subparsers.add_parser("bundle", help="Write a local redacted support archive")
     support_bundle_parser.add_argument("--include-logs", action="store_true", help="Include redacted log tails after local review")
     support_bundle_parser.add_argument("--log-lines", type=int, default=120, help="Number of log lines per module when --include-logs is set")
@@ -17532,7 +17695,13 @@ def build_parser() -> argparse.ArgumentParser:
     _wrap_subgroup_help(drift_parser, ["sentinel"])
 
     smoke_parser = subparsers.add_parser("smoke", help="Run guided first-run Spark smoke checks")
-    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=True)
+    smoke_subparsers = smoke_parser.add_subparsers(dest="smoke_command", required=False)
+    def _cmd_smoke_help(args: argparse.Namespace) -> int:
+        print("spark smoke: choose a subcommand\n")
+        print("  spark smoke first-run   Run first-run smoke checks")
+        print("")
+        return 1
+    smoke_parser.set_defaults(func=_cmd_smoke_help)
     first_run_smoke_parser = smoke_subparsers.add_parser("first-run", help="Check local onboarding readiness and print the Telegram first-run script")
     first_run_smoke_parser.add_argument("--json", action="store_true")
     first_run_smoke_parser.add_argument("--quick", action="store_true", help="Skip deep local memory smoke checks")
@@ -17818,7 +17987,7 @@ def build_parser() -> argparse.ArgumentParser:
     live_stop_parser = live_subparsers.add_parser("stop", help="Stop Spark Live")
     live_stop_parser.set_defaults(func=cmd_live)
     live_logs_parser = live_subparsers.add_parser("logs", help="Show Spark Live logs")
-    live_logs_parser.add_argument("-n", "--lines", type=int, default=80)
+    live_logs_parser.add_argument("-n", "--lines", type=int, default=80, help="Lines of history to show before tailing (default: 80, 0 = all)")
     live_logs_parser.add_argument("-f", "--follow", action="store_true", help="Keep watching combined Spark Live logs")
     live_logs_parser.set_defaults(func=cmd_live)
     live_verify_parser = live_subparsers.add_parser("verify", help="Run the hosted Spark Live release gate")

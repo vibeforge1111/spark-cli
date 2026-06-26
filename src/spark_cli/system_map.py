@@ -294,6 +294,20 @@ RAW_MEMORY_KEY_HINTS = (
 )
 
 
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> bool:
+    """Return True if *name* is a safe SQL identifier (alphanumeric/underscore, starts with letter or underscore)."""
+    return bool(_SAFE_IDENTIFIER_RE.match(name))
+
+
+def _sanitize_identifiers(names: list[str]) -> list[str]:
+    """Filter *names* to only include safe SQL identifiers, preventing injection via malicious schema metadata."""
+    return [n for n in names if _validate_identifier(n)]
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -908,15 +922,20 @@ def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[st
     return out
 
 
+_BUILDER_OVERLAP_PROBE_CAP = 500
+
+
 def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_request_id_count": len(request_ids),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; request id values omitted",
     }
     if not request_ids or not db_path.exists():
+        out["sampled_request_id_count"] = 0
         out["matched_builder_request_id_count"] = 0
         return out
     try:
@@ -925,14 +944,17 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "request_id" not in columns:
                 out["request_id_column_exists"] = False
+                out["sampled_request_id_count"] = 0
                 out["matched_builder_request_id_count"] = 0
                 return out
-            candidates = sorted(request_ids)[:500]
+            candidates = sorted(request_ids)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_request_id_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -956,9 +978,11 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
         "source": "builder_events",
         "exists": db_path.exists(),
         "checked_trace_ref_count": len(trace_refs),
+        "probe_cap": _BUILDER_OVERLAP_PROBE_CAP,
         "redaction": "overlap counts only; trace ref values omitted",
     }
     if not trace_refs or not db_path.exists():
+        out["sampled_trace_ref_count"] = 0
         out["matched_builder_trace_ref_count"] = 0
         return out
     try:
@@ -967,14 +991,17 @@ def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) 
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
             if "builder_events" not in tables:
                 out["table_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
+                out["sampled_trace_ref_count"] = 0
                 out["matched_builder_trace_ref_count"] = 0
                 return out
-            candidates = sorted(trace_refs)[:500]
+            candidates = sorted(trace_refs)[:_BUILDER_OVERLAP_PROBE_CAP]
+            out["sampled_trace_ref_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
             matched = conn.execute(
                 f"""
@@ -1399,7 +1426,15 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    # Redact on the full string BEFORE truncating, so a secret is never split
+    # across the truncation boundary (which would leak a fragment).
+    cleaned = re.sub(
+        r"(?i)(api[_-]?key|token|secret|password|passwd|credential|private[_-]?key|auth)"
+        r"([=:\s]+)(\S+)",
+        r"\1\2[redacted]",
+        value.strip(),
+    )
+    cleaned = re.sub(r"(?i)(Bearer|Basic)\s+\S+", r"\1 [redacted]", cleaned)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
@@ -2010,6 +2045,7 @@ def capability_trust_fields(
 def build_capability_cards(
     creator_system_surfaces: list[dict[str, Any]],
     specialization_path_surfaces: list[dict[str, Any]],
+    module_capabilities: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
 
@@ -2178,6 +2214,55 @@ def build_capability_cards(
             }
         )
 
+    covered = {card.get("owner_repo") for card in cards}
+    for mc in as_list(module_capabilities):
+        repo = str(mc.get("module_name") or mc.get("repo") or "unknown")
+        if repo in covered:
+            continue
+        caps = as_list(mc.get("capabilities"))
+        cards.append({
+            "schema_version": CAPABILITY_CARD_SCHEMA,
+            "id": f"module:{repo}",
+            "name": f"{repo} module capabilities",
+            "owner_repo": repo,
+            "surface_type": "module",
+            "status": "seen",
+            "trust_status": "untrusted",
+            "proof_state": "proof_incomplete",
+            "trust_scope": "none",
+            "trust_basis": [],
+            "compiled_proofs": {"capabilities_declared": len(caps) > 0},
+            "proof_verdicts": {},
+            "proof_summary": {
+                "overall_status": "missing_required_verdicts",
+                "required_proofs": [],
+                "passed_proofs": [],
+                "blocked_proofs": [],
+                "unverified_proofs": [],
+                "missing_proofs": [],
+                "unsatisfied_proofs": [],
+                "status_counts": {},
+            },
+            "proof_blockers": [],
+            "missing_proofs": [],
+            "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
+            "plane": mc.get("plane"),
+            "capabilities": caps,
+            "requested_authority": ["local_files_read"],
+            "memory_policy": "non_authoritative_evidence_only",
+            "evidence_summary": {"capabilities_count": len(caps)},
+            "benchmark_summary": {},
+            "review_summary": {},
+            "trace_refs": [],
+            "rollback_refs": [],
+            "privacy_boundary": "Module capabilities are declared in spark.toml only; no proof surfaces are present.",
+            "public_boundary": "Network publication requires explicit approval and proof gates.",
+            "blockers": [
+                "No creator-system or specialization-path surface found for this module.",
+                "Capability remains untrusted until required proof domains pass.",
+            ],
+            "next_action": "Add a creator-system surface to enable proof verification for this module.",
+        })
     return cards
 
 
@@ -2360,15 +2445,20 @@ def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
     export_status = str(status.get("status") or "missing")
     row_count = int(status.get("row_count") or 0)
     if export_status != "supported":
+        is_missing = export_status in {"missing", ""}
         items.append(
             memory_review_item(
                 item_id="memory-export-not-supported",
-                severity="critical",
+                severity="warning" if is_missing else "critical",
                 category="movement_export",
                 owner_repo="spark-intelligence-builder",
                 source_surface="Builder memory movement export",
                 reason_code="memory_movement_export_not_supported",
-                recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
+                recommended_action=(
+                    "Configure Builder's metadata-only memory movement status export to enable Cockpit memory review."
+                    if is_missing
+                    else "Restore Builder's metadata-only memory movement status export before Cockpit review."
+                ),
                 count=1,
                 target_kind="status_export",
                 target_ref="memory-movement-status",
@@ -2570,7 +2660,7 @@ def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
         conn.row_factory = sqlite3.Row
         try:
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
-            memory_tables = [table for table in tables if "memory" in table.lower()]
+            memory_tables = _sanitize_identifiers([table for table in tables if "memory" in table.lower()])
             out["table_count"] = len(memory_tables)
             out["tables"] = {}
             for table in memory_tables:
@@ -2590,7 +2680,7 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
         "source": "memory_lane_records",
         "redaction": "aggregate trace coverage only; row ids, trace ids, evidence JSON, memory bodies, and source refs omitted",
     }
-    columns = [row[1] for row in conn.execute("pragma table_info(memory_lane_records)")]
+    columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(memory_lane_records)")])
     required = {"request_id", "trace_ref", "artifact_lane", "status"}
     missing = sorted(required - set(columns))
     if missing:
@@ -2714,7 +2804,7 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             selected = [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
             if not selected:
                 out["events"] = []
@@ -2738,11 +2828,12 @@ def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dic
                 events.append(event)
             out["events"] = events
             out["sample_count"] = len(events)
-            out["top_trace_refs"] = [
+            top_pairs = [
                 {"trace_ref": trace_ref, "event_count": count}
-                for trace_ref, count in trace_counts.most_common(20)
+                for trace_ref, count in trace_counts.most_common()
                 if trace_ref != "[missing]"
             ]
+            out["top_trace_refs"] = top_pairs[:20]
             out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
         finally:
             conn.close()
@@ -2794,7 +2885,7 @@ def inspect_builder_trace_groups(
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             if "trace_ref" not in columns:
                 out["trace_ref_column_exists"] = False
                 return out
@@ -2963,7 +3054,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                 out["table_exists"] = False
                 return out
             out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+            columns = _sanitize_identifiers([row[1] for row in conn.execute("pragma table_info(builder_events)")])
             group_columns = [
                 column
                 for column in (
@@ -3495,7 +3586,9 @@ def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_sources": contract_sources,
         "creator_system_surfaces": creator_system_surfaces,
         "specialization_path_surfaces": specialization_path_surfaces,
-        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        "capability_cards": build_capability_cards(
+            creator_system_surfaces, specialization_path_surfaces, module_capabilities
+        ),
     }
 
 
@@ -4071,10 +4164,15 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
         )
 
     rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
+    seen_repair_keys: set[tuple[str, str]] = set()
     for row in rows[:10]:
         row = as_dict(row)
         component = str(row.get("component") or "unknown")
         event_type = str(row.get("event_type") or "unknown")
+        repair_key = (component, event_type)
+        if repair_key in seen_repair_keys:
+            continue
+        seen_repair_keys.add(repair_key)
         owner = trace_repair_owner(component)
         rank_reason = "largest Builder producer bucket missing trace_ref"
         safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
@@ -4110,7 +4208,11 @@ def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]
                 "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
                 "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
                 "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "current_health_status": current_health.get("status"),
+                "current_health_status": (
+                    "stale_missing_trace_ref" if stale_missing
+                    else "latest_clean" if latest_clean
+                    else current_health.get("status")
+                ),
                 "current_window": current_health.get("window"),
                 "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
                 "safe_fix": safe_fix,
@@ -5427,6 +5529,20 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+# Match real absolute filesystem paths only: Windows drive paths, ~ home paths,
+# and POSIX paths anchored to known root directories. Anchoring avoids redacting
+# non-filesystem slashy text such as URL paths (e.g. /api/v2/users).
+_PATH_REDACT_RE = re.compile(
+    r"(?:[A-Za-z]:[\\/]|~[\\/]|/(?:home|Users|var|tmp|opt|etc|root|mnt|srv|private|usr|Library|Applications)/)"
+    r"(?:[\w.\-]+[\\/])*[\w.\-]+"
+)
+
+
+def _redact_internal_paths(text: str) -> str:
+    """Replace absolute filesystem paths with a placeholder to prevent leaking internal paths in user-facing output."""
+    return _PATH_REDACT_RE.sub("[redacted-path]", text)
+
+
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
     lines = [
         "# Spark System Map Gaps",
@@ -5450,7 +5566,9 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         for gap in gaps:
             count = int(gap.get("count", "1"))
             suffix = f" Observed {count} times." if count > 1 else ""
-            lines.append(f"- [{gap['severity']}] {gap['area']} / {gap['item']}: {gap['message']}{suffix}")
+            safe_item = _redact_internal_paths(gap["item"])
+            safe_message = _redact_internal_paths(gap["message"])
+            lines.append(f"- [{gap['severity']}] {gap['area']} / {safe_item}: {safe_message}{suffix}")
     lines.extend(
         [
             "",
