@@ -1731,7 +1731,10 @@ def hosted_json_payload(url: str) -> dict[str, Any]:
     )
     with installer_urlopen(request, timeout=20) as response:
         payload = response.read().decode("utf-8")
-    parsed = json.loads(payload)
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Hosted JSON metadata at {url} is not valid JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise ValueError(f"Hosted JSON metadata at {url} must be a JSON object, got {type(parsed).__name__}.")
     return parsed
