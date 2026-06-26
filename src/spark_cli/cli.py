@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import contextlib
 import ctypes
 import getpass
 import hashlib
@@ -16489,6 +16490,40 @@ def follow_log_file(path: Path) -> None:
             return
 
 
+@contextlib.contextmanager
+def config_file_lock():
+    """Acquire an exclusive file lock on the config file to prevent concurrent write corruption."""
+    lock_path = USER_CONFIG_PATH.with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if sys.platform == "win32":
+            import msvcrt
+
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def load_user_config() -> dict[str, Any]:
     if not USER_CONFIG_PATH.exists():
         return {}
@@ -16568,29 +16603,31 @@ def cmd_config_get(args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
-    config = load_user_config()
-    value = coerce_config_value(args.value)
-    try:
-        dotted_set(config, args.key, value)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    save_user_config(config)
+    with config_file_lock():
+        config = load_user_config()
+        value = coerce_config_value(args.value)
+        try:
+            dotted_set(config, args.key, value)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_config_unset(args: argparse.Namespace) -> int:
-    config = load_user_config()
-    try:
-        removed = dotted_unset(config, args.key)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    if not removed:
-        print(f"{args.key} was not set")
-        return 1
-    save_user_config(config)
+    with config_file_lock():
+        config = load_user_config()
+        try:
+            removed = dotted_unset(config, args.key)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        if not removed:
+            print(f"{args.key} was not set")
+            return 1
+        save_user_config(config)
     print(f"Unset {args.key}")
     return 0
 
