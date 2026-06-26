@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -53,10 +55,20 @@ def write_audit_event(
         "target": validate_target_name(target),
         **_redact_value(event),
     }
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    # Atomically open with restrictive permissions (owner-only read/write).
+    # Use os.open for low-level permission control; fall back to pathlib if needed.
     try:
-        path.chmod(0o600)
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
     except OSError:
-        pass
+        # Fallback if os.open fails (e.g. Windows); set restrictive perms after creation
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        try:
+            path.chmod(0o600)
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                "audit log chmod failed for %s: %s", path, exc
+            )
     return path
