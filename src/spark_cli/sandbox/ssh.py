@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -625,7 +626,7 @@ def ssh_smoke_remote_path(target: SshTarget, probe_hash: str) -> str:
     safe_name = validate_target_name(target.name)
     if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
         raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
-    return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
+    return f"/tmp/spark-sandbox-smoke-{safe_name}-{secrets.token_hex(6)}.sh"
 
 
 def ssh_smoke_upload_argv(target: SshTarget, remote_path: str, *, home: Path | None = None) -> list[str]:
