@@ -6628,7 +6628,10 @@ def browser_use_page_summary(cli_path: str, session: str) -> dict[str, str]:
     if raw.lower().startswith("result:"):
         raw = raw.split(":", 1)[1].strip()
     try:
-        parsed = json.loads(raw)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except json.JSONDecodeError:
         return {"title": "", "url": "", "text": ""}
     if not isinstance(parsed, dict):
