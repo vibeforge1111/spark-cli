@@ -19,6 +19,9 @@ Current `spark verify --r30 --json` publish-handoff summary reports:
 
 - family: `builder_trace_health`
 - flag: `historical_open_high_severity_events`
+- component: `telegram_runtime`
+- event type: `tool_call_ledger_recorded`
+- status/severity: `blocked` / `high`
 - unresolved high-severity open count: `1`
 - current unresolved high-severity open count: `0`
 - unresolved high-severity source group count: `1`
@@ -52,4 +55,3 @@ Required result before removing this handoff:
 - `current_unresolved_high_severity_open_count=0`
 - `critical_duplicate_truth_count=0`
 - R30 source/registry truth remains green before installer pins move.
-

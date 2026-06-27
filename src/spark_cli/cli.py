@@ -8148,24 +8148,49 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
 
 def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any]) -> dict[str, Any]:
     doc_present = R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.exists()
+    doc_ref = str(
+        R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)
+        if R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.is_relative_to(REPO_ROOT)
+        else R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH
+    )
+    doc_text = ""
+    doc_issues: list[str] = []
+    if doc_present:
+        try:
+            doc_text = R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            doc_issues.append("builder_trace_lifecycle_doc_unreadable")
     builder_trace = publish_handoffs.get("builder_trace_health")
     if not isinstance(builder_trace, dict):
         return {
-            "ok": doc_present,
+            "ok": doc_present and not doc_issues,
             "decision": "builder_trace_lifecycle_clear",
             "detail": (
                 "Builder trace lifecycle has no R30 publish handoff."
-                if doc_present
+                if doc_present and not doc_issues
                 else "Builder trace lifecycle has no R30 publish handoff, but the R30 Builder trace decision document is missing."
             ),
-            "doc": str(R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)),
+            "doc": doc_ref,
             "doc_present": doc_present,
+            "doc_issues": doc_issues,
         }
 
     unresolved = int(builder_trace.get("unresolved_high_severity_open_count") or 0)
     current_unresolved = int(builder_trace.get("current_unresolved_high_severity_open_count") or 0)
     flags = list(builder_trace.get("flags") or [])
-    ok = unresolved == 0 and current_unresolved == 0 and doc_present
+    if unresolved:
+        required_doc_needles = [
+            "historical_open_high_severity_events",
+            "telegram_runtime",
+            "tool_call_ledger_recorded",
+            "blocked",
+            "high",
+            str(builder_trace.get("latest_unresolved_high_severity_event_created_at") or ""),
+        ]
+        missing_needles = [needle for needle in required_doc_needles if needle and needle not in doc_text]
+        if missing_needles:
+            doc_issues.append("builder_trace_lifecycle_doc_missing_exact_family")
+    ok = unresolved == 0 and current_unresolved == 0 and doc_present and not doc_issues
     decision = "builder_trace_lifecycle_owner_closure_required" if unresolved else "builder_trace_lifecycle_current_clean"
     detail = (
         "Builder historical trace lifecycle remains explicit for R30: current windows are clean, "
@@ -8179,8 +8204,9 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
         "ok": ok,
         "decision": decision,
         "detail": detail,
-        "doc": str(R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)),
+        "doc": doc_ref,
         "doc_present": doc_present,
+        "doc_issues": doc_issues,
         "flags": flags,
         "high_severity_open_count": int(builder_trace.get("high_severity_open_count") or 0),
         "unresolved_high_severity_open_count": unresolved,

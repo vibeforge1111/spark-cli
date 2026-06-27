@@ -13474,6 +13474,39 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["current_unresolved_high_severity_open_count"], 0)
         self.assertIn("historical trace lifecycle", payload["detail"])
 
+    def test_r30_builder_trace_lifecycle_requires_exact_historical_family_docs(self) -> None:
+        handoff = {
+            "builder_trace_health": {
+                "flags": ["historical_open_high_severity_events"],
+                "high_severity_open_count": 46,
+                "unresolved_high_severity_open_count": 1,
+                "current_unresolved_high_severity_open_count": 0,
+                "unresolved_high_severity_source_group_count": 1,
+                "latest_unresolved_high_severity_event_created_at": "2026-06-02 09:03:25",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_doc = Path(tmpdir) / "builder-decision.md"
+            decision_doc.write_text("Builder has one historical issue.\n", encoding="utf-8")
+            with patch("spark_cli.cli.R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH", decision_doc):
+                stale = collect_r30_builder_trace_lifecycle_status(handoff)
+            decision_doc.write_text(
+                "\n".join([
+                    "historical_open_high_severity_events",
+                    "component: telegram_runtime",
+                    "event type: tool_call_ledger_recorded",
+                    "status/severity: blocked / high",
+                    "latest event: 2026-06-02 09:03:25",
+                ]),
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH", decision_doc):
+                exact = collect_r30_builder_trace_lifecycle_status(handoff)
+
+        self.assertIn("builder_trace_lifecycle_doc_missing_exact_family", stale["doc_issues"])
+        self.assertEqual(exact["doc_issues"], [])
+        self.assertFalse(exact["ok"])
+
     def test_r30_builder_trace_lifecycle_passes_without_publish_handoff(self) -> None:
         payload = collect_r30_builder_trace_lifecycle_status({})
         self.assertTrue(payload["ok"])
