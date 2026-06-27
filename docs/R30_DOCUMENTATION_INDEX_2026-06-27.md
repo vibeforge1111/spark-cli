@@ -37,7 +37,7 @@ Current blockers:
 - `spark verify --r30 --json` reports `10` release-lane registry/runtime issue rows: `5` direct R30 blockers and `5` supporting hygiene rows.
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder has one historical high-severity lifecycle family that must remain visible or be closed with owner evidence.
-- Hosted `agent.sparkswarm.ai` is R29 while local installer files are R28.
+- Hosted `agent.sparkswarm.ai` is self-consistent R29 while local installer files are R28; R30 is not hosted.
 
 ## Release Rule
 

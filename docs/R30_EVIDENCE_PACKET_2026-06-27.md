@@ -28,6 +28,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 | Telegram `npm run build` | PASS | TypeScript compile passed. |
 | Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 0 growing, 0 new over cap. |
 | R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | FAIL as expected from local R28 | Hosted installer is self-consistent R29 while local committed manifest is R28. Hosted script bytes match hosted checksum metadata; hosted command metadata matches hosted installer hashes. The failure is release-truth mismatch against this checkout, not checksum drift. |
 
 ## Spark OS Compile Details
 
@@ -62,6 +63,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-22-r28`
+- `hosted_installers`: fail when requested, because hosted `agent.sparkswarm.ai` serves `spark-cli-public-installer-2026-06-26-r29` while this checkout expects local R28
 
 Direct R30 release-lane blockers:
 
@@ -90,6 +92,31 @@ Supporting release-hygiene rows:
 - `spark-harness-core`: head differs from registry
 - `spark-researcher`: head differs from registry
 - `spark-skill-graphs`: head and installed metadata differ from registry
+
+## Hosted Installer Details
+
+Read-only hosted verification generated at `2026-06-27T12:54:13Z` and `2026-06-27T12:55:19Z`.
+
+Current hosted truth:
+
+- hosted release: `spark-cli-public-installer-2026-06-26-r29`
+- hosted ref: `spark-cli-public-installer-2026-06-26-r29`
+- hosted commit: `a6738be7a97a7254a5b09e06ce08692d99967bd6`
+- local committed manifest release/ref: `spark-cli-public-installer-2026-06-22-r28`
+
+Hosted self-consistency:
+
+- `install.sh` hosted byte hash matches hosted checksum metadata.
+- `install.ps1` hosted byte hash matches hosted checksum metadata.
+- `/install/commands.json` matches hosted installer hashes.
+- `/install/release-manifest.json` reports the hosted R29 release/ref.
+
+R30 interpretation:
+
+- Do not call hosted R29 stale or broken from this local R28 verifier.
+- Do not publish R30 hosted files until source-owner handoffs, registry pins,
+  installed metadata, local R30 installer manifest/scripts, and local R30
+  installer verification are green.
 
 Builder trace current health:
 
