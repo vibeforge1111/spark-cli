@@ -1048,7 +1048,8 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except Exception as _e:
+        import logging as _log; _log.getLogger(__name__).warning("Suppressed: %s", _e, exc_info=True)
         return False
     return True
 
