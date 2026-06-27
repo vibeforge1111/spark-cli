@@ -13753,7 +13753,59 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertIn("builder_trace_lifecycle_doc_missing_exact_family", stale["doc_issues"])
         self.assertEqual(exact["doc_issues"], [])
+        self.assertEqual(exact["release_packet_issues"], [])
         self.assertFalse(exact["ok"])
+
+    def test_r30_builder_trace_lifecycle_requires_release_packet_visibility(self) -> None:
+        handoff = {
+            "builder_trace_health": {
+                "flags": ["historical_open_high_severity_events"],
+                "high_severity_open_count": 46,
+                "unresolved_high_severity_open_count": 1,
+                "current_unresolved_high_severity_open_count": 0,
+                "unresolved_high_severity_source_group_count": 1,
+                "latest_unresolved_high_severity_event_created_at": "2026-06-02 09:03:25",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            decision_doc = root / "builder-decision.md"
+            evidence = root / "evidence.md"
+            owner_packet = root / "owner-packet.md"
+            decision_doc.write_text(
+                "\n".join([
+                    "Status: explicit historical handoff, not closed",
+                    "Do not hide or silently clear the Builder historical high-severity trace family",
+                    "historical_open_high_severity_events",
+                    "component: telegram_runtime",
+                    "event type: tool_call_ledger_recorded",
+                    "status/severity: blocked / high",
+                    "current_unresolved_high_severity_open_count=0",
+                    "This is not a fresh current-window high-severity failure.",
+                    "owner-approved closure evidence",
+                    "latest event: 2026-06-02 09:03:25",
+                ]),
+                encoding="utf-8",
+            )
+            evidence.write_text("Builder trace current health is summarized without specifics.\n", encoding="utf-8")
+            owner_packet.write_text("Builder owner handoff exists.\n", encoding="utf-8")
+            with patch("spark_cli.cli.R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH", decision_doc), \
+                 patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence), \
+                 patch("spark_cli.cli.R30_OWNER_HANDOFF_PACKET_PATH", owner_packet):
+                stale = collect_r30_builder_trace_lifecycle_status(handoff)
+            evidence.write_text(
+                "builder_trace_health historical_open_high_severity_events telegram_runtime "
+                "tool_call_ledger_recorded blocked high 2026-06-02 09:03:25 owner historical\n",
+                encoding="utf-8",
+            )
+            owner_packet.write_text("Builder owner packet keeps the historical handoff visible.\n", encoding="utf-8")
+            with patch("spark_cli.cli.R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH", decision_doc), \
+                 patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence), \
+                 patch("spark_cli.cli.R30_OWNER_HANDOFF_PACKET_PATH", owner_packet):
+                exact = collect_r30_builder_trace_lifecycle_status(handoff)
+
+        self.assertIn("builder_trace_release_packet_missing_exact_family", stale["release_packet_issues"])
+        self.assertEqual(exact["release_packet_issues"], [])
 
     def test_r30_builder_trace_lifecycle_passes_without_publish_handoff(self) -> None:
         payload = collect_r30_builder_trace_lifecycle_status({})
