@@ -8143,6 +8143,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     owner_lane_recipe = handoff_manifest.get("owner_lane_recipe") if isinstance(handoff_manifest, dict) else None
     changed_files = handoff_manifest.get("changed_files") if isinstance(handoff_manifest, dict) else None
     diffstat = handoff_manifest.get("diffstat") if isinstance(handoff_manifest, dict) else None
+    iso_utc_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
     else:
@@ -8166,6 +8167,8 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
         ]
         if not all(term in publication_boundary for term in voice_boundary_terms):
             manifest_issues.append("publication_boundary_not_explicit")
+        if not iso_utc_pattern.match(str(handoff_manifest.get("remote_audit_at") or "")):
+            manifest_issues.append("missing_or_invalid_remote_audit_at")
         expected_pairs = {
             "expected_registry_commit": row.get("expected_commit"),
             "local_head": row.get("actual_commit"),
@@ -8237,6 +8240,14 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             for key, expected in expected_diffstat.items():
                 if diffstat.get(key) != expected:
                     manifest_issues.append(f"voice_diffstat_{key}_mismatch")
+        prepared_lane = handoff_manifest.get("prepared_local_release_lane")
+        if not isinstance(prepared_lane, dict):
+            manifest_issues.append("missing_prepared_local_release_lane")
+        else:
+            if not iso_utc_pattern.match(str(prepared_lane.get("proof_checked_at") or "")):
+                manifest_issues.append("missing_or_invalid_prepared_lane_proof_checked_at")
+            if prepared_lane.get("proof_result") != "132 passed":
+                manifest_issues.append("prepared_lane_proof_result_mismatch")
         if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
@@ -8289,6 +8300,12 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
         "candidate_owner_release_branch_remote_exists": (
             handoff_manifest.get("candidate_owner_release_branch_remote_exists")
             if isinstance(handoff_manifest, dict)
+            else None
+        ),
+        "remote_audit_at": handoff_manifest.get("remote_audit_at") if isinstance(handoff_manifest, dict) else None,
+        "prepared_lane_proof_checked_at": (
+            (handoff_manifest.get("prepared_local_release_lane") or {}).get("proof_checked_at")
+            if isinstance(handoff_manifest, dict) and isinstance(handoff_manifest.get("prepared_local_release_lane"), dict)
             else None
         ),
         "issues": list(row.get("issues") or []),

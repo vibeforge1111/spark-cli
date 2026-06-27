@@ -13516,6 +13516,7 @@ class SparkCliTests(unittest.TestCase):
                             "or hosted publication is authorized by this manifest."
                         ),
                         "expected_registry_commit": "a" * 40,
+                        "remote_audit_at": "2026-06-27T22:58:58Z",
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
                         "decision": "owner_source_required_before_registry_pin",
@@ -13541,6 +13542,10 @@ class SparkCliTests(unittest.TestCase):
                             "files_changed": 4,
                             "insertions": 731,
                             "deletions": 8,
+                        },
+                        "prepared_local_release_lane": {
+                            "proof_checked_at": "2026-06-27T22:58:58Z",
+                            "proof_result": "132 passed",
                         },
                         "required_local_commits": [
                             {
@@ -13610,6 +13615,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["decision"], "owner_source_required_before_registry_pin")
         self.assertTrue(payload["handoff_manifest_present"])
         self.assertEqual(payload["handoff_manifest_issues"], [])
+        self.assertEqual(payload["remote_audit_at"], "2026-06-27T22:58:58Z")
+        self.assertEqual(payload["prepared_lane_proof_checked_at"], "2026-06-27T22:58:58Z")
         self.assertEqual(payload["expected_registry_commit"], "a" * 40)
         self.assertEqual(payload["local_head"], "b" * 40)
         self.assertIs(payload["candidate_owner_release_branch_remote_exists"], False)
@@ -13655,6 +13662,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("status_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("module_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("publication_boundary_not_explicit", payload["handoff_manifest_issues"])
+        self.assertIn("missing_or_invalid_remote_audit_at", payload["handoff_manifest_issues"])
         self.assertIn("local_head_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_mismatch", payload["handoff_manifest_issues"])
@@ -13668,6 +13676,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("voice_changed_files_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_diffstat", payload["handoff_manifest_issues"])
+        self.assertIn("missing_prepared_local_release_lane", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_owner_lane_recipe", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_registry_pin_proof_command", payload["handoff_manifest_issues"])
@@ -13692,6 +13701,7 @@ class SparkCliTests(unittest.TestCase):
                             "or hosted publication is authorized by this manifest."
                         ),
                         "expected_registry_commit": "a" * 40,
+                        "remote_audit_at": "2026-06-27T22:58:58Z",
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
                         "decision": "owner_source_required_before_registry_pin",
@@ -13717,6 +13727,10 @@ class SparkCliTests(unittest.TestCase):
                             "files_changed": 4,
                             "insertions": 731,
                             "deletions": 8,
+                        },
+                        "prepared_local_release_lane": {
+                            "proof_checked_at": "2026-06-27T22:58:58Z",
+                            "proof_result": "132 passed",
                         },
                         "required_local_commits": [
                             {"commit": "8a246af", "subject": "Join voice runtime state traces"},
