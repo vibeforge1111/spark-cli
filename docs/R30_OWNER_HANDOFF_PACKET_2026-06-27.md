@@ -36,22 +36,25 @@ rows so owner handoffs can be sequenced without hiding broader drift.
 
 Direct R30 blockers:
 
-- `domain-chip-memory`
-- `spark-intelligence-builder`
-- `spark-telegram-bot`
-- `spark-voice-comms`
-- `spawner-ui`
+- `domain-chip-memory`: review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.
+- `spark-intelligence-builder`: review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.
+- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.
+- `spark-voice-comms`: port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.
+- `spawner-ui`: port or push the Spawner PRD proof-continuity commits, then rerun Spawner checks before registry pin movement.
 
 Supporting release-hygiene rows:
 
-- `domain-chip-spark-qa-evidence-lane`
-- `spark-character`
-- `spark-harness-core`
-- `spark-researcher`
-- `spark-skill-graphs`
+- `domain-chip-spark-qa-evidence-lane`: converge owner source and installed metadata before claiming full Spark-wide publish truth.
+- `spark-character`: converge owner source and installed runtime metadata before claiming full Spark-wide publish truth.
+- `spark-harness-core`: converge owner source and installed runtime metadata before claiming full Spark-wide publish truth.
+- `spark-researcher`: converge owner source and installed runtime metadata before claiming full Spark-wide publish truth.
+- `spark-skill-graphs`: converge owner source and installed metadata before claiming the optional-module lane ship-ready.
 
 All ten rows still block public installer truth until registry, installed
 runtime metadata, and owner-source refs converge.
+
+The same actions are emitted by `spark verify --r30 --json` under
+`release_lane_classification`.
 
 ## Exact Commit Lists
 

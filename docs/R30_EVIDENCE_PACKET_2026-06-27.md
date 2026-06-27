@@ -63,11 +63,11 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 
 Direct R30 release-lane blockers:
 
-- `domain-chip-memory`: head differs from registry
-- `spark-intelligence-builder`: head differs from registry
-- `spark-telegram-bot`: head differs from registry
-- `spark-voice-comms`: head and installed metadata differ from registry
-- `spawner-ui`: head differs from registry
+- `domain-chip-memory`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts`
+- `spark-intelligence-builder`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py`
+- `spark-telegram-bot`: head differs from registry; next proof commands are `npm run control:proof:reliability`, `npm run build`, and `npm run check:line-count`
+- `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q` and `spark os compile --json`
+- `spawner-ui`: head differs from registry; next proof command is `npm run check`
 
 Supporting release-hygiene rows:
 
