@@ -13452,7 +13452,7 @@ class SparkCliTests(unittest.TestCase):
         blockers = {item["module"]: item for item in payload["direct_blockers"]}
         self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("Level 5 Codex sandbox confirmation fix", blockers["spark-telegram-bot"]["next_action"])
-        self.assertIn("effective Level 5 sandbox-before-operator-claims guard", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("npm run build", blockers["spark-telegram-bot"]["proof_commands"])
         self.assertIn(
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
@@ -14402,6 +14402,7 @@ class SparkCliTests(unittest.TestCase):
             "Surface effective Level 5 sandbox in Telegram\n"
             "Block Level 5 full-access copy on read-only sandbox\n"
             "Require effective Level 5 sandbox before operator claims\n"
+            "Harden Telegram Level 5 sandbox status\n"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -14530,6 +14531,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Surface effective Level 5 sandbox in Telegram",
                                     "Block Level 5 full-access copy on read-only sandbox",
                                     "Require effective Level 5 sandbox before operator claims",
+                                    "Harden Telegram Level 5 sandbox status",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
@@ -14604,6 +14606,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Surface effective Level 5 sandbox in Telegram",
                                     "Block Level 5 full-access copy on read-only sandbox",
                                     "Require effective Level 5 sandbox before operator claims",
+                                    "Harden Telegram Level 5 sandbox status",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
@@ -14921,6 +14924,7 @@ class SparkCliTests(unittest.TestCase):
                             "Surface effective Level 5 sandbox in Telegram",
                             "Block Level 5 full-access copy on read-only sandbox",
                             "Require effective Level 5 sandbox before operator claims",
+                            "Harden Telegram Level 5 sandbox status",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "local_proof": "passed",
