@@ -18,6 +18,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, local installer integrity. Blocking checks: publish handoffs, release-lane registry/runtime issues, registry pin drift, and R28 installer pins. |
 | `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=duplex`, `voice_surface_blockers=0`. |
 | `spark live status --json` | PASS | `ok=true`; primary Telegram and QA Telegram profiles running; Spawner UI healthy; voice importable; no repair hints. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
@@ -47,6 +48,31 @@ Publish handoff families:
 
 - `local_runtime_test_artifacts`: `spark-telegram-bot`, `spawner-ui`
 - `builder_trace_health`: `historical_open_high_severity_events`
+
+## R30 Release Gate Details
+
+Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`:
+
+- `r30_docs`: pass
+- `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
+- `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
+- `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows
+- `registry_pins`: fail
+- `local_installers`: pass
+- `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-22-r28`
+
+Release-lane issue rows:
+
+- `domain-chip-memory`: head differs from registry
+- `domain-chip-spark-qa-evidence-lane`: head and installed metadata differ from registry
+- `spark-character`: head differs from registry
+- `spark-harness-core`: head differs from registry
+- `spark-intelligence-builder`: head differs from registry
+- `spark-researcher`: head differs from registry
+- `spark-skill-graphs`: head and installed metadata differ from registry
+- `spark-telegram-bot`: head differs from registry
+- `spark-voice-comms`: head and installed metadata differ from registry
+- `spawner-ui`: head differs from registry
 
 Builder trace current health:
 

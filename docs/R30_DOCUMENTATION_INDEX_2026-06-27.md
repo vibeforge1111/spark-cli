@@ -31,6 +31,7 @@ Current green proof:
 Current blockers:
 
 - `spark-voice-comms` registry pin drift remains real.
+- `spark verify --r30 --json` reports `10` release-lane registry/runtime issue rows.
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder has one historical high-severity lifecycle family that must remain visible or be closed with owner evidence.
 - Hosted `agent.sparkswarm.ai` is R29 while local installer files are R28.
