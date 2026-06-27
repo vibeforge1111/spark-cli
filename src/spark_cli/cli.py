@@ -8785,6 +8785,7 @@ def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> d
             issues.append(f"missing_live_head_command:{ref}")
     required_clauses = {
         "level5_profile_env_proof": "live_level5_env_files_all_profiled_services_full_access",
+        "level5_effective_sandbox_fields": "effective_codex_sandbox",
         "voice_action_confirmation_truth": "requires_confirmation_for_actions=true",
         "publication_source_blockers": "source_truth_blockers",
     }

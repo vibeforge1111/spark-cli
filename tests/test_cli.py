@@ -14012,6 +14012,7 @@ class SparkCliTests(unittest.TestCase):
         required = (
             "spark-cli verify with git rev-parse HEAD\n"
             "live_level5_env_files_all_profiled_services_full_access\n"
+            "effective_codex_sandbox\n"
             "requires_confirmation_for_actions=true\n"
             "source_truth_blockers\n"
         )
@@ -14044,6 +14045,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("stale_cli_head", " ".join(payload["issues"]))
         self.assertIn("missing_live_head_command", " ".join(payload["issues"]))
         self.assertIn("missing_cli_handoff_clause:level5_profile_env_proof", payload["issues"])
+        self.assertIn("missing_cli_handoff_clause:level5_effective_sandbox_fields", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:voice_action_confirmation_truth", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:publication_source_blockers", payload["issues"])
 
