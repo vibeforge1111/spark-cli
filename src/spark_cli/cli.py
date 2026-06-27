@@ -8761,7 +8761,10 @@ def collect_r30_access_level5_codex_sandbox_status(
         "telegram_recursive_bridge_uses_effective_level5_env": "import { effectiveLevel5RuntimeEnv } from './level5RuntimeEnv';" in telegram_recursive_text
         and "effectiveLevel5RuntimeEnv({ ...process.env })" in telegram_recursive_text,
         "telegram_recursive_bridge_test_proves_effective_env": "recursive bridge subprocesses inherit effective Level 5 runtime env" in telegram_recursive_test_text
-        and "effectiveLevel5RuntimeEnv({ ...process.env })" in telegram_recursive_test_text,
+        and "effectiveLevel5RuntimeEnv" in telegram_recursive_test_text
+        and "process\\.env" in telegram_recursive_test_text
+        and "doesNotMatch" in telegram_recursive_test_text
+        and "const env: NodeJS\\.ProcessEnv = \\{ \\.\\.\\.process\\.env \\}" in telegram_recursive_test_text,
     }
     if check_live_env:
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok

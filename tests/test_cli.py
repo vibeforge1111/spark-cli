@@ -13998,7 +13998,10 @@ class SparkCliTests(unittest.TestCase):
         )
         recursive_test.write_text(
             "recursive bridge subprocesses inherit effective Level 5 runtime env\n"
-            "effectiveLevel5RuntimeEnv({ ...process.env })\n",
+            "effectiveLevel5RuntimeEnv({ ...process.env })\n"
+            "process\\.env\n"
+            "doesNotMatch\n"
+            "const env: NodeJS\\.ProcessEnv = \\{ \\.\\.\\.process\\.env \\}\n",
             encoding="utf-8",
         )
 
