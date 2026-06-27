@@ -13452,6 +13452,7 @@ class SparkCliTests(unittest.TestCase):
         blockers = {item["module"]: item for item in payload["direct_blockers"]}
         self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("Level 5 Codex sandbox confirmation fix", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("effective Level 5 sandbox-before-operator-claims guard", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("npm run build", blockers["spark-telegram-bot"]["proof_commands"])
         self.assertIn(
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
