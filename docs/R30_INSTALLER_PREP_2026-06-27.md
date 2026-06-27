@@ -29,7 +29,8 @@ spark os compile --json
 Expected before manifest edit:
 
 - `publication_order` passes because installer pins have not been advanced while source/registry truth is still red
-- R30 release gate blocks only on installer pins awaiting the authorized R30 manifest batch
+- the R30 gate exposes top-level `source_truth_ready=false`, `source_truth_blockers=[...]`, and `installer_pins_are_r30=false` while owner-source, registry, or lifecycle handoffs remain open
+- after source/registry truth is green, the R30 release gate should block only on installer pins awaiting the authorized R30 manifest batch
 - registry pins pass
 - provenance passes
 - Spark OS compile reports `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`
