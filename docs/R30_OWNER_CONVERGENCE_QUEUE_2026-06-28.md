@@ -10,7 +10,8 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work:
+red only for release-truth work. Rechecked at `2026-06-27T23:33:53Z` from
+`spark-cli` head `648b0a7e0567`; dirty release repo count remained `0`:
 
 - `release_lane`: 5 direct R30 blockers and 5 supporting hygiene rows.
 - `r30_voice_registry_decision`: voice needs source-owned trace/governor proof
@@ -20,6 +21,25 @@ red only for release-truth work:
 
 `publish_handoff_blockers.ok=true`: Telegram/Spawner local runtime artifacts
 and Builder historical trace health are carried explicitly, not hidden.
+
+Current `release_lane` mismatches from the same gate:
+
+| Class | Module | Local head | Registry truth | Installed metadata | Issues |
+| --- | --- | --- | --- | --- | --- |
+| Direct R30 | `spark-voice-comms` | `c502ec096cef` | `21a9467e9bd4` | `0d6e366fd04d` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
+| Direct R30 | `spark-telegram-bot` | `8190500deebe` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
+| Direct R30 | `spawner-ui` | `3042f8acbdde` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
+| Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
+| Direct R30 | `spark-intelligence-builder` | `f21522accf66` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
+| Supporting | `domain-chip-spark-qa-evidence-lane` | `215c6b9cbefb` | `476644de047e` | `fc1a8b42bdc7` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
+| Supporting | `spark-character` | `cf8177561c16` | `6901e2e2ab0a` | `6901e2e2ab0a` | `head_differs_from_registry` |
+| Supporting | `spark-harness-core` | `b190986996f0` | `71e564b36b93` | `71e564b36b93` | `head_differs_from_registry` |
+| Supporting | `spark-researcher` | `587dbd2a57d6` | `906592e2bb02` | `906592e2bb02` | `head_differs_from_registry` |
+| Supporting | `spark-skill-graphs` | `8dcdd172f35f` | `59c211afc6f0` | `8dcdd172f35f` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
+
+Fresh remote-ref audit at `2026-06-27T23:33:53Z` confirmed the owner bases
+listed below are still current. No remote `release/r30-voice-trace-governor`
+or `harness-discipline-line-count-gate` owner branch exists yet.
 
 ## Direct Owner Queue
 
