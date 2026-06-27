@@ -825,7 +825,7 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
         git_command("-C", str(module.path), "fetch", "--depth=1", "origin", pinned_commit),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     if fetch.returncode != 0:
         return False, summarize_command_output(fetch)
 
