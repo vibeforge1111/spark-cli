@@ -60,6 +60,11 @@ The structured handoff form is [R30 owner handoff manifest](./R30_OWNER_HANDOFF_
 `spark verify --r30 --json` checks that the manifest matches the live
 release-lane classification and commit metadata.
 
+The Telegram and Spawner local runtime artifact handoff form is
+[R30 local runtime artifacts handoff manifest](./R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json).
+`spark verify --r30 --json` checks that those owner names, local heads,
+installed registry commits, and proof commands match live release-lane evidence.
+
 Fresh local proof status for direct blockers:
 
 - `domain-chip-memory`: proof command passed.

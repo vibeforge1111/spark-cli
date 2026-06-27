@@ -111,6 +111,7 @@ GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
+R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json"
 R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.md"
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
@@ -8467,6 +8468,77 @@ def collect_r30_handoff_manifest_status(
     }
 
 
+def collect_r30_local_runtime_artifacts_handoff_status(
+    release_lane_classification: dict[str, Any],
+    publish_handoffs: dict[str, Any],
+    *,
+    manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    path = manifest_path or R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH
+    ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+    manifest = load_json(path, {})
+    local_runtime = publish_handoffs.get("local_runtime_test_artifacts")
+    owners = sorted(str(item) for item in local_runtime.get("owners", [])) if isinstance(local_runtime, dict) else []
+    direct_rows = release_lane_classification.get("direct_blockers")
+    direct_rows = direct_rows if isinstance(direct_rows, list) else []
+    live_rows = {str(row.get("module") or ""): row for row in direct_rows if isinstance(row, dict)}
+    issues: list[str] = []
+    mismatches: list[dict[str, Any]] = []
+    if not isinstance(manifest, dict) or not manifest:
+        return {
+            "ok": False,
+            "path": ref,
+            "detail": "R30 local runtime artifacts handoff manifest is missing or invalid.",
+            "issues": ["missing_or_invalid_manifest"],
+            "owners": owners,
+        }
+    if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
+        issues.append("release_mismatch")
+    manifest_modules = manifest.get("artifacts")
+    manifest_modules = manifest_modules if isinstance(manifest_modules, list) else []
+    manifest_names = sorted(str(item.get("module") or "") for item in manifest_modules if isinstance(item, dict))
+    if manifest_names != owners:
+        issues.append("local_runtime_owners_mismatch")
+    for item in manifest_modules:
+        if not isinstance(item, dict):
+            issues.append("invalid_artifact_row")
+            continue
+        module = str(item.get("module") or "")
+        live = live_rows.get(module)
+        if live is None:
+            mismatches.append({"module": module, "issues": ["missing_live_release_lane_row"]})
+            continue
+        row_issues: list[str] = []
+        if item.get("expected_registry_commit") != live.get("expected_commit"):
+            row_issues.append("expected_registry_commit_mismatch")
+        if item.get("local_head") != live.get("actual_commit"):
+            row_issues.append("local_head_mismatch")
+        if item.get("installed_registry_commit") != live.get("installed_registry_commit"):
+            row_issues.append("installed_registry_commit_mismatch")
+        if item.get("local_proof") != "passed":
+            row_issues.append("local_proof_not_passed")
+        proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
+        if not proof_commands:
+            row_issues.append("missing_proof_commands")
+        if row_issues:
+            mismatches.append({"module": module, "issues": row_issues})
+    if mismatches:
+        issues.append("artifact_metadata_mismatch")
+    return {
+        "ok": not issues,
+        "path": ref,
+        "detail": (
+            "R30 local runtime artifacts handoff manifest matches live Telegram/Spawner artifact evidence."
+            if not issues
+            else f"R30 local runtime artifacts handoff manifest has issues: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "mismatches": mismatches,
+        "owners": owners,
+        "artifacts": manifest_names,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -8496,6 +8568,10 @@ def collect_r30_release_gate_payload(
     )
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
     handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
+    local_runtime_artifacts_handoff = collect_r30_local_runtime_artifacts_handoff_status(
+        release_lane_classification,
+        publish_handoffs,
+    )
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
@@ -8511,6 +8587,7 @@ def collect_r30_release_gate_payload(
     source_truth_ready = (
         int(publish_handoffs.get("family_count") or 0) == 0
         and bool(handoff_manifest.get("ok"))
+        and bool(local_runtime_artifacts_handoff.get("ok"))
         and bool(release_lane.get("ok"))
         and bool(registry_pins.get("ok"))
     )
@@ -8531,6 +8608,8 @@ def collect_r30_release_gate_payload(
         "docs/R30_RELEASE_PLAN_2026-06-27.md",
         "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
         "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+        "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+        "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
         "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
         "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
         "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
@@ -8575,6 +8654,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(handoff_manifest.get("ok")),
             "detail": handoff_manifest.get("detail", "R30 owner handoff manifest"),
             "summary": handoff_manifest,
+        },
+        {
+            "name": "r30_local_runtime_artifacts_handoff",
+            "ok": bool(local_runtime_artifacts_handoff.get("ok")),
+            "detail": local_runtime_artifacts_handoff.get("detail", "R30 local runtime artifacts handoff"),
+            "summary": local_runtime_artifacts_handoff,
         },
         {
             "name": "release_lane",
@@ -8666,6 +8751,7 @@ def collect_r30_release_gate_payload(
         },
         "publish_handoffs": publish_handoffs,
         "owner_handoff_manifest": handoff_manifest,
+        "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
         "voice_registry_decision": voice_registry_decision,
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,

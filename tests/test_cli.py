@@ -46,6 +46,7 @@ from spark_cli.cli import (
     collect_r30_access_level5_codex_sandbox_status,
     collect_r30_builder_trace_lifecycle_status,
     collect_r30_live_status_status,
+    collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_release_gate_payload,
     collect_r30_voice_registry_decision_status,
     collect_r30_voice_runtime_truth_status,
@@ -13621,6 +13622,105 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("commit_metadata_mismatch", payload["issues"])
         self.assertEqual(payload["commit_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("local_head_mismatch", payload["commit_mismatches"][0]["issues"])
+
+    def test_r30_local_runtime_artifacts_handoff_matches_live_rows(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "installed_registry_commit": "a" * 40,
+                },
+                {
+                    "module": "spawner-ui",
+                    "expected_commit": "c" * 40,
+                    "actual_commit": "d" * 40,
+                    "installed_registry_commit": "c" * 40,
+                },
+            ],
+        }
+        publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spawner-ui", "spark-telegram-bot"]}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "installed_registry_commit": "a" * 40,
+                                "proof_commands": ["npm run control:proof:reliability"],
+                                "local_proof": "passed",
+                            },
+                            {
+                                "module": "spawner-ui",
+                                "expected_registry_commit": "c" * 40,
+                                "local_head": "d" * 40,
+                                "installed_registry_commit": "c" * 40,
+                                "proof_commands": ["npm run check"],
+                                "local_proof": "passed",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issues"], [])
+        self.assertEqual(payload["artifacts"], ["spark-telegram-bot", "spawner-ui"])
+
+    def test_r30_local_runtime_artifacts_handoff_reports_stale_manifest(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "installed_registry_commit": "a" * 40,
+                }
+            ],
+        }
+        publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spark-telegram-bot", "spawner-ui"]}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "wrong",
+                                "local_head": "b" * 40,
+                                "installed_registry_commit": "a" * 40,
+                                "proof_commands": [],
+                                "local_proof": "passed",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+        self.assertFalse(payload["ok"])
+        self.assertIn("local_runtime_owners_mismatch", payload["issues"])
+        self.assertIn("artifact_metadata_mismatch", payload["issues"])
+        self.assertEqual(payload["mismatches"][0]["module"], "spark-telegram-bot")
+        self.assertIn("expected_registry_commit_mismatch", payload["mismatches"][0]["issues"])
+        self.assertIn("missing_proof_commands", payload["mismatches"][0]["issues"])
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])
