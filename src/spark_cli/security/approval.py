@@ -330,7 +330,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "filter-branch" in lowered
         or "--force" in lowered
         or "--force-with-lease" in lowered
-        or "-f" in lowered and second in {"push", "tag"}
+        or "-f" in lowered and second in {"push", "tag", "checkout", "stash", "clean", "branch"}
         or second in {"rebase", "reset"}
     ):
         return _decision(
