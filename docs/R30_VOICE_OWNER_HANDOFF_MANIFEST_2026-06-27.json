@@ -19,10 +19,12 @@
   "required_local_commits": [
     {
       "commit": "8a246af",
+      "commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
       "subject": "Join voice runtime state traces"
     },
     {
       "commit": "7555a36",
+      "commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
       "subject": "Accept media transcription governor authority"
     }
   ],

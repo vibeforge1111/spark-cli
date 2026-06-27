@@ -29,12 +29,12 @@ Local voice proof is test-clean, but not yet public release truth:
 
 The current local voice proof depends on two commits beyond the owner branch:
 
-- `8a246af Join voice runtime state traces`
-- `7555a36 Accept media transcription governor authority`
+- `8a246af1eb0732aec432d88e4e4c2b6411023b7c` (`8a246af Join voice runtime state traces`)
+- `7555a363d7638537b1a9ec1ee377e460d2343323` (`7555a36 Accept media transcription governor authority`)
 
 The R30 gate checks the structured handoff manifest so these exact commits,
-proof commands, and the rejection of the existing public tag as the final R30
-voice claim cannot drift out of the release packet unnoticed.
+full commit hashes, proof commands, and the rejection of the existing public tag
+as the final R30 voice claim cannot drift out of the release packet unnoticed.
 
 ## Required R30 Path
 

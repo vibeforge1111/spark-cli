@@ -8110,10 +8110,17 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
                 manifest_issues.append(f"{key}_mismatch")
         if handoff_manifest.get("existing_public_ref_final_r30_claim_allowed") is not False:
             manifest_issues.append("existing_public_ref_not_rejected_for_final_r30_claim")
-        if not isinstance(required_commits, list) or not all(
+        if not isinstance(required_commits, list) or len(required_commits) < 2 or not all(
             isinstance(item, dict) and item.get("commit") and item.get("subject") for item in required_commits
         ):
             manifest_issues.append("missing_required_voice_commits")
+        elif not all(
+            isinstance(item.get("commit_full"), str)
+            and len(str(item.get("commit_full"))) == 40
+            and str(item.get("commit_full")).startswith(str(item.get("commit")))
+            for item in required_commits
+        ):
+            manifest_issues.append("missing_required_voice_commit_full_hashes")
         if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:

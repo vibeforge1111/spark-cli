@@ -13331,7 +13331,18 @@ class SparkCliTests(unittest.TestCase):
                         "installed_registry_commit": "c" * 40,
                         "decision": "owner_source_required_before_registry_pin",
                         "existing_public_ref_final_r30_claim_allowed": False,
-                        "required_local_commits": [{"commit": "8a246af", "subject": "Join voice runtime state traces"}],
+                        "required_local_commits": [
+                            {
+                                "commit": "8a246af",
+                                "commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                                "subject": "Join voice runtime state traces",
+                            },
+                            {
+                                "commit": "7555a36",
+                                "commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+                                "subject": "Accept media transcription governor authority",
+                            }
+                        ],
                         "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
                     }
                 ),
@@ -13398,7 +13409,46 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("expected_registry_commit_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("local_head_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
+        self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
+
+    def test_r30_voice_registry_decision_requires_full_required_commit_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path = Path(tmpdir) / "voice-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "expected_registry_commit": "a" * 40,
+                        "local_head": "b" * 40,
+                        "installed_registry_commit": "c" * 40,
+                        "decision": "owner_source_required_before_registry_pin",
+                        "existing_public_ref_final_r30_claim_allowed": False,
+                        "required_local_commits": [
+                            {"commit": "8a246af", "subject": "Join voice runtime state traces"},
+                            {"commit": "7555a36", "subject": "Accept media transcription governor authority"},
+                        ],
+                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+                payload = collect_r30_voice_registry_decision_status(
+                    {
+                        "direct_blockers": [
+                            {
+                                "module": "spark-voice-comms",
+                                "issues": ["head_differs_from_registry"],
+                                "expected_commit": "a" * 40,
+                                "actual_commit": "b" * 40,
+                                "installed_registry_commit": "c" * 40,
+                            }
+                        ]
+                    }
+                )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("missing_required_voice_commit_full_hashes", payload["handoff_manifest_issues"])
 
     def test_r30_voice_registry_decision_passes_when_voice_has_no_release_lane_blocker(self) -> None:
         payload = collect_r30_voice_registry_decision_status({"direct_blockers": []})
