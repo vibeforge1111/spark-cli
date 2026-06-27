@@ -93,10 +93,10 @@ Direct R30 release-lane blockers:
 - `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q`, `spark os compile --json`, `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`, and `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`
 - `spawner-ui`: head differs from registry; next proof commands are the focused Codex sandbox lane tests and `npm run check`
 
-Fresh direct-blocker proof results:
+Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 
 - `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
-- `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
+- `spark-intelligence-builder`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
 - `spark-telegram-bot`: `npm test -- tests/accessPolicy.test.ts tests/accessActions.test.ts`, `npm run build`, and `PYTHONPATH=src python3 -m spark_cli.cli access status --level 5 --json` passed. Live Level 5 proof reports `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`. Local head is `a87f4ebe2298` (`a87f4ebe2298069add925b1f1f5a0806a6979ee8`), including the `/access 5` high-agency activation proof stack and proof-oracle Level 5 runtime validation.
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `46 passed` for the refreshed Level 5 launcher slice; `npm run build` passed; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `97cb911bf7ac`, including direct-client, PRD auto-dispatch, PRD bridge, and persisted Spawner-env Level 5 Codex sandbox fixes.

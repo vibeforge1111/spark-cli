@@ -81,10 +81,10 @@ The Telegram and Spawner local runtime artifact handoff form is
 `spark verify --r30 --json` checks that those owner names, local heads,
 installed registry commits, and proof commands match live release-lane evidence.
 
-Fresh local proof status for direct blockers:
+Fresh local proof status for direct blockers, refreshed at `2026-06-27T21:33:59Z`:
 
-- `domain-chip-memory`: proof command passed.
-- `spark-intelligence-builder`: focused proof tests passed.
+- `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
+- `spark-intelligence-builder`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
 - `spark-telegram-bot`: reliability, build, and line-count gates passed.
 - `spark-voice-comms`: pytest passed.
 - `spawner-ui`: focused Codex sandbox lane tests and Svelte check passed.
