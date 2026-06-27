@@ -43,23 +43,24 @@
       "module": "spawner-ui",
       "runtime_classification": "local_runtime_test_artifact",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "7110dce4030a700ad61460ab79be7eff8312f06c",
+      "local_head": "97cb911bf7ac8e8d09c3d62fad26589831ebbf09",
       "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c",
-      "commit_count": 11,
-      "changed_file_count": 17,
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09",
+      "commit_count": 12,
+      "changed_file_count": 20,
       "first_local_commit": "424547437e7e647829a1bfb5571c642e79afc6e6",
       "first_local_commit_subject": "Carry Harness proof refs in PRD traces",
-      "last_local_commit": "7110dce4030a700ad61460ab79be7eff8312f06c",
-      "last_local_commit_subject": "Honor Level 5 sandbox in PRD Codex lanes",
+      "last_local_commit": "97cb911bf7ac8e8d09c3d62fad26589831ebbf09",
+      "last_local_commit_subject": "Honor persisted Level 5 sandbox in Spawner",
       "required_terminal_subjects": [
         "Carry Harness proof refs in PRD traces",
         "Add Spawner PRD proof continuity repair",
         "Honor Level 5 Codex sandbox in direct client",
-        "Honor Level 5 sandbox in PRD Codex lanes"
+        "Honor Level 5 sandbox in PRD Codex lanes",
+        "Honor persisted Level 5 sandbox in Spawner"
       ],
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes onto the current owner release base before registry movement.",
+      "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base before registry movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
         "npm run check"

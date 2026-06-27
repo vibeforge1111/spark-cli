@@ -99,12 +99,12 @@ Fresh direct-blocker proof results:
 - `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
 - `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `fe39d37c80c2` (`fe39d37c80c226c549a730e854e58dcac7aaa4af`), including the `/access 5` high-agency activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, and Level 5 proof gate.
 - `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
-- `spawner-ui`: focused Codex sandbox lane tests passed, `54 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `7110dce4030a`, including direct-client, PRD auto-dispatch, and PRD bridge Level 5 Codex sandbox fixes.
+- `spawner-ui`: focused Codex sandbox lane tests passed, `46 passed` for the refreshed Level 5 launcher slice; `npm run build` passed; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `97cb911bf7ac`, including direct-client, PRD auto-dispatch, PRD bridge, and persisted Spawner-env Level 5 Codex sandbox fixes.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 
 - `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`, `Block Level 5 full-access copy on read-only sandbox`, `Require effective Level 5 sandbox before operator claims`, `Harden Telegram Level 5 sandbox status`, `Harden Telegram Level 5 proof gate`
-- `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`
+- `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`, `Honor persisted Level 5 sandbox in Spawner`
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed
@@ -118,6 +118,7 @@ Fresh access hardening run at `2026-06-27T16:07Z`:
 - Live env files checked: `spawner`, base `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all carry `SPARK_ALLOW_HIGH_AGENCY_WORKERS=1`, `SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1`, and `SPARK_CODEX_SANDBOX=danger-full-access`.
 - New regression: a Level 5 setup with `primary` restarted but `sparkqa-bot` not restarted must report `activation_state=partial`, `service_enabled=false`, `missing_or_stale_services=["spark-telegram-bot:sparkqa-bot"]`, and effective access Level 4.
 - New regression: the same setup with both named Telegram profiles restarted reports `activation_state=active_for_services`, `service_enabled=true`, and effective access Level 5.
+- New regression: Spawner Codex launchers must inherit persisted `spawner-ui.env` Level 5 guardrails when the service process env is stale, and must still fail closed when the persisted env bundle is partial.
 - New regression: if env/profile proof is green but the final live access payload reports `effective_codex_sandbox=read-only`, `r30_access_level5_codex_sandbox` fails with `live_level5_effective_codex_sandbox_is_danger_full_access`.
 
 This closes the read-only drift class where Telegram `/access 5` or a lower-level-to-Level-5 promotion could look globally active while one named bot profile was still running with stale sandbox settings, or while the final effective Codex sandbox was still read-only/workspace-bound.

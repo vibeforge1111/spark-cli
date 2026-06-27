@@ -62,10 +62,10 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "7110dce4030a700ad61460ab79be7eff8312f06c",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c",
+      "local_head": "97cb911bf7ac8e8d09c3d62fad26589831ebbf09",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09",
       "owner_truth": "owner branch fdb8fded4744; remote main/tag spark-ship-2026-06-26 at 451d009aad84; registry baseline tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
         "npm run check"

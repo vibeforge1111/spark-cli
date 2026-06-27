@@ -13459,7 +13459,7 @@ class SparkCliTests(unittest.TestCase):
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
             blockers["spark-telegram-bot"]["proof_commands"],
         )
-        self.assertIn("PRD-lane Level 5 Codex sandbox fixes", blockers["spawner-ui"]["next_action"])
+        self.assertIn("persisted Level 5 Codex sandbox fixes", blockers["spawner-ui"]["next_action"])
         self.assertIn("current owner release base", blockers["spawner-ui"]["next_action"])
         self.assertIn("npm run check", blockers["spawner-ui"]["proof_commands"])
         self.assertTrue(any("high-agency-workers.test.ts" in command for command in blockers["spawner-ui"]["proof_commands"]))
@@ -13842,6 +13842,23 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["decision"], "builder_trace_lifecycle_clear")
 
+    def write_r30_spawner_level5_fixture(self, source: Path) -> None:
+        high_agency_workers = source / "src" / "lib" / "server" / "high-agency-workers.ts"
+        high_agency_workers_test = source / "src" / "lib" / "server" / "high-agency-workers.test.ts"
+        high_agency_workers.parent.mkdir(parents=True, exist_ok=True)
+        high_agency_workers.write_text(
+            "export function effectiveLevel5Env() { return 'spawner-ui.env danger-full-access'; }\n"
+            "export function resolveCodexSandbox() { return effectiveLevel5Env(); }\n",
+            encoding="utf-8",
+        )
+        high_agency_workers_test.write_text(
+            "it('uses persisted Spawner Level 5 env when the service process env is stale', () => {\n"
+            "  const env = { SPARK_CODEX_SANDBOX: 'workspace-write' };\n"
+            "  expect(resolveCodexSandbox(env)).toBe('danger-full-access');\n"
+            "});\n",
+            encoding="utf-8",
+        )
+
     def test_r30_access_level5_codex_sandbox_status_passes_with_spawner_source_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -13859,6 +13876,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge.parent.mkdir(parents=True)
             telegram_actions.parent.mkdir(parents=True)
             telegram_actions_test.parent.mkdir(parents=True)
+            self.write_r30_spawner_level5_fixture(source)
             client.write_text(
                 "import { resolveCodexSandbox } from '../high-agency-workers';\n"
                 "args.push('--sandbox', resolveCodexSandbox(options.env));\n"
@@ -13947,6 +13965,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge.parent.mkdir(parents=True)
             telegram_actions.parent.mkdir(parents=True)
             telegram_actions_test.parent.mkdir(parents=True)
+            self.write_r30_spawner_level5_fixture(source)
             client.write_text(
                 "import { resolveCodexSandbox } from '../high-agency-workers';\n"
                 "args.push('--sandbox', resolveCodexSandbox(options.env));\n"
@@ -14004,6 +14023,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge.parent.mkdir(parents=True)
             telegram_actions.parent.mkdir(parents=True)
             telegram_actions_test.parent.mkdir(parents=True)
+            self.write_r30_spawner_level5_fixture(source)
             client.write_text(
                 "import { resolveCodexSandbox } from '../high-agency-workers';\n"
                 "args.push('--sandbox', resolveCodexSandbox(options.env));\n"
@@ -14083,6 +14103,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge.parent.mkdir(parents=True)
             telegram_actions.parent.mkdir(parents=True)
             telegram_actions_test.parent.mkdir(parents=True)
+            self.write_r30_spawner_level5_fixture(source)
             client.write_text(
                 "import { resolveCodexSandbox } from '../high-agency-workers';\n"
                 "args.push('--sandbox', resolveCodexSandbox(options.env));\n"

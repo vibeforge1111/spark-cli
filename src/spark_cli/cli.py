@@ -177,7 +177,7 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
         "proof_commands": [
             "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
             "npm run check",
@@ -8530,6 +8530,8 @@ def collect_r30_access_level5_codex_sandbox_status(
 
     client_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.ts"
     client_test_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.test.ts"
+    high_agency_workers_path = spawner_path / "src" / "lib" / "server" / "high-agency-workers.ts"
+    high_agency_workers_test_path = spawner_path / "src" / "lib" / "server" / "high-agency-workers.test.ts"
     prd_auto_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.ts"
     prd_auto_test_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.test.ts"
     prd_bridge_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "+server.ts"
@@ -8541,6 +8543,8 @@ def collect_r30_access_level5_codex_sandbox_status(
 
     client_text = read_optional(client_path)
     client_test_text = read_optional(client_test_path)
+    high_agency_workers_text = read_optional(high_agency_workers_path)
+    high_agency_workers_test_text = read_optional(high_agency_workers_test_path)
     prd_auto_text = read_optional(prd_auto_path)
     prd_auto_test_text = read_optional(prd_auto_test_path)
     prd_bridge_text = read_optional(prd_bridge_path)
@@ -8605,6 +8609,12 @@ def collect_r30_access_level5_codex_sandbox_status(
         "client_exists": bool(client_text),
         "client_test_exists": bool(client_test_text),
         "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
+        "spawner_resolver_uses_persisted_level5_env": "effectiveLevel5Env" in high_agency_workers_text
+        and "spawner-ui.env" in high_agency_workers_text
+        and "danger-full-access" in high_agency_workers_text,
+        "spawner_test_proves_stale_process_env_inherits_level5": "uses persisted Spawner Level 5 env when the service process env is stale" in high_agency_workers_test_text
+        and "SPARK_CODEX_SANDBOX: 'workspace-write'" in high_agency_workers_test_text
+        and "danger-full-access" in high_agency_workers_test_text,
         "client_adds_default_sandbox_arg": "args.push('--sandbox', resolveCodexSandbox(options.env))" in client_text,
         "client_honors_explicit_sandbox_arg": "SPARK_CODEX_SANDBOX: value" in client_text,
         "client_test_proves_level5_danger_full_access": "Level 5 guardrails are active" in client_test_text
@@ -8655,6 +8665,8 @@ def collect_r30_access_level5_codex_sandbox_status(
         "files": {
             "client": str(client_path),
             "client_test": str(client_test_path),
+            "high_agency_workers": str(high_agency_workers_path),
+            "high_agency_workers_test": str(high_agency_workers_test_path),
             "prd_auto": str(prd_auto_path),
             "prd_auto_test": str(prd_auto_test_path),
             "prd_bridge": str(prd_bridge_path),
