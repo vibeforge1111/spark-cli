@@ -14562,6 +14562,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Harden Telegram Level 5 sandbox status",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
+                                "owner_action": "Port onto the current owner release base before registry movement.",
                                 "local_proof": "passed",
                             },
                             {
@@ -14580,6 +14581,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Honor Level 5 sandbox in PRD Codex lanes",
                                 ],
                                 "proof_commands": ["npm run check"],
+                                "owner_action": "Port onto the current owner release base before registry movement.",
                                 "local_proof": "passed",
                             },
                         ],
@@ -14955,6 +14957,7 @@ class SparkCliTests(unittest.TestCase):
                             "Harden Telegram Level 5 sandbox status",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
+                        "owner_action": "Port onto the current owner release base before registry movement.",
                         "local_proof": "passed",
                     }
                 ],

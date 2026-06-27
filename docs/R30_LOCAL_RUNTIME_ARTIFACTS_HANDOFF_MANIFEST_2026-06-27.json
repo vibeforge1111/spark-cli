@@ -29,7 +29,7 @@
         "Harden Telegram Level 5 sandbox status"
       ],
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard into an owner release ref before registry movement.",
+      "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base before registry movement.",
       "proof_commands": [
         "npm run control:proof:reliability",
         "npm run build",
@@ -58,7 +58,7 @@
         "Honor Level 5 sandbox in PRD Codex lanes"
       ],
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes into the owner release lane before registry movement.",
+      "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes onto the current owner release base before registry movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
         "npm run check"

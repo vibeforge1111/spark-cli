@@ -8894,6 +8894,9 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             row_issues.append("installed_registry_commit_mismatch")
         if item.get("local_proof") != "passed":
             row_issues.append("local_proof_not_passed")
+        owner_action = str(item.get("owner_action") or "").lower()
+        if "current owner release base" not in owner_action or "before registry movement" not in owner_action:
+            row_issues.append("owner_action_missing_current_owner_release_base")
         proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
         if not proof_commands:
             row_issues.append("missing_proof_commands")
