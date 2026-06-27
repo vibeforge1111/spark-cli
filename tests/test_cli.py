@@ -52,6 +52,7 @@ from spark_cli.cli import (
     collect_r30_voice_runtime_truth_status,
     collect_registry_pin_drift_payload,
     collect_r30_handoff_manifest_status,
+    collect_r30_cli_owner_handoff_docs_status,
     collect_sandbox_verify_payload,
     collect_setup_configuration,
     collect_simple_fix_payload,
@@ -13622,6 +13623,37 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("commit_metadata_mismatch", payload["issues"])
         self.assertEqual(payload["commit_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("local_head_mismatch", payload["commit_mismatches"][0]["issues"])
+
+    def test_r30_cli_owner_handoff_docs_status_requires_live_head_command(self) -> None:
+        release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            audit = root / "audit.md"
+            packet = root / "packet.md"
+            audit.write_text("spark-cli verify with git rev-parse HEAD\n", encoding="utf-8")
+            packet.write_text("spark-cli verify with git rev-parse HEAD\n", encoding="utf-8")
+            with patch("spark_cli.cli.R30_SOURCE_OWNER_AUDIT_PATH", audit), \
+                 patch("spark_cli.cli.R30_OWNER_HANDOFF_PACKET_PATH", packet):
+                payload = collect_r30_cli_owner_handoff_docs_status(release_lane)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issues"], [])
+
+    def test_r30_cli_owner_handoff_docs_status_rejects_stale_cli_head(self) -> None:
+        release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            audit = root / "audit.md"
+            packet = root / "packet.md"
+            audit.write_text("spark-cli verify with git rev-parse HEAD\n", encoding="utf-8")
+            packet.write_text("Current R30 prep head: 788e9d989151\n", encoding="utf-8")
+            with patch("spark_cli.cli.R30_SOURCE_OWNER_AUDIT_PATH", audit), \
+                 patch("spark_cli.cli.R30_OWNER_HANDOFF_PACKET_PATH", packet):
+                payload = collect_r30_cli_owner_handoff_docs_status(release_lane)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("stale_cli_head", " ".join(payload["issues"]))
+        self.assertIn("missing_live_head_command", " ".join(payload["issues"]))
 
     def test_r30_local_runtime_artifacts_handoff_matches_live_rows(self) -> None:
         classification = {

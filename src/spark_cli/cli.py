@@ -110,6 +110,8 @@ AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_SOURCE_OWNER_AUDIT_PATH = REPO_ROOT / "docs" / "R30_SOURCE_OWNER_AUDIT_2026-06-27.md"
+R30_OWNER_HANDOFF_PACKET_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json"
 R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.md"
@@ -8551,6 +8553,51 @@ def collect_r30_local_runtime_artifacts_handoff_status(
     }
 
 
+def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> dict[str, Any]:
+    rows = release_lane.get("rows")
+    rows = rows if isinstance(rows, list) else []
+    cli_row = next((row for row in rows if isinstance(row, dict) and row.get("module") == "spark-cli"), {})
+    head = str(cli_row.get("actual_commit") or "")
+    short_head = head[:12] if head else ""
+    stale_heads = [
+        "788e9d98915142f70307eb8906618e94c63c3cca",
+        "788e9d989151",
+    ]
+    docs = [
+        R30_SOURCE_OWNER_AUDIT_PATH,
+        R30_OWNER_HANDOFF_PACKET_PATH,
+    ]
+    issues: list[str] = []
+    doc_refs: list[str] = []
+    for path in docs:
+        ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+        doc_refs.append(ref)
+        if not path.exists():
+            issues.append(f"missing_doc:{ref}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for stale_head in stale_heads:
+            if stale_head in text:
+                issues.append(f"stale_cli_head:{ref}")
+                break
+        if "git rev-parse HEAD" not in text:
+            issues.append(f"missing_live_head_command:{ref}")
+    if not head:
+        issues.append("missing_cli_release_lane_row")
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 CLI owner handoff docs use live spark-cli head verification and contain no known stale R30 CLI head."
+            if not issues
+            else f"R30 CLI owner handoff docs are stale: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "spark_cli_head": head,
+        "spark_cli_short_head": short_head,
+        "docs": doc_refs,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -8584,6 +8631,7 @@ def collect_r30_release_gate_payload(
         release_lane_classification,
         publish_handoffs,
     )
+    cli_owner_handoff_docs = collect_r30_cli_owner_handoff_docs_status(release_lane)
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
@@ -8672,6 +8720,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(local_runtime_artifacts_handoff.get("ok")),
             "detail": local_runtime_artifacts_handoff.get("detail", "R30 local runtime artifacts handoff"),
             "summary": local_runtime_artifacts_handoff,
+        },
+        {
+            "name": "r30_cli_owner_handoff_docs",
+            "ok": bool(cli_owner_handoff_docs.get("ok")),
+            "detail": cli_owner_handoff_docs.get("detail", "R30 CLI owner handoff docs"),
+            "summary": cli_owner_handoff_docs,
         },
         {
             "name": "release_lane",
@@ -8764,6 +8818,7 @@ def collect_r30_release_gate_payload(
         "publish_handoffs": publish_handoffs,
         "owner_handoff_manifest": handoff_manifest,
         "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
+        "cli_owner_handoff_docs": cli_owner_handoff_docs,
         "voice_registry_decision": voice_registry_decision,
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
