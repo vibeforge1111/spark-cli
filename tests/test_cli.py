@@ -13699,7 +13699,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["decision"], "voice_registry_converged")
 
-    def test_r30_builder_trace_lifecycle_blocks_historical_unresolved_family(self) -> None:
+    def test_r30_builder_trace_lifecycle_carries_documented_historical_family(self) -> None:
         payload = collect_r30_builder_trace_lifecycle_status(
             {
                 "builder_trace_health": {
@@ -13712,11 +13712,11 @@ class SparkCliTests(unittest.TestCase):
                 }
             }
         )
-        self.assertFalse(payload["ok"])
-        self.assertEqual(payload["decision"], "builder_trace_lifecycle_owner_closure_required")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["decision"], "builder_trace_lifecycle_historical_handoff_carried")
         self.assertEqual(payload["unresolved_high_severity_open_count"], 1)
         self.assertEqual(payload["current_unresolved_high_severity_open_count"], 0)
-        self.assertIn("historical trace lifecycle", payload["detail"])
+        self.assertIn("explicitly carried", payload["detail"])
 
     def test_r30_builder_trace_lifecycle_requires_exact_historical_family_docs(self) -> None:
         handoff = {
@@ -13755,7 +13755,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("builder_trace_lifecycle_doc_missing_exact_family", stale["doc_issues"])
         self.assertEqual(exact["doc_issues"], [])
         self.assertEqual(exact["release_packet_issues"], [])
-        self.assertFalse(exact["ok"])
+        self.assertTrue(exact["ok"])
+        self.assertEqual(exact["decision"], "builder_trace_lifecycle_historical_handoff_carried")
 
     def test_r30_builder_trace_lifecycle_requires_release_packet_visibility(self) -> None:
         handoff = {

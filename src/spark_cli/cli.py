@@ -8314,10 +8314,32 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
         ]
         if missing_packet_needles:
             release_packet_issues.append("builder_trace_release_packet_missing_exact_family")
-    ok = unresolved == 0 and current_unresolved == 0 and doc_present and not doc_issues
+    historical_handoff_carried = (
+        unresolved > 0
+        and current_unresolved == 0
+        and "historical_open_high_severity_events" in flags
+        and doc_present
+        and not doc_issues
+        and not release_packet_issues
+    )
+    ok = (
+        (unresolved == 0 and current_unresolved == 0 and doc_present and not doc_issues)
+        or historical_handoff_carried
+    )
     ok = ok and not release_packet_issues
-    decision = "builder_trace_lifecycle_owner_closure_required" if unresolved else "builder_trace_lifecycle_current_clean"
+    decision = (
+        "builder_trace_lifecycle_historical_handoff_carried"
+        if historical_handoff_carried
+        else "builder_trace_lifecycle_owner_closure_required"
+        if unresolved
+        else "builder_trace_lifecycle_current_clean"
+    )
     detail = (
+        "Builder historical trace lifecycle is explicitly carried for R30: current windows are clean, "
+        "the exact historical family remains visible in the release packet, and owner-approved closure "
+        "evidence is still required before removing the handoff."
+        if historical_handoff_carried
+        else
         "Builder historical trace lifecycle remains explicit for R30: current windows are clean, "
         "but owner-approved closure evidence is required before removing the handoff."
         if unresolved and current_unresolved == 0

@@ -9,9 +9,10 @@ Do not hide or silently clear the Builder historical high-severity trace family
 for R30.
 
 Current windows are clean, but the historical lifecycle family remains visible
-until Builder owner-source closure evidence exists. R30 may proceed only after
-the family is either closed with owner-approved evidence or explicitly carried
-as a publish handoff in the release packet.
+until Builder owner-source closure evidence exists. R30 may proceed with this
+family explicitly carried as historical release debt only while the current
+unresolved high-severity count stays `0` and the release packet preserves the
+exact family identity.
 
 ## Evidence
 
@@ -55,3 +56,11 @@ Required result before removing this handoff:
 - `current_unresolved_high_severity_open_count=0`
 - `critical_duplicate_truth_count=0`
 - R30 source/registry truth remains green before installer pins move.
+
+## R30 Carry Decision
+
+For R30, this is carried as explicit historical handoff, not hidden release
+truth and not owner-approved closure. The gate remains red if current unresolved
+high-severity evidence returns, if the exact family identity disappears from the
+release packet, or if anyone tries to remove this document without Builder
+owner-approved closure evidence from Builder owner source.
