@@ -74,7 +74,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
 - `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge; the structured voice owner handoff manifest is present and checked for exact full commit hashes, proof commands, and rejection of the existing public tag as the final R30 voice claim
 - `r30_voice_runtime_truth`: pass, R30 docs match compiled voice runtime truth with `voice_surface_mode=egress`, `voice_surface_blockers=1`, blocker `voice transcription is not ready`, and `requires_confirmation_for_actions=true`
-- `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
+- `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth. The decision gate now checks that the release packet preserves the exact historical family identity: `historical_open_high_severity_events`, component `telegram_runtime`, event type `tool_call_ledger_recorded`, status/severity `blocked` / `high`, and latest event `2026-06-02 09:03:25`.
 - `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration. The service proof is now per named Telegram profile, not merely per `spark-telegram-bot` module; `live_level5_named_telegram_profiles_restarted_after_guardrail_configure` fails unless `missing_or_stale_services=[]`, so a stale SparkRecursive/SparkQA-style profile cannot hide behind another restarted bot process.
 - `registry_pins`: fail
 - `local_installers`: pass
@@ -151,6 +151,9 @@ Builder trace current health:
 - status: `current_clean`
 - unresolved high severity open count: `1`
 - current unresolved high severity open count: `0`
+- component: `telegram_runtime`
+- event type: `tool_call_ledger_recorded`
+- status/severity: `blocked` / `high`
 - latest unresolved high severity event: `2026-06-02 09:03:25`
 
 ## Telegram Reliability Details
