@@ -56,6 +56,18 @@ runtime metadata, and owner-source refs converge.
 The same actions are emitted by `spark verify --r30 --json` under
 `release_lane_classification`.
 
+Fresh local proof status for direct blockers:
+
+- `domain-chip-memory`: proof command passed.
+- `spark-intelligence-builder`: focused proof tests passed.
+- `spark-telegram-bot`: reliability, build, and line-count gates passed.
+- `spark-voice-comms`: pytest passed.
+- `spawner-ui`: Svelte check passed.
+
+These are local proof passes, not owner-source convergence. Registry and
+installer truth must not move until the corresponding owner-source refs exist
+and installed metadata is updated through the normal path.
+
 ## Exact Commit Lists
 
 ### `spark-telegram-bot`

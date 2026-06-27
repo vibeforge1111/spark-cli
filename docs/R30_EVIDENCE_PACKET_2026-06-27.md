@@ -69,6 +69,18 @@ Direct R30 release-lane blockers:
 - `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q` and `spark os compile --json`
 - `spawner-ui`: head differs from registry; next proof command is `npm run check`
 
+Fresh direct-blocker proof results:
+
+- `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
+- `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
+- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, and `npm run check:line-count` passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap.
+- `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
+- `spawner-ui`: `npm run check` passed with 0 Svelte errors and 0 warnings.
+
+These passes prove the local direct-blocker stacks are test-clean. They do not
+remove the R30 block until owner-source refs, registry pins, and installed
+metadata converge.
+
 Supporting release-hygiene rows:
 
 - `domain-chip-spark-qa-evidence-lane`: head and installed metadata differ from registry
