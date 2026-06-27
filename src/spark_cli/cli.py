@@ -177,7 +177,7 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
         "proof_commands": [
             "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
             "npm run check",

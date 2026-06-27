@@ -56,7 +56,7 @@ Direct R30 blockers:
 - `spark-intelligence-builder`: review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.
 - `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.
 - `spark-voice-comms`: port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.
-- `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.
+- `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.
 
 Supporting release-hygiene rows:
 
@@ -128,7 +128,7 @@ npm run check
 ```
 
 Owner action after review: push or port the Spawner PRD proof-continuity stack
-and the direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes into the owner release lane, then update
+and the direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes into the owner release lane, then update
 registry truth only after `npm run check` passes on that owner ref.
 
 ### `spark-voice-comms`
