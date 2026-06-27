@@ -906,7 +906,7 @@ def module_git_status(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "status", "--porcelain"),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     return result.returncode == 0, result.stdout.strip() if result.returncode == 0 else summarize_command_output(result)
 
 
