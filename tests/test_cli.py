@@ -14656,6 +14656,54 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("missing_artifact_head", " ".join(payload["issues"]))
 
+    def test_r30_local_runtime_handoff_docs_require_terminal_subjects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            manifest_path = root / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "local_head": "b" * 40,
+                                "local_range": f"{'a' * 40}..{'b' * 40}",
+                                "commit_count": 12,
+                                "required_terminal_subjects": [
+                                    "Surface effective Level 5 sandbox in Telegram",
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stale = root / "stale.md"
+            fresh = root / "fresh.md"
+            stale.write_text(
+                f"spark-telegram-bot bbbbbbbbbbbb {'a' * 40}..{'b' * 40} 12",
+                encoding="utf-8",
+            )
+            fresh.write_text(
+                f"spark-telegram-bot bbbbbbbbbbbb {'a' * 40}..{'b' * 40} 12\n"
+                "Surface effective Level 5 sandbox in Telegram\n",
+                encoding="utf-8",
+            )
+
+            stale_payload = collect_r30_local_runtime_handoff_docs_status(
+                manifest_path=manifest_path,
+                docs=[stale],
+            )
+            fresh_payload = collect_r30_local_runtime_handoff_docs_status(
+                manifest_path=manifest_path,
+                docs=[fresh],
+            )
+
+        self.assertFalse(stale_payload["ok"])
+        self.assertIn("missing_artifact_required_subject", " ".join(stale_payload["issues"]))
+        self.assertTrue(fresh_payload["ok"])
+
     def test_r30_local_runtime_artifacts_handoff_validates_git_range_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo = Path(tmp_dir) / "repo"
