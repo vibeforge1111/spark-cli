@@ -14399,6 +14399,7 @@ class SparkCliTests(unittest.TestCase):
             "source_truth_blockers\n"
             "Surface effective Level 5 sandbox in Telegram\n"
             "Block Level 5 full-access copy on read-only sandbox\n"
+            "Require effective Level 5 sandbox before operator claims\n"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -14526,6 +14527,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Fix Level 5 Codex sandbox confirmation",
                                     "Surface effective Level 5 sandbox in Telegram",
                                     "Block Level 5 full-access copy on read-only sandbox",
+                                    "Require effective Level 5 sandbox before operator claims",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
@@ -14599,6 +14601,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Fix Level 5 Codex sandbox confirmation",
                                     "Surface effective Level 5 sandbox in Telegram",
                                     "Block Level 5 full-access copy on read-only sandbox",
+                                    "Require effective Level 5 sandbox before operator claims",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
@@ -14915,6 +14918,7 @@ class SparkCliTests(unittest.TestCase):
                             "Fix Level 5 Codex sandbox confirmation",
                             "Surface effective Level 5 sandbox in Telegram",
                             "Block Level 5 full-access copy on read-only sandbox",
+                            "Require effective Level 5 sandbox before operator claims",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "local_proof": "passed",

@@ -32,10 +32,10 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "02791932e1940a2f0a9128031ca37c4a7e31f632",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..02791932e1940a2f0a9128031ca37c4a7e31f632",
+      "local_head": "28aecd8ddfb49dde730926df37ba3c81c55c6617",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..28aecd8ddfb49dde730926df37ba3c81c55c6617",
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, and read-only contradiction full-access copy block, then rerun Telegram gates before registry pin movement.",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, and effective Level 5 sandbox-before-operator-claims guard, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
         "npm run control:proof:reliability",
         "npm run build",
