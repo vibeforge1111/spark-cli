@@ -8701,13 +8701,14 @@ def collect_r30_access_level5_codex_sandbox_status(
         "prd_bridge_test_proves_level5_danger_full_access": "SPARK_CODEX_SANDBOX: 'danger-full-access'" in prd_bridge_test_text
         and "--sandbox danger-full-access" in prd_bridge_test_text,
         "telegram_level5_action_uses_high_agency_setup": "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']" in telegram_actions_text,
-        "telegram_level5_reply_reports_active_sandbox": "configured_codex_sandbox" in telegram_actions_text
+        "telegram_level5_reply_reports_active_sandbox": "effective_codex_sandbox" in telegram_actions_text
         and "Whole-computer operator mode is active for Telegram and Spawner" in telegram_actions_text,
-        "telegram_level5_reply_reads_cli_level5_sandbox": "String(state.configured_codex_sandbox || '')" in telegram_actions_text
+        "telegram_level5_reply_reads_cli_level5_sandbox": "String(state.effective_codex_sandbox || '')" in telegram_actions_text
+        and "String(state.configured_codex_sandbox || '')" not in telegram_actions_text
         and "stateMachine.configured_codex_sandbox" not in telegram_actions_text,
         "telegram_test_proves_level5_setup_command": "runs Level 5 setup with high-agency guardrails and reports active services" in telegram_actions_test_text
         and "'--enable-high-agency'" in telegram_actions_test_text
-        and "configured_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
+        and "effective_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
     }
     if check_live_env:
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
