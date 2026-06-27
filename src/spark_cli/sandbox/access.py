@@ -110,26 +110,62 @@ def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = N
     }
 
 
+def level5_telegram_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> list[Path]:
+    root = module_env_dir(home=home, env=env)
+    paths = [root / "spark-telegram-bot.env"]
+    paths.extend(sorted(root.glob("spark-telegram-bot.*.env")))
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if path not in seen:
+            unique.append(path)
+            seen.add(path)
+    return unique
+
+
+def level5_env_file_state(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    paths = level5_env_paths(home=home, env=env)
+    entries: dict[str, Path] = {"spawner": paths["spawner"]}
+    for path in level5_telegram_env_paths(home=home, env=env):
+        label = "telegram" if path.name == "spark-telegram-bot.env" else f"telegram_profile:{path.stem.removeprefix('spark-telegram-bot.')}"
+        entries[label] = path
+    state: dict[str, dict[str, Any]] = {}
+    for label, path in entries.items():
+        values = read_env_file(path)
+        missing_or_stale = [key for key, expected in LEVEL5_ENV.items() if values.get(key) != expected]
+        state[label] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "ok": not missing_or_stale,
+            "missing_or_stale": missing_or_stale,
+        }
+    return state
+
+
 def persist_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
     paths = level5_env_paths(home=home, env=env)
     spawner_env = read_env_file(paths["spawner"])
-    telegram_env = read_env_file(paths["telegram"])
     spawner_env.update(LEVEL5_ENV)
-    telegram_env.update(LEVEL5_ENV)
     write_env_file(paths["spawner"], spawner_env)
-    write_env_file(paths["telegram"], telegram_env)
+    written_paths = {"spawner": str(paths["spawner"])}
+    for telegram_path in level5_telegram_env_paths(home=home, env=env):
+        telegram_env = read_env_file(telegram_path)
+        telegram_env.update(LEVEL5_ENV)
+        write_env_file(telegram_path, telegram_env)
+        label = "telegram" if telegram_path.name == "spark-telegram-bot.env" else f"telegram_profile:{telegram_path.stem.removeprefix('spark-telegram-bot.')}"
+        written_paths[label] = str(telegram_path)
     write_audit_event(
         "access",
         "level5",
         {
             "action_id": "level5_guardrails_configure",
             "changed_keys": sorted(LEVEL5_ENV),
-            "env_files": {key: str(path) for key, path in paths.items()},
+            "env_files": written_paths,
             "rollback_command": "spark access disable-level5",
         },
         home=home,
     )
-    return {key: str(path) for key, path in paths.items()}
+    return written_paths
 
 
 def _remove_env_keys(path: Path, keys: set[str]) -> bool:
@@ -148,24 +184,26 @@ def _remove_env_keys(path: Path, keys: set[str]) -> bool:
 
 def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     paths = level5_env_paths(home=home, env=env)
-    changed = {
-        "spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV)),
-        "telegram": _remove_env_keys(paths["telegram"], set(LEVEL5_ENV)),
-    }
+    changed = {"spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV))}
+    env_files = {"spawner": str(paths["spawner"])}
+    for telegram_path in level5_telegram_env_paths(home=home, env=env):
+        label = "telegram" if telegram_path.name == "spark-telegram-bot.env" else f"telegram_profile:{telegram_path.stem.removeprefix('spark-telegram-bot.')}"
+        changed[label] = _remove_env_keys(telegram_path, set(LEVEL5_ENV))
+        env_files[label] = str(telegram_path)
     write_audit_event(
         "access",
         "level5",
         {
             "action_id": "level5_guardrails_disable",
             "changed": changed,
-            "env_files": {key: str(path) for key, path in paths.items()},
+            "env_files": env_files,
             "rollback_command": "spark access setup --level 5 --enable-high-agency",
         },
         home=home,
     )
     return {
         "changed": changed,
-        "env_files": {key: str(path) for key, path in paths.items()},
+        "env_files": env_files,
         "audit": sandbox_audit_ref("access", "level5"),
     }
 
@@ -173,7 +211,7 @@ def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] |
 def generated_level5_env(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
     paths = level5_env_paths(home=home, env=env)
     merged: dict[str, str] = {}
-    for path in paths.values():
+    for path in [paths["spawner"], *level5_telegram_env_paths(home=home, env=env)]:
         merged.update(read_env_file(path))
     return merged
 
@@ -685,6 +723,7 @@ def access_lane_payload(
     ]
     ssh_ready = bool(trusted_ssh_targets)
     generated_env = generated_level5_env(home=home, env=env_values)
+    env_file_state = level5_env_file_state(home=home, env=env_values)
     level5_process_enabled = enabled(env_values.get("SPARK_ALLOW_HIGH_AGENCY_WORKERS"))
     level5_external_paths = enabled(env_values.get("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS"))
     level5_full_sandbox = env_values.get("SPARK_CODEX_SANDBOX") == "danger-full-access"
@@ -692,6 +731,7 @@ def access_lane_payload(
         enabled(generated_env.get("SPARK_ALLOW_HIGH_AGENCY_WORKERS"))
         and enabled(generated_env.get("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS"))
         and generated_env.get("SPARK_CODEX_SANDBOX") == "danger-full-access"
+        and all(item.get("ok") for item in env_file_state.values())
     )
     level5_process_active = level5_process_enabled and level5_external_paths and level5_full_sandbox
     level5_service_state = level5_service_guardrail_state(home=home, env=env_values, configured=level5_configured)
@@ -859,6 +899,7 @@ def access_lane_payload(
             "external_paths": level5_external_paths,
             "codex_sandbox": env_values.get("SPARK_CODEX_SANDBOX") or "workspace-write",
             "configured_codex_sandbox": generated_env.get("SPARK_CODEX_SANDBOX") or "",
+            "env_file_state": env_file_state,
             "restart_required": level5_restart_required,
             "env_files": written_level5_env,
             "audit": sandbox_audit_ref("access", "level5") if written_level5_env else {},

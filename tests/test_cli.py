@@ -13526,6 +13526,8 @@ class SparkCliTests(unittest.TestCase):
                     "module": "spark-telegram-bot",
                     "expected_commit": "a" * 40,
                     "actual_commit": "b" * 40,
+                    "next_action": "port telegram",
+                    "proof_commands": ["npm run build"],
                 }
             ],
             "supporting_hygiene": [
@@ -13533,6 +13535,8 @@ class SparkCliTests(unittest.TestCase):
                     "module": "spark-character",
                     "expected_commit": "c" * 40,
                     "actual_commit": "d" * 40,
+                    "next_action": "port character",
+                    "proof_commands": ["spark verify --r30 --json"],
                 }
             ],
         }
@@ -13547,6 +13551,8 @@ class SparkCliTests(unittest.TestCase):
                                 "module": "spark-telegram-bot",
                                 "expected_registry_commit": "a" * 40,
                                 "local_head": "b" * 40,
+                                "next_action": "port telegram",
+                                "proof_commands": ["npm run build"],
                                 "local_proof": "passed",
                             }
                         ],
@@ -13555,6 +13561,8 @@ class SparkCliTests(unittest.TestCase):
                                 "module": "spark-character",
                                 "expected_registry_commit": "c" * 40,
                                 "local_head": "d" * 40,
+                                "next_action": "port character",
+                                "proof_commands": ["spark verify --r30 --json"],
                             }
                         ],
                     }
@@ -13565,6 +13573,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["issues"], [])
         self.assertEqual(payload["commit_mismatches"], [])
+        self.assertEqual(payload["instruction_mismatches"], [])
 
     def test_r30_handoff_manifest_status_reports_mismatched_modules(self) -> None:
         classification = {
@@ -13635,6 +13644,47 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("commit_metadata_mismatch", payload["issues"])
         self.assertEqual(payload["commit_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("local_head_mismatch", payload["commit_mismatches"][0]["issues"])
+
+    def test_r30_handoff_manifest_status_reports_instruction_mismatch(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "next_action": "port current telegram stack",
+                    "proof_commands": ["npm run build", "npm run check:line-count"],
+                }
+            ],
+            "supporting_hygiene": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "direct_blockers": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "next_action": "port stale telegram stack",
+                                "proof_commands": ["npm run build"],
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+        self.assertFalse(payload["ok"])
+        self.assertIn("handoff_instruction_mismatch", payload["issues"])
+        self.assertEqual(payload["instruction_mismatches"][0]["module"], "spark-telegram-bot")
+        self.assertIn("next_action_mismatch", payload["instruction_mismatches"][0]["issues"])
+        self.assertIn("proof_commands_mismatch", payload["instruction_mismatches"][0]["issues"])
 
     def test_r30_cli_owner_handoff_docs_status_requires_live_head_command(self) -> None:
         release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}

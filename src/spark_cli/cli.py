@@ -8260,6 +8260,8 @@ def collect_r30_access_level5_codex_sandbox_status(
     spawner_source_path: Path | None = None,
     telegram_source_path: Path | None = None,
     release_lane: dict[str, Any] | None = None,
+    check_live_env: bool = False,
+    spark_home: Path | None = None,
 ) -> dict[str, Any]:
     installed_modules = compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
 
@@ -8328,12 +8330,27 @@ def collect_r30_access_level5_codex_sandbox_status(
     telegram_actions_test_text = read_optional(telegram_actions_test_path)
     cli_access_text = read_optional(cli_access_path)
     cli_access_test_text = read_optional(cli_access_test_path)
+    live_env_state: dict[str, Any] = {}
+    live_service_state: dict[str, Any] = {}
+    live_env_ok = True
+    live_services_ok = True
+    if check_live_env:
+        from .sandbox.access import level5_env_file_state, level5_guardrails_configured_by_audit, level5_service_guardrail_state
+
+        home = spark_home or SPARK_HOME
+        live_env_state = level5_env_file_state(home=home)
+        live_env_ok = bool(live_env_state) and all(bool(item.get("exists")) and bool(item.get("ok")) for item in live_env_state.values())
+        configured = level5_guardrails_configured_by_audit(home=home)
+        live_service_state = level5_service_guardrail_state(home=home, configured=configured)
+        live_services_ok = bool(live_service_state.get("enabled"))
     checks = {
         "cli_level5_env_requires_danger_full_access": '"SPARK_CODEX_SANDBOX": "danger-full-access"' in cli_access_text,
         "cli_lower_to_level5_transition_test_exists": "test_access_level5_transition_from_lower_telegram_levels_becomes_service_full_access" in cli_access_test_text
         and "starting_level" in cli_access_test_text
         and "configured_codex_sandbox" in cli_access_test_text
         and "danger-full-access" in cli_access_test_text,
+        "cli_level5_named_telegram_profile_env_tests_exist": "test_access_setup_level5_repairs_named_telegram_profile_guardrails" in cli_access_test_text
+        and "test_access_status_level5_blocks_stale_named_telegram_profile_guardrails" in cli_access_test_text,
         "client_exists": bool(client_text),
         "client_test_exists": bool(client_test_text),
         "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
@@ -8358,6 +8375,9 @@ def collect_r30_access_level5_codex_sandbox_status(
         and "'--enable-high-agency'" in telegram_actions_test_text
         and "configured_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
     }
+    if check_live_env:
+        checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
+        checks["live_level5_services_restarted_after_guardrail_configure"] = live_services_ok
     issues = [name for name, ok in checks.items() if not ok]
     return {
         "ok": not issues,
@@ -8380,6 +8400,8 @@ def collect_r30_access_level5_codex_sandbox_status(
             "cli_access": str(cli_access_path),
             "cli_access_test": str(cli_access_test_path),
         },
+        "live_env_state": live_env_state,
+        "live_service_state": live_service_state,
         "checks": checks,
         "issues": issues,
     }
@@ -8430,6 +8452,7 @@ def collect_r30_handoff_manifest_status(
         if isinstance(item, dict)
     }
     commit_mismatches: list[dict[str, Any]] = []
+    instruction_mismatches: list[dict[str, Any]] = []
     for module, live_row in sorted(live_rows.items()):
         manifest_row = manifest_rows.get(module)
         if not manifest_row:
@@ -8439,6 +8462,7 @@ def collect_r30_handoff_manifest_status(
         live_expected = str(live_row.get("expected_commit") or "")
         live_actual = str(live_row.get("actual_commit") or "")
         row_mismatches: list[str] = []
+        instruction_row_mismatches: list[str] = []
         if not expected_registry_commit:
             row_mismatches.append("missing_expected_registry_commit")
         elif expected_registry_commit.lower() != live_expected.lower():
@@ -8447,6 +8471,16 @@ def collect_r30_handoff_manifest_status(
             row_mismatches.append("missing_local_head")
         elif local_head.lower() != live_actual.lower():
             row_mismatches.append("local_head_mismatch")
+        live_next_action = str(live_row.get("next_action") or "")
+        manifest_next_action = str(manifest_row.get("next_action") or "")
+        if live_next_action and manifest_next_action != live_next_action:
+            instruction_row_mismatches.append("next_action_mismatch")
+        live_proof_commands = live_row.get("proof_commands") if isinstance(live_row.get("proof_commands"), list) else []
+        manifest_proof_commands = (
+            manifest_row.get("proof_commands") if isinstance(manifest_row.get("proof_commands"), list) else []
+        )
+        if live_proof_commands and manifest_proof_commands != live_proof_commands:
+            instruction_row_mismatches.append("proof_commands_mismatch")
         if row_mismatches:
             commit_mismatches.append(
                 {
@@ -8458,6 +8492,17 @@ def collect_r30_handoff_manifest_status(
                     "live_actual_commit": live_actual,
                 }
             )
+        if instruction_row_mismatches:
+            instruction_mismatches.append(
+                {
+                    "module": module,
+                    "issues": instruction_row_mismatches,
+                    "manifest_next_action": manifest_next_action,
+                    "live_next_action": live_next_action,
+                    "manifest_proof_commands": manifest_proof_commands,
+                    "live_proof_commands": live_proof_commands,
+                }
+            )
     if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
         issues.append("release_mismatch")
     if direct_manifest != direct_live:
@@ -8466,6 +8511,8 @@ def collect_r30_handoff_manifest_status(
         issues.append("supporting_hygiene_mismatch")
     if commit_mismatches:
         issues.append("commit_metadata_mismatch")
+    if instruction_mismatches:
+        issues.append("handoff_instruction_mismatch")
     if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
         issues.append("direct_local_proof_not_passed")
     return {
@@ -8476,6 +8523,7 @@ def collect_r30_handoff_manifest_status(
         else f"R30 owner handoff manifest has issues: {', '.join(issues)}.",
         "issues": issues,
         "commit_mismatches": commit_mismatches,
+        "instruction_mismatches": instruction_mismatches,
         "direct_blockers": direct_manifest,
         "supporting_hygiene": supporting_manifest,
     }
@@ -8768,7 +8816,11 @@ def collect_r30_release_gate_payload(
     local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
-    access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
+    access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(
+        compiled,
+        release_lane=release_lane,
+        check_live_env=True,
+    )
     live_status = collect_r30_live_status_status(collect_status_payload())
     voice_runtime_truth = collect_r30_voice_runtime_truth_status(compiled)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))

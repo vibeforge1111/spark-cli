@@ -63,7 +63,7 @@
       "local_head": "7110dce4030a700ad61460ab79be7eff8312f06c",
       "local_range": "origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c",
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits plus the direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
         "npm run check"
@@ -76,31 +76,46 @@
       "module": "domain-chip-spark-qa-evidence-lane",
       "expected_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
       "local_head": "215c6b9cbefb6ecc817d24f63e4e510b2c453b28",
-      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth."
+      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ]
     },
     {
       "module": "spark-character",
       "expected_registry_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
       "local_head": "cf8177561c16fa1dc2a1db96cdc52268f23bc97f",
-      "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+      "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ]
     },
     {
       "module": "spark-harness-core",
       "expected_registry_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
       "local_head": "b190986996f007c30a0cab04bfd8851db8863a9d",
-      "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+      "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ]
     },
     {
       "module": "spark-researcher",
       "expected_registry_commit": "906592e2bb025ef485c6320339f714433714c9b6",
       "local_head": "587dbd2a57d6f75eec81a3b68ef583ea5e803140",
-      "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+      "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ]
     },
     {
       "module": "spark-skill-graphs",
       "expected_registry_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
       "local_head": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
-      "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready."
+      "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ]
     }
   ],
   "required_after_owner_handoffs": [

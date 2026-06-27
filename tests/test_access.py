@@ -249,6 +249,55 @@ class AccessSetupTests(unittest.TestCase):
         self.assertIn("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1", telegram_env)
         self.assertIn("SPARK_CODEX_SANDBOX=danger-full-access", telegram_env)
 
+    def test_access_setup_level5_repairs_named_telegram_profile_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            module_env = spark_home / "config" / "modules"
+            module_env.mkdir(parents=True)
+            (module_env / "spark-telegram-bot.env").write_text("TELEGRAM_RELAY_PORT=8788\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.primary.env").write_text(
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS=0\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=0\n"
+                "SPARK_CODEX_SANDBOX=workspace-write\n",
+                encoding="utf-8",
+            )
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text(
+                "SPARK_CODEX_SANDBOX=read-only\n",
+                encoding="utf-8",
+            )
+
+            exit_code, payload = self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
+            status_exit, status_payload = self.run_access("status", "--level", "5", spark_home=spark_home)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(status_exit, 0)
+        self.assertEqual(payload["level5"]["env_files"]["telegram_profile:primary"], str(module_env / "spark-telegram-bot.primary.env"))
+        self.assertEqual(payload["level5"]["env_files"]["telegram_profile:sparkqa-bot"], str(module_env / "spark-telegram-bot.sparkqa-bot.env"))
+        self.assertTrue(status_payload["level5"]["env_file_state"]["telegram"]["ok"])
+        self.assertTrue(status_payload["level5"]["env_file_state"]["telegram_profile:primary"]["ok"])
+        self.assertTrue(status_payload["level5"]["env_file_state"]["telegram_profile:sparkqa-bot"]["ok"])
+        self.assertEqual(status_payload["level5"]["configured_codex_sandbox"], "danger-full-access")
+
+    def test_access_status_level5_blocks_stale_named_telegram_profile_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
+            stale_profile = spark_home / "config" / "modules" / "spark-telegram-bot.primary.env"
+            stale_profile.write_text(
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS=1\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1\n"
+                "SPARK_CODEX_SANDBOX=read-only\n",
+                encoding="utf-8",
+            )
+
+            exit_code, payload = self.run_access("status", "--level", "5", spark_home=spark_home)
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(payload["level5"]["configured"])
+        self.assertEqual(payload["level5"]["activation_state"], "partial")
+        self.assertEqual(payload["level5"]["env_file_state"]["telegram_profile:primary"]["missing_or_stale"], ["SPARK_CODEX_SANDBOX"])
+        self.assertEqual(payload["next"], "spark access setup --level 5 --enable-high-agency")
+
     def test_access_status_level5_active_after_restart_env_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             spark_home = Path(tmpdir) / "spark-home"
@@ -397,6 +446,28 @@ class AccessSetupTests(unittest.TestCase):
         self.assertNotIn("SPARK_ALLOW_HIGH_AGENCY_WORKERS", telegram_env)
         self.assertNotIn("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS", telegram_env)
         self.assertNotIn("SPARK_CODEX_SANDBOX", telegram_env)
+
+    def test_access_disable_level5_removes_named_telegram_profile_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            module_env = spark_home / "config" / "modules"
+            module_env.mkdir(parents=True)
+            (module_env / "spark-telegram-bot.primary.env").write_text(
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS=1\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1\n"
+                "SPARK_CODEX_SANDBOX=danger-full-access\n",
+                encoding="utf-8",
+            )
+
+            self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
+            exit_code, payload = self.run_access("disable-level5", spark_home=spark_home)
+            profile_env = (module_env / "spark-telegram-bot.primary.env").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["changed"]["telegram_profile:primary"])
+        self.assertNotIn("SPARK_ALLOW_HIGH_AGENCY_WORKERS", profile_env)
+        self.assertNotIn("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS", profile_env)
+        self.assertNotIn("SPARK_CODEX_SANDBOX", profile_env)
 
     def test_access_setup_can_recommend_docker_when_requested_and_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
