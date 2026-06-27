@@ -292,7 +292,7 @@ Commits:
 Proof captured locally:
 
 - Remote tag `spark-ship-2026-06-26` at `c74490d68ece`: `PYTHONPATH=src python3 -m pytest -q` -> `121 passed`
-- Installed local branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` -> `80 passed`
+- Original local proof branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` -> `80 passed`
 
 Owner release base for R30 voice port:
 

@@ -41,7 +41,7 @@ Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that
 | --- | --- | --- | --- |
 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297` | local `a87f4ebe2298` | registry `e5a1bd040986` |
 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | local `97cb911bf7ac` | registry `19b7d0bff144` |
-| `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | local `7555a363d763` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` |
+| `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | prepared local owner-lane `c502ec096cef`; original local proof branch `7555a363d763` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` |
 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | local `1fd272e519b5` | registry `f7f16a6ea8ee` |
 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | local `f21522accf66` | registry `e7f80fbf03bd` |
 
@@ -57,7 +57,7 @@ Evidence:
 
 - Remote tag `spark-ship-2026-06-26` points at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
 - Temporary detached worktree at `c74490d68ece` passed `PYTHONPATH=src python3 -m pytest -q`: `121 passed`.
-- Installed local voice branch at `7555a363d763` passed `PYTHONPATH=src python3 -m pytest -q`: `80 passed`.
+- Original local voice proof branch at `7555a363d763` passed `PYTHONPATH=src python3 -m pytest -q`: `80 passed`.
 - Prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed `PYTHONPATH=src python3 -m pytest -q`: `132 passed`.
 - The local branch adds the current Spark OS voice proof pieces over the owner branch:
   - `8a246af Join voice runtime state traces`

@@ -18,14 +18,15 @@ Current facts recorded by the R30 gate:
 
 - registry pin: `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee`
 - remote `main` and public tag `spark-ship-2026-06-26`: `c74490d68ece65ffad21dc5b88f44602e1afa703`
-- installed local voice head: `7555a363d7638537b1a9ec1ee377e460d2343323`
+- prepared local owner-lane voice head: `c502ec096cefb48839e3279d3392343231884415`
+- original local voice proof branch head: `7555a363d7638537b1a9ec1ee377e460d2343323`
 - installed metadata still records: `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`
 - structured handoff manifest: [R30 voice owner handoff manifest](./R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
 
 Local voice proof is test-clean, but not yet public release truth:
 
 - public tag worktree at `c74490d68ece`: `PYTHONPATH=src python3 -m pytest -q` passed with `121 passed`
-- local installed branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` passed with `80 passed`
+- original local proof branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` passed with `80 passed`
 - local prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed with `132 passed`
 
 The current local voice proof depends on two commits beyond the owner branch:
