@@ -58,7 +58,7 @@ The same actions are emitted by `spark verify --r30 --json` under
 
 The structured handoff form is [R30 owner handoff manifest](./R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json).
 `spark verify --r30 --json` checks that the manifest matches the live
-release-lane classification.
+release-lane classification and commit metadata.
 
 Fresh local proof status for direct blockers:
 

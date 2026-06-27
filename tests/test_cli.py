@@ -13095,8 +13095,20 @@ class SparkCliTests(unittest.TestCase):
 
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {
-            "direct_blockers": [{"module": "spark-telegram-bot"}],
-            "supporting_hygiene": [{"module": "spark-character"}],
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                }
+            ],
+            "supporting_hygiene": [
+                {
+                    "module": "spark-character",
+                    "expected_commit": "c" * 40,
+                    "actual_commit": "d" * 40,
+                }
+            ],
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest_path = Path(tmp_dir) / "manifest.json"
@@ -13104,8 +13116,21 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
-                        "direct_blockers": [{"module": "spark-telegram-bot", "local_proof": "passed"}],
-                        "supporting_hygiene": [{"module": "spark-character"}],
+                        "direct_blockers": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [
+                            {
+                                "module": "spark-character",
+                                "expected_registry_commit": "c" * 40,
+                                "local_head": "d" * 40,
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -13113,11 +13138,12 @@ class SparkCliTests(unittest.TestCase):
             payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["issues"], [])
+        self.assertEqual(payload["commit_mismatches"], [])
 
     def test_r30_handoff_manifest_status_reports_mismatched_modules(self) -> None:
         classification = {
-            "direct_blockers": [{"module": "spark-telegram-bot"}],
-            "supporting_hygiene": [{"module": "spark-character"}],
+            "direct_blockers": [{"module": "spark-telegram-bot", "expected_commit": "a" * 40, "actual_commit": "b" * 40}],
+            "supporting_hygiene": [{"module": "spark-character", "expected_commit": "c" * 40, "actual_commit": "d" * 40}],
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest_path = Path(tmp_dir) / "manifest.json"
@@ -13125,8 +13151,21 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
-                        "direct_blockers": [{"module": "spawner-ui", "local_proof": "passed"}],
-                        "supporting_hygiene": [{"module": "spark-character"}],
+                        "direct_blockers": [
+                            {
+                                "module": "spawner-ui",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [
+                            {
+                                "module": "spark-character",
+                                "expected_registry_commit": "c" * 40,
+                                "local_head": "d" * 40,
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -13134,6 +13173,42 @@ class SparkCliTests(unittest.TestCase):
             payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
         self.assertFalse(payload["ok"])
         self.assertIn("direct_blockers_mismatch", payload["issues"])
+
+    def test_r30_handoff_manifest_status_reports_commit_mismatch(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                }
+            ],
+            "supporting_hygiene": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "direct_blockers": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "e" * 40,
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+        self.assertFalse(payload["ok"])
+        self.assertIn("commit_metadata_mismatch", payload["issues"])
+        self.assertEqual(payload["commit_mismatches"][0]["module"], "spark-telegram-bot")
+        self.assertIn("local_head_mismatch", payload["commit_mismatches"][0]["issues"])
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])

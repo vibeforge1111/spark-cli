@@ -8069,12 +8069,61 @@ def collect_r30_handoff_manifest_status(
     supporting_live = sorted(str(item.get("module") or "") for item in release_lane_classification.get("supporting_hygiene", []))
     direct_manifest = sorted(str(item.get("module") or "") for item in manifest.get("direct_blockers", []) if isinstance(item, dict))
     supporting_manifest = sorted(str(item.get("module") or "") for item in manifest.get("supporting_hygiene", []) if isinstance(item, dict))
+    live_direct_rows = release_lane_classification.get("direct_blockers")
+    live_direct_rows = live_direct_rows if isinstance(live_direct_rows, list) else []
+    live_supporting_rows = release_lane_classification.get("supporting_hygiene")
+    live_supporting_rows = live_supporting_rows if isinstance(live_supporting_rows, list) else []
+    manifest_direct_rows = manifest.get("direct_blockers")
+    manifest_direct_rows = manifest_direct_rows if isinstance(manifest_direct_rows, list) else []
+    manifest_supporting_rows = manifest.get("supporting_hygiene")
+    manifest_supporting_rows = manifest_supporting_rows if isinstance(manifest_supporting_rows, list) else []
+    live_rows = {
+        str(item.get("module") or ""): item
+        for item in [*live_direct_rows, *live_supporting_rows]
+        if isinstance(item, dict)
+    }
+    manifest_rows = {
+        str(item.get("module") or ""): item
+        for item in [*manifest_direct_rows, *manifest_supporting_rows]
+        if isinstance(item, dict)
+    }
+    commit_mismatches: list[dict[str, Any]] = []
+    for module, live_row in sorted(live_rows.items()):
+        manifest_row = manifest_rows.get(module)
+        if not manifest_row:
+            continue
+        expected_registry_commit = str(manifest_row.get("expected_registry_commit") or "")
+        local_head = str(manifest_row.get("local_head") or "")
+        live_expected = str(live_row.get("expected_commit") or "")
+        live_actual = str(live_row.get("actual_commit") or "")
+        row_mismatches: list[str] = []
+        if not expected_registry_commit:
+            row_mismatches.append("missing_expected_registry_commit")
+        elif expected_registry_commit.lower() != live_expected.lower():
+            row_mismatches.append("expected_registry_commit_mismatch")
+        if not local_head:
+            row_mismatches.append("missing_local_head")
+        elif local_head.lower() != live_actual.lower():
+            row_mismatches.append("local_head_mismatch")
+        if row_mismatches:
+            commit_mismatches.append(
+                {
+                    "module": module,
+                    "issues": row_mismatches,
+                    "manifest_expected_registry_commit": expected_registry_commit,
+                    "live_expected_commit": live_expected,
+                    "manifest_local_head": local_head,
+                    "live_actual_commit": live_actual,
+                }
+            )
     if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
         issues.append("release_mismatch")
     if direct_manifest != direct_live:
         issues.append("direct_blockers_mismatch")
     if supporting_manifest != supporting_live:
         issues.append("supporting_hygiene_mismatch")
+    if commit_mismatches:
+        issues.append("commit_metadata_mismatch")
     if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
         issues.append("direct_local_proof_not_passed")
     return {
@@ -8084,6 +8133,7 @@ def collect_r30_handoff_manifest_status(
         if not issues
         else f"R30 owner handoff manifest has issues: {', '.join(issues)}.",
         "issues": issues,
+        "commit_mismatches": commit_mismatches,
         "direct_blockers": direct_manifest,
         "supporting_hygiene": supporting_manifest,
     }
