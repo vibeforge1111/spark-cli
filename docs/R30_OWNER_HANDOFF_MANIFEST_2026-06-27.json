@@ -50,7 +50,7 @@
       "local_head": "7555a363d7638537b1a9ec1ee377e460d2343323",
       "local_range": "origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323",
       "owner_truth": "owner branch 12bddc9bd0bd; remote main/tag spark-ship-2026-06-26 at c74490d68ece; registry pin 21a9467e9bd4",
-      "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
+      "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
       "proof_commands": [
         "PYTHONPATH=src python3 -m pytest -q",
         "spark os compile --json",

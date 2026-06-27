@@ -168,7 +168,7 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spark-voice-comms": {
-        "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
+        "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
         "proof_commands": [
             "PYTHONPATH=src python3 -m pytest -q",
             "spark os compile --json",
@@ -8121,6 +8121,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     manifest_issues: list[str] = []
     required_commits = handoff_manifest.get("required_local_commits") if isinstance(handoff_manifest, dict) else None
     proof_commands = handoff_manifest.get("proof_commands") if isinstance(handoff_manifest, dict) else None
+    owner_lane_recipe = handoff_manifest.get("owner_lane_recipe") if isinstance(handoff_manifest, dict) else None
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
     else:
@@ -8152,6 +8153,9 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
             "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
             "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "required_owner_release_base_ref": "refs/heads/main",
+            "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "candidate_owner_release_branch": "release/r30-voice-trace-governor",
             "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
             "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
             "local_range": f"origin/codex/turnintent-voice-policy-20260531..{row.get('actual_commit')}",
@@ -8163,7 +8167,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             manifest_issues.append("existing_public_ref_not_rejected_for_final_r30_claim")
         action_requirements = {
             "owner_action": [
-                "port or push",
+                "current public owner base",
                 "source-owned",
                 "stable voice owner release ref",
                 "before any r30 voice registry claim",
@@ -8203,6 +8207,19 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             manifest_issues.append("missing_voice_registry_pin_proof_command")
         if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json" not in proof_commands:
             manifest_issues.append("missing_voice_r30_gate_proof_command")
+        required_owner_recipe_steps = [
+            "git fetch origin --tags",
+            "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+            "git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323",
+            "PYTHONPATH=src python3 -m pytest -q",
+        ]
+        if not isinstance(owner_lane_recipe, list):
+            manifest_issues.append("missing_voice_owner_lane_recipe")
+        else:
+            for step in required_owner_recipe_steps:
+                if step not in owner_lane_recipe:
+                    manifest_issues.append(f"voice_owner_lane_recipe_missing:{step}")
         runtime_truth = handoff_manifest.get("required_voice_runtime_truth_after_update")
         if not isinstance(runtime_truth, dict):
             manifest_issues.append("missing_required_voice_runtime_truth")

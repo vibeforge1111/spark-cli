@@ -13499,6 +13499,9 @@ class SparkCliTests(unittest.TestCase):
                         "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
                         "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
                         "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "required_owner_release_base_ref": "refs/heads/main",
+                        "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "candidate_owner_release_branch": "release/r30-voice-trace-governor",
                         "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
@@ -13516,9 +13519,17 @@ class SparkCliTests(unittest.TestCase):
                             }
                         ],
                         "owner_action": (
-                            "Port or push the two local trace/governor commits, or equivalent "
-                            "source-owned commits, into a stable voice owner release ref before any R30 voice registry claim."
+                            "Create or select a stable voice owner release ref from the current public owner base, "
+                            "then port the two local trace/governor commits or equivalent source-owned commits there "
+                            "before any R30 voice registry claim."
                         ),
+                        "owner_lane_recipe": [
+                            "git fetch origin --tags",
+                            "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
+                            "git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                            "git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323",
+                            "PYTHONPATH=src python3 -m pytest -q",
+                        ],
                         "registry_action_after_owner_source": (
                             "Update registry.json only after the stable owner release ref contains the required commits "
                             "and local proof passes on that ref."
@@ -13611,8 +13622,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("owner_branch_commit_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("required_owner_release_base_ref_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("required_owner_release_base_commit_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("candidate_owner_release_branch_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("local_range_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_owner_lane_recipe", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_registry_pin_proof_command", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_r30_gate_proof_command", payload["handoff_manifest_issues"])
@@ -13642,6 +13657,9 @@ class SparkCliTests(unittest.TestCase):
                         "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
                         "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
                         "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "required_owner_release_base_ref": "refs/heads/main",
+                        "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "candidate_owner_release_branch": "release/r30-voice-trace-governor",
                         "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
@@ -13651,9 +13669,17 @@ class SparkCliTests(unittest.TestCase):
                             {"commit": "7555a36", "subject": "Accept media transcription governor authority"},
                         ],
                         "owner_action": (
-                            "Port or push the two local trace/governor commits, or equivalent "
-                            "source-owned commits, into a stable voice owner release ref before any R30 voice registry claim."
+                            "Create or select a stable voice owner release ref from the current public owner base, "
+                            "then port the two local trace/governor commits or equivalent source-owned commits there "
+                            "before any R30 voice registry claim."
                         ),
+                        "owner_lane_recipe": [
+                            "git fetch origin --tags",
+                            "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
+                            "git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                            "git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323",
+                            "PYTHONPATH=src python3 -m pytest -q",
+                        ],
                         "registry_action_after_owner_source": (
                             "Update registry.json only after the stable owner release ref contains the required commits "
                             "and local proof passes on that ref."

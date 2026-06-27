@@ -40,9 +40,10 @@ release packet unnoticed.
 
 ## Required R30 Path
 
-1. Port or push the two voice trace/governor commits, or equivalent
-   source-owned commits, into the voice owner release lane.
-2. Select or create a stable release ref that contains those commits.
+1. Create or select a stable voice owner release ref from the current public
+   owner base, `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+2. Port or push the two voice trace/governor commits, or equivalent
+   source-owned commits, into that voice owner release lane.
 3. Update `registry.json` to that stable ref and commit only after source-owner
    proof exists.
 4. Update installed runtime metadata through the normal install/update path.
@@ -54,6 +55,22 @@ spark os compile --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 ```
+
+Concrete owner-lane recipe, before any push/tag:
+
+```bash
+cd ~/.spark/modules/spark-voice-comms/source
+git fetch origin --tags
+git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703
+git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c
+git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323
+PYTHONPATH=src python3 -m pytest -q
+```
+
+If those commits do not cherry-pick cleanly onto current owner truth, make an
+equivalent source-owned port that preserves the same runtime-state trace join
+and media-transcription governor authority proof, then record the replacement
+commit hashes before touching registry or installer truth.
 
 Required result before installer movement:
 

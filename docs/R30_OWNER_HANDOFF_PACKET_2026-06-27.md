@@ -138,17 +138,23 @@ cd ~/.spark/modules/spark-voice-comms/source
 git fetch origin --tags
 git status --short --branch
 git log --oneline origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323
+git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703
+git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c
+git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323
 PYTHONPATH=src python3 -m pytest -q
 spark os compile --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 ```
 
-Owner action after review: port or push
+Owner action after review: create or select a stable owner release ref from the
+current public owner base, then port or push
 `8a246af1eb0732aec432d88e4e4c2b6411023b7c` and
 `7555a363d7638537b1a9ec1ee377e460d2343323`, or equivalent source-owned
 trace/governor commits, before any R30 voice registry claim. Do not pin R30
 voice to `c74490d68ece` if R30 claims the current Spark OS voice proof.
+If the cherry-pick route conflicts, keep the same proof boundary and record the
+replacement source-owned commits before registry or installer truth moves.
 
 ### `domain-chip-memory`
 
@@ -270,6 +276,11 @@ Proof captured locally:
 
 - Remote tag `spark-ship-2026-06-26` at `c74490d68ece`: `PYTHONPATH=src python3 -m pytest -q` -> `121 passed`
 - Installed local branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` -> `80 passed`
+
+Owner release base for R30 voice port:
+
+- `refs/heads/main` / `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`
+- suggested local review branch: `release/r30-voice-trace-governor`
 
 Minimum owner-lane proof after port:
 
