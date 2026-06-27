@@ -200,8 +200,8 @@ def modal_smoke_script() -> str:
             if sandbox is not None:
                 try:
                     sandbox.terminate()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    import logging as _log; _log.getLogger(__name__).warning("Suppressed: %s", _e, exc_info=True)
                 try:
                     sandbox.detach()
                 except Exception:
