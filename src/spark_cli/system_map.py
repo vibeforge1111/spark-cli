@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import ast
+import os
 import json
 import re
 import sqlite3
 import subprocess
+import tempfile
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -5526,7 +5528,14 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 # Match real absolute filesystem paths only: Windows drive paths, ~ home paths,
@@ -5582,7 +5591,14 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
