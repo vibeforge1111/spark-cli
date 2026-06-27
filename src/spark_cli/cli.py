@@ -8154,6 +8154,29 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
                 manifest_issues.append(f"{key}_mismatch")
         if handoff_manifest.get("existing_public_ref_final_r30_claim_allowed") is not False:
             manifest_issues.append("existing_public_ref_not_rejected_for_final_r30_claim")
+        action_requirements = {
+            "owner_action": [
+                "port or push",
+                "source-owned",
+                "stable voice owner release ref",
+                "before any r30 voice registry claim",
+            ],
+            "registry_action_after_owner_source": [
+                "registry.json",
+                "after the stable owner release ref contains the required commits",
+                "local proof passes",
+            ],
+            "installed_metadata_action_after_registry": [
+                "installed runtime metadata",
+                "normal spark install/update path",
+                "not by hand-editing local state",
+            ],
+        }
+        for key, terms in action_requirements.items():
+            value = str(handoff_manifest.get(key) or "").lower()
+            for term in terms:
+                if term not in value:
+                    manifest_issues.append(f"{key}_missing:{term}")
         if not isinstance(required_commits, list) or len(required_commits) < 2 or not all(
             isinstance(item, dict) and item.get("commit") and item.get("subject") for item in required_commits
         ):
@@ -8169,6 +8192,10 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
             manifest_issues.append("missing_voice_os_compile_proof_command")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json" not in proof_commands:
+            manifest_issues.append("missing_voice_registry_pin_proof_command")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json" not in proof_commands:
+            manifest_issues.append("missing_voice_r30_gate_proof_command")
         runtime_truth = handoff_manifest.get("required_voice_runtime_truth_after_update")
         if not isinstance(runtime_truth, dict):
             manifest_issues.append("missing_required_voice_runtime_truth")

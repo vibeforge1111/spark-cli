@@ -13500,7 +13500,24 @@ class SparkCliTests(unittest.TestCase):
                                 "subject": "Accept media transcription governor authority",
                             }
                         ],
-                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+                        "owner_action": (
+                            "Port or push the two local trace/governor commits, or equivalent "
+                            "source-owned commits, into a stable voice owner release ref before any R30 voice registry claim."
+                        ),
+                        "registry_action_after_owner_source": (
+                            "Update registry.json only after the stable owner release ref contains the required commits "
+                            "and local proof passes on that ref."
+                        ),
+                        "installed_metadata_action_after_registry": (
+                            "Update installed runtime metadata through the normal Spark install/update path, "
+                            "not by hand-editing local state."
+                        ),
+                        "proof_commands": [
+                            "PYTHONPATH=src python3 -m pytest -q",
+                            "spark os compile --json",
+                            "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+                            "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+                        ],
                         "required_voice_runtime_truth_after_update": {
                             "voice_surface_mode": "egress",
                             "voice_surface_blockers": 1,
@@ -13582,6 +13599,11 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("local_range_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_registry_pin_proof_command", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_r30_gate_proof_command", payload["handoff_manifest_issues"])
+        self.assertTrue(any(issue.startswith("owner_action_missing:") for issue in payload["handoff_manifest_issues"]))
+        self.assertTrue(any(issue.startswith("registry_action_after_owner_source_missing:") for issue in payload["handoff_manifest_issues"]))
+        self.assertTrue(any(issue.startswith("installed_metadata_action_after_registry_missing:") for issue in payload["handoff_manifest_issues"]))
         self.assertIn("missing_required_voice_runtime_truth", payload["handoff_manifest_issues"])
 
     def test_r30_voice_registry_decision_requires_full_required_commit_hashes(self) -> None:
@@ -13613,7 +13635,24 @@ class SparkCliTests(unittest.TestCase):
                             {"commit": "8a246af", "subject": "Join voice runtime state traces"},
                             {"commit": "7555a36", "subject": "Accept media transcription governor authority"},
                         ],
-                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+                        "owner_action": (
+                            "Port or push the two local trace/governor commits, or equivalent "
+                            "source-owned commits, into a stable voice owner release ref before any R30 voice registry claim."
+                        ),
+                        "registry_action_after_owner_source": (
+                            "Update registry.json only after the stable owner release ref contains the required commits "
+                            "and local proof passes on that ref."
+                        ),
+                        "installed_metadata_action_after_registry": (
+                            "Update installed runtime metadata through the normal Spark install/update path, "
+                            "not by hand-editing local state."
+                        ),
+                        "proof_commands": [
+                            "PYTHONPATH=src python3 -m pytest -q",
+                            "spark os compile --json",
+                            "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+                            "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+                        ],
                         "required_voice_runtime_truth_after_update": {
                             "voice_surface_mode": "egress",
                             "voice_surface_blockers": 1,
