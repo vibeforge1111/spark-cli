@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tempfile
 import time
+import fcntl
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -451,6 +452,65 @@ def scan_ssh_host_key(target: SshTarget) -> SshHostKeyScan:
     return fingerprint_known_host_line(parse_ssh_keyscan_output(result.stdout, target))
 
 
+def _atomic_known_hosts_update(
+    known_hosts: Path,
+    host_alias: str,
+    new_line: str,
+) -> None:
+    """Atomically update known_hosts using file locking to prevent TOCTOU races.
+
+    Uses a dedicated lock file with fcntl.flock(LOCK_EX) to ensure
+    exclusive access during the read-modify-write cycle, preventing
+    concurrent modifications from being lost.
+    """
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use a lock file that persists across the entire operation
+    lock_path = known_hosts.parent / ".ssh_known_hosts.lock"
+
+    lock_fd = None
+    try:
+        # Open (or create) the lock file and acquire exclusive lock
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+        # Now we have exclusive access - safe to read, modify, write
+        lines: list[str] = []
+        if known_hosts.exists():
+            for raw_line in known_hosts.read_text(encoding="utf-8").splitlines():
+                if raw_line.strip() and not raw_line.startswith(f"{host_alias} "):
+                    lines.append(raw_line)
+
+        lines.append(new_line)
+
+        # Write atomically via temp file + rename
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{known_hosts.name}.",
+            suffix=".tmp",
+            dir=str(known_hosts.parent),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
+            os.replace(tmp_name, known_hosts)
+            try:
+                known_hosts.chmod(0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            except OSError:
+                pass
+        # Lock file persists for next use (intentionally not deleted)
+
+
 def trust_ssh_target_host_key(
     name: str,
     *,
@@ -467,26 +527,8 @@ def trust_ssh_target_host_key(
     if expected_fingerprint and scan.fingerprint != expected_fingerprint:
         raise ValueError(f"SSH host-key fingerprint mismatch: expected {expected_fingerprint}, got {scan.fingerprint}.")
     known_hosts = ssh_known_hosts_path(home)
-    known_hosts.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    if known_hosts.exists():
-        alias = ssh_host_alias(target)
-        for raw_line in known_hosts.read_text(encoding="utf-8").splitlines():
-            if raw_line.strip() and not raw_line.startswith(f"{alias} "):
-                lines.append(raw_line)
-    lines.append(scan.known_hosts_line)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{known_hosts.name}.", suffix=".tmp", dir=str(known_hosts.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(lines) + "\n")
-        os.replace(tmp_name, known_hosts)
-        try:
-            known_hosts.chmod(0o600)
-        except OSError:
-            pass
-    finally:
-        if os.path.exists(tmp_name):
-            os.unlink(tmp_name)
+    alias = ssh_host_alias(target)
+    _atomic_known_hosts_update(known_hosts, alias, scan.known_hosts_line)
     trusted = SshTarget(
         **{
             **target.to_dict(),
