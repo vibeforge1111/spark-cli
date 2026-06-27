@@ -27,7 +27,7 @@ R30 is still blocked until these handoffs are source-owned and verified.
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763` | owner branch `12bddc9bd0bd`; remote tag `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Port/tag the two local trace/governor commits before any R30 voice registry claim. Do not pin R30 to `c74490d` if R30 claims current Spark OS voice proof. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; registry/tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; registry/tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
-| `spark-cli` | current `harness-discipline-ruleset` head from `git rev-parse HEAD` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs, live-status gate, Access 5 sandbox gate with `live_level5_env_files_all_profiled_services_full_access` plus `effective_codex_sandbox`, local runtime artifact handoff gate, voice runtime truth gate with `requires_confirmation_for_actions=true`, publication-order `source_truth_blockers`, and voice source-discovery fix in the source release before installer pins move to R30. |
+| `spark-cli` | current `harness-discipline-ruleset` head from `git rev-parse HEAD` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs, live-status gate, Access 5 sandbox gate with `live_level5_env_files_all_profiled_services_full_access` plus `effective_codex_sandbox`, `r30_unattended_identity_guard`, local runtime artifact handoff gate, voice runtime truth gate with `requires_confirmation_for_actions=true`, publication-order `source_truth_blockers`, and voice source-discovery fix in the source release before installer pins move to R30. |
 
 ## Local Runtime Artifact Patch Inventory
 
@@ -313,6 +313,7 @@ hash into release truth.
 
 Recent R30 prep commits to include before any R30 installer pin movement:
 
+- `11385e6 Gate R30 unattended identity smoke`
 - `d9ecaec Clarify Level 5 effective sandbox proof`
 - `7e490a5 Gate R30 Level 5 named profile restarts`
 - `7478f0d Require Level 5 proof per Telegram profile`
