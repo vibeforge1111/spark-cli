@@ -9494,6 +9494,8 @@ def collect_r30_release_gate_payload(
         bool(publish_handoff_blockers.get("ok"))
         and bool(handoff_manifest.get("ok"))
         and bool(local_runtime_artifacts_handoff.get("ok"))
+        and bool(cli_owner_handoff_docs.get("ok"))
+        and bool(local_runtime_handoff_docs.get("ok"))
         and bool(release_lane.get("ok"))
         and bool(voice_registry_decision.get("ok"))
         and bool(builder_trace_lifecycle.get("ok"))
@@ -9506,6 +9508,10 @@ def collect_r30_release_gate_payload(
         source_truth_blockers.append("owner_handoff_manifest")
     if not bool(local_runtime_artifacts_handoff.get("ok")):
         source_truth_blockers.append("local_runtime_artifacts_handoff")
+    if not bool(cli_owner_handoff_docs.get("ok")):
+        source_truth_blockers.append("r30_cli_owner_handoff_docs")
+    if not bool(local_runtime_handoff_docs.get("ok")):
+        source_truth_blockers.append("r30_local_runtime_handoff_docs")
     if not bool(release_lane.get("ok")):
         source_truth_blockers.append("release_lane")
     if not bool(voice_registry_decision.get("ok")):
