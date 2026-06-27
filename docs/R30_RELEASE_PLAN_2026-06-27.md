@@ -33,6 +33,8 @@ Local evidence captured on 2026-06-27:
 - `spark verify --registry-pins --json`: fails only because `spark-voice-comms` registry pin lags `refs/heads/main`.
 - Spark OS publish handoffs remain visible: 2 local runtime test artifacts and 1 historical Builder trace lifecycle family.
 
+Detailed owner-source audit: [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md).
+
 ## Source Truth Order
 
 Use this order for R30. Do not skip ahead.
@@ -49,7 +51,7 @@ Use this order for R30. Do not skip ahead.
 | `spark-telegram-bot` | Installed head `64408560dcf2`; registry pin `e5a1bd040986`; classified `local_runtime_test_artifact`. | Push or port the proven Telegram head, then update registry/release metadata so the runtime is no longer local-only. |
 | `spawner-ui` | Installed head `0a892f0bcdaf`; registry pin `19b7d0bff144`; classified `local_runtime_test_artifact`. | Push or port the proven Spawner head, then update registry/release metadata. |
 | `spark-cli` | Local head includes `39efa1f` voice source discovery fix; manifest still points at R28. | Include the voice discovery fix and R30 docs in the source-owner release before changing installer pins. |
-| `spark-voice-comms` | Installed source is importable; registry pin `21a9467e...` lags remote `main` at `c74490d...`; local voice checkout is ahead of its branch. | Choose stable voice truth: pin a proven release/tag or update to a proven remote head. Do not pin local-only voice work as public truth. |
+| `spark-voice-comms` | Installed source is importable; registry pin `21a9467e...` lags remote `main`/tag `spark-ship-2026-06-26` at `c74490d...`; local voice checkout `7555a36...` is ahead of its branch with trace/governor proof. | Do not pin R30 voice to the earlier public tag if R30 claims current voice trace proof. Port/tag the local voice trace/governor commits first, then update registry and installed-state truth together. |
 | Builder trace health | Current windows clean; one historical high-severity lifecycle family remains from 2026-06-02. | Close with owner-approved lifecycle evidence or keep explicit as a non-hidden historical publish handoff. |
 | Hosted installer | Hosted R29 differs from local R28 manifest. | Publish R30 only after local manifest, hosted scripts, hosted checksums, commands metadata, and release manifest all agree. |
 

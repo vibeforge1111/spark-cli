@@ -22,7 +22,7 @@ Rules:
 - Do not push, deploy, tag, publish, or remote-merge without explicit authorization.
 
 Task list:
-1. Read `docs/R30_RELEASE_PLAN_2026-06-27.md`, `docs/R30_INSTALLER_PREP_2026-06-27.md`, `docs/LAUNCH_RUNBOOK.md`, and `AGENTS.md`.
+1. Read `docs/R30_RELEASE_PLAN_2026-06-27.md`, `docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md`, `docs/R30_INSTALLER_PREP_2026-06-27.md`, `docs/LAUNCH_RUNBOOK.md`, and `AGENTS.md`.
 2. Audit source-owner state for `spark-cli`, `spark-telegram-bot`, `spawner-ui`, `spark-voice-comms`, Builder, memory, and registry metadata. Record exact heads, pins, refs, dirty state, and owner handoff status.
 3. Converge Telegram and Spawner local runtime artifacts by porting/pushing owner commits or preparing exact owner handoff instructions. Do not update registry pins until owner-source proof exists.
 4. Decide and prove `spark-voice-comms` registry truth: stable tag/ref or updated proven remote head. Keep voice action-confirmation-bound.

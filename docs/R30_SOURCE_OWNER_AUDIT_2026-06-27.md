@@ -1,0 +1,87 @@
+# Spark R30 Source Owner Audit
+
+Date: 2026-06-27
+Status: current-state audit for R30 prep; not a publication record
+
+## Purpose
+
+This audit records the owner-source and registry state R30 must converge before installer pins or hosted metadata can move. It keeps local proof separate from public release truth.
+
+## Summary
+
+R30 is not ready for installer pin changes yet.
+
+The current Spark stack is clean enough to keep preparing R30, but several R30-relevant changes are still local or ahead of owner-source refs:
+
+- `spark-telegram-bot`: local R30 proof/docs head has no owner remote branch yet.
+- `spawner-ui`: local branch is ahead of the owner release branch.
+- `spark-voice-comms`: the public `spark-ship-2026-06-26` tag is test-clean, but it does not include the local voice trace/governor commits that make the current Spark OS voice proof truthful.
+- `domain-chip-memory` and `spark-intelligence-builder`: local heads are ahead of owner branches.
+- Builder trace health still has one historical lifecycle family that must remain visible until source-owned closure exists.
+
+## Current Heads And Pins
+
+| Area | Local installed/source head | Owner remote / release truth | Registry or installer truth | R30 action |
+| --- | --- | --- | --- | --- |
+| `spark-cli` | `35a2eb991491` on `harness-discipline-ruleset` | remote R29 tag `7751ef43581c`; remote `master` `a6738be7a97a` | local installer manifest/scripts still R28 | Keep R30 docs and voice discovery fix local until source release/tag is authorized. |
+| `spark-telegram-bot` | `64408560dcf2` on `harness-discipline-line-count-gate` | no matching owner branch found; remote `main` `67ad9e6ed297`; tag `spark-ship-2026-06-22` `e5a1bd040986` | registry pin `e5a1bd040986`; classified `local_runtime_test_artifact` | Push/port `64408560dcf2` or an equivalent owner release commit before changing registry. |
+| `spawner-ui` | `0a892f0bcdaf` on `release/stability-2026-06-02-spawner-authority` | owner branch `fdb8fded4744`; remote `main` `451d009aad84`; tag `spark-ship-2026-06-22` `19b7d0bff144` | registry pin `19b7d0bff144`; classified `local_runtime_test_artifact` | Push/port the local merge/fix stack before changing registry. |
+| `spark-voice-comms` | `7555a363d763` on `codex/turnintent-voice-policy-20260531`; ahead 2 of owner branch | owner branch `12bddc9bd0bd`; remote `main` and tag `spark-ship-2026-06-26` `c74490d68ece` | registry pin `21a9467e9bd4`; installed state still records `0d6e366fd04d` | Do not pin R30 voice to `c74490d` if R30 claims current voice trace proof. Port/tag local trace/governor commits first, then update registry and installed state truth together. |
+| `domain-chip-memory` | `1fd272e519b5`; ahead 1 | owner branch `3116ccaa3977`; remote `main` `72a660a69c0c`; tag `spark-ship-2026-06-22` `f7f16a6ea8ee` | registry pin `f7f16a6ea8ee` | Owner can review/push the vNext memory authority proof before R30 registry claims. |
+| `spark-intelligence-builder` | `f21522accf66`; ahead 43 | owner branch `c94eac853fed`; remote `main` `9d7bdefaa9a0`; tag `spark-ship-2026-06-22` `e7f80fbf03bd` | registry pin `e7f80fbf03bd` | Owner can review/push or port the merge/fix stack; Builder historical trace lifecycle remains a separate handoff. |
+
+## Voice Registry Decision
+
+Do not update `spark-voice-comms` registry truth to `spark-ship-2026-06-26` as the final R30 voice claim.
+
+Evidence:
+
+- Remote tag `spark-ship-2026-06-26` points at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- Temporary detached worktree at `c74490d68ece` passed `PYTHONPATH=src python3 -m pytest -q`: `121 passed`.
+- Installed local voice branch at `7555a363d763` passed `PYTHONPATH=src python3 -m pytest -q`: `80 passed`.
+- The local branch adds the current Spark OS voice proof pieces over the owner branch:
+  - `8a246af Join voice runtime state traces`
+  - `7555a36 Accept media transcription governor authority`
+- The local delta over `origin/codex/turnintent-voice-policy-20260531` is limited to:
+  - `src/voice_comms_chip/runtime_state.py`
+  - `src/voice_comms_chip/spark_hook.py`
+  - `tests/test_runtime_state.py`
+  - `tests/test_spark_hook.py`
+
+R30 voice path:
+
+1. Port or push the local voice trace/governor commits into owner-source release truth.
+2. Cut or select a stable release ref containing those commits.
+3. Update `registry.json` to that stable ref and commit.
+4. Update installed-state registry truth through the normal install/update path, not by hand-editing local state.
+5. Rerun `spark os compile --json` and require `voice_surface_mode=duplex`, `voice_surface_blockers=0`, and `critical_duplicate_truth_count=0`.
+
+## Builder Trace Lifecycle
+
+The remaining unresolved historical trace family is:
+
+- component: `telegram_runtime`
+- event type: `tool_call_ledger_recorded`
+- status/severity: `blocked` / `high`
+- latest event: `2026-06-02 09:03:25`
+- latest lifecycle state: `latest_open_high_severity`
+- current 1h high-open count: `0`
+- current 24h high-open count: `0`
+- reason code: redacted by the trace index
+
+R30 must not hide this family. Either add source-owned lifecycle closure evidence after confirming the guardrail is still active, or keep this as an explicit historical publish handoff.
+
+## Proof Captured
+
+- `spark os compile --json`: green before this audit, with 2 local runtime test artifacts and 1 Builder historical lifecycle handoff still visible.
+- `spark-voice-comms` remote tag worktree test: `121 passed`.
+- `spark-voice-comms` installed local branch test: `80 passed`.
+- Voice temporary worktree was removed after test.
+
+## Next Safe Actions
+
+1. Prepare owner-source handoff branches or PRs for Telegram, Spawner, voice, memory, and Builder.
+2. For voice, prefer a new stable release ref that contains `8a246af` and `7555a36` or equivalent source-owned commits.
+3. Keep registry pins unchanged until owner-source proof exists remotely.
+4. Keep installer manifest/scripts on R28 locally until source and registry convergence are green.
+5. Re-run the full R30 gate after owner-source movement.
