@@ -8520,6 +8520,18 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
         if not proof_commands:
             row_issues.append("missing_proof_commands")
+        if not isinstance(item.get("commit_count"), int) or int(item.get("commit_count") or 0) <= 0:
+            row_issues.append("missing_commit_count")
+        if not isinstance(item.get("changed_file_count"), int) or int(item.get("changed_file_count") or 0) <= 0:
+            row_issues.append("missing_changed_file_count")
+        first_local_commit = str(item.get("first_local_commit") or "")
+        if not GIT_COMMIT_SHA_PATTERN.match(first_local_commit):
+            row_issues.append("missing_first_local_commit")
+        last_local_commit = str(item.get("last_local_commit") or "")
+        if not GIT_COMMIT_SHA_PATTERN.match(last_local_commit):
+            row_issues.append("missing_last_local_commit")
+        elif last_local_commit != item.get("local_head"):
+            row_issues.append("last_local_commit_mismatch")
         if row_issues:
             mismatches.append({"module": module, "issues": row_issues})
     if mismatches:

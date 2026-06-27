@@ -27,7 +27,23 @@ R30 is still blocked until these handoffs are source-owned and verified.
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763` | owner branch `12bddc9bd0bd`; remote tag `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Port/tag the two local trace/governor commits before any R30 voice registry claim. Do not pin R30 to `c74490d` if R30 claims current Spark OS voice proof. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; registry/tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; registry/tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
-| `spark-cli` | local R30 prep commits through `788e9d9` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs, live-status gate, Access 5 sandbox gate, voice runtime truth gate, and voice source-discovery fix in the source release before installer pins move to R30. |
+| `spark-cli` | local R30 prep commits through `34f0c34` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs, live-status gate, Access 5 sandbox gate, local runtime artifact handoff gate, voice runtime truth gate, and voice source-discovery fix in the source release before installer pins move to R30. |
+
+## Local Runtime Artifact Patch Inventory
+
+These two owners are the current `local_runtime_test_artifacts` family. The
+structured inventory is also recorded in
+[R30 local runtime artifacts handoff manifest](./R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json).
+
+| Repo | Exact range | Commits | Files changed | Boundary commits | Owner-lane command |
+| --- | --- | ---: | ---: | --- | --- |
+| `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351` | 990 | 323 | first `43aeb4e476b9` / last `fa4c8884bb83` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351` |
+| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c` | 11 | 17 | first `424547437e7e` / last `7110dce4030a` | `git log --reverse --oneline origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c` |
+
+Do not squash these into registry truth from this debugging lane. The owner
+lane should inspect the exact range, decide whether to push or cherry-pick, run
+the listed proof commands on the owner ref, and only then move installed
+metadata and registry pins.
 
 ## R30 Gate Classification
 

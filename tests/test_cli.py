@@ -13653,6 +13653,10 @@ class SparkCliTests(unittest.TestCase):
                                 "expected_registry_commit": "a" * 40,
                                 "local_head": "b" * 40,
                                 "installed_registry_commit": "a" * 40,
+                                "commit_count": 12,
+                                "changed_file_count": 7,
+                                "first_local_commit": "e" * 40,
+                                "last_local_commit": "b" * 40,
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
                             },
@@ -13661,6 +13665,10 @@ class SparkCliTests(unittest.TestCase):
                                 "expected_registry_commit": "c" * 40,
                                 "local_head": "d" * 40,
                                 "installed_registry_commit": "c" * 40,
+                                "commit_count": 3,
+                                "changed_file_count": 2,
+                                "first_local_commit": "f" * 40,
+                                "last_local_commit": "d" * 40,
                                 "proof_commands": ["npm run check"],
                                 "local_proof": "passed",
                             },
@@ -13702,6 +13710,10 @@ class SparkCliTests(unittest.TestCase):
                                 "expected_registry_commit": "wrong",
                                 "local_head": "b" * 40,
                                 "installed_registry_commit": "a" * 40,
+                                "commit_count": 0,
+                                "changed_file_count": 0,
+                                "first_local_commit": "",
+                                "last_local_commit": "wrong",
                                 "proof_commands": [],
                                 "local_proof": "passed",
                             }
@@ -13721,6 +13733,10 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("expected_registry_commit_mismatch", payload["mismatches"][0]["issues"])
         self.assertIn("missing_proof_commands", payload["mismatches"][0]["issues"])
+        self.assertIn("missing_commit_count", payload["mismatches"][0]["issues"])
+        self.assertIn("missing_changed_file_count", payload["mismatches"][0]["issues"])
+        self.assertIn("missing_first_local_commit", payload["mismatches"][0]["issues"])
+        self.assertIn("missing_last_local_commit", payload["mismatches"][0]["issues"])
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])
