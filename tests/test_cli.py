@@ -13071,8 +13071,56 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["registry_pins"]["ok"])
         self.assertEqual(checks["release_lane"]["classification"]["direct_blocker_count"], 0)
         self.assertEqual(checks["release_lane"]["classification"]["supporting_hygiene_count"], 1)
+        self.assertTrue(checks["publication_order"]["ok"])
+        self.assertFalse(checks["publication_order"]["source_truth_ready"])
+        self.assertFalse(checks["publication_order"]["installer_pins_are_r30"])
         self.assertFalse(checks["r30_installer_pins"]["ok"])
         self.assertIn("spark-cli-public-installer-2026-06-22-r28", checks["r30_installer_pins"]["detail"])
+
+    def test_r30_release_gate_blocks_premature_r30_installer_pins(self) -> None:
+        compiled = {
+            "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-character": {
+                    "path": "/tmp/spark-character",
+                    "registry_commit": "a" * 40,
+                }
+            },
+        }
+        summary = {
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "blocked_release_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+            "publish_handoffs": {
+                "family_count": 1,
+                "families": ["local_runtime_test_artifacts"],
+            },
+        }
+
+        def fake_git_status(_path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": "b" * 40,
+            }
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-27-r30", "ref": "spark-cli-public-installer-2026-06-27-r30"}}):
+            payload = collect_r30_release_gate_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["publication_order"]["ok"])
+        self.assertFalse(checks["publication_order"]["source_truth_ready"])
+        self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
+        self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
 
     def test_r30_release_lane_classification_separates_direct_and_supporting_rows(self) -> None:
         payload = classify_r30_release_lane_rows(

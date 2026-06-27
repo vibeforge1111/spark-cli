@@ -8174,6 +8174,25 @@ def collect_r30_release_gate_payload(
     installer_source = installer_manifest_payload().get("source", {})
     installer_release = str(installer_source.get("releaseName") or "")
     installer_ref = str(installer_source.get("ref") or "")
+    installer_pins_are_r30 = installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
+    source_truth_ready = (
+        int(publish_handoffs.get("family_count") or 0) == 0
+        and bool(handoff_manifest.get("ok"))
+        and bool(release_lane.get("ok"))
+        and bool(registry_pins.get("ok"))
+    )
+    publication_order_ok = (source_truth_ready and installer_pins_are_r30) or (
+        not source_truth_ready and not installer_pins_are_r30
+    )
+    publication_order_detail = (
+        "Source/registry truth is green and installer pins point at R30."
+        if source_truth_ready and installer_pins_are_r30
+        else "Source/registry truth is not green yet, and installer pins have not been advanced to R30."
+        if not source_truth_ready and not installer_pins_are_r30
+        else "Installer pins point at R30 before source/registry truth is green."
+        if not source_truth_ready and installer_pins_are_r30
+        else "Source/registry truth is green, but installer pins have not been advanced to R30."
+    )
     docs = [
         "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
         "docs/R30_RELEASE_PLAN_2026-06-27.md",
@@ -8239,11 +8258,18 @@ def collect_r30_release_gate_payload(
             "detail": local_installers.get("summary", "local installer integrity"),
         },
         {
+            "name": "publication_order",
+            "ok": publication_order_ok,
+            "detail": publication_order_detail,
+            "source_truth_ready": source_truth_ready,
+            "installer_pins_are_r30": installer_pins_are_r30,
+        },
+        {
             "name": "r30_installer_pins",
-            "ok": installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME,
+            "ok": installer_pins_are_r30,
             "detail": (
                 "Installer manifest/scripts point at the R30 release id."
-                if installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
+                if installer_pins_are_r30
                 else f"Installer still points at {installer_release or '<missing>'} / {installer_ref or '<missing>'}."
             ),
             "expected_release": R30_INSTALLER_RELEASE_NAME,

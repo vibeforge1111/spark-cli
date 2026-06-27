@@ -60,6 +60,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
 - `registry_pins`: fail
 - `local_installers`: pass
+- `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-22-r28`
 
 Direct R30 release-lane blockers:
