@@ -44,8 +44,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "464cce413efeb29750b4b77718ccbf5d943fd2c3",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..464cce413efeb29750b4b77718ccbf5d943fd2c3",
+      "local_head": "d67d0a6288c034a38b5a7d44ae008d3deda3e032",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..d67d0a6288c034a38b5a7d44ae008d3deda3e032",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
