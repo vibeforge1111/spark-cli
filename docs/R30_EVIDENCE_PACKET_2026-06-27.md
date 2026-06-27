@@ -18,7 +18,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, Access 5 sandbox evidence, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, voice registry truth, registry pin drift, and pre-R30 installer pins. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, voice runtime truth, Access 5 sandbox evidence, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, voice registry truth, registry pin drift, and pre-R30 installer pins. |
 | `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, `voice_surface_blockers=1` because transcription is not ready. |
 | `spark live status --json` | PASS | `ok=true`; primary Telegram and QA Telegram profiles running; Spawner UI healthy; voice importable; no repair hints. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
@@ -62,8 +62,9 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
 - `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge
+- `r30_voice_runtime_truth`: pass, R30 docs match compiled voice runtime truth with `voice_surface_mode=egress`, `voice_surface_blockers=1`, and blocker `voice transcription is not ready`
 - `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
-- `r30_access_level5_codex_sandbox`: pass, installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`
+- `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`
 - `registry_pins`: fail
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30

@@ -111,6 +111,7 @@ GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
+R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.md"
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
 R30_DIRECT_RELEASE_MODULES = {
@@ -8157,6 +8158,53 @@ def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, 
     }
 
 
+def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str, Any]:
+    voice_surface = compiled.get("voice_surface_view") if isinstance(compiled.get("voice_surface_view"), dict) else {}
+    mode = str(voice_surface.get("mode") or "")
+    blockers = [str(item) for item in voice_surface.get("blockers", [])] if isinstance(voice_surface.get("blockers"), list) else []
+    source_capability = voice_surface.get("source_capability") if isinstance(voice_surface.get("source_capability"), dict) else {}
+    source_mode = str(source_capability.get("source_mode") or "")
+    docs = [R30_EVIDENCE_PACKET_PATH, R30_VOICE_REGISTRY_DECISION_PATH]
+    doc_texts: dict[str, str] = {}
+    missing_docs = []
+    for doc in docs:
+        rel = str(doc.relative_to(REPO_ROOT) if doc.is_relative_to(REPO_ROOT) else doc)
+        try:
+            doc_texts[rel] = doc.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            missing_docs.append(rel)
+    combined = "\n".join(doc_texts.values())
+    expected_mode = f"voice_surface_mode={mode}"
+    expected_blockers = f"voice_surface_blockers={len(blockers)}"
+    issues = []
+    if not mode:
+        issues.append("missing_compiled_voice_surface_mode")
+    if missing_docs:
+        issues.append("missing_voice_truth_docs")
+    if mode and expected_mode not in combined:
+        issues.append("voice_surface_mode_doc_mismatch")
+    if expected_blockers not in combined:
+        issues.append("voice_surface_blocker_count_doc_mismatch")
+    for blocker in blockers:
+        if blocker not in combined:
+            issues.append(f"missing_voice_blocker_doc:{blocker}")
+    return {
+        "ok": not issues,
+        "detail": (
+            f"R30 docs match compiled voice runtime truth: mode={mode}, blockers={len(blockers)}."
+            if not issues
+            else f"R30 voice runtime truth has issues: {', '.join(issues)}."
+        ),
+        "mode": mode,
+        "source_mode": source_mode,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "docs": sorted(doc_texts.keys()),
+        "missing_docs": missing_docs,
+        "issues": issues,
+    }
+
+
 def collect_r30_access_level5_codex_sandbox_status(
     compiled: dict[str, Any],
     *,
@@ -8218,6 +8266,8 @@ def collect_r30_access_level5_codex_sandbox_status(
     prd_bridge_test_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
     telegram_actions_path = telegram_path / "src" / "accessActions.ts"
     telegram_actions_test_path = telegram_path / "tests" / "accessActions.test.ts"
+    cli_access_path = REPO_ROOT / "src" / "spark_cli" / "sandbox" / "access.py"
+    cli_access_test_path = REPO_ROOT / "tests" / "test_access.py"
 
     client_text = read_optional(client_path)
     client_test_text = read_optional(client_test_path)
@@ -8227,7 +8277,14 @@ def collect_r30_access_level5_codex_sandbox_status(
     prd_bridge_test_text = read_optional(prd_bridge_test_path)
     telegram_actions_text = read_optional(telegram_actions_path)
     telegram_actions_test_text = read_optional(telegram_actions_test_path)
+    cli_access_text = read_optional(cli_access_path)
+    cli_access_test_text = read_optional(cli_access_test_path)
     checks = {
+        "cli_level5_env_requires_danger_full_access": '"SPARK_CODEX_SANDBOX": "danger-full-access"' in cli_access_text,
+        "cli_lower_to_level5_transition_test_exists": "test_access_level5_transition_from_lower_telegram_levels_becomes_service_full_access" in cli_access_test_text
+        and "starting_level" in cli_access_test_text
+        and "configured_codex_sandbox" in cli_access_test_text
+        and "danger-full-access" in cli_access_test_text,
         "client_exists": bool(client_text),
         "client_test_exists": bool(client_test_text),
         "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
@@ -8269,6 +8326,8 @@ def collect_r30_access_level5_codex_sandbox_status(
             "prd_bridge_test": str(prd_bridge_test_path),
             "telegram_actions": str(telegram_actions_path),
             "telegram_actions_test": str(telegram_actions_test_path),
+            "cli_access": str(cli_access_path),
+            "cli_access_test": str(cli_access_test_path),
         },
         "checks": checks,
         "issues": issues,
@@ -8404,6 +8463,7 @@ def collect_r30_release_gate_payload(
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
     live_status = collect_r30_live_status_status(collect_status_payload())
+    voice_runtime_truth = collect_r30_voice_runtime_truth_status(compiled)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8497,6 +8557,12 @@ def collect_r30_release_gate_payload(
             "summary": voice_registry_decision,
         },
         {
+            "name": "r30_voice_runtime_truth",
+            "ok": bool(voice_runtime_truth.get("ok")),
+            "detail": voice_runtime_truth.get("detail", "R30 voice runtime truth"),
+            "summary": voice_runtime_truth,
+        },
+        {
             "name": "r30_builder_trace_lifecycle",
             "ok": bool(builder_trace_lifecycle.get("ok")),
             "detail": builder_trace_lifecycle.get("detail", "R30 Builder trace lifecycle decision"),
@@ -8563,6 +8629,7 @@ def collect_r30_release_gate_payload(
         "publish_handoffs": publish_handoffs,
         "owner_handoff_manifest": handoff_manifest,
         "voice_registry_decision": voice_registry_decision,
+        "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
         "access_level5_codex_sandbox": access_level5_codex_sandbox,
         "live_status": live_status,

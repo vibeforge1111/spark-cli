@@ -33,8 +33,9 @@ Current green proof:
 - Spark OS compile is green with `gaps=0`.
 - Local and hosted installer integrity are green for the current R29 manifest.
 - The voice registry decision is explicit and checked by the R30 gate.
+- Voice runtime truth is checked by the R30 gate so docs cannot claim duplex/green while compiled runtime truth is `egress` with a transcription blocker.
 - The Builder trace lifecycle decision is explicit and checked by the R30 gate.
-- The Access 5 Codex sandbox evidence is checked by the R30 gate across direct Spawner, PRD, and Telegram activation paths.
+- The Access 5 Codex sandbox evidence is checked by the R30 gate across CLI transition proof, direct Spawner, PRD, and Telegram activation paths.
 - R30 unattended identity setup smoke fails closed before writes.
 
 Current blockers:

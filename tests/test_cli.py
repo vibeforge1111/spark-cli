@@ -48,6 +48,7 @@ from spark_cli.cli import (
     collect_r30_live_status_status,
     collect_r30_release_gate_payload,
     collect_r30_voice_registry_decision_status,
+    collect_r30_voice_runtime_truth_status,
     collect_registry_pin_drift_payload,
     collect_r30_handoff_manifest_status,
     collect_sandbox_verify_payload,
@@ -13064,6 +13065,11 @@ class SparkCliTests(unittest.TestCase):
                     "registry_commit": "b" * 40,
                 }
             },
+            "voice_surface_view": {
+                "mode": "egress",
+                "blockers": ["voice transcription is not ready"],
+                "source_capability": {"source_mode": "duplex"},
+            },
         }
         summary = {
             "repo_board": {
@@ -13118,6 +13124,11 @@ class SparkCliTests(unittest.TestCase):
                     "registry_commit": "a" * 40,
                 }
             },
+            "voice_surface_view": {
+                "mode": "egress",
+                "blockers": ["voice transcription is not ready"],
+                "source_capability": {"source_mode": "duplex"},
+            },
         }
         summary = {
             "repo_board": {
@@ -13170,6 +13181,60 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["unhealthy_modules"][0]["name"], "spark-voice-comms")
         self.assertIn("restart spawner", payload["repair_hints"])
+
+    def test_r30_voice_runtime_truth_status_passes_when_docs_match_compiled_truth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evidence_path = Path(tmpdir) / "evidence.md"
+            voice_path = Path(tmpdir) / "voice.md"
+            evidence_path.write_text(
+                "voice_surface_mode=egress\n"
+                "voice_surface_blockers=1\n"
+                "voice transcription is not ready\n",
+                encoding="utf-8",
+            )
+            voice_path.write_text("voice_surface_mode=egress\n", encoding="utf-8")
+            compiled = {
+                "voice_surface_view": {
+                    "mode": "egress",
+                    "blockers": ["voice transcription is not ready"],
+                    "source_capability": {"source_mode": "duplex"},
+                }
+            }
+
+            with patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence_path), \
+                 patch("spark_cli.cli.R30_VOICE_REGISTRY_DECISION_PATH", voice_path):
+                payload = collect_r30_voice_runtime_truth_status(compiled)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["mode"], "egress")
+        self.assertEqual(payload["blocker_count"], 1)
+
+    def test_r30_voice_runtime_truth_status_blocks_stale_voice_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evidence_path = Path(tmpdir) / "evidence.md"
+            voice_path = Path(tmpdir) / "voice.md"
+            evidence_path.write_text(
+                "voice_surface_mode=duplex\n"
+                "voice_surface_blockers=0\n",
+                encoding="utf-8",
+            )
+            voice_path.write_text("voice_surface_mode=duplex\n", encoding="utf-8")
+            compiled = {
+                "voice_surface_view": {
+                    "mode": "egress",
+                    "blockers": ["voice transcription is not ready"],
+                    "source_capability": {"source_mode": "duplex"},
+                }
+            }
+
+            with patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence_path), \
+                 patch("spark_cli.cli.R30_VOICE_REGISTRY_DECISION_PATH", voice_path):
+                payload = collect_r30_voice_runtime_truth_status(compiled)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("voice_surface_mode_doc_mismatch", payload["issues"])
+        self.assertIn("voice_surface_blocker_count_doc_mismatch", payload["issues"])
+        self.assertIn("missing_voice_blocker_doc:voice transcription is not ready", payload["issues"])
 
     def test_r30_release_lane_classification_separates_direct_and_supporting_rows(self) -> None:
         payload = classify_r30_release_lane_rows(

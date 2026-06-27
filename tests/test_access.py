@@ -315,6 +315,50 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["next"], "spark access status --level 5")
         self.assertEqual(payload["recommended"]["id"], "level5_operator")
 
+    def test_access_level5_transition_from_lower_telegram_levels_becomes_service_full_access(self) -> None:
+        for starting_level in (1, 3, 4):
+            with self.subTest(starting_level=starting_level), tempfile.TemporaryDirectory() as tmpdir:
+                spark_home = Path(tmpdir) / "spark-home"
+                _, lower_payload = self.run_access("status", "--level", str(starting_level), spark_home=spark_home)
+                setup_exit, setup_payload = self.run_access(
+                    "setup",
+                    "--level",
+                    "5",
+                    "--enable-high-agency",
+                    spark_home=spark_home,
+                )
+                state_dir = spark_home / "state"
+                state_dir.mkdir(parents=True)
+                (state_dir / "pids.json").write_text(
+                    json.dumps(
+                        {
+                            "spawner-ui": {
+                                "pid": 111,
+                                "module": "spawner-ui",
+                                "started_at": "2999-01-01T00:00:00Z",
+                            },
+                            "spark-telegram-bot:spark-agi": {
+                                "pid": 222,
+                                "module": "spark-telegram-bot",
+                                "started_at": "2999-01-01T00:00:00Z",
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                status_exit, status_payload = self.run_access("status", "--level", "5", spark_home=spark_home)
+
+            self.assertEqual(lower_payload["effective_access_level"], starting_level)
+            self.assertEqual(setup_exit, 0)
+            self.assertEqual(setup_payload["level5"]["configured_codex_sandbox"], "danger-full-access")
+            self.assertEqual(setup_payload["level5"]["activation_state"], "restart_required")
+            self.assertEqual(status_exit, 0)
+            self.assertEqual(status_payload["effective_access_level"], 5)
+            self.assertEqual(status_payload["level5"]["activation_state"], "active_for_services")
+            self.assertEqual(status_payload["level5"]["configured_codex_sandbox"], "danger-full-access")
+            self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
+            self.assertFalse(status_payload["state_machine"]["current_process_can_operate_whole_computer"])
+
     def test_access_status_level5_session_only_needs_persistent_setup(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code, payload = self.run_access(
