@@ -14430,7 +14430,7 @@ class SparkCliTests(unittest.TestCase):
             "Surface effective Level 5 sandbox in Telegram\n"
             "Block Level 5 full-access copy on read-only sandbox\n"
             "Require effective Level 5 sandbox before operator claims\n"
-            "Harden Telegram Level 5 sandbox status\n"
+            "Harden Telegram Level 5 sandbox status\nHarden Telegram Level 5 proof gate\n"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -14560,6 +14560,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Block Level 5 full-access copy on read-only sandbox",
                                     "Require effective Level 5 sandbox before operator claims",
                                     "Harden Telegram Level 5 sandbox status",
+                                    "Harden Telegram Level 5 proof gate",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "owner_action": "Port onto the current owner release base before registry movement.",
@@ -14637,6 +14638,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Block Level 5 full-access copy on read-only sandbox",
                                     "Require effective Level 5 sandbox before operator claims",
                                     "Harden Telegram Level 5 sandbox status",
+                                    "Harden Telegram Level 5 proof gate",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
@@ -14955,6 +14957,7 @@ class SparkCliTests(unittest.TestCase):
                             "Block Level 5 full-access copy on read-only sandbox",
                             "Require effective Level 5 sandbox before operator claims",
                             "Harden Telegram Level 5 sandbox status",
+                            "Harden Telegram Level 5 proof gate",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "owner_action": "Port onto the current owner release base before registry movement.",

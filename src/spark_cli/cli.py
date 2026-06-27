@@ -195,6 +195,7 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Block Level 5 full-access copy on read-only sandbox",
         "Require effective Level 5 sandbox before operator claims",
         "Harden Telegram Level 5 sandbox status",
+        "Harden Telegram Level 5 proof gate",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",
