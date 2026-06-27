@@ -365,6 +365,7 @@ hash into release truth.
 Recent R30 prep commits to include before any R30 installer pin movement:
 
 - `11385e6 Gate R30 unattended identity smoke`
+- `d59f533 Require effective sandbox proof in R30 access gate`
 - `d9ecaec Clarify Level 5 effective sandbox proof`
 - `7e490a5 Gate R30 Level 5 named profile restarts`
 - `7478f0d Require Level 5 proof per Telegram profile`
@@ -396,7 +397,10 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json
 Expected before registry/installer movement: the focused tests pass, OS compile
 is green, Access 5 and voice runtime truth checks pass inside the R30 gate, and
 the R30 gate still blocks on owner-source, registry, and installer truth until
-those surfaces converge. Access 5 proof must include `missing_or_stale_services=[]`
+those surfaces converge. Access 5 proof must include the hardening from
+`Require effective sandbox proof in R30 access gate`, which rejects
+configured-only Telegram Level 5 sandbox proof. It must also include
+`missing_or_stale_services=[]`
 for all startable or already-running Telegram profiles and
 `effective_codex_sandbox=danger-full-access` for the service lane. The final
 live access payload must also report `effective_access_level=5` and

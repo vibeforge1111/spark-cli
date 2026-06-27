@@ -149,6 +149,16 @@ Additional read-only/access drift hardening at `2026-06-27T21:57:16Z`:
 - Spawner focused Level 5 Codex sandbox tests passed, `50 passed`; known local relay stderr from stopped `sparkqa-bot`/live relay secret did not fail the tests.
 - `spark access status --level 5 --json`: passed with `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `service_codex_sandbox=danger-full-access`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`.
 
+Additional CLI R30 gate hardening at `2026-06-28T02:11Z`:
+
+- `spark-cli` local commit `d59f533` (`Require effective sandbox proof in R30 access gate`) made the executable R30 Access 5 gate reject Telegram source evidence that reads `configured_codex_sandbox` as the proof for full access. The gate now requires Telegram source evidence to read `effective_codex_sandbox`, and the checked Telegram test evidence must name `effective_codex_sandbox: 'danger-full-access'`.
+- New regression: a fixture with otherwise healthy Spawner/PRD Level 5 evidence but Telegram source code reading `String(state.configured_codex_sandbox || '')` fails `r30_access_level5_codex_sandbox` with `telegram_level5_reply_reports_active_sandbox` and `telegram_level5_reply_reads_cli_level5_sandbox`.
+- `PYTHONPATH=src python3 -m pytest -q tests/test_cli.py -k "r30_access_level5_codex_sandbox_status"`: passed, `6 passed`.
+- `PYTHONPATH=src python3 -m pytest -q tests/test_access.py`: passed, `29 passed, 9 subtests passed`.
+- Telegram `npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts`: passed.
+- Spawner Level 5 focused tests passed, `43 passed`; the local relay stderr from stopped/unauthorized relay endpoints did not fail the tests.
+- Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: still fails only for publication truth (`release_lane`, `r30_voice_registry_decision`, `registry_pins`, and R29 installer pins), while `r30_access_level5_codex_sandbox` reports `ok=true`, `issues=[]`, `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, and `effective_codex_sandbox=danger-full-access`.
+
 Supporting release-hygiene rows:
 
 - `domain-chip-spark-qa-evidence-lane`: head and installed metadata differ from registry

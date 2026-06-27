@@ -9111,6 +9111,7 @@ def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> d
         "voice_action_confirmation_truth": "requires_confirmation_for_actions=true",
         "publication_source_blockers": "source_truth_blockers",
         "telegram_effective_sandbox_surface_proof": "Surface effective Level 5 sandbox in Telegram",
+        "cli_effective_sandbox_gate": "Require effective sandbox proof in R30 access gate",
     }
     for clause, needle in required_clauses.items():
         if needle not in combined_text:
