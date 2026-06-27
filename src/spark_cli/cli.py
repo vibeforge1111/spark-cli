@@ -8534,6 +8534,20 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             row_issues.append("missing_last_local_commit")
         elif last_local_commit != item.get("local_head"):
             row_issues.append("last_local_commit_mismatch")
+        source_path_value = str(live.get("path") or "")
+        local_range = str(item.get("local_range") or "")
+        if source_path_value:
+            source_path = Path(source_path_value)
+            git_range = collect_r30_local_runtime_git_range_status(source_path, local_range)
+            if not git_range.get("ok"):
+                row_issues.extend(str(issue) for issue in git_range.get("issues", []))
+            else:
+                if item.get("commit_count") != git_range.get("commit_count"):
+                    row_issues.append("commit_count_mismatch")
+                if item.get("changed_file_count") != git_range.get("changed_file_count"):
+                    row_issues.append("changed_file_count_mismatch")
+                if item.get("first_local_commit") != git_range.get("first_local_commit"):
+                    row_issues.append("first_local_commit_mismatch")
         if row_issues:
             mismatches.append({"module": module, "issues": row_issues})
     if mismatches:
@@ -8551,6 +8565,43 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "owners": owners,
         "artifacts": manifest_names,
     }
+
+
+def collect_r30_local_runtime_git_range_status(source_path: Path, local_range: str) -> dict[str, Any]:
+    if ".." not in local_range:
+        return {"ok": False, "issues": ["invalid_local_range"]}
+    if not source_path.exists():
+        return {"ok": False, "issues": ["missing_source_path"], "path": str(source_path)}
+    commands = {
+        "commit_count": git_command("rev-list", "--count", local_range),
+        "changed_file_count": git_command("diff", "--name-only", local_range),
+        "first_local_commit": git_command("log", "--reverse", "--format=%H", local_range),
+    }
+    results: dict[str, Any] = {}
+    issues: list[str] = []
+    for name, command in commands.items():
+        try:
+            result = subprocess.run(
+                command,
+                cwd=source_path,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            issues.append(f"{name}_git_error:{exc.__class__.__name__}")
+            continue
+        if result.returncode != 0:
+            issues.append(f"{name}_git_failed")
+            continue
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if name == "commit_count":
+            results[name] = int(lines[0]) if lines and lines[0].isdigit() else None
+        elif name == "changed_file_count":
+            results[name] = len(lines)
+        elif name == "first_local_commit":
+            results[name] = lines[0] if lines else ""
+    return {"ok": not issues, "issues": issues, **results}
 
 
 def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> dict[str, Any]:

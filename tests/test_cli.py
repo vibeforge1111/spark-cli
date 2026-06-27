@@ -13770,6 +13770,76 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_first_local_commit", payload["mismatches"][0]["issues"])
         self.assertIn("missing_last_local_commit", payload["mismatches"][0]["issues"])
 
+    def test_r30_local_runtime_artifacts_handoff_validates_git_range_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "spark@example.test"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Spark Test"], cwd=repo, check=True)
+            (repo / "base.txt").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
+            base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+            (repo / "one.txt").write_text("one\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "one"], cwd=repo, check=True, capture_output=True)
+            first = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+            (repo / "two.txt").write_text("two\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "two"], cwd=repo, check=True, capture_output=True)
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+            classification = {
+                "direct_blockers": [
+                    {
+                        "module": "spark-telegram-bot",
+                        "expected_commit": base,
+                        "actual_commit": head,
+                        "installed_registry_commit": base,
+                        "path": str(repo),
+                    }
+                ],
+            }
+            publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spark-telegram-bot"]}}
+            manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
+            manifest = {
+                "release": "spark-cli-public-installer-2026-06-27-r30",
+                "artifacts": [
+                    {
+                        "module": "spark-telegram-bot",
+                        "expected_registry_commit": base,
+                        "local_head": head,
+                        "installed_registry_commit": base,
+                        "local_range": f"{base}..{head}",
+                        "commit_count": 2,
+                        "changed_file_count": 2,
+                        "first_local_commit": first,
+                        "last_local_commit": head,
+                        "proof_commands": ["npm run control:proof:reliability"],
+                        "local_proof": "passed",
+                    }
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+            self.assertTrue(payload["ok"])
+
+            manifest["artifacts"][0]["commit_count"] = 1
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            stale_payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+
+        self.assertFalse(stale_payload["ok"])
+        self.assertIn("commit_count_mismatch", stale_payload["mismatches"][0]["issues"])
+
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])
         payload = {
