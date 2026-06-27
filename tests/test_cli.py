@@ -13814,12 +13814,18 @@ class SparkCliTests(unittest.TestCase):
 
     def test_r30_cli_owner_handoff_docs_status_requires_live_head_command(self) -> None:
         release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}
+        required = (
+            "spark-cli verify with git rev-parse HEAD\n"
+            "live_level5_env_files_all_profiled_services_full_access\n"
+            "requires_confirmation_for_actions=true\n"
+            "source_truth_blockers\n"
+        )
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             audit = root / "audit.md"
             packet = root / "packet.md"
-            audit.write_text("spark-cli verify with git rev-parse HEAD\n", encoding="utf-8")
-            packet.write_text("spark-cli verify with git rev-parse HEAD\n", encoding="utf-8")
+            audit.write_text(required, encoding="utf-8")
+            packet.write_text(required, encoding="utf-8")
             with patch("spark_cli.cli.R30_SOURCE_OWNER_AUDIT_PATH", audit), \
                  patch("spark_cli.cli.R30_OWNER_HANDOFF_PACKET_PATH", packet):
                 payload = collect_r30_cli_owner_handoff_docs_status(release_lane)
@@ -13842,6 +13848,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("stale_cli_head", " ".join(payload["issues"]))
         self.assertIn("missing_live_head_command", " ".join(payload["issues"]))
+        self.assertIn("missing_cli_handoff_clause:level5_profile_env_proof", payload["issues"])
+        self.assertIn("missing_cli_handoff_clause:voice_action_confirmation_truth", payload["issues"])
+        self.assertIn("missing_cli_handoff_clause:publication_source_blockers", payload["issues"])
 
     def test_r30_local_runtime_artifacts_handoff_matches_live_rows(self) -> None:
         classification = {

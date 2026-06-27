@@ -8708,6 +8708,7 @@ def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> d
     ]
     issues: list[str] = []
     doc_refs: list[str] = []
+    combined_text = ""
     for path in docs:
         ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
         doc_refs.append(ref)
@@ -8715,12 +8716,21 @@ def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> d
             issues.append(f"missing_doc:{ref}")
             continue
         text = path.read_text(encoding="utf-8")
+        combined_text += "\n" + text
         for stale_head in stale_heads:
             if stale_head in text:
                 issues.append(f"stale_cli_head:{ref}")
                 break
         if "git rev-parse HEAD" not in text:
             issues.append(f"missing_live_head_command:{ref}")
+    required_clauses = {
+        "level5_profile_env_proof": "live_level5_env_files_all_profiled_services_full_access",
+        "voice_action_confirmation_truth": "requires_confirmation_for_actions=true",
+        "publication_source_blockers": "source_truth_blockers",
+    }
+    for clause, needle in required_clauses.items():
+        if needle not in combined_text:
+            issues.append(f"missing_cli_handoff_clause:{clause}")
     if not head:
         issues.append("missing_cli_release_lane_row")
     return {
