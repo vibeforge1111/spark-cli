@@ -67,7 +67,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
-- `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, required terminal subjects, and exact patch inventory. The handoff remains visible as carried publication-bound evidence while owner-source and registry truth converge.
+- `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, required terminal subjects, exact patch inventory, and fresh owner refs from the 2026-06-28 remote audit. The handoff remains visible as carried publication-bound evidence while owner-source and registry truth converge.
 - `r30_local_runtime_handoff_docs`: pass; the R30 release, source-owner, owner-handoff, and evidence docs preserve the structured artifact module heads, ranges, commit counts, required terminal subjects, and proof commands from the local runtime artifact manifest.
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `r30_live_status`: pass, Spark live status is green

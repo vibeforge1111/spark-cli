@@ -14729,6 +14729,12 @@ class SparkCliTests(unittest.TestCase):
                                 "changed_file_count": 7,
                                 "first_local_commit": "e" * 40,
                                 "last_local_commit": "b" * 40,
+                                "owner_refs": {
+                                    "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                                    "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                                    "harness_discipline_line_count_gate": None,
+                                    "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+                                },
                                 "required_terminal_subjects": [
                                     "Add Telegram rich draft streaming controls",
                                     "Package Telegram control release evidence",
@@ -14753,6 +14759,12 @@ class SparkCliTests(unittest.TestCase):
                                 "changed_file_count": 2,
                                 "first_local_commit": "f" * 40,
                                 "last_local_commit": "d" * 40,
+                                "owner_refs": {
+                                    "main": "451d009aad84142092e9a21bda7788cf07910975",
+                                    "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+                                    "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+                                    "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+                                },
                                 "required_terminal_subjects": [
                                     "Carry Harness proof refs in PRD traces",
                                     "Add Spawner PRD proof continuity repair",
@@ -14888,6 +14900,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("expected_registry_commit_mismatch", payload["mismatches"][0]["issues"])
         self.assertIn("missing_proof_commands", payload["mismatches"][0]["issues"])
+        self.assertIn("owner_refs_mismatch", payload["mismatches"][0]["issues"])
         self.assertTrue(any(issue.startswith("missing_required_subject:") for issue in payload["mismatches"][0]["issues"]))
         self.assertIn("missing_commit_count", payload["mismatches"][0]["issues"])
         self.assertIn("missing_changed_file_count", payload["mismatches"][0]["issues"])
@@ -15126,6 +15139,12 @@ class SparkCliTests(unittest.TestCase):
                         "changed_file_count": 2,
                         "first_local_commit": first,
                         "last_local_commit": head,
+                        "owner_refs": {
+                            "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                            "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                            "harness_discipline_line_count_gate": None,
+                            "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+                        },
                         "required_terminal_subjects": [
                             "Add Telegram rich draft streaming controls",
                             "Package Telegram control release evidence",

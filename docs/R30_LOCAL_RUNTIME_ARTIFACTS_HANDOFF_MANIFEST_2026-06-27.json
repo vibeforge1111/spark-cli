@@ -18,6 +18,12 @@
       "first_local_commit_subject": "Add Telegram rich draft streaming controls",
       "last_local_commit": "bb38eca25cbed8675987cc45b900193e37f60859",
       "last_local_commit_subject": "Require effective Level 5 sandbox proof in Telegram",
+      "owner_refs": {
+        "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "harness_discipline_line_count_gate": null,
+        "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+      },
       "required_terminal_subjects": [
         "Add Telegram rich draft streaming controls",
         "Package Telegram control release evidence",
@@ -54,6 +60,12 @@
       "first_local_commit_subject": "Carry Harness proof refs in PRD traces",
       "last_local_commit": "e0fbb5b60c22b4f7dd8a1821379061cbec105cdf",
       "last_local_commit_subject": "Honor persisted Level 5 worker access",
+      "owner_refs": {
+        "main": "451d009aad84142092e9a21bda7788cf07910975",
+        "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+        "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+      },
       "required_terminal_subjects": [
         "Carry Harness proof refs in PRD traces",
         "Add Spawner PRD proof continuity repair",

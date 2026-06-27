@@ -85,6 +85,10 @@ The Telegram and Spawner local runtime artifact handoff form is
 [R30 local runtime artifacts handoff manifest](./R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json).
 `spark verify --r30 --json` checks that those owner names, local heads,
 installed registry commits, and proof commands match live release-lane evidence.
+It also checks the local artifact `owner_refs` for Telegram and Spawner against
+the same fresh 2026-06-28 remote audit, including absent candidate branches as
+`null`, so local runtime artifact convergence cannot be replayed against stale
+owner refs.
 
 Fresh local proof status for direct blockers, refreshed at `2026-06-27T21:33:59Z`:
 

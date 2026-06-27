@@ -8987,6 +8987,20 @@ def collect_r30_local_runtime_artifacts_handoff_status(
     direct_rows = release_lane_classification.get("direct_blockers")
     direct_rows = direct_rows if isinstance(direct_rows, list) else []
     live_rows = {str(row.get("module") or ""): row for row in direct_rows if isinstance(row, dict)}
+    expected_owner_refs = {
+        "spark-telegram-bot": {
+            "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "harness_discipline_line_count_gate": None,
+            "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        },
+        "spawner-ui": {
+            "main": "451d009aad84142092e9a21bda7788cf07910975",
+            "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+            "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        },
+    }
     issues: list[str] = []
     mismatches: list[dict[str, Any]] = []
     if not isinstance(manifest, dict) or not manifest:
@@ -9042,6 +9056,8 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
         if not proof_commands:
             row_issues.append("missing_proof_commands")
+        if item.get("owner_refs") != expected_owner_refs.get(module):
+            row_issues.append("owner_refs_mismatch")
         required_subjects = item.get("required_terminal_subjects") if isinstance(item.get("required_terminal_subjects"), list) else []
         for subject in R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS.get(module, []):
             if subject not in required_subjects:
