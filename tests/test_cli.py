@@ -13331,6 +13331,12 @@ class SparkCliTests(unittest.TestCase):
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
                         "decision": "owner_source_required_before_registry_pin",
+                        "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+                        "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+                        "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+                        "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
                         "existing_public_ref_final_r30_claim_allowed": False,
                         "required_local_commits": [
                             {
@@ -13345,6 +13351,12 @@ class SparkCliTests(unittest.TestCase):
                             }
                         ],
                         "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+                        "required_voice_runtime_truth_after_update": {
+                            "voice_surface_mode": "egress",
+                            "voice_surface_blockers": 1,
+                            "voice_surface_blocker": "voice transcription is not ready",
+                            "requires_confirmation_for_actions": True,
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -13410,8 +13422,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("expected_registry_commit_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("local_head_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
+        self.assertIn("existing_public_ref_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("owner_branch_commit_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("local_range_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
+        self.assertIn("missing_required_voice_runtime_truth", payload["handoff_manifest_issues"])
 
     def test_r30_voice_registry_decision_requires_full_required_commit_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -13423,12 +13439,24 @@ class SparkCliTests(unittest.TestCase):
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
                         "decision": "owner_source_required_before_registry_pin",
+                        "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+                        "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                        "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+                        "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+                        "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
                         "existing_public_ref_final_r30_claim_allowed": False,
                         "required_local_commits": [
                             {"commit": "8a246af", "subject": "Join voice runtime state traces"},
                             {"commit": "7555a36", "subject": "Accept media transcription governor authority"},
                         ],
                         "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+                        "required_voice_runtime_truth_after_update": {
+                            "voice_surface_mode": "egress",
+                            "voice_surface_blockers": 1,
+                            "voice_surface_blocker": "voice transcription is not ready",
+                            "requires_confirmation_for_actions": True,
+                        },
                     }
                 ),
                 encoding="utf-8",

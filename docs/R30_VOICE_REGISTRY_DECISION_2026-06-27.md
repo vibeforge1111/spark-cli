@@ -33,8 +33,10 @@ The current local voice proof depends on two commits beyond the owner branch:
 - `7555a363d7638537b1a9ec1ee377e460d2343323` (`7555a36 Accept media transcription governor authority`)
 
 The R30 gate checks the structured handoff manifest so these exact commits,
-full commit hashes, proof commands, and the rejection of the existing public tag
-as the final R30 voice claim cannot drift out of the release packet unnoticed.
+full commit hashes, owner branch/public tag identities, installed metadata drift,
+proof commands, required post-update voice runtime truth, and the rejection of
+the existing public tag as the final R30 voice claim cannot drift out of the
+release packet unnoticed.
 
 ## Required R30 Path
 

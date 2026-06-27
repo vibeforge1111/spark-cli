@@ -8120,6 +8120,12 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             "local_head": row.get("actual_commit"),
             "installed_registry_commit": row.get("installed_registry_commit"),
             "decision": "owner_source_required_before_registry_pin",
+            "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+            "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+            "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "local_range": f"origin/codex/turnintent-voice-policy-20260531..{row.get('actual_commit')}",
         }
         for key, expected in expected_pairs.items():
             if handoff_manifest.get(key) != expected:
@@ -8141,6 +8147,19 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
             manifest_issues.append("missing_voice_os_compile_proof_command")
+        runtime_truth = handoff_manifest.get("required_voice_runtime_truth_after_update")
+        if not isinstance(runtime_truth, dict):
+            manifest_issues.append("missing_required_voice_runtime_truth")
+        else:
+            required_runtime_truth = {
+                "voice_surface_mode": "egress",
+                "voice_surface_blockers": 1,
+                "voice_surface_blocker": "voice transcription is not ready",
+                "requires_confirmation_for_actions": True,
+            }
+            for key, expected in required_runtime_truth.items():
+                if runtime_truth.get(key) != expected:
+                    manifest_issues.append(f"voice_runtime_truth_{key}_mismatch")
     return {
         "ok": False,
         "decision": "owner_source_required_before_registry_pin",
