@@ -13256,27 +13256,84 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])
 
     def test_r30_voice_registry_decision_blocks_until_owner_source_converges(self) -> None:
-        payload = collect_r30_voice_registry_decision_status(
-            {
-                "direct_blockers": [
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path = Path(tmpdir) / "voice-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
                     {
-                        "module": "spark-voice-comms",
-                        "issues": ["head_differs_from_registry", "installed_metadata_differs_from_registry"],
-                        "expected_commit": "a" * 40,
-                        "actual_commit": "b" * 40,
+                        "expected_registry_commit": "a" * 40,
+                        "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
-                        "next_action": "port voice commits",
-                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q"],
+                        "decision": "owner_source_required_before_registry_pin",
+                        "existing_public_ref_final_r30_claim_allowed": False,
+                        "required_local_commits": [{"commit": "8a246af", "subject": "Join voice runtime state traces"}],
+                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
                     }
-                ]
-            }
-        )
+                ),
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+                payload = collect_r30_voice_registry_decision_status(
+                    {
+                        "direct_blockers": [
+                            {
+                                "module": "spark-voice-comms",
+                                "issues": ["head_differs_from_registry", "installed_metadata_differs_from_registry"],
+                                "expected_commit": "a" * 40,
+                                "actual_commit": "b" * 40,
+                                "installed_registry_commit": "c" * 40,
+                                "next_action": "port voice commits",
+                                "proof_commands": ["PYTHONPATH=src python3 -m pytest -q"],
+                            }
+                        ]
+                    }
+                )
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["decision"], "owner_source_required_before_registry_pin")
+        self.assertTrue(payload["handoff_manifest_present"])
+        self.assertEqual(payload["handoff_manifest_issues"], [])
         self.assertEqual(payload["expected_registry_commit"], "a" * 40)
         self.assertEqual(payload["local_head"], "b" * 40)
         self.assertIn("trace/governor commits", payload["detail"])
         self.assertIn("PYTHONPATH=src python3 -m pytest -q", payload["proof_commands"])
+
+    def test_r30_voice_registry_decision_reports_stale_handoff_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest_path = Path(tmpdir) / "voice-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "expected_registry_commit": "wrong",
+                        "local_head": "wrong",
+                        "installed_registry_commit": "wrong",
+                        "decision": "voice_registry_converged",
+                        "existing_public_ref_final_r30_claim_allowed": True,
+                        "required_local_commits": [],
+                        "proof_commands": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+                payload = collect_r30_voice_registry_decision_status(
+                    {
+                        "direct_blockers": [
+                            {
+                                "module": "spark-voice-comms",
+                                "issues": ["head_differs_from_registry"],
+                                "expected_commit": "a" * 40,
+                                "actual_commit": "b" * 40,
+                                "installed_registry_commit": "c" * 40,
+                            }
+                        ]
+                    }
+                )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("expected_registry_commit_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("local_head_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
 
     def test_r30_voice_registry_decision_passes_when_voice_has_no_release_lane_blocker(self) -> None:
         payload = collect_r30_voice_registry_decision_status({"direct_blockers": []})

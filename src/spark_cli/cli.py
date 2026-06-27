@@ -113,6 +113,7 @@ R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.md"
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
+R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
@@ -8059,6 +8060,12 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
         if isinstance(row, dict) and row.get("module") == "spark-voice-comms"
     ]
     decision_doc_exists = R30_VOICE_REGISTRY_DECISION_PATH.exists()
+    handoff_manifest_path = R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH
+    handoff_manifest_ref = str(
+        handoff_manifest_path.relative_to(REPO_ROOT) if handoff_manifest_path.is_relative_to(REPO_ROOT) else handoff_manifest_path
+    )
+    handoff_manifest = load_json(handoff_manifest_path, {})
+    handoff_manifest_present = bool(isinstance(handoff_manifest, dict) and handoff_manifest)
     if not voice_rows:
         return {
             "ok": decision_doc_exists,
@@ -8069,9 +8076,36 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
                 else "Voice registry truth has no R30 release-lane blocker, but the R30 voice decision document is missing."
             ),
             "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
+            "handoff_manifest": handoff_manifest_ref,
+            "handoff_manifest_present": handoff_manifest_present,
         }
 
     row = voice_rows[0]
+    manifest_issues: list[str] = []
+    required_commits = handoff_manifest.get("required_local_commits") if isinstance(handoff_manifest, dict) else None
+    proof_commands = handoff_manifest.get("proof_commands") if isinstance(handoff_manifest, dict) else None
+    if not handoff_manifest_present:
+        manifest_issues.append("missing_voice_owner_handoff_manifest")
+    else:
+        expected_pairs = {
+            "expected_registry_commit": row.get("expected_commit"),
+            "local_head": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+            "decision": "owner_source_required_before_registry_pin",
+        }
+        for key, expected in expected_pairs.items():
+            if handoff_manifest.get(key) != expected:
+                manifest_issues.append(f"{key}_mismatch")
+        if handoff_manifest.get("existing_public_ref_final_r30_claim_allowed") is not False:
+            manifest_issues.append("existing_public_ref_not_rejected_for_final_r30_claim")
+        if not isinstance(required_commits, list) or not all(
+            isinstance(item, dict) and item.get("commit") and item.get("subject") for item in required_commits
+        ):
+            manifest_issues.append("missing_required_voice_commits")
+        if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
+            manifest_issues.append("missing_voice_pytest_proof_command")
+        if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
+            manifest_issues.append("missing_voice_os_compile_proof_command")
     return {
         "ok": False,
         "decision": "owner_source_required_before_registry_pin",
@@ -8081,6 +8115,9 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
         ),
         "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
         "doc_present": decision_doc_exists,
+        "handoff_manifest": handoff_manifest_ref,
+        "handoff_manifest_present": handoff_manifest_present,
+        "handoff_manifest_issues": manifest_issues,
         "expected_registry_commit": row.get("expected_commit"),
         "local_head": row.get("actual_commit"),
         "installed_registry_commit": row.get("installed_registry_commit"),
@@ -8496,6 +8533,7 @@ def collect_r30_release_gate_payload(
         "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
         "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
         "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+        "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
         "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
         "docs/R30_INSTALLER_PREP_2026-06-27.md",
         "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",

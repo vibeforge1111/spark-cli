@@ -13,10 +13,11 @@ Use this index as the entry point for R30 release prep.
 4. [R30 owner handoff manifest](./R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
 5. [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md)
 6. [R30 voice registry decision](./R30_VOICE_REGISTRY_DECISION_2026-06-27.md)
-7. [R30 Builder trace lifecycle decision](./R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md)
-8. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
-9. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
-10. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
+7. [R30 voice owner handoff manifest](./R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
+8. [R30 Builder trace lifecycle decision](./R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md)
+9. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
+10. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
+11. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 
 ## Current Verdict
 
@@ -33,6 +34,7 @@ Current green proof:
 - Spark OS compile is green with `gaps=0`.
 - Local and hosted installer integrity are green for the current R29 manifest.
 - The voice registry decision is explicit and checked by the R30 gate.
+- The voice owner handoff manifest records exact commits and proof commands, and is checked by the R30 gate.
 - Voice runtime truth is checked by the R30 gate so docs cannot claim duplex/green while compiled runtime truth is `egress` with a transcription blocker.
 - The Builder trace lifecycle decision is explicit and checked by the R30 gate.
 - The Access 5 Codex sandbox evidence is checked by the R30 gate across CLI transition proof, direct Spawner, PRD, and Telegram activation paths.
