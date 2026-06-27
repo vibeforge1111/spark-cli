@@ -13195,12 +13195,13 @@ class SparkCliTests(unittest.TestCase):
                 "voice transcription is not ready\n",
                 encoding="utf-8",
             )
-            voice_path.write_text("voice_surface_mode=egress\n", encoding="utf-8")
+            voice_path.write_text("voice_surface_mode=egress\nrequires_confirmation_for_actions=true\n", encoding="utf-8")
             compiled = {
                 "voice_surface_view": {
                     "mode": "egress",
                     "blockers": ["voice transcription is not ready"],
                     "source_capability": {"source_mode": "duplex"},
+                    "authority": {"requires_confirmation_for_actions": True},
                 }
             }
 
@@ -13211,6 +13212,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["mode"], "egress")
         self.assertEqual(payload["blocker_count"], 1)
+        self.assertTrue(payload["requires_confirmation_for_actions"])
 
     def test_r30_voice_runtime_truth_status_blocks_stale_voice_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -13227,6 +13229,7 @@ class SparkCliTests(unittest.TestCase):
                     "mode": "egress",
                     "blockers": ["voice transcription is not ready"],
                     "source_capability": {"source_mode": "duplex"},
+                    "authority": {"requires_confirmation_for_actions": True},
                 }
             }
 
@@ -13237,7 +13240,37 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("voice_surface_mode_doc_mismatch", payload["issues"])
         self.assertIn("voice_surface_blocker_count_doc_mismatch", payload["issues"])
+        self.assertIn("voice_action_confirmation_doc_mismatch", payload["issues"])
         self.assertIn("missing_voice_blocker_doc:voice transcription is not ready", payload["issues"])
+
+    def test_r30_voice_runtime_truth_status_blocks_unconfirmed_voice_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evidence_path = Path(tmpdir) / "evidence.md"
+            voice_path = Path(tmpdir) / "voice.md"
+            evidence_path.write_text(
+                "voice_surface_mode=egress\n"
+                "voice_surface_blockers=1\n"
+                "voice transcription is not ready\n"
+                "requires_confirmation_for_actions=true\n",
+                encoding="utf-8",
+            )
+            voice_path.write_text("requires_confirmation_for_actions=true\n", encoding="utf-8")
+            compiled = {
+                "voice_surface_view": {
+                    "mode": "egress",
+                    "blockers": ["voice transcription is not ready"],
+                    "source_capability": {"source_mode": "duplex"},
+                    "authority": {"requires_confirmation_for_actions": False},
+                }
+            }
+
+            with patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence_path), \
+                 patch("spark_cli.cli.R30_VOICE_REGISTRY_DECISION_PATH", voice_path):
+                payload = collect_r30_voice_runtime_truth_status(compiled)
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["requires_confirmation_for_actions"])
+        self.assertIn("voice_action_confirmation_not_required", payload["issues"])
 
     def test_r30_release_lane_classification_separates_direct_and_supporting_rows(self) -> None:
         payload = classify_r30_release_lane_rows(

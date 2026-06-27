@@ -8213,6 +8213,8 @@ def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str
     blockers = [str(item) for item in voice_surface.get("blockers", [])] if isinstance(voice_surface.get("blockers"), list) else []
     source_capability = voice_surface.get("source_capability") if isinstance(voice_surface.get("source_capability"), dict) else {}
     source_mode = str(source_capability.get("source_mode") or "")
+    authority = voice_surface.get("authority") if isinstance(voice_surface.get("authority"), dict) else {}
+    requires_confirmation = authority.get("requires_confirmation_for_actions") is True
     docs = [R30_EVIDENCE_PACKET_PATH, R30_VOICE_REGISTRY_DECISION_PATH]
     doc_texts: dict[str, str] = {}
     missing_docs = []
@@ -8234,6 +8236,10 @@ def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str
         issues.append("voice_surface_mode_doc_mismatch")
     if expected_blockers not in combined:
         issues.append("voice_surface_blocker_count_doc_mismatch")
+    if not requires_confirmation:
+        issues.append("voice_action_confirmation_not_required")
+    if requires_confirmation and "requires_confirmation_for_actions=true" not in combined:
+        issues.append("voice_action_confirmation_doc_mismatch")
     for blocker in blockers:
         if blocker not in combined:
             issues.append(f"missing_voice_blocker_doc:{blocker}")
@@ -8246,6 +8252,7 @@ def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str
         ),
         "mode": mode,
         "source_mode": source_mode,
+        "requires_confirmation_for_actions": requires_confirmation,
         "blocker_count": len(blockers),
         "blockers": blockers,
         "docs": sorted(doc_texts.keys()),

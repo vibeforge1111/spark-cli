@@ -60,6 +60,7 @@ Required result before installer movement:
 - `voice_surface_mode=egress`
 - `voice_surface_blockers=1`
 - `voice_surface_blocker`: voice transcription is not ready
+- `requires_confirmation_for_actions=true`
 - voice remains action-confirmation-bound
 - R30 installer pins still remain unchanged until the full source/registry lane
   is green
