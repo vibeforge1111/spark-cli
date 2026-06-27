@@ -27,7 +27,7 @@ R30 is still blocked until these handoffs are source-owned and verified.
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763` | owner branch `12bddc9bd0bd`; remote tag `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Port/tag the two local trace/governor commits before any R30 voice registry claim. Do not pin R30 to `c74490d` if R30 claims current Spark OS voice proof. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; registry/tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; registry/tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
-| `spark-cli` | local R30 prep commits through `ccb7252` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs and voice source-discovery fix in the source release before installer pins move to R30. |
+| `spark-cli` | local R30 prep commits through `788e9d9` plus the R29 baseline alignment | hosted R29 tag `7751ef43581c`; local installer manifest/scripts now match R29 | Include R30 docs, live-status gate, Access 5 sandbox gate, voice runtime truth gate, and voice source-discovery fix in the source release before installer pins move to R30. |
 
 ## R30 Gate Classification
 
@@ -280,6 +280,34 @@ Minimum owner-lane proof after port:
 ```bash
 PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py
 ```
+
+### `spark-cli`
+
+Current R30 prep head: `788e9d98915142f70307eb8906618e94c63c3cca`
+
+Recent R30 prep commits to include before any R30 installer pin movement:
+
+- `788e9d9 Gate R30 access and voice truth`
+- `35bdbb3 Gate R30 on live status proof`
+- `ec59e5e Report current R30 voice runtime truth`
+- `bedeed1 Use module source path for live healthchecks`
+- `39e1341 Add R30 Access 5 sandbox gate`
+
+Minimum source-lane proof before installer pin movement:
+
+```bash
+PYTHONPATH=src python3 -m pytest -q tests/test_access.py tests/test_cli.py -k 'access_level5_transition or level5 or r30_access_level5_codex_sandbox or r30_voice_runtime_truth or r30_release_gate or r30_live_status or r30_voice_registry_decision or r30_builder_trace_lifecycle'
+PYTHONPATH=src python3 -m spark_cli.cli os compile --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json
+```
+
+Expected before registry/installer movement: the focused tests pass, OS compile
+is green, Access 5 and voice runtime truth checks pass inside the R30 gate, and
+the R30 gate still blocks on owner-source, registry, and installer truth until
+those surfaces converge.
 
 Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is still:
 
