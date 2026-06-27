@@ -1500,6 +1500,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
 
+    def test_approval_classifier_allows_os_startup_read_only_checks(self) -> None:
+        cases = [
+            ["reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"],
+            ["schtasks", "/query", "/tn", "Spark Telegram Agent"],
+            ["systemctl", "status", "spark-telegram-agent.service"],
+            ["systemctl", "is-enabled", "spark-telegram-agent.service"],
+            ["launchctl", "list"],
+            ["launchctl", "print", "gui/501/com.spark.telegram-agent"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
+    def test_approval_classifier_keeps_compound_startup_commands_guarded(self) -> None:
+        cases = [
+            ["reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "&&", "reg", "add", "HKCU\\Software\\Spark"],
+            ["systemctl", "status", "spark-telegram-agent.service", ";", "systemctl", "enable", "spark-telegram-agent.service"],
+            ["launchctl", "list", "|", "launchctl", "load", "ai.sparkswarm.spark-telegram-agent.plist"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "process_autostart_mutation")
+
     def test_approval_classifier_blocks_level5_access_mutation_non_interactively(self) -> None:
         decision = approval_required_for_command(
             ["spark", "access", "setup", "--level", "5", "--enable-high-agency"],
