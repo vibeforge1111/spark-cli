@@ -32,8 +32,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "fe39d37c80c226c549a730e854e58dcac7aaa4af",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..fe39d37c80c226c549a730e854e58dcac7aaa4af",
+      "local_head": "a87f4ebe2298069add925b1f1f5a0806a6979ee8",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..a87f4ebe2298069add925b1f1f5a0806a6979ee8",
       "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
       "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
@@ -47,8 +47,8 @@
     {
       "module": "spark-voice-comms",
       "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
-      "local_head": "7555a363d7638537b1a9ec1ee377e460d2343323",
-      "local_range": "origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323",
+      "local_head": "c502ec096cefb48839e3279d3392343231884415",
+      "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
       "owner_truth": "owner branch 12bddc9bd0bd; remote main/tag spark-ship-2026-06-26 at c74490d68ece; registry pin 21a9467e9bd4",
       "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
       "proof_commands": [

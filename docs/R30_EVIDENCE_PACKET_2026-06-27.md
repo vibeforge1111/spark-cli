@@ -97,8 +97,8 @@ Fresh direct-blocker proof results:
 
 - `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
 - `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
-- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `fe39d37c80c2` (`fe39d37c80c226c549a730e854e58dcac7aaa4af`), including the `/access 5` high-agency activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, and Level 5 proof gate.
-- `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
+- `spark-telegram-bot`: `npm test -- tests/accessPolicy.test.ts tests/accessActions.test.ts`, `npm run build`, and `PYTHONPATH=src python3 -m spark_cli.cli access status --level 5 --json` passed. Live Level 5 proof reports `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `effective_codex_sandbox=danger-full-access`, and no stale Telegram profiles. Local head is `a87f4ebe2298` (`a87f4ebe2298069add925b1f1f5a0806a6979ee8`), including the `/access 5` high-agency activation proof stack and proof-oracle Level 5 runtime validation.
+- `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `46 passed` for the refreshed Level 5 launcher slice; `npm run build` passed; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `97cb911bf7ac`, including direct-client, PRD auto-dispatch, PRD bridge, and persisted Spawner-env Level 5 Codex sandbox fixes.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
@@ -198,7 +198,7 @@ Current evidence:
 - remote head: `c74490d68ece65ffad21dc5b88f44602e1afa703`
 - status: `pin_drift`
 
-Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first. The R30 voice gate now requires their full hashes, `8a246af1eb0732aec432d88e4e4c2b6411023b7c` and `7555a363d7638537b1a9ec1ee377e460d2343323`, in the structured voice owner handoff manifest.
+Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first. The R30 voice gate now requires their full hashes, `8a246af1eb0732aec432d88e4e4c2b6411023b7c` and `7555a363d7638537b1a9ec1ee377e460d2343323`, in the structured voice owner handoff manifest. A local owner-lane port is prepared at `c502ec096cefb48839e3279d3392343231884415`, but it is not pushed/tagged, not installed metadata truth, and not registry truth.
 
 ## Installer Smoke Details
 

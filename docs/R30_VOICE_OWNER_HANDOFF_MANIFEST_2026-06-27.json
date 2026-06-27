@@ -16,9 +16,33 @@
   "candidate_owner_release_branch": "release/r30-voice-trace-governor",
   "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
   "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
-  "local_head": "7555a363d7638537b1a9ec1ee377e460d2343323",
+  "local_head": "c502ec096cefb48839e3279d3392343231884415",
+  "prepared_local_release_lane": {
+    "branch": "release/r30-voice-trace-governor",
+    "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+    "head_commit": "c502ec096cefb48839e3279d3392343231884415",
+    "pushed_or_tagged": false,
+    "registry_truth": false,
+    "installed_metadata_truth": false,
+    "proof_command": "PYTHONPATH=src python3 -m pytest -q",
+    "proof_result": "132 passed",
+    "ported_commits": [
+      {
+        "commit": "4eef348",
+        "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+        "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+        "subject": "Join voice runtime state traces"
+      },
+      {
+        "commit": "c502ec0",
+        "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+        "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+        "subject": "Accept media transcription governor authority"
+      }
+    ]
+  },
   "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
-  "local_range": "origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323",
+  "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
   "required_local_commits": [
     {
       "commit": "8a246af",

@@ -26,11 +26,25 @@ Local voice proof is test-clean, but not yet public release truth:
 
 - public tag worktree at `c74490d68ece`: `PYTHONPATH=src python3 -m pytest -q` passed with `121 passed`
 - local installed branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` passed with `80 passed`
+- local prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed with `132 passed`
 
 The current local voice proof depends on two commits beyond the owner branch:
 
 - `8a246af1eb0732aec432d88e4e4c2b6411023b7c` (`8a246af Join voice runtime state traces`)
 - `7555a363d7638537b1a9ec1ee377e460d2343323` (`7555a36 Accept media transcription governor authority`)
+
+Prepared local owner-lane port, not yet pushed/tagged or registry truth:
+
+- base: `c74490d68ece65ffad21dc5b88f44602e1afa703`
+- branch: `release/r30-voice-trace-governor`
+- port commit: `4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f` (`Join voice runtime state traces`)
+- port commit: `c502ec096cefb48839e3279d3392343231884415` (`Accept media transcription governor authority`)
+- proof: `PYTHONPATH=src python3 -m pytest -q` -> `132 passed`
+
+This prepared lane reduces the owner-source handoff gap, but it does not clear
+the R30 voice registry decision until the release ref is source-owned remotely,
+installed metadata is updated through the normal path, and registry pins
+converge.
 
 The R30 gate checks the structured handoff manifest so these exact commits,
 full commit hashes, owner branch/public tag identities, installed metadata drift,
