@@ -110,6 +110,13 @@ AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_DIRECT_RELEASE_MODULES = {
+    "domain-chip-memory",
+    "spark-intelligence-builder",
+    "spark-telegram-bot",
+    "spark-voice-comms",
+    "spawner-ui",
+}
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
@@ -7958,6 +7965,32 @@ def _release_lane_strict_gate(
     }
 
 
+def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, Any]:
+    direct_blockers: list[dict[str, Any]] = []
+    supporting_hygiene: list[dict[str, Any]] = []
+    for row in release_lane.get("rows", []):
+        if not isinstance(row, dict) or not row.get("issues"):
+            continue
+        item = {
+            "module": row.get("module"),
+            "issues": list(row.get("issues") or []),
+            "expected_commit": row.get("expected_commit"),
+            "actual_commit": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+        }
+        if str(row.get("module") or "") in R30_DIRECT_RELEASE_MODULES:
+            direct_blockers.append(item)
+        else:
+            supporting_hygiene.append(item)
+    return {
+        "schema_version": "spark.r30.release_lane_classification.v0",
+        "direct_blocker_count": len(direct_blockers),
+        "supporting_hygiene_count": len(supporting_hygiene),
+        "direct_blockers": direct_blockers,
+        "supporting_hygiene": supporting_hygiene,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -7985,6 +8018,7 @@ def collect_r30_release_gate_payload(
         installed_path=installed_path,
         critical_duplicate_truth_count=critical_duplicate_truth_count,
     )
+    release_lane_classification = classify_r30_release_lane_rows(release_lane)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8031,9 +8065,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(release_lane.get("ok")),
             "detail": (
                 f"{int(release_lane.get('dirty_repo_count') or 0)} dirty release repos; "
-                f"{int(release_lane.get('issue_count') or 0)} release-lane issues"
+                f"{int(release_lane.get('issue_count') or 0)} release-lane issues "
+                f"({release_lane_classification['direct_blocker_count']} direct R30, "
+                f"{release_lane_classification['supporting_hygiene_count']} supporting)"
             ),
             "summary": release_lane,
+            "classification": release_lane_classification,
         },
         {
             "name": "registry_pins",
@@ -8082,6 +8119,7 @@ def collect_r30_release_gate_payload(
         },
         "publish_handoffs": publish_handoffs,
         "release_lane": release_lane,
+        "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,
         "local_installers": local_installers,
         "hosted_installers": hosted_installers,

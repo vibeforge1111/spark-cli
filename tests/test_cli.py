@@ -69,6 +69,7 @@ from spark_cli.cli import (
     cmd_uninstall,
     cmd_update,
     cmd_browser_use,
+    classify_r30_release_lane_rows,
     console_safe_text,
     CONFIG_PATH,
     detect_runtime_binary,
@@ -13016,11 +13017,20 @@ class SparkCliTests(unittest.TestCase):
 
     def test_r30_release_gate_blocks_open_handoffs_and_old_installer_pins(self) -> None:
         compiled = {
-            "registry": {"modules": {"spark-voice-comms": {"commit": "a" * 40}}},
+            "registry": {
+                "modules": {
+                    "spark-voice-comms": {"commit": "a" * 40},
+                    "spark-character": {"commit": "b" * 40},
+                }
+            },
             "installed_modules": {
                 "spark-voice-comms": {
                     "path": "/tmp/spark-voice-comms",
                     "registry_commit": "a" * 40,
+                },
+                "spark-character": {
+                    "path": "/tmp/spark-character",
+                    "registry_commit": "b" * 40,
                 }
             },
         }
@@ -13037,11 +13047,12 @@ class SparkCliTests(unittest.TestCase):
         }
 
         def fake_git_status(_path: Path) -> dict[str, Any]:
+            head = "c" * 40 if str(_path) == "/tmp/spark-character" else "a" * 40
             return {
                 "available": True,
                 "dirty_tracked_count": 0,
                 "untracked_count": 0,
-                "head_commit": "a" * 40,
+                "head_commit": head,
             }
 
         with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
@@ -13057,8 +13068,25 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["publish_handoffs"]["ok"])
         self.assertEqual(checks["publish_handoffs"]["families"], ["local_runtime_test_artifacts", "builder_trace_health"])
         self.assertFalse(checks["registry_pins"]["ok"])
+        self.assertEqual(checks["release_lane"]["classification"]["direct_blocker_count"], 0)
+        self.assertEqual(checks["release_lane"]["classification"]["supporting_hygiene_count"], 1)
         self.assertFalse(checks["r30_installer_pins"]["ok"])
         self.assertIn("spark-cli-public-installer-2026-06-22-r28", checks["r30_installer_pins"]["detail"])
+
+    def test_r30_release_lane_classification_separates_direct_and_supporting_rows(self) -> None:
+        payload = classify_r30_release_lane_rows(
+            {
+                "rows": [
+                    {"module": "spark-telegram-bot", "issues": ["head_differs_from_registry"]},
+                    {"module": "spark-character", "issues": ["head_differs_from_registry"]},
+                    {"module": "spark-cli", "issues": []},
+                ]
+            }
+        )
+        self.assertEqual(payload["direct_blocker_count"], 1)
+        self.assertEqual(payload["supporting_hygiene_count"], 1)
+        self.assertEqual(payload["direct_blockers"][0]["module"], "spark-telegram-bot")
+        self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])
