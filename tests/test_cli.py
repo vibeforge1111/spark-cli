@@ -13113,6 +13113,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["r30_live_status"]["ok"])
         self.assertEqual(checks["release_lane"]["classification"]["direct_blocker_count"], 0)
         self.assertEqual(checks["release_lane"]["classification"]["supporting_hygiene_count"], 1)
+        self.assertEqual(checks["release_lane"]["direct_blockers"], [])
+        self.assertEqual(checks["release_lane"]["supporting_hygiene"], ["spark-character"])
         self.assertTrue(checks["publication_order"]["ok"])
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
         self.assertEqual(
@@ -13125,6 +13127,9 @@ class SparkCliTests(unittest.TestCase):
                 "registry_pins",
             ],
         )
+        self.assertFalse(payload["source_truth_ready"])
+        self.assertEqual(payload["source_truth_blockers"], checks["publication_order"]["source_truth_blockers"])
+        self.assertFalse(payload["installer_pins_are_r30"])
         self.assertFalse(checks["publication_order"]["installer_pins_are_r30"])
         self.assertFalse(checks["r30_installer_pins"]["ok"])
         self.assertIn("spark-cli-public-installer-2026-06-26-r29", checks["r30_installer_pins"]["detail"])

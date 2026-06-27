@@ -9268,6 +9268,8 @@ def collect_r30_release_gate_payload(
             ),
             "summary": release_lane,
             "classification": release_lane_classification,
+            "direct_blockers": [row.get("module") for row in release_lane_classification.get("direct_blockers", [])],
+            "supporting_hygiene": [row.get("module") for row in release_lane_classification.get("supporting_hygiene", [])],
         },
         {
             "name": "r30_voice_registry_decision",
@@ -9410,6 +9412,9 @@ def collect_r30_release_gate_payload(
         "live_status": live_status,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
+        "source_truth_ready": source_truth_ready,
+        "source_truth_blockers": source_truth_blockers,
+        "installer_pins_are_r30": installer_pins_are_r30,
         "registry_pins": registry_pins,
         "local_installers": local_installers,
         "hosted_installers": hosted_installers,
