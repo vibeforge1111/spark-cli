@@ -97,13 +97,19 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 
 - `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
 - `spark-intelligence-builder`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
-- `spark-telegram-bot`: `npm test -- tests/accessPolicy.test.ts tests/accessActions.test.ts`, `npm run build`, and `PYTHONPATH=src python3 -m spark_cli.cli access status --level 5 --json` passed. Live Level 5 proof reports `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`. Local head is `a87f4ebe2298` (`a87f4ebe2298069add925b1f1f5a0806a6979ee8`), including the `/access 5` high-agency activation proof stack and proof-oracle Level 5 runtime validation.
+- `spark-telegram-bot`: `npm test -- tests/accessPolicy.test.ts tests/accessActions.test.ts`, `npm run build`, and `PYTHONPATH=src python3 -m spark_cli.cli access status --level 5 --json` passed. Live Level 5 proof reports `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`. Local head is `bb38eca` (`bb38eca25cbed8675987cc45b900193e37f60859`), including the `/access 5` high-agency activation proof stack, proof-oracle Level 5 runtime validation, and the Telegram setup reply guard that refuses to claim full access unless `effective_codex_sandbox=danger-full-access`.
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `57 passed` for the refreshed Level 5 launcher slice; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `e0fbb5b60c22`, including direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, and shared effective-env worker access/path validation.
 
+Fresh voice owner-lane proof at `2026-06-27T21:54:18Z`:
+
+- `spark-voice-comms` prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
+- Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
+- Remote audit still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
+
 Required terminal subjects preserved in the local runtime artifact manifest:
 
-- `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`, `Block Level 5 full-access copy on read-only sandbox`, `Require effective Level 5 sandbox before operator claims`, `Harden Telegram Level 5 sandbox status`, `Harden Telegram Level 5 proof gate`
+- `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`, `Block Level 5 full-access copy on read-only sandbox`, `Require effective Level 5 sandbox before operator claims`, `Harden Telegram Level 5 sandbox status`, `Harden Telegram Level 5 proof gate`, `Use proof oracle for Telegram Level 5`, `Require effective Level 5 sandbox proof in Telegram`
 - `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`, `Honor persisted Level 5 sandbox in Spawner`, `Honor persisted Level 5 worker access`
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
@@ -132,6 +138,15 @@ Additional proof refresh at `2026-06-27T21:42:58Z`:
 - Telegram `npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts`: passed.
 - Spawner `npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts`: passed, `57` tests. The known local relay stderr from stopped `sparkqa-bot`/live relay secret did not fail the tests.
 - Spawner `npm run check`: passed, 0 Svelte errors and 0 warnings.
+
+Additional read-only/access drift hardening at `2026-06-27T21:57:16Z`:
+
+- Telegram local commit `bb38eca` (`Require effective Level 5 sandbox proof in Telegram`) removed the user-facing fallback from configured/service Codex sandbox to effective Codex sandbox in the Level 5 setup reply.
+- New regression: if `service_codex_sandbox=danger-full-access` and `configured_codex_sandbox=danger-full-access` are present but `effective_codex_sandbox` is missing, the Telegram reply must say full access is blocked and must not say whole-computer operator mode is active.
+- Telegram `npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts`: passed.
+- Telegram `npm run build`: passed.
+- CLI `PYTHONPATH=src python3 -m pytest -q tests/test_access.py`: passed, `29 passed, 9 subtests passed`.
+- Spawner focused Level 5 Codex sandbox tests passed, `50 passed`; known local relay stderr from stopped `sparkqa-bot`/live relay secret did not fail the tests.
 - `spark access status --level 5 --json`: passed with `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `service_codex_sandbox=danger-full-access`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`.
 
 Supporting release-hygiene rows:

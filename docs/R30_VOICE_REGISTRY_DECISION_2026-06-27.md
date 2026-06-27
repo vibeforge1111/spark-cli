@@ -28,6 +28,7 @@ Local voice proof is test-clean, but not yet public release truth:
 - public tag worktree at `c74490d68ece`: `PYTHONPATH=src python3 -m pytest -q` passed with `121 passed`
 - original local proof branch at `7555a363d763`: `PYTHONPATH=src python3 -m pytest -q` passed with `80 passed`
 - local prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed with `132 passed`
+- fresh recheck at `2026-06-27T21:54:18Z`: local prepared release lane `release/r30-voice-trace-governor` still passes `PYTHONPATH=src python3 -m pytest -q` with `132 passed`
 
 The current local voice proof depends on two commits beyond the owner branch:
 
@@ -41,6 +42,8 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
 - port commit: `4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f` (`Join voice runtime state traces`)
 - port commit: `c502ec096cefb48839e3279d3392343231884415` (`Accept media transcription governor authority`)
 - proof: `PYTHONPATH=src python3 -m pytest -q` -> `132 passed`
+- fresh proof: `2026-06-27T21:54:18Z`, `132 passed`
+- current remote audit: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
 
 This prepared lane reduces the owner-source handoff gap, but it does not clear
 the R30 voice registry decision until the release ref is source-owned remotely,
