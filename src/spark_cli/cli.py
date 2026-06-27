@@ -16186,7 +16186,8 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         plist_path = macos_autostart_path()
         plist_path.parent.mkdir(parents=True, exist_ok=True)
         (LOG_DIR / AUTOSTART_SERVICE_NAME).mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(
+        _plist_tmp = plist_path.with_suffix(plist_path.suffix + ".tmp")
+        _plist_tmp.write_text(
             render_launch_agent_plist(
                 target=target,
                 start_command=start_command,
@@ -16194,6 +16195,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             ),
             encoding="utf-8",
         )
+        _plist_tmp.replace(plist_path)
         print(f"Installed Spark LaunchAgent: {plist_path}")
         uid = str(os.getuid()) if hasattr(os, "getuid") else ""
         bootstrap_domain = f"gui/{uid}" if uid else "gui"
