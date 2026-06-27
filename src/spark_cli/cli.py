@@ -16738,10 +16738,12 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
-    gitignore.write_text(
+    _gitignore_tmp = gitignore.with_suffix(gitignore.suffix + ".tmp")
+    _gitignore_tmp.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
     )
+    _gitignore_tmp.replace(gitignore)
     return [spark_toml, readme, gitignore]
 
 
