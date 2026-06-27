@@ -583,6 +583,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
+    if first == "helm" and (second == "push" or lowered[1:3] == ["chart", "push"]):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish Helm chart artifacts to a registry.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve helm chart publish",
+        )
     if (
         (first == "git" and second == "push")
         or (first in {"npm", "pnpm", "yarn"} and second == "publish")
