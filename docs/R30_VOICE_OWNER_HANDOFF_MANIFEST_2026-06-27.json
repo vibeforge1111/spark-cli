@@ -31,7 +31,7 @@
       "subject": "Accept media transcription governor authority"
     }
   ],
-  "owner_action": "Create or select a stable voice owner release ref from refs/heads/main at c74490d68ece, then port the two local trace/governor commits or equivalent source-owned commits there before any R30 voice registry claim.",
+  "owner_action": "Create or select a stable voice owner release ref from the current public owner base, refs/heads/main at c74490d68ece, then port the two local trace/governor commits or equivalent source-owned commits there before any R30 voice registry claim.",
   "owner_lane_recipe": [
     "git fetch origin --tags",
     "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
