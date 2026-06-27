@@ -559,6 +559,24 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve hosted secret change",
         )
+    if first == "npm" and (
+        second == "token"
+        or (
+            second == "config"
+            and len(lowered) > 3
+            and lowered[2] in {"get", "set", "delete", "rm", "remove"}
+            and any("_authtoken" in part or "auth-token" in part or "auth_token" in part for part in lowered[3:])
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "npm command can reveal, create, revoke, or change registry authentication tokens.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve npm token access",
+        )
     if first == "gh" and (
         lowered[1:3] in [["secret", "set"], ["variable", "set"]]
         or lowered[1:3] in [["pr", "merge"], ["release", "create"], ["release", "upload"]]

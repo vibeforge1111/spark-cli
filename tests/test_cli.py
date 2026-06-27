@@ -1703,6 +1703,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_npm_token_access(self) -> None:
+        cases = [
+            ["npm", "token", "list"],
+            ["npm", "token", "revoke", "abcd"],
+            ["npm", "config", "get", "//registry.npmjs.org/:_authToken"],
+            ["npm", "config", "set", "//registry.npmjs.org/:_authToken", "secret"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve npm token access")
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
