@@ -159,10 +159,11 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, and state-plus-temp runner preflight onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
-            "npm run control:proof:reliability",
+            "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
+            "npm run control:proof:reliability",
             "npm run check:line-count",
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
         ],
@@ -177,9 +178,10 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
         "proof_commands": [
             "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+            "npm run build",
             "npm run check",
         ],
     },
@@ -196,12 +198,18 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Require effective Level 5 sandbox before operator claims",
         "Harden Telegram Level 5 sandbox status",
         "Harden Telegram Level 5 proof gate",
+        "Use proof oracle for Telegram Level 5",
+        "Require effective Level 5 sandbox proof in Telegram",
+        "Require Level 5 proof for operator access status",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",
         "Add Spawner PRD proof continuity repair",
         "Honor Level 5 Codex sandbox in direct client",
         "Honor Level 5 sandbox in PRD Codex lanes",
+        "Honor persisted Level 5 sandbox in Spawner",
+        "Honor persisted Level 5 worker access",
+        "Carry Level 5 env into Codex workers",
     ],
 }
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')

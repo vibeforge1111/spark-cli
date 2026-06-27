@@ -44,8 +44,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "bb38eca25cbed8675987cc45b900193e37f60859",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..bb38eca25cbed8675987cc45b900193e37f60859",
+      "local_head": "97dd34d1eafb442c1fd66af0f195d1656a11b72e",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..97dd34d1eafb442c1fd66af0f195d1656a11b72e",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -53,10 +53,11 @@
         "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
       },
       "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, and state-plus-temp runner preflight onto the current owner release base, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
-        "npm run control:proof:reliability",
+        "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
         "npm run build",
+        "npm run control:proof:reliability",
         "npm run check:line-count",
         "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts"
       ],
@@ -87,8 +88,8 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "e0fbb5b60c22b4f7dd8a1821379061cbec105cdf",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf",
+      "local_head": "3042f8acbdde866c2e51ce064113264371d9c171",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..3042f8acbdde866c2e51ce064113264371d9c171",
       "owner_refs": {
         "main": "451d009aad84142092e9a21bda7788cf07910975",
         "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
@@ -96,9 +97,10 @@
         "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
       },
       "owner_truth": "owner branch fdb8fded4744; remote main/tag spark-ship-2026-06-26 at 451d009aad84; registry baseline tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+        "npm run build",
         "npm run check"
       ],
       "local_proof": "passed"
