@@ -1387,7 +1387,8 @@ def fetch_secret(secret_id: str) -> str | None:
             if default_home_uses_legacy_keychain():
                 return _keyring.get_password(KEYCHAIN_SERVICE, secret_id)
             return None
-        except Exception:
+        except Exception as _e:
+            import logging as _log; _log.getLogger(__name__).warning("Suppressed: %s", _e, exc_info=True)
             return None
     if backend == "file":
         value = load_json(SECRETS_FILE_PATH, {}).get(secret_id)
