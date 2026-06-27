@@ -549,6 +549,22 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve hosted deploy",
         )
+    if first == "az" and (
+        lowered[1:3] == ["webapp", "up"]
+        or lowered[1:3] == ["webapp", "deploy"]
+        or lowered[1:4] == ["functionapp", "deployment", "source"]
+        or (second == "deployment" and "create" in lowered[1:])
+        or lowered[1:3] == ["containerapp", "up"]
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish or redeploy hosted Azure infrastructure.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve hosted deploy",
+        )
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
         return _decision(
             parts,
