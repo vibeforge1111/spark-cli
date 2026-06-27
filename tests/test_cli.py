@@ -13525,6 +13525,8 @@ class SparkCliTests(unittest.TestCase):
                     "component: telegram_runtime",
                     "event type: tool_call_ledger_recorded",
                     "status/severity: blocked / high",
+                    "current_unresolved_high_severity_open_count=0",
+                    "This is not a fresh current-window high-severity failure.",
                     "latest event: 2026-06-02 09:03:25",
                 ]),
                 encoding="utf-8",

@@ -8220,6 +8220,8 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
             "tool_call_ledger_recorded",
             "blocked",
             "high",
+            "current_unresolved_high_severity_open_count=0",
+            "This is not a fresh current-window high-severity failure.",
             str(builder_trace.get("latest_unresolved_high_severity_event_created_at") or ""),
         ]
         missing_needles = [needle for needle in required_doc_needles if needle and needle not in doc_text]
