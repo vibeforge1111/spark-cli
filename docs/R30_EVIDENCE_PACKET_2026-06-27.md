@@ -96,13 +96,13 @@ Fresh direct-blocker proof results:
 
 - `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
 - `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
-- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `729273eed1b2`, including the `/access 5` high-agency activation proof and Level 5 Codex sandbox confirmation fix.
+- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `4856174b4b7d`, including the `/access 5` high-agency activation proof, Level 5 Codex sandbox confirmation fix, and effective sandbox Telegram surface proof.
 - `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `54 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `7110dce4030a`, including direct-client, PRD auto-dispatch, and PRD bridge Level 5 Codex sandbox fixes.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 
-- `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`
+- `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`
 - `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`
 
 These passes prove the local direct-blocker stacks are test-clean. They do not

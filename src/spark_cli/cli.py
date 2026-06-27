@@ -159,7 +159,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof and Level 5 Codex sandbox confirmation fix, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, and effective sandbox Telegram surface proof, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm run control:proof:reliability",
             "npm run build",
@@ -186,6 +186,7 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Package Telegram control release evidence",
         "Prove Telegram Level 5 activation path",
         "Fix Level 5 Codex sandbox confirmation",
+        "Surface effective Level 5 sandbox in Telegram",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",
