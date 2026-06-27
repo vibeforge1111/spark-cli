@@ -70,13 +70,53 @@ The gate must prove:
 
 ## Fresh Install Smoke
 
-Use an isolated Spark home:
+Use an isolated Spark home for every smoke:
 
 ```bash
 export SPARK_HOME="$(mktemp -d /tmp/spark-r30-smoke-XXXXXX)"
+```
+
+### Unattended Identity-Mutation Guard
+
+The installer and CLI must fail closed when a non-interactive run tries to pass
+Telegram identity or operator access flags. This is expected and should happen
+before any runtime config or secret files are written:
+
+```bash
 spark setup --non-interactive \
   --bot-token "fake-token" \
   --admin-telegram-ids "12345" \
+  --llm-provider codex \
+  --skip-telegram-token-check \
+  --no-autostart \
+  --no-start-now \
+  --skip-runtime-check ; echo "exit=$?"
+```
+
+Expected result:
+
+- exit code `2`
+- output says Spark blocked a sensitive `identity_access_mutation`
+- `$SPARK_HOME` remains empty or contains no generated module env/state files
+
+Then scan any generated state for accidental secrets:
+
+```bash
+grep -R "fake-token\\|BEGIN .*PRIVATE KEY\\|SPARK_API_URL\\|SPARK_DASHBOARD_URL" \
+  "$SPARK_HOME/config" "$SPARK_HOME/state" "$SPARK_HOME/logs" 2>/dev/null || true
+```
+
+The fake token must not appear in generated module env files. The old dashboard and port `8787` path must not reappear.
+
+### Interactive Identity Setup Smoke
+
+After R30 source, registry, and installer truth are green, run the identity setup
+path in an interactive terminal so Spark can request the approval phrase:
+
+```bash
+spark setup telegram-starter \
+  --bot-token "@env:SPARK_TEST_TELEGRAM_BOT_TOKEN" \
+  --admin-telegram-ids "@env:SPARK_TEST_TELEGRAM_ADMIN_IDS" \
   --llm-provider codex \
   --skip-telegram-token-check \
   --no-autostart \
@@ -86,14 +126,8 @@ spark setup --non-interactive \
 spark status --json
 ```
 
-Then scan generated state for accidental secrets:
-
-```bash
-grep -R "fake-token\\|BEGIN .*PRIVATE KEY\\|SPARK_API_URL\\|SPARK_DASHBOARD_URL" \
-  "$SPARK_HOME/config" "$SPARK_HOME/state" "$SPARK_HOME/logs" 2>/dev/null || true
-```
-
-The fake token must not appear in generated module env files. The old dashboard and port `8787` path must not reappear.
+Only use a real disposable test bot for this lane. Do not use the fake token
+lane to claim runtime setup success.
 
 ## Upgrade Smoke
 

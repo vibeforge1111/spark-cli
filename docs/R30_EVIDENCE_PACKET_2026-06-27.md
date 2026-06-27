@@ -26,6 +26,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 | Telegram `npm run control:proof:reliability` | PASS | Fresh-strict audit clean for actionable/latest gaps; live trace clean; render firewall, capsules, evals, legacy prompt surface, capability evidence, and surface eval all clean. |
 | Telegram `npm run build` | PASS | TypeScript compile passed. |
 | Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 0 growing, 0 new over cap. |
+| R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
 
 ## Spark OS Compile Details
 
@@ -87,6 +88,28 @@ Current evidence:
 - status: `pin_drift`
 
 Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first.
+
+## Installer Smoke Details
+
+Fresh temp-home path: `/tmp/spark-r30-smoke-3umCTp`.
+
+The first R30 smoke corrected the installer checklist: a non-interactive command
+with `--bot-token` and `--admin-telegram-ids` is not a valid success smoke
+because Spark intentionally treats that as an identity/access mutation. The
+right result is a fail-closed refusal before any files are generated.
+
+Observed result:
+
+- exit code: `2`
+- action class: `identity_access_mutation`
+- risk: `high`
+- reason: command changes Telegram, identity, or operator access configuration
+- temp Spark home: empty after refusal
+- scan for `fake-token`, private-key headers, `SPARK_API_URL`, and `SPARK_DASHBOARD_URL`: no matches
+
+This proves the unattended identity guard, not a complete R30 fresh install.
+The interactive identity setup lane remains unrun and should wait until source,
+registry, and installer truth are green.
 
 ## Publication Boundary
 

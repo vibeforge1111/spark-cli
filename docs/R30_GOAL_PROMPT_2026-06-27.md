@@ -18,6 +18,7 @@ Rules:
 - No "save the day" fixes. Prefer durable owner-source, registry, lifecycle, and installer-contract fixes.
 - Do not hide historical debt. Resolve it with evidence, lifecycle status, or explicit owner handoff.
 - Do not claim R30 or publish-green until source owner commits, installed runtime heads, registry pins, installer manifest, hosted metadata, checksums, and docs agree.
+- Installer smoke has two lanes: unattended identity mutation must fail closed before writes; interactive identity setup is proven only after R30 truth is green.
 - Commit often after each proven slice.
 - Do not push, deploy, tag, publish, or remote-merge without explicit authorization.
 
@@ -28,12 +29,14 @@ Task list:
 4. Decide and prove `spark-voice-comms` registry truth: stable tag/ref or updated proven remote head. Keep voice action-confirmation-bound.
 5. Resolve Builder historical trace lifecycle with owner-approved close evidence or keep it explicit as historical handoff.
 6. Only after source and registry truth are green, prepare R30 installer pins and manifest as one named batch.
-7. Run proof gates:
+7. Run proof gates and record evidence:
    - `spark os compile --json`
    - `spark live status --json`
    - `spark verify --registry-pins --json`
    - `spark verify --provenance --json`
    - `spark verify --installers --json`
+   - unattended identity setup refusal in isolated `SPARK_HOME`
+   - interactive setup smoke only after R30 truth is green
    - Telegram `npm run control:proof:reliability`
    - Telegram `npm run build`
    - Telegram `npm run check:line-count`

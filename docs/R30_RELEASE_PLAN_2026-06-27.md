@@ -72,7 +72,9 @@ Use this order for R30. Do not skip ahead.
    - `npm run control:proof:reliability`
    - `npm run build`
    - `npm run check:line-count`
-7. Fresh install or upgrade smoke from R29 to R30 in an isolated `SPARK_HOME`.
+7. Fresh install or upgrade smoke from R29 to R30 in an isolated `SPARK_HOME`, with two separate lanes:
+   - unattended runs must refuse Telegram identity/access mutation before writes;
+   - interactive identity setup must be approved and proven only after R30 source, registry, and installer truth are green.
 
 ## R30 Should Have
 
@@ -98,3 +100,4 @@ Stop R30 publication if any of these are true:
 - Telegram reliability proof fails, or live Telegram behavior disagrees with local proof.
 - A local-only runtime commit is represented as public release truth.
 - Setup writes raw secrets into generated module env files.
+- A non-interactive installer/setup path can mutate Telegram identity or operator access.
