@@ -65,7 +65,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge; the structured voice owner handoff manifest is present and checked for exact commits, proof commands, and rejection of the existing public tag as the final R30 voice claim
 - `r30_voice_runtime_truth`: pass, R30 docs match compiled voice runtime truth with `voice_surface_mode=egress`, `voice_surface_blockers=1`, and blocker `voice transcription is not ready`
 - `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
-- `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`
+- `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration.
 - `registry_pins`: fail
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30

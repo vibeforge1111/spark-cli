@@ -13519,6 +13519,79 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["spawner_source"], str(source))
         self.assertEqual(payload["telegram_source"], str(telegram))
 
+    def test_r30_access_level5_codex_sandbox_status_requires_profile_proof_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / "spawner-ui"
+            telegram = root / "spark-telegram-bot"
+            plan = root / "plan.md"
+            evidence = root / "evidence.md"
+            client = source / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.ts"
+            test = source / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.test.ts"
+            prd_auto = source / "src" / "lib" / "server" / "prd-auto-dispatch.ts"
+            prd_auto_test = source / "src" / "lib" / "server" / "prd-auto-dispatch.test.ts"
+            prd_bridge = source / "src" / "routes" / "api" / "prd-bridge" / "write" / "+server.ts"
+            prd_bridge_test = source / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
+            telegram_actions = telegram / "src" / "accessActions.ts"
+            telegram_actions_test = telegram / "tests" / "accessActions.test.ts"
+            client.parent.mkdir(parents=True)
+            prd_bridge.parent.mkdir(parents=True)
+            telegram_actions.parent.mkdir(parents=True)
+            telegram_actions_test.parent.mkdir(parents=True)
+            client.write_text(
+                "import { resolveCodexSandbox } from '../high-agency-workers';\n"
+                "args.push('--sandbox', resolveCodexSandbox(options.env));\n"
+                "args.push('--sandbox', resolveCodexSandbox({ SPARK_CODEX_SANDBOX: value }));\n",
+                encoding="utf-8",
+            )
+            test.write_text("Level 5 guardrails are active --sandbox', 'danger-full-access --sandbox', 'workspace-write\n", encoding="utf-8")
+            prd_auto.write_text("return resolveCodexSandbox(envRecord);\n", encoding="utf-8")
+            prd_auto_test.write_text("uses Level 5 Codex sandbox for direct mission auto-dispatch --sandbox danger-full-access\n", encoding="utf-8")
+            prd_bridge.write_text("resolveCodexSandbox(env)\n", encoding="utf-8")
+            prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
+            telegram_actions.write_text(
+                "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "configured_codex_sandbox\n"
+                "const codexSandbox = String(state.configured_codex_sandbox || '');\n"
+                "Whole-computer operator mode is active for Telegram and Spawner\n",
+                encoding="utf-8",
+            )
+            telegram_actions_test.write_text(
+                "runs Level 5 setup with high-agency guardrails and reports active services '--enable-high-agency' configured_codex_sandbox: 'danger-full-access'\n",
+                encoding="utf-8",
+            )
+            stale_doc_text = "Level 5 uses danger-full-access.\n"
+            plan.write_text(stale_doc_text, encoding="utf-8")
+            evidence.write_text(stale_doc_text, encoding="utf-8")
+            with patch("spark_cli.cli.R30_RELEASE_PLAN_PATH", plan), \
+                 patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence):
+                stale = collect_r30_access_level5_codex_sandbox_status(
+                    {},
+                    spawner_source_path=source,
+                    telegram_source_path=telegram,
+                    check_docs=True,
+                )
+
+            fresh_doc_text = (
+                "live_level5_env_files_all_profiled_services_full_access\n"
+                "telegram_profile:primary\n"
+                "telegram_profile:sparkqa-bot\n"
+            )
+            plan.write_text(fresh_doc_text, encoding="utf-8")
+            evidence.write_text(fresh_doc_text, encoding="utf-8")
+            with patch("spark_cli.cli.R30_RELEASE_PLAN_PATH", plan), \
+                 patch("spark_cli.cli.R30_EVIDENCE_PACKET_PATH", evidence):
+                fresh = collect_r30_access_level5_codex_sandbox_status(
+                    {},
+                    spawner_source_path=source,
+                    telegram_source_path=telegram,
+                    check_docs=True,
+                )
+
+        self.assertFalse(stale["ok"])
+        self.assertIn("docs_preserve_level5_profile_env_proof", stale["issues"])
+        self.assertTrue(fresh["ok"])
+
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {
             "direct_blockers": [

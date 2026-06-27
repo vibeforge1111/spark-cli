@@ -8261,6 +8261,7 @@ def collect_r30_access_level5_codex_sandbox_status(
     telegram_source_path: Path | None = None,
     release_lane: dict[str, Any] | None = None,
     check_live_env: bool = False,
+    check_docs: bool = False,
     spark_home: Path | None = None,
 ) -> dict[str, Any]:
     installed_modules = compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
@@ -8334,6 +8335,9 @@ def collect_r30_access_level5_codex_sandbox_status(
     live_service_state: dict[str, Any] = {}
     live_env_ok = True
     live_services_ok = True
+    docs_checked: list[str] = []
+    docs_text = ""
+    docs_ok = True
     if check_live_env:
         from .sandbox.access import level5_env_file_state, level5_guardrails_configured_by_audit, level5_service_guardrail_state
 
@@ -8343,6 +8347,14 @@ def collect_r30_access_level5_codex_sandbox_status(
         configured = level5_guardrails_configured_by_audit(home=home)
         live_service_state = level5_service_guardrail_state(home=home, configured=configured)
         live_services_ok = bool(live_service_state.get("enabled"))
+    if check_docs:
+        for path in [R30_RELEASE_PLAN_PATH, R30_EVIDENCE_PACKET_PATH]:
+            ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+            docs_checked.append(ref)
+            try:
+                docs_text += "\n" + path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                docs_ok = False
     checks = {
         "cli_level5_env_requires_danger_full_access": '"SPARK_CODEX_SANDBOX": "danger-full-access"' in cli_access_text,
         "cli_lower_to_level5_transition_test_exists": "test_access_level5_transition_from_lower_telegram_levels_becomes_service_full_access" in cli_access_test_text
@@ -8378,6 +8390,15 @@ def collect_r30_access_level5_codex_sandbox_status(
     if check_live_env:
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
         checks["live_level5_services_restarted_after_guardrail_configure"] = live_services_ok
+    if check_docs:
+        checks["docs_preserve_level5_profile_env_proof"] = docs_ok and all(
+            needle in docs_text
+            for needle in [
+                "telegram_profile:primary",
+                "telegram_profile:sparkqa-bot",
+                "live_level5_env_files_all_profiled_services_full_access",
+            ]
+        )
     issues = [name for name, ok in checks.items() if not ok]
     return {
         "ok": not issues,
@@ -8402,6 +8423,7 @@ def collect_r30_access_level5_codex_sandbox_status(
         },
         "live_env_state": live_env_state,
         "live_service_state": live_service_state,
+        "docs_checked": docs_checked,
         "checks": checks,
         "issues": issues,
     }
@@ -8820,6 +8842,7 @@ def collect_r30_release_gate_payload(
         compiled,
         release_lane=release_lane,
         check_live_env=True,
+        check_docs=True,
     )
     live_status = collect_r30_live_status_status(collect_status_payload())
     voice_runtime_truth = collect_r30_voice_runtime_truth_status(compiled)
