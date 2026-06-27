@@ -8268,9 +8268,19 @@ def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, 
         )
     ok = bool(status_payload.get("ok")) and not unhealthy
     repair_hints = status_payload.get("repair_hints") if isinstance(status_payload.get("repair_hints"), list) else []
+    if ok:
+        detail = "Spark live status is green."
+    elif unhealthy:
+        names = ", ".join(item["name"] for item in unhealthy[:5])
+        detail = f"Spark live status is not green; unhealthy modules: {names}."
+    elif repair_hints:
+        detail = f"Spark live status is not green; repair hints: {'; '.join(str(item) for item in repair_hints[:3])}."
+    else:
+        summary = str(status_payload.get("summary") or "").strip()
+        detail = f"Spark live status is not green; summary: {summary or '<missing>'}."
     return {
         "ok": ok,
-        "detail": "Spark live status is green." if ok else "Spark live status is not green.",
+        "detail": detail,
         "summary": str(status_payload.get("summary") or ""),
         "unhealthy_modules": unhealthy,
         "repair_hints": [str(item) for item in repair_hints[:5]],

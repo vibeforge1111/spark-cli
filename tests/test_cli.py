@@ -13324,8 +13324,24 @@ class SparkCliTests(unittest.TestCase):
             }
         )
         self.assertFalse(payload["ok"])
+        self.assertIn("spark-voice-comms", payload["detail"])
         self.assertEqual(payload["unhealthy_modules"][0]["name"], "spark-voice-comms")
         self.assertIn("restart spawner", payload["repair_hints"])
+
+    def test_r30_live_status_status_reports_repair_hint_only_failures(self) -> None:
+        payload = collect_r30_live_status_status(
+            {
+                "ok": False,
+                "summary": "runtime attention",
+                "repair_hints": ["run spark live restart"],
+                "modules": [
+                    {"name": "spawner-ui", "healthy": True, "detail": "ok"},
+                ],
+            }
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["unhealthy_modules"], [])
+        self.assertIn("run spark live restart", payload["detail"])
 
     def test_r30_voice_runtime_truth_status_passes_when_docs_match_compiled_truth(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
