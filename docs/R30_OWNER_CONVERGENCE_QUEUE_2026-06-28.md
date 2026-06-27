@@ -26,7 +26,7 @@ and Builder historical trace health are carried explicitly, not hidden.
 | Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before registry |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | `c502ec096cef` on `release/r30-voice-trace-governor` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` | Port/tag trace/governor commits or equivalent source-owned proof, then rerun voice and R30 gates. |
-| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `97dd34d1eafb` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, and state-plus-temp runner preflight. |
+| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `8190500deebe` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses. |
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
@@ -64,7 +64,7 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 npm run control:proof:reliability
 npm run build
 npm run check:line-count
-npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts
+npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/recursiveLevel5RuntimeEnv.test.ts tests/telegramCommandAuthority.test.ts
 ```
 
 ### `spawner-ui`

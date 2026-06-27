@@ -9,15 +9,15 @@
       "module": "spark-telegram-bot",
       "runtime_classification": "local_runtime_test_artifact",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "d67d0a6288c034a38b5a7d44ae008d3deda3e032",
+      "local_head": "8190500deebe205d68b0f0eb0a746945c898af77",
       "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..d67d0a6288c034a38b5a7d44ae008d3deda3e032",
-      "commit_count": 1001,
-      "changed_file_count": 327,
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..8190500deebe205d68b0f0eb0a746945c898af77",
+      "commit_count": 1002,
+      "changed_file_count": 328,
       "first_local_commit": "43aeb4e476b920c73541818c58add8045231f47f",
       "first_local_commit_subject": "Add Telegram rich draft streaming controls",
-      "last_local_commit": "d67d0a6288c034a38b5a7d44ae008d3deda3e032",
-      "last_local_commit_subject": "Compact Telegram imports after Level 5 env fix",
+      "last_local_commit": "8190500deebe205d68b0f0eb0a746945c898af77",
+      "last_local_commit_subject": "Harden Recursive Level 5 runtime env",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -38,16 +38,17 @@
         "Require effective Level 5 sandbox proof in Telegram",
         "Require Level 5 proof for operator access status",
         "Harden Telegram Level 5 runtime env",
-        "Compact Telegram imports after Level 5 env fix"
+        "Compact Telegram imports after Level 5 env fix",
+        "Harden Recursive Level 5 runtime env"
       ],
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, proof-oracle Level 5 runtime validation, effective-sandbox-only Telegram setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and effective Level 5 runtime-env promotion for Telegram subprocesses onto the current owner release base before registry movement.",
+      "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, proof-oracle Level 5 runtime validation, effective-sandbox-only Telegram setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses onto the current owner release base before registry movement.",
       "proof_commands": [
         "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
         "npm run build",
         "npm run control:proof:reliability",
         "npm run check:line-count",
-        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts"
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/recursiveLevel5RuntimeEnv.test.ts tests/telegramCommandAuthority.test.ts"
       ],
       "local_proof": "passed"
     },
