@@ -789,7 +789,7 @@ def pull_module_source(path: Path) -> tuple[bool, str]:
         git_command("-C", str(path), "pull", "--ff-only"),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     return result.returncode == 0, summarize_command_output(result)
 
 
