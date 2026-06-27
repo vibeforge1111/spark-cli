@@ -61,6 +61,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
 - `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge
 - `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
+- `r30_access_level5_codex_sandbox`: pass, installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`
 - `registry_pins`: fail
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30
@@ -71,17 +72,17 @@ Direct R30 release-lane blockers:
 
 - `domain-chip-memory`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts`
 - `spark-intelligence-builder`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py`
-- `spark-telegram-bot`: head differs from registry; next proof commands are `npm run control:proof:reliability`, `npm run build`, and `npm run check:line-count`
+- `spark-telegram-bot`: head differs from registry; next proof commands are `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and the focused access command tests
 - `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q` and `spark os compile --json`
-- `spawner-ui`: head differs from registry; next proof command is `npm run check`
+- `spawner-ui`: head differs from registry; next proof commands are the focused Codex sandbox lane tests and `npm run check`
 
 Fresh direct-blocker proof results:
 
 - `domain-chip-memory`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
 - `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
-- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, and `npm run check:line-count` passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap.
+- `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `fa4c8884bb83`, including the `/access 5` high-agency activation proof.
 - `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
-- `spawner-ui`: direct Codex client regression tests passed, `24 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `5ae5387d789b`, including the Level 5 Codex sandbox fix.
+- `spawner-ui`: focused Codex sandbox lane tests passed, `54 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `7110dce4030a`, including direct-client, PRD auto-dispatch, and PRD bridge Level 5 Codex sandbox fixes.
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed

@@ -33,6 +33,7 @@ Current green proof:
 - Local and hosted installer integrity are green for the current R29 manifest.
 - The voice registry decision is explicit and checked by the R30 gate.
 - The Builder trace lifecycle decision is explicit and checked by the R30 gate.
+- The Access 5 Codex sandbox evidence is checked by the R30 gate across direct Spawner, PRD, and Telegram activation paths.
 - R30 unattended identity setup smoke fails closed before writes.
 
 Current blockers:

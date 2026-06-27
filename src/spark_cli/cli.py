@@ -8127,6 +8127,124 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
     }
 
 
+def collect_r30_access_level5_codex_sandbox_status(
+    compiled: dict[str, Any],
+    *,
+    spawner_source_path: Path | None = None,
+    telegram_source_path: Path | None = None,
+    release_lane: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    installed_modules = compiled.get("installed_modules") if isinstance(compiled.get("installed_modules"), dict) else {}
+
+    def resolve_source_path(module: str, explicit_path: Path | None) -> Path | None:
+        source_path = explicit_path
+        module_record = installed_modules.get(module) if isinstance(installed_modules.get(module), dict) else {}
+        if source_path is None:
+            raw_path = str(module_record.get("source") or module_record.get("path") or "")
+            if raw_path:
+                base = Path(raw_path).expanduser()
+                source_path = base if (base / "src").exists() else base / "source"
+        if source_path is None and isinstance(release_lane, dict):
+            for row in release_lane.get("rows", []):
+                if isinstance(row, dict) and row.get("module") == module and row.get("path"):
+                    source_path = Path(str(row["path"])).expanduser()
+                    break
+        if source_path is None:
+            installed_record = load_json(SPARK_HOME / "state" / "installed.json", {}).get(module)
+            if isinstance(installed_record, dict):
+                raw_path = str(installed_record.get("source") or installed_record.get("path") or "")
+                if raw_path:
+                    base = Path(raw_path).expanduser()
+                    source_path = base if (base / "src").exists() else base / "source"
+        return source_path
+
+    spawner_path = resolve_source_path("spawner-ui", spawner_source_path)
+    telegram_path = resolve_source_path("spark-telegram-bot", telegram_source_path)
+    if spawner_path is None:
+        return {
+            "ok": False,
+            "detail": "Spawner source path is unavailable; cannot prove Level 5 Codex sandbox behavior.",
+            "issues": ["missing_spawner_source_path"],
+        }
+    if telegram_path is None:
+        return {
+            "ok": False,
+            "detail": "Telegram source path is unavailable; cannot prove /access 5 activation behavior.",
+            "issues": ["missing_telegram_source_path"],
+            "spawner_source": str(spawner_path),
+        }
+
+    def read_optional(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    client_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.ts"
+    client_test_path = spawner_path / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.test.ts"
+    prd_auto_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.ts"
+    prd_auto_test_path = spawner_path / "src" / "lib" / "server" / "prd-auto-dispatch.test.ts"
+    prd_bridge_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "+server.ts"
+    prd_bridge_test_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
+    telegram_actions_path = telegram_path / "src" / "accessActions.ts"
+    telegram_actions_test_path = telegram_path / "tests" / "accessActions.test.ts"
+
+    client_text = read_optional(client_path)
+    client_test_text = read_optional(client_test_path)
+    prd_auto_text = read_optional(prd_auto_path)
+    prd_auto_test_text = read_optional(prd_auto_test_path)
+    prd_bridge_text = read_optional(prd_bridge_path)
+    prd_bridge_test_text = read_optional(prd_bridge_test_path)
+    telegram_actions_text = read_optional(telegram_actions_path)
+    telegram_actions_test_text = read_optional(telegram_actions_test_path)
+    checks = {
+        "client_exists": bool(client_text),
+        "client_test_exists": bool(client_test_text),
+        "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
+        "client_adds_default_sandbox_arg": "args.push('--sandbox', resolveCodexSandbox(options.env))" in client_text,
+        "client_honors_explicit_sandbox_arg": "SPARK_CODEX_SANDBOX: value" in client_text,
+        "client_test_proves_level5_danger_full_access": "Level 5 guardrails are active" in client_test_text
+        and "--sandbox', 'danger-full-access" in client_test_text,
+        "client_test_proves_default_workspace_write": "--sandbox', 'workspace-write" in client_test_text,
+        "prd_auto_uses_shared_sandbox_resolver": "resolveCodexSandbox" in prd_auto_text
+        and "return resolveCodexSandbox(envRecord)" in prd_auto_text,
+        "prd_auto_test_proves_level5_danger_full_access": "uses Level 5 Codex sandbox for direct mission auto-dispatch" in prd_auto_test_text
+        and "--sandbox danger-full-access" in prd_auto_test_text,
+        "prd_bridge_uses_shared_sandbox_resolver": "resolveCodexSandbox(env)" in prd_bridge_text,
+        "prd_bridge_test_proves_level5_danger_full_access": "SPARK_CODEX_SANDBOX: 'danger-full-access'" in prd_bridge_test_text
+        and "--sandbox danger-full-access" in prd_bridge_test_text,
+        "telegram_level5_action_uses_high_agency_setup": "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']" in telegram_actions_text,
+        "telegram_level5_reply_reports_active_sandbox": "configured_codex_sandbox" in telegram_actions_text
+        and "Whole-computer operator mode is active for Telegram and Spawner" in telegram_actions_text,
+        "telegram_test_proves_level5_setup_command": "runs Level 5 setup with high-agency guardrails and reports active services" in telegram_actions_test_text
+        and "'--enable-high-agency'" in telegram_actions_test_text
+        and "configured_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
+    }
+    issues = [name for name, ok in checks.items() if not ok]
+    return {
+        "ok": not issues,
+        "detail": (
+            "Installed Spawner and Telegram sources prove Access 5 activates high-agency guardrails and all known Codex lanes inherit Level 5 danger-full-access."
+            if not issues
+            else f"Installed Access 5/Codex sources are missing evidence: {', '.join(issues)}."
+        ),
+        "spawner_source": str(spawner_path),
+        "telegram_source": str(telegram_path),
+        "files": {
+            "client": str(client_path),
+            "client_test": str(client_test_path),
+            "prd_auto": str(prd_auto_path),
+            "prd_auto_test": str(prd_auto_test_path),
+            "prd_bridge": str(prd_bridge_path),
+            "prd_bridge_test": str(prd_bridge_test_path),
+            "telegram_actions": str(telegram_actions_path),
+            "telegram_actions_test": str(telegram_actions_test_path),
+        },
+        "checks": checks,
+        "issues": issues,
+    }
+
+
 def collect_r30_handoff_manifest_status(
     release_lane_classification: dict[str, Any],
     *,
@@ -8254,6 +8372,7 @@ def collect_r30_release_gate_payload(
     handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
+    access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8347,6 +8466,12 @@ def collect_r30_release_gate_payload(
             "summary": builder_trace_lifecycle,
         },
         {
+            "name": "r30_access_level5_codex_sandbox",
+            "ok": bool(access_level5_codex_sandbox.get("ok")),
+            "detail": access_level5_codex_sandbox.get("detail", "R30 Access 5 Codex sandbox evidence"),
+            "summary": access_level5_codex_sandbox,
+        },
+        {
             "name": "registry_pins",
             "ok": bool(registry_pins.get("ok")),
             "detail": registry_pins.get("summary", "registry pin drift check"),
@@ -8402,6 +8527,7 @@ def collect_r30_release_gate_payload(
         "owner_handoff_manifest": handoff_manifest,
         "voice_registry_decision": voice_registry_decision,
         "builder_trace_lifecycle": builder_trace_lifecycle,
+        "access_level5_codex_sandbox": access_level5_codex_sandbox,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,

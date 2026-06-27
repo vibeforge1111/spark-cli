@@ -32,14 +32,15 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "64408560dcf249d221f40598dde910a84b7eae12",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..64408560dcf249d221f40598dde910a84b7eae12",
+      "local_head": "fa4c8884bb8368f804ac9c00742b3f9ad0e80351",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351",
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "next_action": "Port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
         "npm run control:proof:reliability",
         "npm run build",
-        "npm run check:line-count"
+        "npm run check:line-count",
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts"
       ],
       "local_proof": "passed"
     },
@@ -59,11 +60,12 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "5ae5387d789b860aedbe43303f8a33532ec06008",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..5ae5387d789b860aedbe43303f8a33532ec06008",
+      "local_head": "7110dce4030a700ad61460ab79be7eff8312f06c",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c",
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits plus the Level 5 Codex sandbox fix, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus the direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
+        "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
         "npm run check"
       ],
       "local_proof": "passed"

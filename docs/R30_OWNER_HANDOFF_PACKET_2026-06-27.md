@@ -22,8 +22,8 @@ R30 is still blocked until these handoffs are source-owned and verified.
 
 | Repo | Local range to review | Current public/owner truth | R30 handoff |
 | --- | --- | --- | --- |
-| `spark-telegram-bot` | `e5a1bd040986..64408560dcf2` | registry/tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, and publish-handoff stack. Then rerun Telegram gates before registry pin movement. |
-| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..5ae5387d789b` | owner branch `fdb8fded4744`; registry/tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus the Level 5 Codex sandbox fix. Then rerun Spawner proof/check gates. |
+| `spark-telegram-bot` | `e5a1bd040986..fa4c8884bb83` | registry/tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, and `/access 5` activation proof stack. Then rerun Telegram gates before registry pin movement. |
+| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..7110dce4030a` | owner branch `fdb8fded4744`; registry/tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes. Then rerun Spawner proof/check gates. |
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763` | owner branch `12bddc9bd0bd`; remote tag `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Port/tag the two local trace/governor commits before any R30 voice registry claim. Do not pin R30 to `c74490d` if R30 claims current Spark OS voice proof. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; registry/tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; registry/tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
@@ -38,9 +38,9 @@ Direct R30 blockers:
 
 - `domain-chip-memory`: review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.
 - `spark-intelligence-builder`: review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.
-- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.
+- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof, then rerun Telegram gates before registry pin movement.
 - `spark-voice-comms`: port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.
-- `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus the Level 5 Codex sandbox fix, then rerun Spawner checks before registry pin movement.
+- `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.
 
 Supporting release-hygiene rows:
 
@@ -66,7 +66,7 @@ Fresh local proof status for direct blockers:
 - `spark-intelligence-builder`: focused proof tests passed.
 - `spark-telegram-bot`: reliability, build, and line-count gates passed.
 - `spark-voice-comms`: pytest passed.
-- `spawner-ui`: Svelte check passed.
+- `spawner-ui`: focused Codex sandbox lane tests and Svelte check passed.
 
 These are local proof passes, not owner-source convergence. Registry and
 installer truth must not move until the corresponding owner-source refs exist
@@ -84,14 +84,15 @@ truth. Do not push from this debugging lane without explicit authorization.
 cd ~/.spark/modules/spark-telegram-bot/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..64408560dcf249d221f40598dde910a84b7eae12
+git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351
 npm run control:proof:reliability
 npm run build
 npm run check:line-count
+npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts
 ```
 
 Owner action after review: push or port the
-`e5a1bd040986..64408560dcf2` reliability ladder stack into an owner release ref,
+`e5a1bd040986..fa4c8884bb83` reliability ladder and access activation stack into an owner release ref,
 then update registry truth only after the proof commands pass on that owner ref.
 
 ### `spawner-ui`
@@ -100,12 +101,13 @@ then update registry truth only after the proof commands pass on that owner ref.
 cd ~/.spark/modules/spawner-ui/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline origin/release/stability-2026-06-02-spawner-authority..5ae5387d789b860aedbe43303f8a33532ec06008
+git log --oneline origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c
+npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
 npm run check
 ```
 
 Owner action after review: push or port the Spawner PRD proof-continuity stack
-and the Level 5 Codex sandbox fix into the owner release lane, then update
+and the direct-client and PRD-lane Level 5 Codex sandbox fixes into the owner release lane, then update
 registry truth only after `npm run check` passes on that owner ref.
 
 ### `spark-voice-comms`
@@ -161,10 +163,11 @@ spark os compile --json
 
 ### `spark-telegram-bot`
 
-Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..64408560dcf249d221f40598dde910a84b7eae12`
+Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351`
 
 Top commits currently in the R30 handoff stack:
 
+- `fa4c888 Prove Telegram Level 5 activation path`
 - `6440856 Refresh Spark publish readiness handoffs`
 - `caa28b5 Refresh Spark publish handoff status`
 - `a0aa855 Classify publish readiness handoffs`
@@ -182,14 +185,16 @@ Minimum owner-lane proof after port:
 npm run control:proof:reliability
 npm run build
 npm run check:line-count
+npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts
 ```
 
 ### `spawner-ui`
 
-Range: `origin/release/stability-2026-06-02-spawner-authority..5ae5387d789b860aedbe43303f8a33532ec06008`
+Range: `origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c`
 
 Commits:
 
+- `7110dce4 Honor Level 5 sandbox in PRD Codex lanes`
 - `5ae5387d Honor Level 5 Codex sandbox in direct client`
 - `0a892f0b Merge remote-tracking branch 'origin/release/stability-2026-06-02-spawner-authority' into release/stability-2026-06-02-spawner-authority`
 - `e9ba42eb Document PRD event proof joins`
@@ -204,6 +209,7 @@ Commits:
 Minimum owner-lane proof after port:
 
 ```bash
+npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
 npm run check
 ```
 

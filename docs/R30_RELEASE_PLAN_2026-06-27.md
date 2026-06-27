@@ -19,6 +19,7 @@ R30 is ready only when a fresh user install can prove the same core claims that 
 - Capability evidence includes last-success and last-boundary or failure proof.
 - Surface evals keep Spark replies human instead of rigid.
 - Voice is represented truthfully as duplex and blocker-free, but action-confirmation-bound.
+- Access level 5 launches Codex workers with explicit `danger-full-access` sandboxing when Level 5 guardrails are active, including direct provider, PRD auto-dispatch, PRD bridge, and Telegram `/access 5` activation paths.
 - Installer, registry, installed runtime, hosted metadata, and docs agree.
 
 ## Current Baseline
@@ -48,8 +49,8 @@ Use this order for R30. Do not skip ahead.
 
 | Area | Current fact | R30 requirement |
 | --- | --- | --- |
-| `spark-telegram-bot` | Installed head `64408560dcf2`; registry pin `e5a1bd040986`; classified `local_runtime_test_artifact`. | Push or port the proven Telegram head, then update registry/release metadata so the runtime is no longer local-only. |
-| `spawner-ui` | Installed head `5ae5387d789b`; registry pin `19b7d0bff144`; classified `local_runtime_test_artifact`. | Push or port the proven Spawner head, including the Level 5 Codex sandbox fix, then update registry/release metadata. |
+| `spark-telegram-bot` | Installed head `fa4c8884bb83`; registry pin `e5a1bd040986`; classified `local_runtime_test_artifact`. | Push or port the proven Telegram head, including `/access 5` activation proof, then update registry/release metadata so the runtime is no longer local-only. |
+| `spawner-ui` | Installed head `7110dce4030a`; registry pin `19b7d0bff144`; classified `local_runtime_test_artifact`. | Push or port the proven Spawner head, including direct-client and PRD-lane Level 5 Codex sandbox fixes, then update registry/release metadata. |
 | `spark-cli` | Local head includes R30 prep plus the voice source discovery fix; manifest now points at the public R29 baseline. | Include the voice discovery fix and R30 docs in the source-owner release before changing installer pins to R30. |
 | `spark-voice-comms` | Installed source is importable; registry pin `21a9467e...` lags remote `main`/tag `spark-ship-2026-06-26` at `c74490d...`; local voice checkout `7555a36...` is ahead of its branch with trace/governor proof. | Do not pin R30 voice to the earlier public tag if R30 claims current voice trace proof. Port/tag the local voice trace/governor commits first, then update registry and installed-state truth together. |
 | Builder trace health | Current windows clean; one historical high-severity lifecycle family remains from 2026-06-02. | Close with owner-approved lifecycle evidence or keep explicit as a non-hidden historical publish handoff. |
