@@ -14059,6 +14059,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "direct_blockers": [
                             {
                                 "module": "spark-telegram-bot",
@@ -14088,6 +14093,43 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["commit_mismatches"], [])
         self.assertEqual(payload["instruction_mismatches"], [])
 
+    def test_r30_handoff_manifest_status_requires_publication_boundary(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                }
+            ],
+            "supporting_hygiene": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "ready_to_publish",
+                        "publication_boundary": "Registry movement is approved.",
+                        "direct_blockers": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+        self.assertFalse(payload["ok"])
+        self.assertIn("handoff_status_not_blocked", payload["issues"])
+        self.assertIn("publication_boundary_not_explicit", payload["issues"])
+
     def test_r30_handoff_manifest_status_reports_mismatched_modules(self) -> None:
         classification = {
             "direct_blockers": [{"module": "spark-telegram-bot", "expected_commit": "a" * 40, "actual_commit": "b" * 40}],
@@ -14099,6 +14141,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "direct_blockers": [
                             {
                                 "module": "spawner-ui",
@@ -14139,6 +14186,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "direct_blockers": [
                             {
                                 "module": "spark-telegram-bot",
@@ -14177,6 +14229,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "direct_blockers": [
                             {
                                 "module": "spark-telegram-bot",
@@ -14312,6 +14369,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No Telegram or Spawner registry pin, installed metadata, installer pin, "
+                            "tag, deploy, or hosted publication is authorized by this manifest."
+                        ),
                         "artifacts": [
                             {
                                 "module": "spark-telegram-bot",
@@ -14363,6 +14425,59 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["issues"], [])
         self.assertEqual(payload["artifacts"], ["spark-telegram-bot", "spawner-ui"])
 
+    def test_r30_local_runtime_artifacts_handoff_requires_publication_boundary(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "installed_registry_commit": "a" * 40,
+                }
+            ],
+        }
+        publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spark-telegram-bot"]}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "ready_to_publish",
+                        "publication_boundary": "Telegram and Spawner publication approved.",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "installed_registry_commit": "a" * 40,
+                                "commit_count": 12,
+                                "changed_file_count": 7,
+                                "first_local_commit": "e" * 40,
+                                "last_local_commit": "b" * 40,
+                                "required_terminal_subjects": [
+                                    "Add Telegram rich draft streaming controls",
+                                    "Package Telegram control release evidence",
+                                    "Prove Telegram Level 5 activation path",
+                                    "Fix Level 5 Codex sandbox confirmation",
+                                ],
+                                "proof_commands": ["npm run control:proof:reliability"],
+                                "local_proof": "passed",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+        self.assertFalse(payload["ok"])
+        self.assertIn("handoff_status_not_blocked", payload["issues"])
+        self.assertIn("publication_boundary_not_explicit", payload["issues"])
+
     def test_r30_local_runtime_artifacts_handoff_reports_stale_manifest(self) -> None:
         classification = {
             "direct_blockers": [
@@ -14381,6 +14496,11 @@ class SparkCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No Telegram or Spawner registry pin, installed metadata, installer pin, "
+                            "tag, deploy, or hosted publication is authorized by this manifest."
+                        ),
                         "artifacts": [
                             {
                                 "module": "spark-telegram-bot",
@@ -14538,6 +14658,11 @@ class SparkCliTests(unittest.TestCase):
             manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
             manifest = {
                 "release": "spark-cli-public-installer-2026-06-27-r30",
+                "status": "blocked_before_registry_or_installer_publication",
+                "publication_boundary": (
+                    "No Telegram or Spawner registry pin, installed metadata, installer pin, "
+                    "tag, deploy, or hosted publication is authorized by this manifest."
+                ),
                 "artifacts": [
                     {
                         "module": "spark-telegram-bot",

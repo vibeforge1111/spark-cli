@@ -8664,6 +8664,19 @@ def collect_r30_handoff_manifest_status(
             )
     if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
         issues.append("release_mismatch")
+    if manifest.get("status") != "blocked_before_registry_or_installer_publication":
+        issues.append("handoff_status_not_blocked")
+    publication_boundary = str(manifest.get("publication_boundary") or "").lower()
+    owner_boundary_terms = [
+        "no push",
+        "tag",
+        "deploy",
+        "registry pin update",
+        "installer pin update",
+        "hosted publication",
+    ]
+    if not all(term in publication_boundary for term in owner_boundary_terms):
+        issues.append("publication_boundary_not_explicit")
     if direct_manifest != direct_live:
         issues.append("direct_blockers_mismatch")
     if supporting_manifest != supporting_live:
@@ -8714,6 +8727,20 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         }
     if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
         issues.append("release_mismatch")
+    if manifest.get("status") != "blocked_before_registry_or_installer_publication":
+        issues.append("handoff_status_not_blocked")
+    publication_boundary = str(manifest.get("publication_boundary") or "").lower()
+    local_runtime_boundary_terms = [
+        "no telegram",
+        "spawner registry pin",
+        "installed metadata",
+        "installer pin",
+        "tag",
+        "deploy",
+        "hosted publication",
+    ]
+    if not all(term in publication_boundary for term in local_runtime_boundary_terms):
+        issues.append("publication_boundary_not_explicit")
     manifest_modules = manifest.get("artifacts")
     manifest_modules = manifest_modules if isinstance(manifest_modules, list) else []
     manifest_names = sorted(str(item.get("module") or "") for item in manifest_modules if isinstance(item, dict))
