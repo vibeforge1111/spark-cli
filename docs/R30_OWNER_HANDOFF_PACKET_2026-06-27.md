@@ -75,6 +75,11 @@ The same actions are emitted by `spark verify --r30 --json` under
 The structured handoff form is [R30 owner handoff manifest](./R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json).
 `spark verify --r30 --json` checks that the manifest matches the live
 release-lane classification and commit metadata.
+It also checks the direct-blocker `owner_refs` captured from the fresh
+2026-06-28 remote audit, including the absent Telegram
+`harness-discipline-line-count-gate` owner branch and the absent voice
+`release/r30-voice-trace-governor` remote branch, so owner-source porting does
+not silently use stale public refs.
 
 The Telegram and Spawner local runtime artifact handoff form is
 [R30 local runtime artifacts handoff manifest](./R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json).

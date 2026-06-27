@@ -48,6 +48,10 @@ Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that
 This means R30 owner handoff work should not blindly port onto the older registry
 baseline. Each owner must choose the correct current release base, prove the
 ported stack there, then move installed metadata and registry pins together.
+The structured owner handoff manifest now records these direct-blocker
+`owner_refs` exactly, including absent candidate owner branches as `null`, and
+`spark verify --r30 --json` checks them so this remote audit cannot silently
+drift from the executable handoff packet.
 
 ## Voice Registry Decision
 

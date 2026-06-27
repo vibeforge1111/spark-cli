@@ -8834,8 +8834,42 @@ def collect_r30_handoff_manifest_status(
         for item in [*manifest_direct_rows, *manifest_supporting_rows]
         if isinstance(item, dict)
     }
+    expected_direct_owner_refs = {
+        "domain-chip-memory": {
+            "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+            "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+            "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        },
+        "spark-intelligence-builder": {
+            "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+            "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+            "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        },
+        "spark-telegram-bot": {
+            "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "harness_discipline_line_count_gate": None,
+            "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        },
+        "spark-voice-comms": {
+            "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "r30_voice_release_branch": None,
+            "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+        },
+        "spawner-ui": {
+            "main": "451d009aad84142092e9a21bda7788cf07910975",
+            "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+            "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        },
+    }
     commit_mismatches: list[dict[str, Any]] = []
     instruction_mismatches: list[dict[str, Any]] = []
+    owner_ref_mismatches: list[dict[str, Any]] = []
     for module, live_row in sorted(live_rows.items()):
         manifest_row = manifest_rows.get(module)
         if not manifest_row:
@@ -8864,6 +8898,17 @@ def collect_r30_handoff_manifest_status(
         )
         if live_proof_commands and manifest_proof_commands != live_proof_commands:
             instruction_row_mismatches.append("proof_commands_mismatch")
+        owner_ref_expected = expected_direct_owner_refs.get(module)
+        if owner_ref_expected is not None:
+            manifest_owner_refs = manifest_row.get("owner_refs") if isinstance(manifest_row.get("owner_refs"), dict) else None
+            if manifest_owner_refs != owner_ref_expected:
+                owner_ref_mismatches.append(
+                    {
+                        "module": module,
+                        "manifest_owner_refs": manifest_owner_refs,
+                        "expected_owner_refs": owner_ref_expected,
+                    }
+                )
         if row_mismatches:
             commit_mismatches.append(
                 {
@@ -8909,6 +8954,8 @@ def collect_r30_handoff_manifest_status(
         issues.append("commit_metadata_mismatch")
     if instruction_mismatches:
         issues.append("handoff_instruction_mismatch")
+    if owner_ref_mismatches:
+        issues.append("owner_ref_mismatch")
     if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
         issues.append("direct_local_proof_not_passed")
     return {
@@ -8920,6 +8967,7 @@ def collect_r30_handoff_manifest_status(
         "issues": issues,
         "commit_mismatches": commit_mismatches,
         "instruction_mismatches": instruction_mismatches,
+        "owner_ref_mismatches": owner_ref_mismatches,
         "direct_blockers": direct_manifest,
         "supporting_hygiene": supporting_manifest,
     }

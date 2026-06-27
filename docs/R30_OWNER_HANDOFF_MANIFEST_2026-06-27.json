@@ -10,6 +10,12 @@
       "expected_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
       "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
       "local_range": "origin/codex/turnintent-memory-boundary-20260531..1fd272e519b562afc118ca46ff7da175d735dc44",
+      "owner_refs": {
+        "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+        "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+        "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+        "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a"
+      },
       "owner_truth": "owner branch 3116ccaa3977; remote main/tag spark-ship-2026-06-26 at 72a660a69c0c; registry baseline tag spark-ship-2026-06-22 at f7f16a6ea8ee",
       "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
       "proof_commands": [
@@ -22,6 +28,12 @@
       "expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
       "local_head": "f21522accf6687596244f516555d37ffb69200c9",
       "local_range": "origin/codex/turnintent-builder-boundary-20260531..f21522accf6687596244f516555d37ffb69200c9",
+      "owner_refs": {
+        "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+        "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+        "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+        "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131"
+      },
       "owner_truth": "owner branch c94eac853fed; remote main/tag spark-ship-2026-06-26 at 9d7bdefaa9a0; registry baseline tag spark-ship-2026-06-22 at e7f80fbf03bd",
       "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
       "proof_commands": [
@@ -34,6 +46,12 @@
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
       "local_head": "bb38eca25cbed8675987cc45b900193e37f60859",
       "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..bb38eca25cbed8675987cc45b900193e37f60859",
+      "owner_refs": {
+        "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "harness_discipline_line_count_gate": null,
+        "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+      },
       "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
       "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
@@ -49,6 +67,13 @@
       "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
       "local_head": "c502ec096cefb48839e3279d3392343231884415",
       "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
+      "owner_refs": {
+        "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+        "r30_voice_release_branch": null,
+        "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee"
+      },
       "owner_truth": "owner branch 12bddc9bd0bd; remote main/tag spark-ship-2026-06-26 at c74490d68ece; registry pin 21a9467e9bd4",
       "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
       "proof_commands": [
@@ -64,6 +89,12 @@
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
       "local_head": "e0fbb5b60c22b4f7dd8a1821379061cbec105cdf",
       "local_range": "origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf",
+      "owner_refs": {
+        "main": "451d009aad84142092e9a21bda7788cf07910975",
+        "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+        "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+      },
       "owner_truth": "owner branch fdb8fded4744; remote main/tag spark-ship-2026-06-26 at 451d009aad84; registry baseline tag spark-ship-2026-06-22 at 19b7d0bff144",
       "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, and shared effective-env worker access/path validation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [

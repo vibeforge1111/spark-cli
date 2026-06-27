@@ -14398,6 +14398,12 @@ class SparkCliTests(unittest.TestCase):
                                 "module": "spark-telegram-bot",
                                 "expected_registry_commit": "a" * 40,
                                 "local_head": "b" * 40,
+                                "owner_refs": {
+                                    "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                                    "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                                    "harness_discipline_line_count_gate": None,
+                                    "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+                                },
                                 "next_action": "port telegram",
                                 "proof_commands": ["npm run build"],
                                 "local_proof": "passed",
@@ -14421,6 +14427,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["issues"], [])
         self.assertEqual(payload["commit_mismatches"], [])
         self.assertEqual(payload["instruction_mismatches"], [])
+        self.assertEqual(payload["owner_ref_mismatches"], [])
 
     def test_r30_handoff_manifest_status_requires_publication_boundary(self) -> None:
         classification = {
@@ -14536,8 +14543,10 @@ class SparkCliTests(unittest.TestCase):
             payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
         self.assertFalse(payload["ok"])
         self.assertIn("commit_metadata_mismatch", payload["issues"])
+        self.assertIn("owner_ref_mismatch", payload["issues"])
         self.assertEqual(payload["commit_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("local_head_mismatch", payload["commit_mismatches"][0]["issues"])
+        self.assertEqual(payload["owner_ref_mismatches"][0]["module"], "spark-telegram-bot")
 
     def test_r30_handoff_manifest_status_reports_instruction_mismatch(self) -> None:
         classification = {
