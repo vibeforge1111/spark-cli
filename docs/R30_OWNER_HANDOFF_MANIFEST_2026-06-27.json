@@ -59,10 +59,10 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "0a892f0bcdaf9c9a956d054a6bfee16d29608df7",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..0a892f0bcdaf9c9a956d054a6bfee16d29608df7",
+      "local_head": "5ae5387d789b860aedbe43303f8a33532ec06008",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..5ae5387d789b860aedbe43303f8a33532ec06008",
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus the Level 5 Codex sandbox fix, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
         "npm run check"
       ],

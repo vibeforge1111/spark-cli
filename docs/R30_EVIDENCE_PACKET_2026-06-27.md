@@ -81,7 +81,7 @@ Fresh direct-blocker proof results:
 - `spark-intelligence-builder`: focused Builder pytest passed, `208 passed, 26 subtests passed`.
 - `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, and `npm run check:line-count` passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap.
 - `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
-- `spawner-ui`: `npm run check` passed with 0 Svelte errors and 0 warnings.
+- `spawner-ui`: direct Codex client regression tests passed, `24 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `5ae5387d789b`, including the Level 5 Codex sandbox fix.
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed
