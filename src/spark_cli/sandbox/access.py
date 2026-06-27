@@ -290,7 +290,9 @@ def probe_workspace_writable(path: Path) -> dict[str, Any]:
     marker = path / f".spark-access-preflight-{os.getpid()}-{int(time.time() * 1000)}.tmp"
     try:
         path.mkdir(parents=True, exist_ok=True)
-        marker.write_text("spark access preflight\n", encoding="utf-8")
+        _tmp = marker.with_suffix(marker.suffix + ".tmp")
+        _tmp.write_text("spark access preflight\n", encoding="utf-8")
+        _tmp.replace(marker)
         marker.unlink(missing_ok=True)
         return {
             "exists": True,
