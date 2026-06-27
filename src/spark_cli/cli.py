@@ -558,7 +558,7 @@ def run_git_or_exit(name: str, args: list[str], *, cwd: Path | None = None) -> s
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
-        )
+        , timeout=300)
     except OSError as exc:
         raise SystemExit(
             f"git operation failed for {name}: could not start git. "
