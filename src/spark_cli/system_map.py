@@ -5591,12 +5591,20 @@ def build_voice_surface_trace_continuity(view: dict[str, Any]) -> dict[str, Any]
 
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     repos = [as_dict(repo) for repo in as_list(system_map.get("discovered_repos"))]
-    repo_names = {str(repo.get("name")) for repo in repos}
-    repo_paths = {
-        str(repo.get("name")): Path(str(repo.get("path"))).expanduser()
-        for repo in repos
-        if isinstance(repo.get("path"), str) and str(repo.get("path")).strip()
-    }
+    repo_names: set[str] = set()
+    repo_paths: dict[str, Path] = {}
+    for repo in repos:
+        identities = set(repo_ids(repo))
+        raw_name = str(repo.get("name") or "").strip()
+        if raw_name:
+            identities.add(raw_name)
+        path = str(repo.get("path") or "").strip()
+        for identity in identities:
+            if not identity:
+                continue
+            repo_names.add(identity)
+            if path:
+                repo_paths.setdefault(identity, Path(path).expanduser())
     installed_modules = set(as_dict(system_map.get("installed_modules")).keys())
     available = "spark-voice-comms" in repo_names
     installed = "spark-voice-comms" in installed_modules

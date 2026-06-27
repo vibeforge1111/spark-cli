@@ -736,6 +736,44 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertIn("voice final-answer join evidence is not compiled", joined_blockers)
         self.assertNotIn("private transcript body", encoded)
 
+    def test_voice_surface_discovers_installed_source_checkout_by_module_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voice = root / "spark-voice-comms" / "source"
+            builder = root / "spark-intelligence-builder"
+            telegram = root / "spark-telegram-bot"
+            (voice / "src" / "voice_comms_chip").mkdir(parents=True)
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram").mkdir(parents=True)
+            (telegram / "src").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip" / "spark_hook.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
+
+            view = build_voice_surface_view(
+                {
+                    "installed_modules": {"spark-voice-comms": {"path": str(voice)}},
+                    "discovered_repos": [
+                        {
+                            "name": "source",
+                            "path": str(voice),
+                            "spark_toml": {"module_name": "spark-voice-comms"},
+                        },
+                        {"name": "spark-intelligence-builder", "path": str(builder)},
+                        {"name": "spark-telegram-bot", "path": str(telegram)},
+                    ],
+                }
+            )
+
+        self.assertTrue(view["source_capability"]["repo_discovered"])
+        self.assertNotIn("spark-voice-comms repo not discovered", view["blockers"])
+        self.assertEqual(view["source_capability"]["source_mode"], "duplex")
+
     def test_parse_branch_status_handles_unborn_branch(self) -> None:
         parsed = parse_branch_status("## No commits yet on master")
 
