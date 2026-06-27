@@ -311,6 +311,12 @@ hash into release truth.
 
 Recent R30 prep commits to include before any R30 installer pin movement:
 
+- `7e490a5 Gate R30 Level 5 named profile restarts`
+- `7478f0d Require Level 5 proof per Telegram profile`
+- `6d1a6f1 Refresh R30 local proof evidence`
+- `0680654 Gate R30 CLI handoff clauses`
+- `5be9bb2 Expose R30 publication source blockers`
+- `7e577a1 Gate R30 voice action confirmation truth`
 - `5b15978 Track R30 runtime handoff inventory`
 - `34f0c34 Gate R30 local runtime handoffs`
 - `5743974 Gate R30 voice owner handoff manifest`
@@ -324,7 +330,7 @@ Recent R30 prep commits to include before any R30 installer pin movement:
 Minimum source-lane proof before installer pin movement:
 
 ```bash
-PYTHONPATH=src python3 -m pytest -q tests/test_access.py tests/test_cli.py -k 'access_level5_transition or level5 or r30_access_level5_codex_sandbox or r30_voice_runtime_truth or r30_release_gate or r30_live_status or r30_voice_registry_decision or r30_builder_trace_lifecycle'
+PYTHONPATH=src python3 -m pytest -q tests/test_access.py tests/test_cli.py -k 'access_level5_service_proof or access_level5_transition or level5 or r30_access_level5_codex_sandbox or r30_voice_runtime_truth or r30_release_gate or r30_live_status or r30_voice_registry_decision or r30_builder_trace_lifecycle'
 PYTHONPATH=src python3 -m spark_cli.cli os compile --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
@@ -335,7 +341,9 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json
 Expected before registry/installer movement: the focused tests pass, OS compile
 is green, Access 5 and voice runtime truth checks pass inside the R30 gate, and
 the R30 gate still blocks on owner-source, registry, and installer truth until
-those surfaces converge.
+those surfaces converge. Access 5 proof must include `missing_or_stale_services=[]`
+for all named Telegram profiles; do not accept a module-level Telegram restart
+as proof that SparkRecursive/SparkQA-style bot profiles are writable.
 
 Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is still:
 
