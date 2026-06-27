@@ -13086,7 +13086,11 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["direct_blocker_count"], 1)
         self.assertEqual(payload["supporting_hygiene_count"], 1)
         self.assertEqual(payload["direct_blockers"][0]["module"], "spark-telegram-bot")
+        self.assertIn("Telegram", payload["direct_blockers"][0]["next_action"])
+        self.assertIn("npm run build", payload["direct_blockers"][0]["proof_commands"])
         self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
+        self.assertIn("publish truth", payload["supporting_hygiene"][0]["next_action"])
+        self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])

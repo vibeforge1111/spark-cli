@@ -117,6 +117,50 @@ R30_DIRECT_RELEASE_MODULES = {
     "spark-voice-comms",
     "spawner-ui",
 }
+R30_RELEASE_LANE_ACTIONS = {
+    "domain-chip-memory": {
+        "next_action": "Review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.",
+        "proof_commands": ["PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"],
+    },
+    "domain-chip-spark-qa-evidence-lane": {
+        "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-character": {
+        "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-harness-core": {
+        "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-intelligence-builder": {
+        "next_action": "Review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.",
+        "proof_commands": [
+            "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+        ],
+    },
+    "spark-researcher": {
+        "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-skill-graphs": {
+        "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready.",
+        "proof_commands": ["spark verify --r30 --json"],
+    },
+    "spark-telegram-bot": {
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.",
+        "proof_commands": ["npm run control:proof:reliability", "npm run build", "npm run check:line-count"],
+    },
+    "spark-voice-comms": {
+        "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
+        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+    },
+    "spawner-ui": {
+        "next_action": "Port or push the Spawner PRD proof-continuity commits, then rerun Spawner checks before registry pin movement.",
+        "proof_commands": ["npm run check"],
+    },
+}
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
@@ -7971,14 +8015,21 @@ def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, An
     for row in release_lane.get("rows", []):
         if not isinstance(row, dict) or not row.get("issues"):
             continue
+        module = str(row.get("module") or "")
+        action = R30_RELEASE_LANE_ACTIONS.get(module, {})
         item = {
-            "module": row.get("module"),
+            "module": module,
             "issues": list(row.get("issues") or []),
             "expected_commit": row.get("expected_commit"),
             "actual_commit": row.get("actual_commit"),
             "installed_registry_commit": row.get("installed_registry_commit"),
+            "next_action": action.get(
+                "next_action",
+                "Converge owner source, registry pin, and installed runtime metadata before R30 publication.",
+            ),
+            "proof_commands": list(action.get("proof_commands") or ["spark verify --r30 --json"]),
         }
-        if str(row.get("module") or "") in R30_DIRECT_RELEASE_MODULES:
+        if module in R30_DIRECT_RELEASE_MODULES:
             direct_blockers.append(item)
         else:
             supporting_hygiene.append(item)
