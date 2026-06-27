@@ -8867,6 +8867,17 @@ def collect_r30_release_gate_payload(
         and bool(release_lane.get("ok"))
         and bool(registry_pins.get("ok"))
     )
+    source_truth_blockers: list[str] = []
+    if int(publish_handoffs.get("family_count") or 0) != 0:
+        source_truth_blockers.append("publish_handoffs")
+    if not bool(handoff_manifest.get("ok")):
+        source_truth_blockers.append("owner_handoff_manifest")
+    if not bool(local_runtime_artifacts_handoff.get("ok")):
+        source_truth_blockers.append("local_runtime_artifacts_handoff")
+    if not bool(release_lane.get("ok")):
+        source_truth_blockers.append("release_lane")
+    if not bool(registry_pins.get("ok")):
+        source_truth_blockers.append("registry_pins")
     publication_order_ok = (source_truth_ready and installer_pins_are_r30) or (
         not source_truth_ready and not installer_pins_are_r30
     )
@@ -9001,6 +9012,7 @@ def collect_r30_release_gate_payload(
             "ok": publication_order_ok,
             "detail": publication_order_detail,
             "source_truth_ready": source_truth_ready,
+            "source_truth_blockers": source_truth_blockers,
             "installer_pins_are_r30": installer_pins_are_r30,
         },
         {

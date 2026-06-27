@@ -13114,6 +13114,16 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(checks["release_lane"]["classification"]["supporting_hygiene_count"], 1)
         self.assertTrue(checks["publication_order"]["ok"])
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
+        self.assertEqual(
+            checks["publication_order"]["source_truth_blockers"],
+            [
+                "publish_handoffs",
+                "owner_handoff_manifest",
+                "local_runtime_artifacts_handoff",
+                "release_lane",
+                "registry_pins",
+            ],
+        )
         self.assertFalse(checks["publication_order"]["installer_pins_are_r30"])
         self.assertFalse(checks["r30_installer_pins"]["ok"])
         self.assertIn("spark-cli-public-installer-2026-06-26-r29", checks["r30_installer_pins"]["detail"])
@@ -13166,6 +13176,16 @@ class SparkCliTests(unittest.TestCase):
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["publication_order"]["ok"])
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
+        self.assertEqual(
+            checks["publication_order"]["source_truth_blockers"],
+            [
+                "publish_handoffs",
+                "owner_handoff_manifest",
+                "local_runtime_artifacts_handoff",
+                "release_lane",
+                "registry_pins",
+            ],
+        )
         self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
         self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
 

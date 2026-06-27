@@ -69,7 +69,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration.
 - `registry_pins`: fail
 - `local_installers`: pass
-- `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30
+- `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30. The structured `source_truth_blockers` list keeps the hold explicit: `publish_handoffs`, `release_lane`, and `registry_pins`.
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-26-r29`
 - `hosted_installers`: pass when requested against the R29 baseline; this confirms the hosted public installer is current for R29, not that R30 is published
 
