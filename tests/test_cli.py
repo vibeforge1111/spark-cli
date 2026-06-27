@@ -49,6 +49,7 @@ from spark_cli.cli import (
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
     collect_r30_release_gate_payload,
+    collect_r30_unattended_identity_guard_status,
     collect_r30_voice_registry_decision_status,
     collect_r30_voice_runtime_truth_status,
     collect_registry_pin_drift_payload,
@@ -14048,6 +14049,51 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_cli_handoff_clause:level5_effective_sandbox_fields", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:voice_action_confirmation_truth", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:publication_source_blockers", payload["issues"])
+
+    def test_r30_unattended_identity_guard_status_passes_on_guarded_refusal(self) -> None:
+        def run_setup(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            self.assertIn("--non-interactive", argv)
+            self.assertIn("--bot-token", argv)
+            self.assertTrue(env.get("SPARK_HOME"))
+            return subprocess.CompletedProcess(
+                argv,
+                2,
+                stdout=(
+                    "Spark blocked a sensitive action because this shell is non-interactive.\n"
+                    "Class: identity_access_mutation\n"
+                ),
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            payload = collect_r30_unattended_identity_guard_status(temp_home=Path(tmp_dir), run_setup=run_setup)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issues"], [])
+        self.assertEqual(payload["exit_code"], 2)
+        self.assertTrue(payload["checks"]["blocked_identity_access_mutation"])
+
+    def test_r30_unattended_identity_guard_status_rejects_generated_secret_residue(self) -> None:
+        def run_setup(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+            home = Path(env["SPARK_HOME"])
+            module_env = home / "config" / "modules" / "spark-telegram-bot.env"
+            module_env.parent.mkdir(parents=True)
+            module_env.write_text("BOT_TOKEN=fake-token\n", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                argv,
+                2,
+                stdout="Class: identity_access_mutation\n",
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            payload = collect_r30_unattended_identity_guard_status(temp_home=Path(tmp_dir), run_setup=run_setup)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("no_generated_module_or_state_files", payload["issues"])
+        self.assertIn("no_secret_or_dashboard_residue", payload["issues"])
+        self.assertEqual(payload["generated_files"], ["config/modules/spark-telegram-bot.env"])
+        self.assertEqual(payload["forbidden_hits"], ["config/modules/spark-telegram-bot.env"])
 
     def test_r30_local_runtime_artifacts_handoff_matches_live_rows(self) -> None:
         classification = {

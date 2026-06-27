@@ -21,6 +21,7 @@ import ssl
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -8879,6 +8880,99 @@ def collect_r30_local_runtime_handoff_docs_status(
     }
 
 
+R30_UNATTENDED_IDENTITY_GUARD_ARGS = [
+    "setup",
+    "--non-interactive",
+    "--bot-token",
+    "fake-token",
+    "--admin-telegram-ids",
+    "12345",
+    "--llm-provider",
+    "codex",
+    "--skip-telegram-token-check",
+    "--no-autostart",
+    "--no-start-now",
+    "--skip-runtime-check",
+]
+
+
+def collect_r30_unattended_identity_guard_status(
+    *,
+    temp_home: Path | None = None,
+    run_setup: Callable[[list[str], dict[str, str]], subprocess.CompletedProcess[str]] | None = None,
+) -> dict[str, Any]:
+    def run_in_subprocess(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        pythonpath = str(REPO_ROOT / "src")
+        existing_pythonpath = env.get("PYTHONPATH")
+        if existing_pythonpath:
+            pythonpath = pythonpath + os.pathsep + existing_pythonpath
+        return subprocess.run(
+            [sys.executable, "-m", "spark_cli.cli", *argv],
+            cwd=str(REPO_ROOT),
+            env={**env, "PYTHONPATH": pythonpath},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+
+    temp_context = tempfile.TemporaryDirectory(prefix="spark-r30-unattended-") if temp_home is None else None
+    home = Path(temp_context.name if temp_context is not None else temp_home).expanduser()
+    try:
+        env = {**os.environ, "SPARK_HOME": str(home)}
+        runner = run_setup or run_in_subprocess
+        result = runner(list(R30_UNATTENDED_IDENTITY_GUARD_ARGS), env)
+        combined = f"{getattr(result, 'stdout', '')}\n{getattr(result, 'stderr', '')}"
+        forbidden_patterns = [
+            re.compile(r"fake-token"),
+            re.compile(r"BEGIN .*PRIVATE KEY"),
+            re.compile(r"SPARK_API_URL"),
+            re.compile(r"SPARK_DASHBOARD_URL"),
+        ]
+        generated_names = {"setup.json", "installed.json", "secrets.local.json", "setup.pending.json"}
+        generated_files: list[str] = []
+        forbidden_hits: list[str] = []
+        for root in [home / "config", home / "state", home / "logs"]:
+            if not root.exists():
+                continue
+            for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                rel = str(path.relative_to(home))
+                if path.parent == home / "config" / "modules" or path.name in generated_names:
+                    generated_files.append(rel)
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if any(pattern.search(text) for pattern in forbidden_patterns):
+                    forbidden_hits.append(rel)
+        checks = {
+            "exit_code_2": getattr(result, "returncode", None) == 2,
+            "blocked_identity_access_mutation": "identity_access_mutation" in combined,
+            "no_generated_module_or_state_files": not generated_files,
+            "no_secret_or_dashboard_residue": not forbidden_hits,
+        }
+        issues = [name for name, ok in checks.items() if not ok]
+        return {
+            "ok": not issues,
+            "detail": (
+                "R30 unattended identity setup smoke fails closed before generated config/state writes."
+                if not issues
+                else f"R30 unattended identity setup smoke has issues: {', '.join(issues)}."
+            ),
+            "issues": issues,
+            "checks": checks,
+            "exit_code": getattr(result, "returncode", None),
+            "stdout_contains_identity_access_mutation": "identity_access_mutation" in combined,
+            "generated_files": generated_files,
+            "forbidden_hits": forbidden_hits,
+        }
+    finally:
+        if temp_context is not None:
+            temp_context.cleanup()
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -8922,6 +9016,7 @@ def collect_r30_release_gate_payload(
         check_live_env=True,
         check_docs=True,
     )
+    unattended_identity_guard = collect_r30_unattended_identity_guard_status()
     live_status = collect_r30_live_status_status(collect_status_payload())
     voice_runtime_truth = collect_r30_voice_runtime_truth_status(compiled)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
@@ -9068,6 +9163,12 @@ def collect_r30_release_gate_payload(
             "summary": access_level5_codex_sandbox,
         },
         {
+            "name": "r30_unattended_identity_guard",
+            "ok": bool(unattended_identity_guard.get("ok")),
+            "detail": unattended_identity_guard.get("detail", "R30 unattended identity setup guard"),
+            "summary": unattended_identity_guard,
+        },
+        {
             "name": "registry_pins",
             "ok": bool(registry_pins.get("ok")),
             "detail": registry_pins.get("summary", "registry pin drift check"),
@@ -9129,6 +9230,7 @@ def collect_r30_release_gate_payload(
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
         "access_level5_codex_sandbox": access_level5_codex_sandbox,
+        "unattended_identity_guard": unattended_identity_guard,
         "live_status": live_status,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
