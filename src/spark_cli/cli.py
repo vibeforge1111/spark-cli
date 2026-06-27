@@ -1468,8 +1468,8 @@ def delete_secret(secret_id: str) -> bool:
         try:
             _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
             removed = True
-        except Exception:
-            pass
+        except Exception as _e:
+            import logging as _log; _log.getLogger(__name__).warning("Suppressed: %s", _e, exc_info=True)
         if default_home_uses_legacy_keychain():
             try:
                 _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
