@@ -6915,7 +6915,10 @@ def browser_use_normalize_structured_agent_json(raw: str) -> str:
             text = text[start:end + 1]
 
     try:
-        payload = json.loads(text)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except json.JSONDecodeError:
         return text
     if not isinstance(payload, dict):
