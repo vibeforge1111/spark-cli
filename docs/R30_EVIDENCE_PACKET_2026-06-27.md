@@ -101,11 +101,11 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `20 passed` for the refreshed Level 5 worker-env slice; `npm run build` passed. Local head is `3042f8acbdde`, including direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, and Codex worker env propagation.
 
-Fresh voice owner-lane proof at `2026-06-27T21:54:18Z`:
+Fresh voice owner-lane proof at `2026-06-27T23:38:48Z`:
 
 - `spark-voice-comms` prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
-- Remote audit still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
+- Remote audit at `2026-06-27T23:33:53Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 

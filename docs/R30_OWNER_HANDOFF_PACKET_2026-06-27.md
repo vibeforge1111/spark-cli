@@ -174,6 +174,7 @@ Prepared local lane status:
 - port commit: `4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f`
 - port commit: `c502ec096cefb48839e3279d3392343231884415`
 - proof: `PYTHONPATH=src python3 -m pytest -q` -> `132 passed`
+- fresh proof: `2026-06-27T23:38:48Z`, `132 passed`
 
 This closes the local preparation slice only. It does not authorize a push,
 tag, registry pin update, installed metadata edit, installer movement, or
