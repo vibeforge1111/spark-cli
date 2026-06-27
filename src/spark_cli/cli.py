@@ -724,7 +724,7 @@ def clone_module_source(
                 git_command("-C", str(target), "rev-parse", "HEAD"),
                 capture_output=True,
                 text=True,
-            )
+            , timeout=300)
             if resolved.returncode != 0 or resolved.stdout.strip().lower() != pinned_commit:
                 raise SystemExit(
                     f"Installed clone for {name} is not at pinned commit {pinned_commit}. "
