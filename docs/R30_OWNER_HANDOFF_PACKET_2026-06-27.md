@@ -22,7 +22,7 @@ R30 is still blocked until these handoffs are source-owned and verified.
 
 | Repo | Local range to review | Current public/owner truth | R30 handoff |
 | --- | --- | --- | --- |
-| `spark-telegram-bot` | `e5a1bd040986..fa4c8884bb83` | registry/tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, and `/access 5` activation proof stack. Then rerun Telegram gates before registry pin movement. |
+| `spark-telegram-bot` | `e5a1bd040986..729273eed1b2` | registry/tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, `/access 5` activation proof stack, and Level 5 Codex sandbox confirmation fix. Then rerun Telegram gates before registry pin movement. |
 | `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..7110dce4030a` | owner branch `fdb8fded4744`; registry/tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes. Then rerun Spawner proof/check gates. |
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763` | owner branch `12bddc9bd0bd`; remote tag `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Port/tag the two local trace/governor commits before any R30 voice registry claim. Do not pin R30 to `c74490d` if R30 claims current Spark OS voice proof. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; registry/tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof or replace with equivalent owner-source proof. |
@@ -37,7 +37,7 @@ structured inventory is also recorded in
 
 | Repo | Exact range | Commits | Files changed | Boundary commits | Owner-lane command |
 | --- | --- | ---: | ---: | --- | --- |
-| `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351` | 990 | 323 | first `43aeb4e476b9` / last `fa4c8884bb83` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351` |
+| `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..729273eed1b22e1a01db9c584ad78a74920ff715` | 991 | 323 | first `43aeb4e476b9` / last `729273eed1b2` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..729273eed1b22e1a01db9c584ad78a74920ff715` |
 | `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c` | 11 | 17 | first `424547437e7e` / last `7110dce4030a` | `git log --reverse --oneline origin/release/stability-2026-06-02-spawner-authority..7110dce4030a700ad61460ab79be7eff8312f06c` |
 
 Do not squash these into registry truth from this debugging lane. The owner
@@ -54,7 +54,7 @@ Direct R30 blockers:
 
 - `domain-chip-memory`: review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.
 - `spark-intelligence-builder`: review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.
-- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof, then rerun Telegram gates before registry pin movement.
+- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof and Level 5 Codex sandbox confirmation fix, then rerun Telegram gates before registry pin movement.
 - `spark-voice-comms`: port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.
 - `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.
 
@@ -105,7 +105,7 @@ truth. Do not push from this debugging lane without explicit authorization.
 cd ~/.spark/modules/spark-telegram-bot/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351
+git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..729273eed1b22e1a01db9c584ad78a74920ff715
 npm run control:proof:reliability
 npm run build
 npm run check:line-count
@@ -113,7 +113,7 @@ npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/t
 ```
 
 Owner action after review: push or port the
-`e5a1bd040986..fa4c8884bb83` reliability ladder and access activation stack into an owner release ref,
+`e5a1bd040986..729273eed1b2` reliability ladder and access activation stack into an owner release ref,
 then update registry truth only after the proof commands pass on that owner ref.
 
 ### `spawner-ui`
@@ -184,10 +184,11 @@ spark os compile --json
 
 ### `spark-telegram-bot`
 
-Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..fa4c8884bb8368f804ac9c00742b3f9ad0e80351`
+Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..729273eed1b22e1a01db9c584ad78a74920ff715`
 
 Top commits currently in the R30 handoff stack:
 
+- `729273e Fix Level 5 Codex sandbox confirmation`
 - `fa4c888 Prove Telegram Level 5 activation path`
 - `6440856 Refresh Spark publish readiness handoffs`
 - `caa28b5 Refresh Spark publish handoff status`
