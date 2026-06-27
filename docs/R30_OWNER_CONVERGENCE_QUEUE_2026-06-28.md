@@ -13,6 +13,12 @@ Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
 red only for release-truth work. Rechecked at `2026-06-27T23:33:53Z` from
 `spark-cli` head `648b0a7e0567`; dirty release repo count remained `0`:
 
+Rechecked again at `2026-06-27T23:57:06Z` from `spark-cli` head
+`1cc70ca6ff47a4145cef517eb31f954ca7c89a30`; dirty release repo count remained
+`0`. The current blocker set is still exactly `release_lane`,
+`r30_voice_registry_decision`, and `registry_pins`. The owner handoff manifest
+and Access 5 anti-read-only gate are green.
+
 - `release_lane`: 5 direct R30 blockers and 5 supporting hygiene rows.
 - `r30_voice_registry_decision`: voice needs source-owned trace/governor proof
   before registry movement.
@@ -37,7 +43,7 @@ Current `release_lane` mismatches from the same gate:
 | Supporting | `spark-researcher` | `587dbd2a57d6` | `906592e2bb02` | `906592e2bb02` | `head_differs_from_registry` |
 | Supporting | `spark-skill-graphs` | `8dcdd172f35f` | `59c211afc6f0` | `8dcdd172f35f` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
 
-Fresh remote-ref audit at `2026-06-27T23:33:53Z` confirmed the owner bases
+Fresh remote-ref audit at `2026-06-27T23:57:06Z` confirmed the owner bases
 listed below are still current. No remote `release/r30-voice-trace-governor`
 or `harness-discipline-line-count-gate` owner branch exists yet.
 
@@ -50,6 +56,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `1cc70ca6ff47` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, and Access 5 anti-read-only verifier hardening before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
