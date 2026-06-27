@@ -3102,7 +3102,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     row_items = []
                     for row in rows:
                         values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
+                            column: str(row[index]) if row[index] is not None else "[missing]" for index, column in enumerate(group_columns)
                         }
                         row_items.append(
                             {
@@ -3151,7 +3151,7 @@ def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
                     row_items = []
                     for row in rows:
                         values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
+                            column: str(row[index]) if row[index] is not None else "[missing]" for index, column in enumerate(group_columns)
                         }
                         row_items.append(
                             {
@@ -3234,7 +3234,7 @@ def builder_trace_orphan_parent_sources(conn: sqlite3.Connection, group_columns:
         "redaction": "aggregate orphan-parent counts grouped by allowlisted event metadata only",
         "rows": [
             {
-                **{column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)},
+                **{column: str(row[index]) if row[index] is not None else "[missing]" for index, column in enumerate(group_columns)},
                 "event_count": int(row[len(group_columns)] or 0),
             }
             for row in rows
