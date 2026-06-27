@@ -8979,6 +8979,8 @@ def collect_r30_local_runtime_handoff_docs_status(
         commit_count = item.get("commit_count")
         required_subjects = item.get("required_terminal_subjects")
         required_subjects = required_subjects if isinstance(required_subjects, list) else []
+        proof_commands = item.get("proof_commands")
+        proof_commands = proof_commands if isinstance(proof_commands, list) else []
         if not module or not GIT_COMMIT_SHA_PATTERN.match(local_head):
             issues.append(f"invalid_artifact_head:{module or '<missing>'}")
             continue
@@ -8998,6 +9000,10 @@ def collect_r30_local_runtime_handoff_docs_status(
                 subject_text = str(subject)
                 if subject_text and subject_text not in packet_text:
                     issues.append(f"missing_artifact_required_subject:{packet_ref}:{module}:{subject_text}")
+            for command in proof_commands:
+                command_text = str(command)
+                if command_text and command_text not in packet_text:
+                    issues.append(f"missing_artifact_proof_command:{packet_ref}:{module}:{command_text}")
 
     return {
         "ok": not issues,
