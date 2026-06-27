@@ -141,9 +141,11 @@ git log --oneline origin/codex/turnintent-voice-policy-20260531..7555a363d763853
 PYTHONPATH=src python3 -m pytest -q
 ```
 
-Owner action after review: port or push `8a246af` and `7555a36`, or equivalent
-source-owned trace/governor commits, before any R30 voice registry claim. Do not
-pin R30 voice to `c74490d68ece` if R30 claims the current Spark OS voice proof.
+Owner action after review: port or push
+`8a246af1eb0732aec432d88e4e4c2b6411023b7c` and
+`7555a363d7638537b1a9ec1ee377e460d2343323`, or equivalent source-owned
+trace/governor commits, before any R30 voice registry claim. Do not pin R30
+voice to `c74490d68ece` if R30 claims the current Spark OS voice proof.
 
 ### `domain-chip-memory`
 
@@ -243,8 +245,8 @@ Range: `origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee
 
 Commits:
 
-- `8a246af Join voice runtime state traces`
-- `7555a36 Accept media transcription governor authority`
+- `8a246af1eb0732aec432d88e4e4c2b6411023b7c` (`8a246af Join voice runtime state traces`)
+- `7555a363d7638537b1a9ec1ee377e460d2343323` (`7555a36 Accept media transcription governor authority`)
 
 Proof captured locally:
 

@@ -72,7 +72,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `r30_live_status`: pass, Spark live status is green
 - `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
-- `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge; the structured voice owner handoff manifest is present and checked for exact commits, proof commands, and rejection of the existing public tag as the final R30 voice claim
+- `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge; the structured voice owner handoff manifest is present and checked for exact full commit hashes, proof commands, and rejection of the existing public tag as the final R30 voice claim
 - `r30_voice_runtime_truth`: pass, R30 docs match compiled voice runtime truth with `voice_surface_mode=egress`, `voice_surface_blockers=1`, blocker `voice transcription is not ready`, and `requires_confirmation_for_actions=true`
 - `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
 - `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration. The service proof is now per named Telegram profile, not merely per `spark-telegram-bot` module; `live_level5_named_telegram_profiles_restarted_after_guardrail_configure` fails unless `missing_or_stale_services=[]`, so a stale SparkRecursive/SparkQA-style profile cannot hide behind another restarted bot process.
@@ -185,7 +185,7 @@ Current evidence:
 - remote head: `c74490d68ece65ffad21dc5b88f44602e1afa703`
 - status: `pin_drift`
 
-Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first.
+Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first. The R30 voice gate now requires their full hashes, `8a246af1eb0732aec432d88e4e4c2b6411023b7c` and `7555a363d7638537b1a9ec1ee377e460d2343323`, in the structured voice owner handoff manifest.
 
 ## Installer Smoke Details
 
