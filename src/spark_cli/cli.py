@@ -929,7 +929,7 @@ def stash_module_local_changes(module: Module) -> tuple[bool, str]:
         git_command("-C", str(module.path), "stash", "push", "-u", "-m", label),
         capture_output=True,
         text=True,
-    )
+    , timeout=300)
     return result.returncode == 0, summarize_command_output(result) or label
 
 
