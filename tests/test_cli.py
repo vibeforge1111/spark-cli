@@ -43,6 +43,7 @@ from spark_cli.cli import (
     collect_module_provenance_payload,
     collect_drift_sentinel_payload,
     collect_harness_vendor_integrity_payload,
+    collect_r30_builder_trace_lifecycle_status,
     collect_r30_release_gate_payload,
     collect_r30_voice_registry_decision_status,
     collect_registry_pin_drift_payload,
@@ -13169,6 +13170,30 @@ class SparkCliTests(unittest.TestCase):
         payload = collect_r30_voice_registry_decision_status({"direct_blockers": []})
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["decision"], "voice_registry_converged")
+
+    def test_r30_builder_trace_lifecycle_blocks_historical_unresolved_family(self) -> None:
+        payload = collect_r30_builder_trace_lifecycle_status(
+            {
+                "builder_trace_health": {
+                    "flags": ["historical_open_high_severity_events"],
+                    "high_severity_open_count": 46,
+                    "unresolved_high_severity_open_count": 1,
+                    "current_unresolved_high_severity_open_count": 0,
+                    "unresolved_high_severity_source_group_count": 1,
+                    "latest_unresolved_high_severity_event_created_at": "2026-06-02 09:03:25",
+                }
+            }
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["decision"], "builder_trace_lifecycle_owner_closure_required")
+        self.assertEqual(payload["unresolved_high_severity_open_count"], 1)
+        self.assertEqual(payload["current_unresolved_high_severity_open_count"], 0)
+        self.assertIn("historical trace lifecycle", payload["detail"])
+
+    def test_r30_builder_trace_lifecycle_passes_without_publish_handoff(self) -> None:
+        payload = collect_r30_builder_trace_lifecycle_status({})
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["decision"], "builder_trace_lifecycle_clear")
 
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {

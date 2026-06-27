@@ -33,7 +33,7 @@ Local evidence captured on 2026-06-27:
 - `spark verify --registry-pins --json`: fails only because `spark-voice-comms` registry pin lags `refs/heads/main`.
 - Spark OS publish handoffs remain visible: 2 local runtime test artifacts and 1 historical Builder trace lifecycle family.
 
-Detailed owner-source audit: [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md). Concrete owner-lane ranges: [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md). Voice registry decision: [R30 voice registry decision](./R30_VOICE_REGISTRY_DECISION_2026-06-27.md). Current local proof status: [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md).
+Detailed owner-source audit: [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md). Concrete owner-lane ranges: [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md). Voice registry decision: [R30 voice registry decision](./R30_VOICE_REGISTRY_DECISION_2026-06-27.md). Builder trace lifecycle decision: [R30 Builder trace lifecycle decision](./R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md). Current local proof status: [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md).
 
 ## Source Truth Order
 

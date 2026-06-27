@@ -112,6 +112,7 @@ INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
+R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
     "spark-intelligence-builder",
@@ -8082,6 +8083,50 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     }
 
 
+def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any]) -> dict[str, Any]:
+    doc_present = R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.exists()
+    builder_trace = publish_handoffs.get("builder_trace_health")
+    if not isinstance(builder_trace, dict):
+        return {
+            "ok": doc_present,
+            "decision": "builder_trace_lifecycle_clear",
+            "detail": (
+                "Builder trace lifecycle has no R30 publish handoff."
+                if doc_present
+                else "Builder trace lifecycle has no R30 publish handoff, but the R30 Builder trace decision document is missing."
+            ),
+            "doc": str(R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)),
+            "doc_present": doc_present,
+        }
+
+    unresolved = int(builder_trace.get("unresolved_high_severity_open_count") or 0)
+    current_unresolved = int(builder_trace.get("current_unresolved_high_severity_open_count") or 0)
+    flags = list(builder_trace.get("flags") or [])
+    ok = unresolved == 0 and current_unresolved == 0 and doc_present
+    decision = "builder_trace_lifecycle_owner_closure_required" if unresolved else "builder_trace_lifecycle_current_clean"
+    detail = (
+        "Builder historical trace lifecycle remains explicit for R30: current windows are clean, "
+        "but owner-approved closure evidence is required before removing the handoff."
+        if unresolved and current_unresolved == 0
+        else "Builder trace lifecycle has current unresolved high-severity evidence and must remain a publish blocker."
+        if current_unresolved
+        else "Builder trace lifecycle has no unresolved high-severity handoff."
+    )
+    return {
+        "ok": ok,
+        "decision": decision,
+        "detail": detail,
+        "doc": str(R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH.relative_to(REPO_ROOT)),
+        "doc_present": doc_present,
+        "flags": flags,
+        "high_severity_open_count": int(builder_trace.get("high_severity_open_count") or 0),
+        "unresolved_high_severity_open_count": unresolved,
+        "current_unresolved_high_severity_open_count": current_unresolved,
+        "unresolved_high_severity_source_group_count": int(builder_trace.get("unresolved_high_severity_source_group_count") or 0),
+        "latest_unresolved_high_severity_event_created_at": builder_trace.get("latest_unresolved_high_severity_event_created_at"),
+    }
+
+
 def collect_r30_handoff_manifest_status(
     release_lane_classification: dict[str, Any],
     *,
@@ -8208,6 +8253,7 @@ def collect_r30_release_gate_payload(
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
     handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
+    builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8240,6 +8286,7 @@ def collect_r30_release_gate_payload(
         "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
         "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
         "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+        "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
         "docs/R30_INSTALLER_PREP_2026-06-27.md",
         "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
         "docs/R30_GOAL_PROMPT_2026-06-27.md",
@@ -8292,6 +8339,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(voice_registry_decision.get("ok")),
             "detail": voice_registry_decision.get("detail", "R30 voice registry decision"),
             "summary": voice_registry_decision,
+        },
+        {
+            "name": "r30_builder_trace_lifecycle",
+            "ok": bool(builder_trace_lifecycle.get("ok")),
+            "detail": builder_trace_lifecycle.get("detail", "R30 Builder trace lifecycle decision"),
+            "summary": builder_trace_lifecycle,
         },
         {
             "name": "registry_pins",
@@ -8348,6 +8401,7 @@ def collect_r30_release_gate_payload(
         "publish_handoffs": publish_handoffs,
         "owner_handoff_manifest": handoff_manifest,
         "voice_registry_decision": voice_registry_decision,
+        "builder_trace_lifecycle": builder_trace_lifecycle,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,
