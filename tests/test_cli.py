@@ -14133,8 +14133,8 @@ class SparkCliTests(unittest.TestCase):
             )
             (module_env / "spawner-ui.env").write_text(level5_env, encoding="utf-8")
             (module_env / "spark-telegram-bot.env").write_text(level5_env, encoding="utf-8")
-            (module_env / "spark-telegram-bot.primary.env").write_text(level5_env, encoding="utf-8")
-            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text(level5_env, encoding="utf-8")
+            (module_env / "spark-telegram-bot.primary.env").write_text(level5_env + "BOT_TOKEN=fake-primary\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text(level5_env + "BOT_TOKEN=fake-qa\n", encoding="utf-8")
             (audit_dir / "level5.jsonl").write_text(
                 json.dumps({
                     "timestamp": "2026-06-27T10:00:00Z",

@@ -394,12 +394,14 @@ Expected before registry/installer movement: the focused tests pass, OS compile
 is green, Access 5 and voice runtime truth checks pass inside the R30 gate, and
 the R30 gate still blocks on owner-source, registry, and installer truth until
 those surfaces converge. Access 5 proof must include `missing_or_stale_services=[]`
-for all named Telegram profiles and `effective_codex_sandbox=danger-full-access`
-for the service lane. The final live access payload must also report
-`effective_access_level=5` and `service_can_operate_whole_computer=true`; do not
-accept a module-level Telegram restart, green env files alone, or a stale
-current-process sandbox as proof that SparkRecursive/SparkQA-style bot profiles
-are writable.
+for all startable or already-running Telegram profiles and
+`effective_codex_sandbox=danger-full-access` for the service lane. The final
+live access payload must also report `effective_access_level=5` and
+`service_can_operate_whole_computer=true`; do not accept a module-level Telegram
+restart, green env files alone, or a stale current-process sandbox as proof that
+SparkRecursive/SparkQA-style bot profiles are writable. Stale no-token profile
+files must remain visible as `skipped_unstartable_telegram_profiles` instead of
+silently downgrading the whole install to workspace mode.
 
 Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is carried as explicit historical release debt and is still:
 
