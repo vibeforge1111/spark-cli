@@ -653,7 +653,7 @@ def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
         return out
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
         try:
             tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
             out["table_count"] = len(tables)
