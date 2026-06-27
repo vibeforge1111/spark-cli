@@ -30,6 +30,7 @@ For the R30 installer batch, start from:
 
 - [R30 release plan](./R30_RELEASE_PLAN_2026-06-27.md)
 - [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md)
+- [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md)
 - [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
 - [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 

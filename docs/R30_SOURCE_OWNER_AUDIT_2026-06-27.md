@@ -7,6 +7,8 @@ Status: current-state audit for R30 prep; not a publication record
 
 This audit records the owner-source and registry state R30 must converge before installer pins or hosted metadata can move. It keeps local proof separate from public release truth.
 
+Concrete port/push ranges are recorded in [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md).
+
 ## Summary
 
 R30 is not ready for installer pin changes yet.
