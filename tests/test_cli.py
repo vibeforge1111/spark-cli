@@ -13244,16 +13244,25 @@ class SparkCliTests(unittest.TestCase):
             {
                 "rows": [
                     {"module": "spark-telegram-bot", "issues": ["head_differs_from_registry"]},
+                    {"module": "spawner-ui", "issues": ["head_differs_from_registry"]},
                     {"module": "spark-character", "issues": ["head_differs_from_registry"]},
                     {"module": "spark-cli", "issues": []},
                 ]
             }
         )
-        self.assertEqual(payload["direct_blocker_count"], 1)
+        self.assertEqual(payload["direct_blocker_count"], 2)
         self.assertEqual(payload["supporting_hygiene_count"], 1)
-        self.assertEqual(payload["direct_blockers"][0]["module"], "spark-telegram-bot")
-        self.assertIn("Telegram", payload["direct_blockers"][0]["next_action"])
-        self.assertIn("npm run build", payload["direct_blockers"][0]["proof_commands"])
+        blockers = {item["module"]: item for item in payload["direct_blockers"]}
+        self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("Level 5 Codex sandbox confirmation fix", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("npm run build", blockers["spark-telegram-bot"]["proof_commands"])
+        self.assertIn(
+            "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+            blockers["spark-telegram-bot"]["proof_commands"],
+        )
+        self.assertIn("PRD-lane Level 5 Codex sandbox fixes", blockers["spawner-ui"]["next_action"])
+        self.assertIn("npm run check", blockers["spawner-ui"]["proof_commands"])
+        self.assertTrue(any("high-agency-workers.test.ts" in command for command in blockers["spawner-ui"]["proof_commands"]))
         self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
         self.assertIn("publish truth", payload["supporting_hygiene"][0]["next_action"])
         self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])

@@ -158,16 +158,24 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.",
-        "proof_commands": ["npm run control:proof:reliability", "npm run build", "npm run check:line-count"],
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof and Level 5 Codex sandbox confirmation fix, then rerun Telegram gates before registry pin movement.",
+        "proof_commands": [
+            "npm run control:proof:reliability",
+            "npm run build",
+            "npm run check:line-count",
+            "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+        ],
     },
     "spark-voice-comms": {
         "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
         "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits, then rerun Spawner checks before registry pin movement.",
-        "proof_commands": ["npm run check"],
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",
+        "proof_commands": [
+            "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+            "npm run check",
+        ],
     },
 }
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
