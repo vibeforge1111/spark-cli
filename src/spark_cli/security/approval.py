@@ -583,6 +583,16 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
+    if lowered[0:3] == ["prisma", "migrate", "deploy"] or lowered[0:4] == ["npx", "prisma", "migrate", "deploy"]:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can apply database migrations to a live database.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve database migration",
+        )
     if (
         (first == "git" and second == "push")
         or (first in {"npm", "pnpm", "yarn"} and second == "publish")
