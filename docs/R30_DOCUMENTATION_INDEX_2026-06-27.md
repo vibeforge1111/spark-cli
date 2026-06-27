@@ -27,6 +27,7 @@ Current green proof:
 
 - `spark verify --r30 --json` exists as the executable R30 release gate.
 - The R30 owner handoff manifest is present and checked by `spark verify --r30 --json` for module and commit alignment.
+- Spark live status is checked by `spark verify --r30 --json`.
 - The publication-order guard is green while source truth is red because installer pins remain pre-R30.
 - Telegram reliability/control layer is clean.
 - Spark OS compile is green with `gaps=0`.

@@ -8133,6 +8133,30 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
     }
 
 
+def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, Any]:
+    modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
+    unhealthy = []
+    for module in modules:
+        if not isinstance(module, dict) or module.get("healthy") is True:
+            continue
+        unhealthy.append(
+            {
+                "name": str(module.get("name") or "unknown"),
+                "healthy": module.get("healthy"),
+                "detail": str(module.get("detail") or "")[:240],
+            }
+        )
+    ok = bool(status_payload.get("ok")) and not unhealthy
+    repair_hints = status_payload.get("repair_hints") if isinstance(status_payload.get("repair_hints"), list) else []
+    return {
+        "ok": ok,
+        "detail": "Spark live status is green." if ok else "Spark live status is not green.",
+        "summary": str(status_payload.get("summary") or ""),
+        "unhealthy_modules": unhealthy,
+        "repair_hints": [str(item) for item in repair_hints[:5]],
+    }
+
+
 def collect_r30_access_level5_codex_sandbox_status(
     compiled: dict[str, Any],
     *,
@@ -8379,6 +8403,7 @@ def collect_r30_release_gate_payload(
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
+    live_status = collect_r30_live_status_status(collect_status_payload())
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8433,6 +8458,12 @@ def collect_r30_release_gate_payload(
                 f"dirty_repo_count={dirty_repo_count}, blocked_release_count={blocked_release_count}, "
                 f"critical_duplicate_truth_count={critical_duplicate_truth_count}"
             ),
+        },
+        {
+            "name": "r30_live_status",
+            "ok": bool(live_status.get("ok")),
+            "detail": live_status.get("detail", "Spark live status proof"),
+            "summary": live_status,
         },
         {
             "name": "publish_handoffs",
@@ -8534,6 +8565,7 @@ def collect_r30_release_gate_payload(
         "voice_registry_decision": voice_registry_decision,
         "builder_trace_lifecycle": builder_trace_lifecycle,
         "access_level5_codex_sandbox": access_level5_codex_sandbox,
+        "live_status": live_status,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,

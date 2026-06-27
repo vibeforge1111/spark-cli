@@ -45,6 +45,7 @@ from spark_cli.cli import (
     collect_harness_vendor_integrity_payload,
     collect_r30_access_level5_codex_sandbox_status,
     collect_r30_builder_trace_lifecycle_status,
+    collect_r30_live_status_status,
     collect_r30_release_gate_payload,
     collect_r30_voice_registry_decision_status,
     collect_registry_pin_drift_payload,
@@ -13089,6 +13090,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-voice-comms", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
             payload = collect_r30_release_gate_payload()
@@ -13098,6 +13100,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["publish_handoffs"]["ok"])
         self.assertEqual(checks["publish_handoffs"]["families"], ["local_runtime_test_artifacts", "builder_trace_health"])
         self.assertFalse(checks["registry_pins"]["ok"])
+        self.assertTrue(checks["r30_live_status"]["ok"])
         self.assertEqual(checks["release_lane"]["classification"]["direct_blocker_count"], 0)
         self.assertEqual(checks["release_lane"]["classification"]["supporting_hygiene_count"], 1)
         self.assertTrue(checks["publication_order"]["ok"])
@@ -13140,6 +13143,7 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
              patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-27-r30", "ref": "spark-cli-public-installer-2026-06-27-r30"}}):
@@ -13150,6 +13154,22 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
         self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
         self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
+
+    def test_r30_live_status_status_reports_unhealthy_modules(self) -> None:
+        payload = collect_r30_live_status_status(
+            {
+                "ok": False,
+                "summary": "runtime attention",
+                "repair_hints": ["restart spawner"],
+                "modules": [
+                    {"name": "spawner-ui", "healthy": True, "detail": "ok"},
+                    {"name": "spark-voice-comms", "healthy": False, "detail": "ModuleNotFoundError: voice"},
+                ],
+            }
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["unhealthy_modules"][0]["name"], "spark-voice-comms")
+        self.assertIn("restart spawner", payload["repair_hints"])
 
     def test_r30_release_lane_classification_separates_direct_and_supporting_rows(self) -> None:
         payload = classify_r30_release_lane_rows(
