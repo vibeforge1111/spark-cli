@@ -18,6 +18,12 @@
       "first_local_commit_subject": "Add Telegram rich draft streaming controls",
       "last_local_commit": "729273eed1b22e1a01db9c584ad78a74920ff715",
       "last_local_commit_subject": "Fix Level 5 Codex sandbox confirmation",
+      "required_terminal_subjects": [
+        "Add Telegram rich draft streaming controls",
+        "Package Telegram control release evidence",
+        "Prove Telegram Level 5 activation path",
+        "Fix Level 5 Codex sandbox confirmation"
+      ],
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
       "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, and Level 5 Codex sandbox confirmation fix into an owner release ref before registry movement.",
       "proof_commands": [
@@ -41,6 +47,12 @@
       "first_local_commit_subject": "Carry Harness proof refs in PRD traces",
       "last_local_commit": "7110dce4030a700ad61460ab79be7eff8312f06c",
       "last_local_commit_subject": "Honor Level 5 sandbox in PRD Codex lanes",
+      "required_terminal_subjects": [
+        "Carry Harness proof refs in PRD traces",
+        "Add Spawner PRD proof continuity repair",
+        "Honor Level 5 Codex sandbox in direct client",
+        "Honor Level 5 sandbox in PRD Codex lanes"
+      ],
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
       "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client and PRD-lane Level 5 Codex sandbox fixes into the owner release lane before registry movement.",
       "proof_commands": [

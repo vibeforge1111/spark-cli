@@ -67,7 +67,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
-- `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, and exact patch inventory. This does not clear the `publish_handoffs` block; it keeps the handoff evidence explicit until owner-source and registry truth converge.
+- `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, required terminal subjects, and exact patch inventory. This does not clear the `publish_handoffs` block; it keeps the handoff evidence explicit until owner-source and registry truth converge.
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `r30_live_status`: pass, Spark live status is green
 - `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
@@ -97,6 +97,11 @@ Fresh direct-blocker proof results:
 - `spark-telegram-bot`: `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and focused access command tests passed. Live trace joined rows `4/4`; line-count gate passed with 13 baselined files and 0 growing/new over cap. Local head is `729273eed1b2`, including the `/access 5` high-agency activation proof and Level 5 Codex sandbox confirmation fix.
 - `spark-voice-comms`: `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `54 passed`; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `7110dce4030a`, including direct-client, PRD auto-dispatch, and PRD bridge Level 5 Codex sandbox fixes.
+
+Required terminal subjects preserved in the local runtime artifact manifest:
+
+- `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`
+- `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed

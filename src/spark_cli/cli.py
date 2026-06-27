@@ -178,6 +178,21 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
 }
+
+R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
+    "spark-telegram-bot": [
+        "Add Telegram rich draft streaming controls",
+        "Package Telegram control release evidence",
+        "Prove Telegram Level 5 activation path",
+        "Fix Level 5 Codex sandbox confirmation",
+    ],
+    "spawner-ui": [
+        "Carry Harness proof refs in PRD traces",
+        "Add Spawner PRD proof continuity repair",
+        "Honor Level 5 Codex sandbox in direct client",
+        "Honor Level 5 sandbox in PRD Codex lanes",
+    ],
+}
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
@@ -8649,6 +8664,10 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         proof_commands = item.get("proof_commands") if isinstance(item.get("proof_commands"), list) else []
         if not proof_commands:
             row_issues.append("missing_proof_commands")
+        required_subjects = item.get("required_terminal_subjects") if isinstance(item.get("required_terminal_subjects"), list) else []
+        for subject in R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS.get(module, []):
+            if subject not in required_subjects:
+                row_issues.append(f"missing_required_subject:{subject}")
         if not isinstance(item.get("commit_count"), int) or int(item.get("commit_count") or 0) <= 0:
             row_issues.append("missing_commit_count")
         if not isinstance(item.get("changed_file_count"), int) or int(item.get("changed_file_count") or 0) <= 0:

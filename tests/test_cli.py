@@ -14081,6 +14081,12 @@ class SparkCliTests(unittest.TestCase):
                                 "changed_file_count": 7,
                                 "first_local_commit": "e" * 40,
                                 "last_local_commit": "b" * 40,
+                                "required_terminal_subjects": [
+                                    "Add Telegram rich draft streaming controls",
+                                    "Package Telegram control release evidence",
+                                    "Prove Telegram Level 5 activation path",
+                                    "Fix Level 5 Codex sandbox confirmation",
+                                ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "local_proof": "passed",
                             },
@@ -14093,6 +14099,12 @@ class SparkCliTests(unittest.TestCase):
                                 "changed_file_count": 2,
                                 "first_local_commit": "f" * 40,
                                 "last_local_commit": "d" * 40,
+                                "required_terminal_subjects": [
+                                    "Carry Harness proof refs in PRD traces",
+                                    "Add Spawner PRD proof continuity repair",
+                                    "Honor Level 5 Codex sandbox in direct client",
+                                    "Honor Level 5 sandbox in PRD Codex lanes",
+                                ],
                                 "proof_commands": ["npm run check"],
                                 "local_proof": "passed",
                             },
@@ -14138,6 +14150,7 @@ class SparkCliTests(unittest.TestCase):
                                 "changed_file_count": 0,
                                 "first_local_commit": "",
                                 "last_local_commit": "wrong",
+                                "required_terminal_subjects": [],
                                 "proof_commands": [],
                                 "local_proof": "passed",
                             }
@@ -14157,6 +14170,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("expected_registry_commit_mismatch", payload["mismatches"][0]["issues"])
         self.assertIn("missing_proof_commands", payload["mismatches"][0]["issues"])
+        self.assertTrue(any(issue.startswith("missing_required_subject:") for issue in payload["mismatches"][0]["issues"]))
         self.assertIn("missing_commit_count", payload["mismatches"][0]["issues"])
         self.assertIn("missing_changed_file_count", payload["mismatches"][0]["issues"])
         self.assertIn("missing_first_local_commit", payload["mismatches"][0]["issues"])
@@ -14294,6 +14308,12 @@ class SparkCliTests(unittest.TestCase):
                         "changed_file_count": 2,
                         "first_local_commit": first,
                         "last_local_commit": head,
+                        "required_terminal_subjects": [
+                            "Add Telegram rich draft streaming controls",
+                            "Package Telegram control release evidence",
+                            "Prove Telegram Level 5 activation path",
+                            "Fix Level 5 Codex sandbox confirmation",
+                        ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "local_proof": "passed",
                     }
