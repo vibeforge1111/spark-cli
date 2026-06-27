@@ -16146,7 +16146,8 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
         scope = linux_autostart_scope()
         service_path = linux_autostart_path(scope)
         service_path.parent.mkdir(parents=True, exist_ok=True)
-        service_path.write_text(
+        _service_tmp = service_path.with_suffix(service_path.suffix + ".tmp")
+        _service_tmp.write_text(
             render_systemd_autostart_unit(
                 target=target,
                 start_command=start_command,
@@ -16154,6 +16155,7 @@ def cmd_autostart_install(args: argparse.Namespace) -> int:
             ),
             encoding="utf-8",
         )
+        _service_tmp.replace(service_path)
         print(f"Installed Spark autostart service ({scope}): {service_path}")
         if scope == "user":
             xdg_path = linux_xdg_autostart_path()
