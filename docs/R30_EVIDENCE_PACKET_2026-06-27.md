@@ -162,6 +162,7 @@ Additional CLI R30 gate hardening at `2026-06-28T02:11Z`:
 Additional Telegram runtime-env hardening at `2026-06-27T23:05:41Z`:
 
 - Telegram local commit `464cce4` (`Harden Telegram Level 5 runtime env`) added a shared effective Level 5 env resolver for Telegram. If a Telegram process is still carrying stale `SPARK_CODEX_SANDBOX=read-only` but the persisted Telegram Level 5 env files carry the full guardrail bundle, Spark CLI checks, access setup/restart helpers, and local LLM/provider subprocesses inherit `SPARK_CODEX_SANDBOX=danger-full-access`.
+- Spark CLI local commits `30e9b6f` and `11bea74` now make that anti-read-only contract executable in the R30 Access 5 gate, including Telegram effective runtime-env proof and Recursive bridge subprocess env-inheritance proof.
 - New regression: a stale read-only Telegram process env plus complete persisted Level 5 guardrails must promote to effective `danger-full-access`; a partial persisted bundle must not promote.
 - Telegram `npm test -- --run tests/level5RuntimeEnv.test.ts tests/accessPolicy.test.ts tests/accessActions.test.ts tests/runnerPreflight.test.ts tests/buildE2E.test.ts`: passed.
 - Telegram `npm run build`: passed.
