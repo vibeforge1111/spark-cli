@@ -111,6 +111,7 @@ GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
+R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
     "spark-intelligence-builder",
@@ -8043,6 +8044,44 @@ def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, An
     }
 
 
+def collect_r30_voice_registry_decision_status(release_lane_classification: dict[str, Any]) -> dict[str, Any]:
+    voice_rows = [
+        row
+        for row in release_lane_classification.get("direct_blockers", [])
+        if isinstance(row, dict) and row.get("module") == "spark-voice-comms"
+    ]
+    decision_doc_exists = R30_VOICE_REGISTRY_DECISION_PATH.exists()
+    if not voice_rows:
+        return {
+            "ok": decision_doc_exists,
+            "decision": "voice_registry_converged",
+            "detail": (
+                "Voice registry truth has no R30 release-lane blocker."
+                if decision_doc_exists
+                else "Voice registry truth has no R30 release-lane blocker, but the R30 voice decision document is missing."
+            ),
+            "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
+        }
+
+    row = voice_rows[0]
+    return {
+        "ok": False,
+        "decision": "owner_source_required_before_registry_pin",
+        "detail": (
+            "spark-voice-comms remains blocked for R30: port/tag the local trace/governor commits "
+            "or equivalent owner-source proof before updating registry or installer truth."
+        ),
+        "doc": str(R30_VOICE_REGISTRY_DECISION_PATH.relative_to(REPO_ROOT)),
+        "doc_present": decision_doc_exists,
+        "expected_registry_commit": row.get("expected_commit"),
+        "local_head": row.get("actual_commit"),
+        "installed_registry_commit": row.get("installed_registry_commit"),
+        "issues": list(row.get("issues") or []),
+        "next_action": row.get("next_action"),
+        "proof_commands": list(row.get("proof_commands") or []),
+    }
+
+
 def collect_r30_handoff_manifest_status(
     release_lane_classification: dict[str, Any],
     *,
@@ -8168,6 +8207,7 @@ def collect_r30_release_gate_payload(
     )
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
     handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
+    voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8199,6 +8239,7 @@ def collect_r30_release_gate_payload(
         "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
         "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
         "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+        "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
         "docs/R30_INSTALLER_PREP_2026-06-27.md",
         "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
         "docs/R30_GOAL_PROMPT_2026-06-27.md",
@@ -8245,6 +8286,12 @@ def collect_r30_release_gate_payload(
             ),
             "summary": release_lane,
             "classification": release_lane_classification,
+        },
+        {
+            "name": "r30_voice_registry_decision",
+            "ok": bool(voice_registry_decision.get("ok")),
+            "detail": voice_registry_decision.get("detail", "R30 voice registry decision"),
+            "summary": voice_registry_decision,
         },
         {
             "name": "registry_pins",
@@ -8300,6 +8347,7 @@ def collect_r30_release_gate_payload(
         },
         "publish_handoffs": publish_handoffs,
         "owner_handoff_manifest": handoff_manifest,
+        "voice_registry_decision": voice_registry_decision,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,

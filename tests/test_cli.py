@@ -44,6 +44,7 @@ from spark_cli.cli import (
     collect_drift_sentinel_payload,
     collect_harness_vendor_integrity_payload,
     collect_r30_release_gate_payload,
+    collect_r30_voice_registry_decision_status,
     collect_registry_pin_drift_payload,
     collect_r30_handoff_manifest_status,
     collect_sandbox_verify_payload,
@@ -13140,6 +13141,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
         self.assertIn("publish truth", payload["supporting_hygiene"][0]["next_action"])
         self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])
+
+    def test_r30_voice_registry_decision_blocks_until_owner_source_converges(self) -> None:
+        payload = collect_r30_voice_registry_decision_status(
+            {
+                "direct_blockers": [
+                    {
+                        "module": "spark-voice-comms",
+                        "issues": ["head_differs_from_registry", "installed_metadata_differs_from_registry"],
+                        "expected_commit": "a" * 40,
+                        "actual_commit": "b" * 40,
+                        "installed_registry_commit": "c" * 40,
+                        "next_action": "port voice commits",
+                        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q"],
+                    }
+                ]
+            }
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["decision"], "owner_source_required_before_registry_pin")
+        self.assertEqual(payload["expected_registry_commit"], "a" * 40)
+        self.assertEqual(payload["local_head"], "b" * 40)
+        self.assertIn("trace/governor commits", payload["detail"])
+        self.assertIn("PYTHONPATH=src python3 -m pytest -q", payload["proof_commands"])
+
+    def test_r30_voice_registry_decision_passes_when_voice_has_no_release_lane_blocker(self) -> None:
+        payload = collect_r30_voice_registry_decision_status({"direct_blockers": []})
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["decision"], "voice_registry_converged")
 
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {
