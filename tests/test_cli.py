@@ -14294,6 +14294,7 @@ class SparkCliTests(unittest.TestCase):
             "r30_unattended_identity_guard\n"
             "requires_confirmation_for_actions=true\n"
             "source_truth_blockers\n"
+            "Surface effective Level 5 sandbox in Telegram\n"
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -14328,6 +14329,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_cli_handoff_clause:unattended_identity_guard", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:voice_action_confirmation_truth", payload["issues"])
         self.assertIn("missing_cli_handoff_clause:publication_source_blockers", payload["issues"])
+        self.assertIn("missing_cli_handoff_clause:telegram_effective_sandbox_surface_proof", payload["issues"])
 
     def test_r30_unattended_identity_guard_status_passes_on_guarded_refusal(self) -> None:
         def run_setup(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:

@@ -54,7 +54,7 @@ Direct R30 blockers:
 
 - `domain-chip-memory`: review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.
 - `spark-intelligence-builder`: review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.
-- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof and Level 5 Codex sandbox confirmation fix, then rerun Telegram gates before registry pin movement.
+- `spark-telegram-bot`: port or push the Telegram reliability ladder/release-packet stack plus the `/access 5` activation proof, Level 5 Codex sandbox confirmation fix, and effective sandbox Telegram surface proof, then rerun Telegram gates before registry pin movement.
 - `spark-voice-comms`: port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.
 - `spawner-ui`: port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.
 
