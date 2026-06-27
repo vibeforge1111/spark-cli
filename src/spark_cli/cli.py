@@ -11743,7 +11743,9 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
-    path.write_text(content, encoding="utf-8")
+    _tmp = path.with_suffix(path.suffix + ".tmp")
+    _tmp.write_text(content, encoding="utf-8")
+    _tmp.replace(path)
     try:
         os.chmod(path, PRIVATE_FILE_MODE)
     except OSError:
