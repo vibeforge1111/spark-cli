@@ -56,7 +56,7 @@ R30 voice path:
 2. Cut or select a stable release ref containing those commits.
 3. Update `registry.json` to that stable ref and commit.
 4. Update installed-state registry truth through the normal install/update path, not by hand-editing local state.
-5. Rerun `spark os compile --json` and require `voice_surface_mode=duplex`, `voice_surface_blockers=0`, and `critical_duplicate_truth_count=0`.
+5. Rerun `spark os compile --json` and require source hooks to remain duplex, runtime blockers to be explicit, and `critical_duplicate_truth_count=0`. Current runtime truth is `voice_surface_mode=egress`, `voice_surface_blockers=1` because transcription is not ready.
 
 ## Builder Trace Lifecycle
 

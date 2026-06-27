@@ -52,9 +52,9 @@ Required result before installer movement:
 
 - `spark-voice-comms` has no registry pin drift
 - installed metadata matches registry truth
-- `voice_surface_mode=duplex`
-- `voice_surface_blockers=0`
+- `voice_surface_mode=egress`
+- `voice_surface_blockers=1`
+- `voice_surface_blocker`: voice transcription is not ready
 - voice remains action-confirmation-bound
 - R30 installer pins still remain unchanged until the full source/registry lane
   is green
-

@@ -18,7 +18,7 @@ R30 is ready only when a fresh user install can prove the same core claims that 
 - Trace joins connect user intent, route decision, action or no-action evidence, and reply.
 - Capability evidence includes last-success and last-boundary or failure proof.
 - Surface evals keep Spark replies human instead of rigid.
-- Voice is represented truthfully as duplex and blocker-free, but action-confirmation-bound.
+- Voice is represented truthfully: source hooks are duplex, current runtime mode is egress because transcription is not ready, and action paths remain confirmation-bound.
 - Access level 5 launches Codex workers with explicit `danger-full-access` sandboxing when Level 5 guardrails are active, including direct provider, PRD auto-dispatch, PRD bridge, and Telegram `/access 5` activation paths.
 - Installer, registry, installed runtime, hosted metadata, and docs agree.
 

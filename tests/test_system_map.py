@@ -774,6 +774,63 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("spark-voice-comms repo not discovered", view["blockers"])
         self.assertEqual(view["source_capability"]["source_mode"], "duplex")
 
+    def test_voice_surface_marks_missing_transcription_runtime_as_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spark_home = root / ".spark"
+            voice = root / "spark-voice-comms"
+            builder = root / "spark-intelligence-builder"
+            telegram = root / "spark-telegram-bot"
+            (spark_home / "state" / "spark-voice-comms").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip").mkdir(parents=True)
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram").mkdir(parents=True)
+            (telegram / "src").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip" / "spark_hook.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
+            (spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.voice_runtime_state.v1",
+                        "stt": {"ready": False, "provider_kind": "local"},
+                        "tts": {"ready": True, "mode": "local", "voice_name": "spark_core"},
+                        "telegram_delivery": {"ready": True},
+                        "claim_levels": {
+                            "configured": True,
+                            "synthesis_ready": True,
+                            "delivery_ready": True,
+                            "conversation_ready": False,
+                        },
+                        "source_ledger": ["voice.status", "voice.speak"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            view = build_voice_surface_view(
+                {
+                    "source_roots": {"spark_home": str(spark_home)},
+                    "installed_modules": {"spark-voice-comms": {"path": str(voice)}},
+                    "discovered_repos": [
+                        {"name": "spark-voice-comms", "path": str(voice)},
+                        {"name": "spark-intelligence-builder", "path": str(builder)},
+                        {"name": "spark-telegram-bot", "path": str(telegram)},
+                    ],
+                }
+            )
+
+        self.assertEqual(view["source_capability"]["source_mode"], "duplex")
+        self.assertEqual(view["mode"], "egress")
+        self.assertFalse(view["provider"]["stt_ready"])
+        self.assertTrue(view["provider"]["tts_ready"])
+        self.assertIn("voice transcription is not ready", view["blockers"])
+
     def test_parse_branch_status_handles_unborn_branch(self) -> None:
         parsed = parse_branch_status("## No commits yet on master")
 

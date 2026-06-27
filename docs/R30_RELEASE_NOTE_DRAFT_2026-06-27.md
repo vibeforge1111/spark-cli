@@ -17,7 +17,7 @@ Telegram conversation work already proven in the running Spark stack.
 - Trace joins from user intent to route decision, action or no-action evidence, and reply.
 - Capability evidence with last-success and last-boundary or failure proof.
 - Spark replies that stay readable and human, not rigid status templates.
-- Voice represented truthfully as duplex and blocker-free, while action paths remain confirmation-bound.
+- Voice represented truthfully: duplex source hooks are visible, current runtime mode is egress until transcription is ready, and action paths remain confirmation-bound.
 - Installer, registry, runtime, hosted metadata, and docs aligned to one release truth.
 
 ## What R30 Should Not Claim Yet

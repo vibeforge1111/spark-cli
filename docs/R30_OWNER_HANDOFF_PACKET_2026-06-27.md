@@ -238,8 +238,9 @@ spark os compile --json
 
 Expected Spark OS voice result after install/update:
 
-- `voice_surface_mode=duplex`
-- `voice_surface_blockers=0`
+- `voice_surface_mode=egress`
+- `voice_surface_blockers=1`
+- `voice_surface_blocker`: voice transcription is not ready
 - `can_trigger_actions=false`
 - `requires_confirmation_for_actions=true`
 

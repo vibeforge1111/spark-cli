@@ -5724,6 +5724,8 @@ def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
         blockers.append("voice ingress/egress source hooks are not detected")
     if available and installed and not runtime_state_export_present:
         blockers.append("voice provider/profile runtime status is not exported to Spark OS state")
+    if runtime_state_export_present and ingress_source_present and not stt_ready:
+        blockers.append("voice transcription is not ready")
     if runtime_state_export_present and runtime_claims.get("synthesis_ready") is not True:
         blockers.append("voice synthesis is not ready")
     if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:

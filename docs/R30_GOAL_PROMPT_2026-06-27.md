@@ -8,7 +8,7 @@ Use this prompt in a writable Codex lane when starting the R30 release-prep impl
 Current baseline:
 - Telegram control/reliability layer is clean.
 - `spark os compile --json` is green locally: ok=true, gaps=0, dirty_repo_count=0, blocked_release_count=0.
-- Voice compiles as duplex with blockers=0, but actions still require confirmation.
+- Voice source hooks compile as duplex, but current runtime truth is egress with an explicit transcription blocker; actions still require confirmation.
 - Local installer manifest/scripts and hosted `agent.sparkswarm.ai` agree on the public R29 baseline; R30 pins are not published yet.
 - Remaining handoffs: Telegram and Spawner are local runtime test artifacts; Builder has one historical high-severity lifecycle family; `spark-voice-comms` registry pin needs a stable truth decision.
 

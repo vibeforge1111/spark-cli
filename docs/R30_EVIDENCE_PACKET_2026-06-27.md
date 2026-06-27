@@ -19,7 +19,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, registry pin drift, and pre-R30 installer pins. |
-| `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=duplex`, `voice_surface_blockers=0`. |
+| `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, `voice_surface_blockers=1` because transcription is not ready. |
 | `spark live status --json` | PASS | `ok=true`; primary Telegram and QA Telegram profiles running; Spawner UI healthy; voice importable; no repair hints. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json` | PASS | `ok=true`; commit pins and attestation metadata present; signed commit enforcement remains report-only. |
@@ -42,8 +42,9 @@ Important fields:
 - `blocked_release_count=0`
 - `duplicate_truth_count=2`
 - `critical_duplicate_truth_count=0`
-- `voice_surface_mode=duplex`
-- `voice_surface_blockers=0`
+- `voice_surface_mode=egress`
+- `voice_surface_blockers=1`
+- `voice_surface_blocker`: voice transcription is not ready
 
 Publish handoff families:
 
