@@ -47,6 +47,7 @@ from spark_cli.cli import (
     collect_r30_builder_trace_lifecycle_status,
     collect_r30_live_status_status,
     collect_r30_local_runtime_artifacts_handoff_status,
+    collect_r30_local_runtime_handoff_docs_status,
     collect_r30_release_gate_payload,
     collect_r30_voice_registry_decision_status,
     collect_r30_voice_runtime_truth_status,
@@ -13771,6 +13772,92 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_changed_file_count", payload["mismatches"][0]["issues"])
         self.assertIn("missing_first_local_commit", payload["mismatches"][0]["issues"])
         self.assertIn("missing_last_local_commit", payload["mismatches"][0]["issues"])
+
+    def test_r30_local_runtime_handoff_docs_match_structured_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            manifest_path = root / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "local_head": "b" * 40,
+                                "local_range": f"{'a' * 40}..{'b' * 40}",
+                                "commit_count": 12,
+                            },
+                            {
+                                "module": "spawner-ui",
+                                "local_head": "d" * 40,
+                                "local_range": f"{'c' * 40}..{'d' * 40}",
+                                "commit_count": 3,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            docs = [root / name for name in ("plan.md", "audit.md", "packet.md", "evidence.md")]
+            for doc in docs:
+                doc.write_text(
+                    "\n".join(
+                        [
+                            "spark-telegram-bot bbbbbbbbbbbb",
+                            "spawner-ui dddddddddddd",
+                            f"{'a' * 40}..{'b' * 40}",
+                            f"{'c' * 40}..{'d' * 40}",
+                            "12",
+                            "3",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            payload = collect_r30_local_runtime_handoff_docs_status(
+                manifest_path=manifest_path,
+                docs=docs,
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issues"], [])
+
+    def test_r30_local_runtime_handoff_docs_reject_stale_heads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            manifest_path = root / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "artifacts": [
+                            {
+                                "module": "spark-telegram-bot",
+                                "local_head": "b" * 40,
+                                "local_range": f"{'a' * 40}..{'b' * 40}",
+                                "commit_count": 12,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stale = root / "evidence.md"
+            fresh = root / "fresh.md"
+            fresh.write_text(
+                f"spark-telegram-bot bbbbbbbbbbbb {'a' * 40}..{'b' * 40} 12",
+                encoding="utf-8",
+            )
+            stale.write_text("spark-telegram-bot fa4c8884bb83", encoding="utf-8")
+
+            payload = collect_r30_local_runtime_handoff_docs_status(
+                manifest_path=manifest_path,
+                docs=[fresh, stale],
+            )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("missing_artifact_head", " ".join(payload["issues"]))
 
     def test_r30_local_runtime_artifacts_handoff_validates_git_range_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

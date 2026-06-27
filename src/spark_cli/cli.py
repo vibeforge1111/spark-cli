@@ -110,6 +110,7 @@ AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_RELEASE_PLAN_PATH = REPO_ROOT / "docs" / "R30_RELEASE_PLAN_2026-06-27.md"
 R30_SOURCE_OWNER_AUDIT_PATH = REPO_ROOT / "docs" / "R30_SOURCE_OWNER_AUDIT_2026-06-27.md"
 R30_OWNER_HANDOFF_PACKET_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
 R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
@@ -8651,6 +8652,77 @@ def collect_r30_cli_owner_handoff_docs_status(release_lane: dict[str, Any]) -> d
     }
 
 
+def collect_r30_local_runtime_handoff_docs_status(
+    *,
+    manifest_path: Path | None = None,
+    docs: list[Path] | None = None,
+) -> dict[str, Any]:
+    manifest_ref = manifest_path or R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH
+    manifest = load_json(manifest_ref, {})
+    doc_paths = docs or [
+        R30_RELEASE_PLAN_PATH,
+        R30_SOURCE_OWNER_AUDIT_PATH,
+        R30_OWNER_HANDOFF_PACKET_PATH,
+        R30_EVIDENCE_PACKET_PATH,
+    ]
+    artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else []
+    artifacts = artifacts if isinstance(artifacts, list) else []
+    issues: list[str] = []
+    doc_refs: list[str] = []
+    if not artifacts:
+        issues.append("missing_local_runtime_artifact_manifest_rows")
+
+    doc_texts: dict[str, str] = {}
+    for path in doc_paths:
+        ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
+        doc_refs.append(ref)
+        try:
+            doc_texts[ref] = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            issues.append(f"missing_doc:{ref}")
+
+    packet_ref = str(
+        R30_OWNER_HANDOFF_PACKET_PATH.relative_to(REPO_ROOT)
+        if R30_OWNER_HANDOFF_PACKET_PATH.is_relative_to(REPO_ROOT)
+        else R30_OWNER_HANDOFF_PACKET_PATH
+    )
+    for item in artifacts:
+        if not isinstance(item, dict):
+            issues.append("invalid_artifact_row")
+            continue
+        module = str(item.get("module") or "")
+        local_head = str(item.get("local_head") or "")
+        local_range = str(item.get("local_range") or "")
+        commit_count = item.get("commit_count")
+        if not module or not GIT_COMMIT_SHA_PATTERN.match(local_head):
+            issues.append(f"invalid_artifact_head:{module or '<missing>'}")
+            continue
+        short_head = local_head[:12]
+        for ref, text in doc_texts.items():
+            if module not in text:
+                issues.append(f"missing_artifact_module:{ref}:{module}")
+            if local_head not in text and short_head not in text:
+                issues.append(f"missing_artifact_head:{ref}:{module}")
+        packet_text = doc_texts.get(packet_ref) or "\n".join(doc_texts.values())
+        if packet_text:
+            if local_range and local_range not in packet_text:
+                issues.append(f"missing_artifact_range:{packet_ref}:{module}")
+            if isinstance(commit_count, int) and str(commit_count) not in packet_text:
+                issues.append(f"missing_artifact_commit_count:{packet_ref}:{module}")
+
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 local runtime handoff docs match structured artifact heads and ranges."
+            if not issues
+            else f"R30 local runtime handoff docs are stale: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "docs": doc_refs,
+        "artifacts": [str(item.get("module") or "") for item in artifacts if isinstance(item, dict)],
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -8685,6 +8757,7 @@ def collect_r30_release_gate_payload(
         publish_handoffs,
     )
     cli_owner_handoff_docs = collect_r30_cli_owner_handoff_docs_status(release_lane)
+    local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(compiled, release_lane=release_lane)
@@ -8781,6 +8854,12 @@ def collect_r30_release_gate_payload(
             "summary": cli_owner_handoff_docs,
         },
         {
+            "name": "r30_local_runtime_handoff_docs",
+            "ok": bool(local_runtime_handoff_docs.get("ok")),
+            "detail": local_runtime_handoff_docs.get("detail", "R30 local runtime handoff docs"),
+            "summary": local_runtime_handoff_docs,
+        },
+        {
             "name": "release_lane",
             "ok": bool(release_lane.get("ok")),
             "detail": (
@@ -8872,6 +8951,7 @@ def collect_r30_release_gate_payload(
         "owner_handoff_manifest": handoff_manifest,
         "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
         "cli_owner_handoff_docs": cli_owner_handoff_docs,
+        "local_runtime_handoff_docs": local_runtime_handoff_docs,
         "voice_registry_decision": voice_registry_decision,
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
