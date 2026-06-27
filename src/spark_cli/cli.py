@@ -3527,6 +3527,12 @@ def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, 
     return write_boundary_env(env)
 
 
+def module_healthcheck_env(module: Module, profile: str | None = None) -> dict[str, str]:
+    env = module_runtime_env(module, profile)
+    prepend_pythonpath(env, [module.path / "src"])
+    return env
+
+
 LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "openrouter": {
         "api_key_secret": "llm.openrouter.api_key",
@@ -5540,7 +5546,7 @@ def module_healthcheck_profile(module: Module, setup_state: dict[str, Any]) -> s
 
 def evaluate_module_health(module: Module) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {}) if module.name == "spark-telegram-bot" else {}
-    runtime_env = module_runtime_env(module, module_healthcheck_profile(module, setup_state))
+    runtime_env = module_healthcheck_env(module, module_healthcheck_profile(module, setup_state))
     if module.name == "spawner-ui" and spawner_should_use_liveness_endpoint(runtime_env):
         if not spawner_liveness_can_trust_local_port(runtime_env):
             return {

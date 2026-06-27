@@ -8996,6 +8996,32 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Telegram ingress is external", result["detail"])
         run_runtime.assert_not_called()
 
+    def test_module_healthcheck_adds_source_layout_pythonpath(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            module_path = Path(tmp_dir)
+            (module_path / "src" / "sample_pkg").mkdir(parents=True)
+            module = Module(
+                name="sample-python-module",
+                path=module_path,
+                manifest={
+                    "module": {"name": "sample-python-module", "version": "0.1.0", "kind": "runtime", "plane": "test"},
+                    "healthcheck": {"command": "python -m sample_pkg.health"},
+                },
+            )
+
+            def fake_run(_command: str, _cwd: Path, *, env: dict[str, str] | None = None, timeout: int | None = None):
+                self.assertIsNotNone(env)
+                paths = str(env.get("PYTHONPATH", "")).split(os.pathsep)
+                self.assertIn(str(module_path / "src"), paths)
+                self.assertEqual(timeout, 10)
+                return subprocess.CompletedProcess(["python"], 0, stdout="sample ok", stderr="")
+
+            with patch("spark_cli.cli.run_runtime_command", side_effect=fake_run):
+                result = evaluate_module_health(module)
+
+            self.assertTrue(result["healthy"])
+            self.assertEqual(result["detail"], "sample ok")
+
     def test_direct_node_package_script_argv_resolves_ts_node_without_cmd_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
