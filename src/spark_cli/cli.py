@@ -868,7 +868,7 @@ def update_module_source(module: Module, *, allow_rollback: bool = False) -> tup
             git_command("-C", str(module.path), "verify-commit", pinned_commit),
             capture_output=True,
             text=True,
-        )
+        , timeout=300)
         if verify.returncode != 0:
             return False, summarize_command_output(verify)
 
