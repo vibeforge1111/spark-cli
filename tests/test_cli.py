@@ -13190,6 +13190,56 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
         self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
 
+    def test_r30_publication_order_names_voice_and_builder_decision_blocks(self) -> None:
+        compiled = {
+            "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-character": {
+                    "path": "/tmp/spark-character",
+                    "registry_commit": "a" * 40,
+                }
+            },
+            "voice_surface_view": {
+                "mode": "egress",
+                "blockers": ["voice transcription is not ready"],
+                "source_capability": {"source_mode": "duplex"},
+            },
+        }
+        summary = {
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "blocked_release_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+            "publish_handoffs": {"family_count": 0, "families": []},
+        }
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", return_value={
+                 "available": True,
+                 "dirty_tracked_count": 0,
+                 "untracked_count": 0,
+                 "head_commit": "a" * 40,
+             }), \
+             patch("spark_cli.cli.collect_r30_handoff_manifest_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_artifacts_handoff_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
+             patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": True, "summary": "pins ok", "checks": []}), \
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
+            payload = collect_r30_release_gate_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertTrue(checks["publication_order"]["ok"])
+        self.assertFalse(checks["publication_order"]["source_truth_ready"])
+        self.assertEqual(
+            checks["publication_order"]["source_truth_blockers"],
+            ["r30_voice_registry_decision", "r30_builder_trace_lifecycle"],
+        )
+
     def test_r30_live_status_status_reports_unhealthy_modules(self) -> None:
         payload = collect_r30_live_status_status(
             {

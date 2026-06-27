@@ -9053,6 +9053,8 @@ def collect_r30_release_gate_payload(
         and bool(handoff_manifest.get("ok"))
         and bool(local_runtime_artifacts_handoff.get("ok"))
         and bool(release_lane.get("ok"))
+        and bool(voice_registry_decision.get("ok"))
+        and bool(builder_trace_lifecycle.get("ok"))
         and bool(registry_pins.get("ok"))
     )
     source_truth_blockers: list[str] = []
@@ -9064,6 +9066,10 @@ def collect_r30_release_gate_payload(
         source_truth_blockers.append("local_runtime_artifacts_handoff")
     if not bool(release_lane.get("ok")):
         source_truth_blockers.append("release_lane")
+    if not bool(voice_registry_decision.get("ok")):
+        source_truth_blockers.append("r30_voice_registry_decision")
+    if not bool(builder_trace_lifecycle.get("ok")):
+        source_truth_blockers.append("r30_builder_trace_lifecycle")
     if not bool(registry_pins.get("ok")):
         source_truth_blockers.append("registry_pins")
     publication_order_ok = (source_truth_ready and installer_pins_are_r30) or (
