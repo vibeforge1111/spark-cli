@@ -16727,7 +16727,9 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
     readme = target_dir / "README.md"
     gitignore = target_dir / ".gitignore"
 
-    spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
+    _toml_tmp = spark_toml.with_suffix(spark_toml.suffix + ".tmp")
+    _toml_tmp.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
+    _toml_tmp.replace(spark_toml)
     healthcheck_command = "python -c \"print('ok')\"" if kind == "python" else "node -e \"console.log('ok')\""
     readme.write_text(
         INIT_README_TEMPLATE.format(
