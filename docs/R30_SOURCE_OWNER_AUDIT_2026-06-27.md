@@ -25,7 +25,7 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 
 | Area | Local installed/source head | Owner remote / release truth | Registry or installer truth | R30 action |
 | --- | --- | --- | --- | --- |
-| `spark-cli` | `35a2eb991491` on `harness-discipline-ruleset` | remote R29 tag `7751ef43581c`; remote `master` `a6738be7a97a` | local installer manifest/scripts still R28 | Keep R30 docs and voice discovery fix local until source release/tag is authorized. |
+| `spark-cli` | local R30 prep branch on `harness-discipline-ruleset` | remote R29 tag `7751ef43581c`; remote `master` `a6738be7a97a` | local installer manifest/scripts now match R29 | Keep R30 docs and voice discovery fix local until source release/tag is authorized. |
 | `spark-telegram-bot` | `64408560dcf2` on `harness-discipline-line-count-gate` | no matching owner branch found; remote `main` `67ad9e6ed297`; tag `spark-ship-2026-06-22` `e5a1bd040986` | registry pin `e5a1bd040986`; classified `local_runtime_test_artifact` | Push/port `64408560dcf2` or an equivalent owner release commit before changing registry. |
 | `spawner-ui` | `0a892f0bcdaf` on `release/stability-2026-06-02-spawner-authority` | owner branch `fdb8fded4744`; remote `main` `451d009aad84`; tag `spark-ship-2026-06-22` `19b7d0bff144` | registry pin `19b7d0bff144`; classified `local_runtime_test_artifact` | Push/port the local merge/fix stack before changing registry. |
 | `spark-voice-comms` | `7555a363d763` on `codex/turnintent-voice-policy-20260531`; ahead 2 of owner branch | owner branch `12bddc9bd0bd`; remote `main` and tag `spark-ship-2026-06-26` `c74490d68ece` | registry pin `21a9467e9bd4`; installed state still records `0d6e366fd04d` | Do not pin R30 voice to `c74490d` if R30 claims current voice trace proof. Port/tag local trace/governor commits first, then update registry and installed state truth together. |
@@ -85,5 +85,5 @@ R30 must not hide this family. Either add source-owned lifecycle closure evidenc
 1. Prepare owner-source handoff branches or PRs for Telegram, Spawner, voice, memory, and Builder.
 2. For voice, prefer a new stable release ref that contains `8a246af` and `7555a36` or equivalent source-owned commits.
 3. Keep registry pins unchanged until owner-source proof exists remotely.
-4. Keep installer manifest/scripts on R28 locally until source and registry convergence are green.
+4. Keep installer manifest/scripts on R29 locally until source and registry convergence are green for R30.
 5. Re-run the full R30 gate after owner-source movement.

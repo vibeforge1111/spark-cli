@@ -13075,7 +13075,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
         self.assertFalse(checks["publication_order"]["installer_pins_are_r30"])
         self.assertFalse(checks["r30_installer_pins"]["ok"])
-        self.assertIn("spark-cli-public-installer-2026-06-22-r28", checks["r30_installer_pins"]["detail"])
+        self.assertIn("spark-cli-public-installer-2026-06-26-r29", checks["r30_installer_pins"]["detail"])
 
     def test_r30_release_gate_blocks_premature_r30_installer_pins(self) -> None:
         compiled = {

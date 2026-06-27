@@ -28,7 +28,7 @@ Current green proof:
 - The publication-order guard is green while source truth is red because installer pins remain pre-R30.
 - Telegram reliability/control layer is clean.
 - Spark OS compile is green with `gaps=0`.
-- Local installer integrity is green for the current R28 manifest.
+- Local and hosted installer integrity are green for the current R29 manifest.
 - R30 unattended identity setup smoke fails closed before writes.
 
 Current blockers:
@@ -37,7 +37,7 @@ Current blockers:
 - `spark verify --r30 --json` reports `10` release-lane registry/runtime issue rows: `5` direct R30 blockers and `5` supporting hygiene rows.
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder has one historical high-severity lifecycle family that must remain visible or be closed with owner evidence.
-- Hosted `agent.sparkswarm.ai` is self-consistent R29 while local installer files are R28; R30 is not hosted.
+- Hosted `agent.sparkswarm.ai` and local installer files now agree on R29; R30 is not hosted.
 
 ## Release Rule
 

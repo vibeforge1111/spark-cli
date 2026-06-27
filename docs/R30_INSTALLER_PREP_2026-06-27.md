@@ -5,8 +5,8 @@ Status: installer preparation checklist, not a publication record
 
 ## Current Installer State
 
-- Local `scripts/installer-manifest.json` points at `spark-cli-public-installer-2026-06-22-r28`.
-- Local `scripts/install.sh` and `scripts/install.ps1` also pin R28.
+- Local `scripts/installer-manifest.json` points at `spark-cli-public-installer-2026-06-26-r29`.
+- Local `scripts/install.sh` and `scripts/install.ps1` also pin R29.
 - Hosted `agent.sparkswarm.ai` currently reports self-consistent `spark-cli-public-installer-2026-06-26-r29`.
 - R30 must not be claimed until the local source release, installer manifest, hosted installer bytes, hosted checksums, `/install/commands.json`, and `/install/release-manifest.json` all agree.
 

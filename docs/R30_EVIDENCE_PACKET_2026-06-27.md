@@ -18,17 +18,17 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, local installer integrity. Blocking checks: publish handoffs, release-lane registry/runtime issues, registry pin drift, and R28 installer pins. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, registry pin drift, and pre-R30 installer pins. |
 | `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=duplex`, `voice_surface_blockers=0`. |
 | `spark live status --json` | PASS | `ok=true`; primary Telegram and QA Telegram profiles running; Spawner UI healthy; voice importable; no repair hints. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json` | PASS | `ok=true`; commit pins and attestation metadata present; signed commit enforcement remains report-only. |
-| `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json` | PASS | Local installer manifest/scripts are internally consistent for R28. This does not claim R30 readiness. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json` | PASS | Local installer manifest/scripts are internally consistent for R29. This does not claim R30 readiness. |
 | Telegram `npm run control:proof:reliability` | PASS | Fresh-strict audit clean for actionable/latest gaps; live trace clean; render firewall, capsules, evals, legacy prompt surface, capability evidence, and surface eval all clean. |
 | Telegram `npm run build` | PASS | TypeScript compile passed. |
 | Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 0 growing, 0 new over cap. |
 | R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
-| `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | FAIL as expected from local R28 | Hosted installer is self-consistent R29 while local committed manifest is R28. Hosted script bytes match hosted checksum metadata; hosted command metadata matches hosted installer hashes. The failure is release-truth mismatch against this checkout, not checksum drift. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | PASS | Hosted `agent.sparkswarm.ai` and local committed installer truth agree on R29. Hosted script bytes match hosted checksum metadata; hosted command metadata and release manifest match R29. This does not claim R30 readiness. |
 
 ## Spark OS Compile Details
 
@@ -62,8 +62,8 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `registry_pins`: fail
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30
-- `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-22-r28`
-- `hosted_installers`: fail when requested, because hosted `agent.sparkswarm.ai` serves `spark-cli-public-installer-2026-06-26-r29` while this checkout expects local R28
+- `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-26-r29`
+- `hosted_installers`: pass when requested against the R29 baseline; this confirms the hosted public installer is current for R29, not that R30 is published
 
 Direct R30 release-lane blockers:
 
@@ -95,14 +95,14 @@ Supporting release-hygiene rows:
 
 ## Hosted Installer Details
 
-Read-only hosted verification generated at `2026-06-27T12:54:13Z` and `2026-06-27T12:55:19Z`.
+Hosted verification was refreshed after moving the local installer baseline to R29.
 
 Current hosted truth:
 
 - hosted release: `spark-cli-public-installer-2026-06-26-r29`
 - hosted ref: `spark-cli-public-installer-2026-06-26-r29`
 - hosted commit: `a6738be7a97a7254a5b09e06ce08692d99967bd6`
-- local committed manifest release/ref: `spark-cli-public-installer-2026-06-22-r28`
+- local committed manifest release/ref: `spark-cli-public-installer-2026-06-26-r29`
 
 Hosted self-consistency:
 
@@ -113,7 +113,7 @@ Hosted self-consistency:
 
 R30 interpretation:
 
-- Do not call hosted R29 stale or broken from this local R28 verifier.
+- Do not call hosted R29 stale or broken; this checkout now verifies the hosted R29 baseline directly.
 - Do not publish R30 hosted files until source-owner handoffs, registry pins,
   installed metadata, local R30 installer manifest/scripts, and local R30
   installer verification are green.

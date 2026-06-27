@@ -27,8 +27,8 @@ Local evidence captured on 2026-06-27:
 
 - `spark os compile --json`: `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`.
 - `spark live status --json`: `ok=true`.
-- Local installer integrity: passes against committed R28 manifest.
-- Hosted installer: `agent.sparkswarm.ai` serves R29, so local R28 manifest and hosted metadata intentionally disagree.
+- Local installer integrity: passes against the committed R29 manifest.
+- Hosted installer: `agent.sparkswarm.ai` serves R29, and local installer manifest/scripts now match that hosted baseline.
 - `spark verify --provenance --json`: passes; signed commit enforcement remains report-only.
 - `spark verify --registry-pins --json`: fails only because `spark-voice-comms` registry pin lags `refs/heads/main`.
 - Spark OS publish handoffs remain visible: 2 local runtime test artifacts and 1 historical Builder trace lifecycle family.
@@ -50,10 +50,10 @@ Use this order for R30. Do not skip ahead.
 | --- | --- | --- |
 | `spark-telegram-bot` | Installed head `64408560dcf2`; registry pin `e5a1bd040986`; classified `local_runtime_test_artifact`. | Push or port the proven Telegram head, then update registry/release metadata so the runtime is no longer local-only. |
 | `spawner-ui` | Installed head `0a892f0bcdaf`; registry pin `19b7d0bff144`; classified `local_runtime_test_artifact`. | Push or port the proven Spawner head, then update registry/release metadata. |
-| `spark-cli` | Local head includes `39efa1f` voice source discovery fix; manifest still points at R28. | Include the voice discovery fix and R30 docs in the source-owner release before changing installer pins. |
+| `spark-cli` | Local head includes R30 prep plus the voice source discovery fix; manifest now points at the public R29 baseline. | Include the voice discovery fix and R30 docs in the source-owner release before changing installer pins to R30. |
 | `spark-voice-comms` | Installed source is importable; registry pin `21a9467e...` lags remote `main`/tag `spark-ship-2026-06-26` at `c74490d...`; local voice checkout `7555a36...` is ahead of its branch with trace/governor proof. | Do not pin R30 voice to the earlier public tag if R30 claims current voice trace proof. Port/tag the local voice trace/governor commits first, then update registry and installed-state truth together. |
 | Builder trace health | Current windows clean; one historical high-severity lifecycle family remains from 2026-06-02. | Close with owner-approved lifecycle evidence or keep explicit as a non-hidden historical publish handoff. |
-| Hosted installer | Hosted R29 differs from local R28 manifest. | Publish R30 only after local manifest, hosted scripts, hosted checksums, commands metadata, and release manifest all agree. |
+| Hosted installer | Hosted and local installer truth agree on R29. | Publish R30 only after local manifest, hosted scripts, hosted checksums, commands metadata, and release manifest all agree on R30. |
 
 ## R30 Must Have
 
