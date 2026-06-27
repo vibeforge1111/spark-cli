@@ -277,6 +277,7 @@ def level5_service_guardrail_state(
         "activation_state": "blocked" if not configured else "restart_required",
         "configured_at": None,
         "modules": {},
+        "skipped_unstartable_telegram_profiles": [],
     }
     if configured_at is None:
         return state
@@ -287,12 +288,17 @@ def level5_service_guardrail_state(
     except (OSError, json.JSONDecodeError):
         pids = {}
     telegram_profiles: list[str] = []
+    skipped_telegram_profiles: list[str] = []
     for path in level5_telegram_env_paths(home=spark_home, env=env):
         if path.name == "spark-telegram-bot.env":
             continue
         profile = path.stem.removeprefix("spark-telegram-bot.")
-        if profile:
+        values = read_env_file(path)
+        has_visible_token = bool(values.get("BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN"))
+        if profile and has_visible_token:
             telegram_profiles.append(profile)
+        elif profile:
+            skipped_telegram_profiles.append(profile)
     telegram_service_labels = [f"spark-telegram-bot:{profile}" for profile in sorted(set(telegram_profiles))]
     if not telegram_service_labels:
         telegram_service_labels = ["spark-telegram-bot"]
@@ -307,6 +313,8 @@ def level5_service_guardrail_state(
             service_label = f"{module}:{profile}" if module == "spark-telegram-bot" and profile else module
             if service_label not in expected and module == "spark-telegram-bot" and "spark-telegram-bot" in expected:
                 service_label = "spark-telegram-bot"
+            if service_label not in expected and module == "spark-telegram-bot":
+                expected[service_label] = False
             if service_label not in expected:
                 continue
             started_at = _parse_utc_timestamp(record.get("started_at"))
@@ -322,8 +330,15 @@ def level5_service_guardrail_state(
             if active:
                 expected[service_label] = True
     missing = [label for label, active in expected.items() if not active]
+    active_telegram_profiles = {
+        str(item.get("profile") or "")
+        for label, item in modules.items()
+        if label.startswith("spark-telegram-bot") and isinstance(item, dict) and item.get("active") and item.get("profile")
+    }
+    skipped_telegram_profiles = [profile for profile in skipped_telegram_profiles if profile not in active_telegram_profiles]
     state["modules"] = modules
     state["missing_or_stale_services"] = missing
+    state["skipped_unstartable_telegram_profiles"] = sorted(set(skipped_telegram_profiles))
     state["enabled"] = all(expected.values())
     if state["enabled"]:
         state["activation_state"] = "active"

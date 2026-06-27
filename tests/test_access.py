@@ -419,8 +419,8 @@ class AccessSetupTests(unittest.TestCase):
             spark_home = Path(tmpdir) / "spark-home"
             module_env = spark_home / "config" / "modules"
             module_env.mkdir(parents=True)
-            (module_env / "spark-telegram-bot.primary.env").write_text("BOT_NAME=primary\n", encoding="utf-8")
-            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.primary.env").write_text("BOT_NAME=primary\nBOT_TOKEN=fake-primary\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\nBOT_TOKEN=fake-qa\n", encoding="utf-8")
             self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
             state_dir = spark_home / "state"
             state_dir.mkdir(parents=True)
@@ -460,8 +460,8 @@ class AccessSetupTests(unittest.TestCase):
             spark_home = Path(tmpdir) / "spark-home"
             module_env = spark_home / "config" / "modules"
             module_env.mkdir(parents=True)
-            (module_env / "spark-telegram-bot.primary.env").write_text("BOT_NAME=primary\n", encoding="utf-8")
-            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.primary.env").write_text("BOT_NAME=primary\nBOT_TOKEN=fake-primary\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\nBOT_TOKEN=fake-qa\n", encoding="utf-8")
             self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
             state_dir = spark_home / "state"
             state_dir.mkdir(parents=True)
@@ -500,6 +500,47 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["level5"]["service_codex_sandbox"], "danger-full-access")
         self.assertEqual(payload["level5"]["effective_codex_sandbox"], "danger-full-access")
         self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
+
+    def test_access_level5_service_proof_skips_unstartable_stale_telegram_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            module_env = spark_home / "config" / "modules"
+            module_env.mkdir(parents=True)
+            (module_env / "spark-telegram-bot.primary.env").write_text("BOT_NAME=primary\nBOT_TOKEN=fake-primary\n", encoding="utf-8")
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\n", encoding="utf-8")
+            self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
+            state_dir = spark_home / "state"
+            state_dir.mkdir(parents=True)
+            (state_dir / "pids.json").write_text(
+                json.dumps(
+                    {
+                        "spawner-ui": {
+                            "pid": 111,
+                            "module": "spawner-ui",
+                            "started_at": "2999-01-01T00:00:00Z",
+                        },
+                        "spark-telegram-bot:primary": {
+                            "pid": 222,
+                            "module": "spark-telegram-bot",
+                            "profile": "primary",
+                            "started_at": "2999-01-01T00:00:00Z",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, payload = self.run_access("status", "--level", "5", spark_home=spark_home)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["level5"]["activation_state"], "active_for_services")
+        self.assertTrue(payload["level5"]["service_enabled"])
+        self.assertEqual(payload["effective_access_level"], 5)
+        self.assertEqual(payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
+        self.assertEqual(
+            payload["level5"]["service_guardrails"]["skipped_unstartable_telegram_profiles"],
+            ["sparkqa-bot"],
+        )
 
     def test_access_status_level5_session_only_needs_persistent_setup(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
