@@ -16053,7 +16053,9 @@ def install_wsl_windows_login_bridge(start_command: str) -> tuple[Path | None, b
     if not distro_name:
         return startup_path, False
     startup_path.parent.mkdir(parents=True, exist_ok=True)
-    startup_path.write_text(render_wsl_windows_startup_script(start_command, distro_name=distro_name), encoding="ascii")
+    tmp = startup_path.with_suffix(startup_path.suffix + ".tmp")
+    tmp.write_text(render_wsl_windows_startup_script(start_command, distro_name=distro_name), encoding="ascii")
+    tmp.replace(startup_path)
     return startup_path, True
 
 
