@@ -1338,7 +1338,7 @@ def harden_secret_file(path: Path) -> None:
             check=False,
             capture_output=True,
             text=True,
-        )
+        , timeout=300)
     except OSError:
         pass
 
