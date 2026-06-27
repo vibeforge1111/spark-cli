@@ -72,6 +72,91 @@ These are local proof passes, not owner-source convergence. Registry and
 installer truth must not move until the corresponding owner-source refs exist
 and installed metadata is updated through the normal path.
 
+## Owner-Lane Command Checklist
+
+These commands are for the owner lane after authorization. They are written so
+an owner can inspect and prepare a handoff without accidentally changing public
+truth. Do not push from this debugging lane without explicit authorization.
+
+### `spark-telegram-bot`
+
+```bash
+cd ~/.spark/modules/spark-telegram-bot/source
+git fetch origin --tags
+git status --short --branch
+git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..64408560dcf249d221f40598dde910a84b7eae12
+npm run control:proof:reliability
+npm run build
+npm run check:line-count
+```
+
+Owner action after review: push or port the
+`e5a1bd040986..64408560dcf2` reliability ladder stack into an owner release ref,
+then update registry truth only after the proof commands pass on that owner ref.
+
+### `spawner-ui`
+
+```bash
+cd ~/.spark/modules/spawner-ui/source
+git fetch origin --tags
+git status --short --branch
+git log --oneline origin/release/stability-2026-06-02-spawner-authority..0a892f0bcdaf9c9a956d054a6bfee16d29608df7
+npm run check
+```
+
+Owner action after review: push or port the nine Spawner PRD proof-continuity
+commits into the owner release lane, then update registry truth only after
+`npm run check` passes on that owner ref.
+
+### `spark-voice-comms`
+
+```bash
+cd ~/.spark/modules/spark-voice-comms/source
+git fetch origin --tags
+git status --short --branch
+git log --oneline origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323
+PYTHONPATH=src python3 -m pytest -q
+```
+
+Owner action after review: port or push `8a246af` and `7555a36`, or equivalent
+source-owned trace/governor commits, before any R30 voice registry claim. Do not
+pin R30 voice to `c74490d68ece` if R30 claims the current Spark OS voice proof.
+
+### `domain-chip-memory`
+
+```bash
+cd ~/.spark/modules/domain-chip-memory/source
+git fetch origin --tags
+git status --short --branch
+git log --oneline origin/codex/turnintent-memory-boundary-20260531..1fd272e519b562afc118ca46ff7da175d735dc44
+PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts
+```
+
+Owner action after review: push or replace the vNext memory authority proof with
+equivalent owner-source evidence before registry movement.
+
+### `spark-intelligence-builder`
+
+```bash
+cd ~/.spark/modules/spark-intelligence-builder/source
+git fetch origin --tags
+git status --short --branch
+git log --oneline origin/codex/turnintent-builder-boundary-20260531..f21522accf6687596244f516555d37ffb69200c9
+PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py
+```
+
+Owner action after review: push, port, or rebase the Builder trace/proof stack.
+Keep the historical high-severity trace lifecycle explicit unless owner-source
+closure evidence is added.
+
+After any owner-source movement, return to `spark-cli` and rerun:
+
+```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+spark os compile --json
+```
+
 ## Exact Commit Lists
 
 ### `spark-telegram-bot`
