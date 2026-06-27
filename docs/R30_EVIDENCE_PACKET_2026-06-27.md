@@ -99,12 +99,12 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spark-intelligence-builder`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
 - `spark-telegram-bot`: `npm test -- tests/accessPolicy.test.ts tests/accessActions.test.ts`, `npm run build`, and `PYTHONPATH=src python3 -m spark_cli.cli access status --level 5 --json` passed. Live Level 5 proof reports `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`. Local head is `a87f4ebe2298` (`a87f4ebe2298069add925b1f1f5a0806a6979ee8`), including the `/access 5` high-agency activation proof stack and proof-oracle Level 5 runtime validation.
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
-- `spawner-ui`: focused Codex sandbox lane tests passed, `46 passed` for the refreshed Level 5 launcher slice; `npm run build` passed; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `97cb911bf7ac`, including direct-client, PRD auto-dispatch, PRD bridge, and persisted Spawner-env Level 5 Codex sandbox fixes.
+- `spawner-ui`: focused Codex sandbox lane tests passed, `57 passed` for the refreshed Level 5 launcher slice; `npm run check` passed with 0 Svelte errors and 0 warnings. Local head is `e0fbb5b60c22`, including direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, and shared effective-env worker access/path validation.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 
 - `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`, `Block Level 5 full-access copy on read-only sandbox`, `Require effective Level 5 sandbox before operator claims`, `Harden Telegram Level 5 sandbox status`, `Harden Telegram Level 5 proof gate`
-- `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`, `Honor persisted Level 5 sandbox in Spawner`
+- `spawner-ui`: `Carry Harness proof refs in PRD traces`, `Add Spawner PRD proof continuity repair`, `Honor Level 5 Codex sandbox in direct client`, `Honor Level 5 sandbox in PRD Codex lanes`, `Honor persisted Level 5 sandbox in Spawner`, `Honor persisted Level 5 worker access`
 
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed
@@ -121,9 +121,18 @@ Fresh access hardening run at `2026-06-27T16:07Z`:
 - New regression: an inactive stale no-token `sparkqa-bot` profile env file is reported as `skipped_unstartable_telegram_profiles=["sparkqa-bot"]` while active startable profiles can still prove effective access Level 5.
 - New regression: normal live-status runtime expectations use the same startable-profile rule, so a no-token `sparkqa-bot` profile remains visible in Telegram profile status but no longer makes `spark live status --json` fail or makes Access 5 look read-only.
 - New regression: Spawner Codex launchers must inherit persisted `spawner-ui.env` Level 5 guardrails when the service process env is stale, and must still fail closed when the persisted env bundle is partial.
+- New regression: Spawner worker path approval, external-project permission, project-path validation, direct Codex client cwd resolution, Spark harness cwd resolution, command-runner validation, and `/api/spark/run` mission path creation all resolve against the same effective Level 5 env. This prevents the split where `SPARK_CODEX_SANDBOX` becomes `danger-full-access` from persisted service guardrails but a stale process env still treats the worker as workspace-bound/read-only.
 - New regression: if env/profile proof is green but the final live access payload reports `effective_codex_sandbox=read-only`, `r30_access_level5_codex_sandbox` fails with `live_level5_effective_codex_sandbox_is_danger_full_access`.
 
 This closes the read-only drift class where Telegram `/access 5` or a lower-level-to-Level-5 promotion could look globally active while one named bot profile was still running with stale sandbox settings, or while the final effective Codex sandbox was still read-only/workspace-bound.
+
+Additional proof refresh at `2026-06-27T21:42:58Z`:
+
+- `PYTHONPATH=src python3 -m pytest -q tests/test_access.py`: passed, `29 passed, 9 subtests passed`, including transitions from lower access levels to Level 5.
+- Telegram `npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts`: passed.
+- Spawner `npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts`: passed, `57` tests. The known local relay stderr from stopped `sparkqa-bot`/live relay secret did not fail the tests.
+- Spawner `npm run check`: passed, 0 Svelte errors and 0 warnings.
+- `spark access status --level 5 --json`: passed with `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `service_codex_sandbox=danger-full-access`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`.
 
 Supporting release-hygiene rows:
 

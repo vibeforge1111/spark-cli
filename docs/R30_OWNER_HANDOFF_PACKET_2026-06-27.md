@@ -23,7 +23,7 @@ R30 is still blocked until these handoffs are source-owned and verified.
 | Repo | Local range to review | Current public/owner truth | R30 handoff |
 | --- | --- | --- | --- |
 | `spark-telegram-bot` | `e5a1bd040986..a87f4ebe2298` | remote `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; registry baseline tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, `/access 5` activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, and proof-oracle Level 5 runtime validation onto the current owner release base. Then rerun Telegram gates before registry pin movement. |
-| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac` | owner branch `fdb8fded4744`; remote `main` / `spark-ship-2026-06-26` at `451d009aad84`; registry baseline tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client, PRD-lane, and persisted Level 5 Codex sandbox fixes onto the current owner release base. Then rerun Spawner proof/check gates. |
+| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22` | owner branch `fdb8fded4744`; remote `main` / `spark-ship-2026-06-26` at `451d009aad84`; registry baseline tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client, PRD-lane, persisted Level 5 Codex sandbox fixes, and shared effective-env worker access/path validation onto the current owner release base. Then rerun Spawner proof/check gates. |
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763`; prepared local lane `release/r30-voice-trace-governor` at `c502ec096cef` | owner branch `12bddc9bd0bd`; remote `main` / `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Local owner-lane port is prepared and test-clean, but not pushed/tagged or registry truth. Source-owner remote handoff, installed metadata, and registry convergence still block R30 voice publication. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; remote `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; registry baseline tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof against the current owner release base or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; remote `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; registry baseline tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack against the current owner release base. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
@@ -38,7 +38,7 @@ structured inventory is also recorded in
 | Repo | Exact range | Commits | Files changed | Boundary commits | Owner-lane command |
 | --- | --- | ---: | ---: | --- | --- |
 | `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..a87f4ebe2298069add925b1f1f5a0806a6979ee8` | 997 | 323 | first `43aeb4e476b9` / last `a87f4ebe2298` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..a87f4ebe2298069add925b1f1f5a0806a6979ee8` |
-| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09` | 12 | 20 | first `424547437e7e` / last `97cb911bf7ac` | `git log --reverse --oneline origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09` |
+| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf` | 13 | 26 | first `424547437e7e` / last `e0fbb5b60c22` | `git log --reverse --oneline origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf` |
 
 Do not squash these into registry truth from this debugging lane. The owner
 lane should inspect the exact range, decide whether to push or cherry-pick, run
@@ -122,7 +122,7 @@ then update registry truth only after the proof commands pass on that owner ref.
 cd ~/.spark/modules/spawner-ui/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09
+git log --oneline origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf
 npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
 npm run check
 ```
@@ -254,12 +254,13 @@ npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/t
 
 ### `spawner-ui`
 
-Range: `origin/release/stability-2026-06-02-spawner-authority..97cb911bf7ac8e8d09c3d62fad26589831ebbf09`
+Range: `origin/release/stability-2026-06-02-spawner-authority..e0fbb5b60c22b4f7dd8a1821379061cbec105cdf`
 
 Commits:
 
 - `7110dce4 Honor Level 5 sandbox in PRD Codex lanes`
 - `97cb911b Honor persisted Level 5 sandbox in Spawner`
+- `e0fbb5b6 Honor persisted Level 5 worker access`
 - `5ae5387d Honor Level 5 Codex sandbox in direct client`
 - `0a892f0b Merge remote-tracking branch 'origin/release/stability-2026-06-02-spawner-authority' into release/stability-2026-06-02-spawner-authority`
 - `e9ba42eb Document PRD event proof joins`
