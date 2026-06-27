@@ -8343,6 +8343,8 @@ def collect_r30_access_level5_codex_sandbox_status(
         "telegram_level5_action_uses_high_agency_setup": "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']" in telegram_actions_text,
         "telegram_level5_reply_reports_active_sandbox": "configured_codex_sandbox" in telegram_actions_text
         and "Whole-computer operator mode is active for Telegram and Spawner" in telegram_actions_text,
+        "telegram_level5_reply_reads_cli_level5_sandbox": "String(state.configured_codex_sandbox || '')" in telegram_actions_text
+        and "stateMachine.configured_codex_sandbox" not in telegram_actions_text,
         "telegram_test_proves_level5_setup_command": "runs Level 5 setup with high-agency guardrails and reports active services" in telegram_actions_test_text
         and "'--enable-high-agency'" in telegram_actions_test_text
         and "configured_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,

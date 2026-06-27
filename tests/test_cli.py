@@ -13419,6 +13419,7 @@ class SparkCliTests(unittest.TestCase):
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
                 "configured_codex_sandbox\n"
+                "const codexSandbox = String(state.configured_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
                 encoding="utf-8",
             )
@@ -13489,6 +13490,7 @@ class SparkCliTests(unittest.TestCase):
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
                 "configured_codex_sandbox\n"
+                "const codexSandbox = String(state.configured_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
                 encoding="utf-8",
             )
