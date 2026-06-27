@@ -13529,6 +13529,17 @@ class SparkCliTests(unittest.TestCase):
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
                         "existing_public_ref_final_r30_claim_allowed": False,
+                        "changed_files": [
+                            "src/voice_comms_chip/runtime_state.py",
+                            "src/voice_comms_chip/spark_hook.py",
+                            "tests/test_runtime_state.py",
+                            "tests/test_spark_hook.py",
+                        ],
+                        "diffstat": {
+                            "files_changed": 4,
+                            "insertions": 731,
+                            "deletions": 8,
+                        },
                         "required_local_commits": [
                             {
                                 "commit": "8a246af",
@@ -13650,6 +13661,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("candidate_owner_release_branch_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("local_range_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
+        self.assertIn("voice_changed_files_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_diffstat", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_owner_lane_recipe", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_registry_pin_proof_command", payload["handoff_manifest_issues"])
@@ -13687,6 +13700,17 @@ class SparkCliTests(unittest.TestCase):
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
                         "existing_public_ref_final_r30_claim_allowed": False,
+                        "changed_files": [
+                            "src/voice_comms_chip/runtime_state.py",
+                            "src/voice_comms_chip/spark_hook.py",
+                            "tests/test_runtime_state.py",
+                            "tests/test_spark_hook.py",
+                        ],
+                        "diffstat": {
+                            "files_changed": 4,
+                            "insertions": 731,
+                            "deletions": 8,
+                        },
                         "required_local_commits": [
                             {"commit": "8a246af", "subject": "Join voice runtime state traces"},
                             {"commit": "7555a36", "subject": "Accept media transcription governor authority"},

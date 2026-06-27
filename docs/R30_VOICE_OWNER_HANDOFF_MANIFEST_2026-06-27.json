@@ -43,6 +43,17 @@
   },
   "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
   "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
+  "changed_files": [
+    "src/voice_comms_chip/runtime_state.py",
+    "src/voice_comms_chip/spark_hook.py",
+    "tests/test_runtime_state.py",
+    "tests/test_spark_hook.py"
+  ],
+  "diffstat": {
+    "files_changed": 4,
+    "insertions": 731,
+    "deletions": 8
+  },
   "required_local_commits": [
     {
       "commit": "8a246af",

@@ -41,6 +41,8 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
 - branch: `release/r30-voice-trace-governor`
 - port commit: `4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f` (`Join voice runtime state traces`)
 - port commit: `c502ec096cefb48839e3279d3392343231884415` (`Accept media transcription governor authority`)
+- changed files: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`
+- diffstat over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: 4 files changed, 731 insertions, 8 deletions
 - proof: `PYTHONPATH=src python3 -m pytest -q` -> `132 passed`
 - fresh proof: `2026-06-27T21:54:18Z`, `132 passed`
 - current remote audit: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
@@ -51,10 +53,10 @@ installed metadata is updated through the normal path, and registry pins
 converge.
 
 The R30 gate checks the structured handoff manifest so these exact commits,
-full commit hashes, owner branch/public tag identities, installed metadata drift,
-proof commands, required post-update voice runtime truth, and the rejection of
-the existing public tag as the final R30 voice claim cannot drift out of the
-release packet unnoticed.
+full commit hashes, changed-file inventory, diffstat, owner branch/public tag
+identities, installed metadata drift, proof commands, required post-update voice
+runtime truth, and the rejection of the existing public tag as the final R30
+voice claim cannot drift out of the release packet unnoticed.
 
 ## Required R30 Path
 

@@ -8133,6 +8133,8 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     required_commits = handoff_manifest.get("required_local_commits") if isinstance(handoff_manifest, dict) else None
     proof_commands = handoff_manifest.get("proof_commands") if isinstance(handoff_manifest, dict) else None
     owner_lane_recipe = handoff_manifest.get("owner_lane_recipe") if isinstance(handoff_manifest, dict) else None
+    changed_files = handoff_manifest.get("changed_files") if isinstance(handoff_manifest, dict) else None
+    diffstat = handoff_manifest.get("diffstat") if isinstance(handoff_manifest, dict) else None
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
     else:
@@ -8210,6 +8212,21 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             for item in required_commits
         ):
             manifest_issues.append("missing_required_voice_commit_full_hashes")
+        required_changed_files = [
+            "src/voice_comms_chip/runtime_state.py",
+            "src/voice_comms_chip/spark_hook.py",
+            "tests/test_runtime_state.py",
+            "tests/test_spark_hook.py",
+        ]
+        if changed_files != required_changed_files:
+            manifest_issues.append("voice_changed_files_mismatch")
+        if not isinstance(diffstat, dict):
+            manifest_issues.append("missing_voice_diffstat")
+        else:
+            expected_diffstat = {"files_changed": 4, "insertions": 731, "deletions": 8}
+            for key, expected in expected_diffstat.items():
+                if diffstat.get(key) != expected:
+                    manifest_issues.append(f"voice_diffstat_{key}_mismatch")
         if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:
