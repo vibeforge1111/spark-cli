@@ -13679,12 +13679,15 @@ class SparkCliTests(unittest.TestCase):
                 stale = collect_r30_builder_trace_lifecycle_status(handoff)
             decision_doc.write_text(
                 "\n".join([
+                    "Status: explicit historical handoff, not closed",
+                    "Do not hide or silently clear the Builder historical high-severity trace family",
                     "historical_open_high_severity_events",
                     "component: telegram_runtime",
                     "event type: tool_call_ledger_recorded",
                     "status/severity: blocked / high",
                     "current_unresolved_high_severity_open_count=0",
                     "This is not a fresh current-window high-severity failure.",
+                    "owner-approved closure evidence",
                     "latest event: 2026-06-02 09:03:25",
                 ]),
                 encoding="utf-8",
