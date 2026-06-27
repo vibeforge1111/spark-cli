@@ -729,7 +729,7 @@ def count_safe_jsonl(path: Path) -> dict[str, Any]:
                 line_count += 1
                 try:
                     payload = json.loads(line)
-                except Exception:
+                except Exception as _e:
                     parse_errors += 1
                     continue
                 parsed_count += 1
