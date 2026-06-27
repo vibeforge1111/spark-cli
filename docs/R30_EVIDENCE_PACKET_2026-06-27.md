@@ -16,7 +16,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
-Fresh CLI proof refresh at `2026-06-27T16:02:08Z`:
+Fresh CLI proof refresh at `2026-06-27T21:27:09Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
 - `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; all listed Spark modules healthy, including Telegram relay runtime
@@ -26,9 +26,9 @@ Fresh CLI proof refresh at `2026-06-27T16:02:08Z`:
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, voice registry truth, registry pin drift, and pre-R30 installer pins. |
+| `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, publish-handoff classification, owner/local handoff docs, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Blocking checks: release-lane registry/runtime issues, voice registry truth, registry pin drift, and pre-R30 installer pins. |
 | `spark os compile --json` | PASS | `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, `voice_surface_blockers=1` because transcription is not ready. |
-| `spark live status --json` | PASS | `ok=true`; primary Telegram and QA Telegram profiles running; Spawner UI healthy; voice importable; no repair hints. |
+| `spark live status --json` | PASS | `ok=true`; primary Telegram profile is running; stale no-token `sparkqa-bot` remains visible but stopped/unstartable; Spawner UI healthy; voice importable; no repair hints. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json` | PASS | `ok=true`; commit pins and attestation metadata present; signed commit enforcement remains report-only. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json` | PASS | Local installer manifest/scripts are internally consistent for R29. This does not claim R30 readiness. |
@@ -41,7 +41,7 @@ Fresh CLI proof refresh at `2026-06-27T16:02:08Z`:
 
 ## Spark OS Compile Details
 
-Latest CLI proof refresh: `2026-06-27T16:02:08Z`.
+Latest CLI proof refresh: `2026-06-27T21:27:09Z`.
 
 Important fields:
 
