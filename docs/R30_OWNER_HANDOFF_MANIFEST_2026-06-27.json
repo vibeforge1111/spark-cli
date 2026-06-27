@@ -1,0 +1,116 @@
+{
+  "schema_version": "spark.r30.owner_handoff_manifest.v0",
+  "generated_at": "2026-06-27",
+  "release": "spark-cli-public-installer-2026-06-27-r30",
+  "status": "blocked_before_registry_or_installer_publication",
+  "publication_boundary": "No push, tag, deploy, registry pin update, installer pin update, or hosted publication is authorized by this manifest.",
+  "direct_blockers": [
+    {
+      "module": "domain-chip-memory",
+      "expected_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+      "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "local_range": "origin/codex/turnintent-memory-boundary-20260531..1fd272e519b562afc118ca46ff7da175d735dc44",
+      "owner_truth": "owner branch 3116ccaa3977; registry/tag spark-ship-2026-06-22 at f7f16a6ea8ee",
+      "next_action": "Review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+      ],
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-intelligence-builder",
+      "expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+      "local_head": "f21522accf6687596244f516555d37ffb69200c9",
+      "local_range": "origin/codex/turnintent-builder-boundary-20260531..f21522accf6687596244f516555d37ffb69200c9",
+      "owner_truth": "owner branch c94eac853fed; registry/tag spark-ship-2026-06-22 at e7f80fbf03bd",
+      "next_action": "Review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+      ],
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-telegram-bot",
+      "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+      "local_head": "64408560dcf249d221f40598dde910a84b7eae12",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..64408560dcf249d221f40598dde910a84b7eae12",
+      "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack, then rerun Telegram gates before registry pin movement.",
+      "proof_commands": [
+        "npm run control:proof:reliability",
+        "npm run build",
+        "npm run check:line-count"
+      ],
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-voice-comms",
+      "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+      "local_head": "7555a363d7638537b1a9ec1ee377e460d2343323",
+      "local_range": "origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323",
+      "owner_truth": "owner branch 12bddc9bd0bd; remote tag spark-ship-2026-06-26 at c74490d68ece; registry pin 21a9467e9bd4",
+      "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m pytest -q",
+        "spark os compile --json"
+      ],
+      "local_proof": "passed"
+    },
+    {
+      "module": "spawner-ui",
+      "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+      "local_head": "0a892f0bcdaf9c9a956d054a6bfee16d29608df7",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..0a892f0bcdaf9c9a956d054a6bfee16d29608df7",
+      "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits, then rerun Spawner checks before registry pin movement.",
+      "proof_commands": [
+        "npm run check"
+      ],
+      "local_proof": "passed"
+    }
+  ],
+  "supporting_hygiene": [
+    {
+      "module": "domain-chip-spark-qa-evidence-lane",
+      "expected_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+      "local_head": "215c6b9cbefb6ecc817d24f63e4e510b2c453b28",
+      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth."
+    },
+    {
+      "module": "spark-character",
+      "expected_registry_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+      "local_head": "cf8177561c16fa1dc2a1db96cdc52268f23bc97f",
+      "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+    },
+    {
+      "module": "spark-harness-core",
+      "expected_registry_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+      "local_head": "b190986996f007c30a0cab04bfd8851db8863a9d",
+      "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+    },
+    {
+      "module": "spark-researcher",
+      "expected_registry_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+      "local_head": "587dbd2a57d6f75eec81a3b68ef583ea5e803140",
+      "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth."
+    },
+    {
+      "module": "spark-skill-graphs",
+      "expected_registry_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+      "local_head": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
+      "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready."
+    }
+  ],
+  "required_after_owner_handoffs": [
+    "spark os compile --json",
+    "spark live status --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json"
+  ],
+  "hosted_gate_after_authorized_deploy": [
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --hosted-installers --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json"
+  ]
+}

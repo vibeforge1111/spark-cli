@@ -10,10 +10,11 @@ Use this index as the entry point for R30 release prep.
 1. [R30 release plan](./R30_RELEASE_PLAN_2026-06-27.md)
 2. [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md)
 3. [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md)
-4. [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md)
-5. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
-6. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
-7. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
+4. [R30 owner handoff manifest](./R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
+5. [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md)
+6. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
+7. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
+8. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 
 ## Current Verdict
 
@@ -23,6 +24,7 @@ installer pin changes, hosted publication, or public release claims.
 Current green proof:
 
 - `spark verify --r30 --json` exists as the executable R30 release gate.
+- The R30 owner handoff manifest is present and checked by `spark verify --r30 --json`.
 - Telegram reliability/control layer is clean.
 - Spark OS compile is green with `gaps=0`.
 - Local installer integrity is green for the current R28 manifest.

@@ -56,6 +56,10 @@ runtime metadata, and owner-source refs converge.
 The same actions are emitted by `spark verify --r30 --json` under
 `release_lane_classification`.
 
+The structured handoff form is [R30 owner handoff manifest](./R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json).
+`spark verify --r30 --json` checks that the manifest matches the live
+release-lane classification.
+
 Fresh local proof status for direct blockers:
 
 - `domain-chip-memory`: proof command passed.

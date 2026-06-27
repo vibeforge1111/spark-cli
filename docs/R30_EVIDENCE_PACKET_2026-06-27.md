@@ -54,6 +54,7 @@ Publish handoff families:
 Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`:
 
 - `r30_docs`: pass
+- `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
 - `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows

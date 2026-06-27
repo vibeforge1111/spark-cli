@@ -110,6 +110,7 @@ AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
 R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
     "spark-intelligence-builder",
@@ -8042,6 +8043,52 @@ def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, An
     }
 
 
+def collect_r30_handoff_manifest_status(
+    release_lane_classification: dict[str, Any],
+    *,
+    manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    path = manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH
+    if not path.exists():
+        return {
+            "ok": False,
+            "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+            "detail": "R30 owner handoff manifest is missing.",
+            "issues": ["missing_manifest"],
+        }
+    manifest = load_json(path, {})
+    if not isinstance(manifest, dict) or not manifest:
+        return {
+            "ok": False,
+            "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+            "detail": "R30 owner handoff manifest is not a JSON object.",
+            "issues": ["invalid_manifest"],
+        }
+    issues: list[str] = []
+    direct_live = sorted(str(item.get("module") or "") for item in release_lane_classification.get("direct_blockers", []))
+    supporting_live = sorted(str(item.get("module") or "") for item in release_lane_classification.get("supporting_hygiene", []))
+    direct_manifest = sorted(str(item.get("module") or "") for item in manifest.get("direct_blockers", []) if isinstance(item, dict))
+    supporting_manifest = sorted(str(item.get("module") or "") for item in manifest.get("supporting_hygiene", []) if isinstance(item, dict))
+    if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
+        issues.append("release_mismatch")
+    if direct_manifest != direct_live:
+        issues.append("direct_blockers_mismatch")
+    if supporting_manifest != supporting_live:
+        issues.append("supporting_hygiene_mismatch")
+    if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
+        issues.append("direct_local_proof_not_passed")
+    return {
+        "ok": not issues,
+        "path": str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path),
+        "detail": "R30 owner handoff manifest matches live gate classification."
+        if not issues
+        else f"R30 owner handoff manifest has issues: {', '.join(issues)}.",
+        "issues": issues,
+        "direct_blockers": direct_manifest,
+        "supporting_hygiene": supporting_manifest,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -8070,6 +8117,7 @@ def collect_r30_release_gate_payload(
         critical_duplicate_truth_count=critical_duplicate_truth_count,
     )
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
+    handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
     registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
     local_installers = collect_installer_integrity_payload(hosted=False)
     hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
@@ -8110,6 +8158,12 @@ def collect_r30_release_gate_payload(
             "detail": "No publish handoffs remain." if not handoff_families else f"Open publish handoffs: {', '.join(handoff_families)}.",
             "families": handoff_families,
             "summary": publish_handoffs,
+        },
+        {
+            "name": "owner_handoff_manifest",
+            "ok": bool(handoff_manifest.get("ok")),
+            "detail": handoff_manifest.get("detail", "R30 owner handoff manifest"),
+            "summary": handoff_manifest,
         },
         {
             "name": "release_lane",
@@ -8169,6 +8223,7 @@ def collect_r30_release_gate_payload(
             "critical_duplicate_truth_count": critical_duplicate_truth_count,
         },
         "publish_handoffs": publish_handoffs,
+        "owner_handoff_manifest": handoff_manifest,
         "release_lane": release_lane,
         "release_lane_classification": release_lane_classification,
         "registry_pins": registry_pins,

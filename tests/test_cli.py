@@ -45,6 +45,7 @@ from spark_cli.cli import (
     collect_harness_vendor_integrity_payload,
     collect_r30_release_gate_payload,
     collect_registry_pin_drift_payload,
+    collect_r30_handoff_manifest_status,
     collect_sandbox_verify_payload,
     collect_setup_configuration,
     collect_simple_fix_payload,
@@ -13091,6 +13092,48 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
         self.assertIn("publish truth", payload["supporting_hygiene"][0]["next_action"])
         self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])
+
+    def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
+        classification = {
+            "direct_blockers": [{"module": "spark-telegram-bot"}],
+            "supporting_hygiene": [{"module": "spark-character"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "direct_blockers": [{"module": "spark-telegram-bot", "local_proof": "passed"}],
+                        "supporting_hygiene": [{"module": "spark-character"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issues"], [])
+
+    def test_r30_handoff_manifest_status_reports_mismatched_modules(self) -> None:
+        classification = {
+            "direct_blockers": [{"module": "spark-telegram-bot"}],
+            "supporting_hygiene": [{"module": "spark-character"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "direct_blockers": [{"module": "spawner-ui", "local_proof": "passed"}],
+                        "supporting_hygiene": [{"module": "spark-character"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+        self.assertFalse(payload["ok"])
+        self.assertIn("direct_blockers_mismatch", payload["issues"])
 
     def test_verify_r30_uses_release_gate_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--r30", "--json"])
