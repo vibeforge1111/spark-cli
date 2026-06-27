@@ -13911,6 +13911,25 @@ class SparkCliTests(unittest.TestCase):
                 check_live_env=True,
                 spark_home=spark_home,
             )
+            with patch("spark_cli.sandbox.access.access_lane_payload", return_value={
+                "effective_access_level": 5,
+                "level5": {
+                    "activation_state": "active_for_services",
+                    "service_enabled": True,
+                    "service_codex_sandbox": "danger-full-access",
+                    "effective_codex_sandbox": "read-only",
+                },
+                "state_machine": {
+                    "service_can_operate_whole_computer": True,
+                },
+            }):
+                read_only_effective = collect_r30_access_level5_codex_sandbox_status(
+                    {},
+                    spawner_source_path=source,
+                    telegram_source_path=telegram,
+                    check_live_env=True,
+                    spark_home=spark_home,
+                )
 
         self.assertFalse(stale["ok"])
         self.assertIn("live_level5_named_telegram_profiles_restarted_after_guardrail_configure", stale["issues"])
@@ -13920,6 +13939,11 @@ class SparkCliTests(unittest.TestCase):
         )
         self.assertTrue(fresh["ok"])
         self.assertEqual(fresh["live_service_state"]["missing_or_stale_services"], [])
+        self.assertEqual(fresh["live_access_state"]["effective_access_level"], 5)
+        self.assertEqual(fresh["live_access_state"]["level5"]["service_codex_sandbox"], "danger-full-access")
+        self.assertEqual(fresh["live_access_state"]["level5"]["effective_codex_sandbox"], "danger-full-access")
+        self.assertFalse(read_only_effective["ok"])
+        self.assertIn("live_level5_effective_codex_sandbox_is_danger_full_access", read_only_effective["issues"])
 
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {

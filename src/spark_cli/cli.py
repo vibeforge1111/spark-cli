@@ -8410,13 +8410,16 @@ def collect_r30_access_level5_codex_sandbox_status(
     cli_access_test_text = read_optional(cli_access_test_path)
     live_env_state: dict[str, Any] = {}
     live_service_state: dict[str, Any] = {}
+    live_access_state: dict[str, Any] = {}
     live_env_ok = True
     live_services_ok = True
+    live_effective_access_ok = True
+    live_effective_codex_sandbox_ok = True
     docs_checked: list[str] = []
     docs_text = ""
     docs_ok = True
     if check_live_env:
-        from .sandbox.access import level5_env_file_state, level5_guardrails_configured_by_audit, level5_service_guardrail_state
+        from .sandbox.access import access_lane_payload, level5_env_file_state, level5_guardrails_configured_by_audit, level5_service_guardrail_state
 
         home = spark_home or SPARK_HOME
         live_env_state = level5_env_file_state(home=home)
@@ -8425,6 +8428,18 @@ def collect_r30_access_level5_codex_sandbox_status(
         live_service_state = level5_service_guardrail_state(home=home, configured=configured)
         live_services_ok = bool(live_service_state.get("enabled"))
         live_named_profile_services_ok = live_services_ok and not live_service_state.get("missing_or_stale_services")
+        live_access_state = access_lane_payload(level=5, home=home)
+        live_level5 = live_access_state.get("level5") if isinstance(live_access_state.get("level5"), dict) else {}
+        live_state_machine = live_access_state.get("state_machine") if isinstance(live_access_state.get("state_machine"), dict) else {}
+        live_effective_access_ok = (
+            live_access_state.get("effective_access_level") == 5
+            and bool(live_level5.get("service_enabled"))
+            and bool(live_state_machine.get("service_can_operate_whole_computer"))
+        )
+        live_effective_codex_sandbox_ok = (
+            live_level5.get("service_codex_sandbox") == "danger-full-access"
+            and live_level5.get("effective_codex_sandbox") == "danger-full-access"
+        )
     if check_docs:
         for path in [R30_RELEASE_PLAN_PATH, R30_EVIDENCE_PACKET_PATH]:
             ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
@@ -8474,6 +8489,8 @@ def collect_r30_access_level5_codex_sandbox_status(
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
         checks["live_level5_services_restarted_after_guardrail_configure"] = live_services_ok
         checks["live_level5_named_telegram_profiles_restarted_after_guardrail_configure"] = live_named_profile_services_ok
+        checks["live_level5_effective_access_is_full_permission"] = live_effective_access_ok
+        checks["live_level5_effective_codex_sandbox_is_danger_full_access"] = live_effective_codex_sandbox_ok
     if check_docs:
         checks["docs_preserve_level5_profile_env_proof"] = docs_ok and all(
             needle in docs_text
@@ -8508,6 +8525,31 @@ def collect_r30_access_level5_codex_sandbox_status(
         },
         "live_env_state": live_env_state,
         "live_service_state": live_service_state,
+        "live_access_state": {
+            "effective_access_level": live_access_state.get("effective_access_level"),
+            "level5": {
+                "activation_state": (live_access_state.get("level5") or {}).get("activation_state")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "service_enabled": (live_access_state.get("level5") or {}).get("service_enabled")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "current_process_codex_sandbox": (live_access_state.get("level5") or {}).get("current_process_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "service_codex_sandbox": (live_access_state.get("level5") or {}).get("service_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+                "effective_codex_sandbox": (live_access_state.get("level5") or {}).get("effective_codex_sandbox")
+                if isinstance(live_access_state.get("level5"), dict)
+                else None,
+            },
+            "state_machine": {
+                "service_can_operate_whole_computer": (live_access_state.get("state_machine") or {}).get("service_can_operate_whole_computer")
+                if isinstance(live_access_state.get("state_machine"), dict)
+                else None,
+            },
+        },
         "docs_checked": docs_checked,
         "checks": checks,
         "issues": issues,
