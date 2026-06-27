@@ -5215,7 +5215,10 @@ def chip_scan_package_json(path_label: str, text: str) -> list[ChipScanFinding]:
     if Path(path_label).name != "package.json":
         return []
     try:
-        payload = json.loads(text)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except json.JSONDecodeError:
         return []
     scripts = payload.get("scripts")
