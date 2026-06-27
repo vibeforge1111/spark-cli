@@ -200,11 +200,11 @@ def modal_smoke_script() -> str:
             if sandbox is not None:
                 try:
                     sandbox.terminate()
-                except Exception:
+                except (OSError, RuntimeError):
                     pass
                 try:
                     sandbox.detach()
-                except Exception:
+                except (OSError, RuntimeError):
                     pass
         """
     ).strip()
