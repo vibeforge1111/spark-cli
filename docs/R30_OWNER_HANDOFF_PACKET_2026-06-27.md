@@ -139,6 +139,9 @@ git fetch origin --tags
 git status --short --branch
 git log --oneline origin/codex/turnintent-voice-policy-20260531..7555a363d7638537b1a9ec1ee377e460d2343323
 PYTHONPATH=src python3 -m pytest -q
+spark os compile --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 ```
 
 Owner action after review: port or push
@@ -269,6 +272,8 @@ Minimum owner-lane proof after port:
 ```bash
 PYTHONPATH=src python3 -m pytest -q
 spark os compile --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 ```
 
 Expected Spark OS voice result after install/update:

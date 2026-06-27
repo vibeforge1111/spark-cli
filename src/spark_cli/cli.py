@@ -169,7 +169,12 @@ R30_RELEASE_LANE_ACTIONS = {
     },
     "spark-voice-comms": {
         "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
-        "proof_commands": ["PYTHONPATH=src python3 -m pytest -q", "spark os compile --json"],
+        "proof_commands": [
+            "PYTHONPATH=src python3 -m pytest -q",
+            "spark os compile --json",
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+        ],
     },
     "spawner-ui": {
         "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",

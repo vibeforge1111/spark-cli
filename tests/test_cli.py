@@ -13441,12 +13441,13 @@ class SparkCliTests(unittest.TestCase):
                 "rows": [
                     {"module": "spark-telegram-bot", "issues": ["head_differs_from_registry"]},
                     {"module": "spawner-ui", "issues": ["head_differs_from_registry"]},
+                    {"module": "spark-voice-comms", "issues": ["head_differs_from_registry"]},
                     {"module": "spark-character", "issues": ["head_differs_from_registry"]},
                     {"module": "spark-cli", "issues": []},
                 ]
             }
         )
-        self.assertEqual(payload["direct_blocker_count"], 2)
+        self.assertEqual(payload["direct_blocker_count"], 3)
         self.assertEqual(payload["supporting_hygiene_count"], 1)
         blockers = {item["module"]: item for item in payload["direct_blockers"]}
         self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
@@ -13459,6 +13460,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("PRD-lane Level 5 Codex sandbox fixes", blockers["spawner-ui"]["next_action"])
         self.assertIn("npm run check", blockers["spawner-ui"]["proof_commands"])
         self.assertTrue(any("high-agency-workers.test.ts" in command for command in blockers["spawner-ui"]["proof_commands"]))
+        self.assertIn("voice trace/governor commits", blockers["spark-voice-comms"]["next_action"])
+        self.assertIn("PYTHONPATH=src python3 -m pytest -q", blockers["spark-voice-comms"]["proof_commands"])
+        self.assertIn("spark os compile --json", blockers["spark-voice-comms"]["proof_commands"])
+        self.assertIn(
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+            blockers["spark-voice-comms"]["proof_commands"],
+        )
+        self.assertIn(
+            "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+            blockers["spark-voice-comms"]["proof_commands"],
+        )
         self.assertEqual(payload["supporting_hygiene"][0]["module"], "spark-character")
         self.assertIn("publish truth", payload["supporting_hygiene"][0]["next_action"])
         self.assertIn("spark verify --r30 --json", payload["supporting_hygiene"][0]["proof_commands"])

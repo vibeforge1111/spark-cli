@@ -53,7 +53,9 @@
       "next_action": "Port/tag the local voice trace/governor commits or equivalent owner-source proof before any R30 voice registry claim.",
       "proof_commands": [
         "PYTHONPATH=src python3 -m pytest -q",
-        "spark os compile --json"
+        "spark os compile --json",
+        "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+        "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
       ],
       "local_proof": "passed"
     },

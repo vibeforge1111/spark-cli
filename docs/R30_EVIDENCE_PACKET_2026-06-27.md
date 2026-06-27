@@ -90,7 +90,7 @@ Direct R30 release-lane blockers:
 - `domain-chip-memory`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts`
 - `spark-intelligence-builder`: head differs from registry; next proof command is `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py`
 - `spark-telegram-bot`: head differs from registry; next proof commands are `npm run control:proof:reliability`, `npm run build`, `npm run check:line-count`, and the focused access command tests
-- `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q` and `spark os compile --json`
+- `spark-voice-comms`: head and installed metadata differ from registry; next proof commands are `PYTHONPATH=src python3 -m pytest -q`, `spark os compile --json`, `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`, and `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`
 - `spawner-ui`: head differs from registry; next proof commands are the focused Codex sandbox lane tests and `npm run check`
 
 Fresh direct-blocker proof results:
