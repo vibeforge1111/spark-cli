@@ -559,6 +559,24 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve hosted secret change",
         )
+    if (
+        (first == "op" and (second == "read" or lowered[1:3] == ["item", "get"]))
+        or (first == "pass" and second in {"show", "otp"})
+        or (
+            first == "security"
+            and second in {"find-generic-password", "find-internet-password"}
+            and "-w" in lowered
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Password-manager command can reveal stored secret values.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve password reveal",
+        )
     if first == "gh" and (
         lowered[1:3] in [["secret", "set"], ["variable", "set"]]
         or lowered[1:3] in [["pr", "merge"], ["release", "create"], ["release", "upload"]]
