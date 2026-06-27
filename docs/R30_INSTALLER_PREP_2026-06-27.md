@@ -66,6 +66,10 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers 
 
 The gate must prove:
 
+- `r30_hosted_publication_contract` is green, not merely `hosted_installers`.
+  A self-consistent hosted R29 copy is a baseline verification result only; it is
+  not R30 publication proof while source truth, registry pins, or local R30
+  installer pins are still blocked.
 - hosted `install.sh` hash matches hosted checksum metadata
 - hosted `install.ps1` hash matches hosted checksum metadata
 - hosted script release pins match R30

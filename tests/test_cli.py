@@ -13190,6 +13190,77 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
         self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
 
+    def test_r30_hosted_publication_contract_treats_r29_hosted_pass_as_baseline_only(self) -> None:
+        compiled = {
+            "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-character": {
+                    "path": "/tmp/spark-character",
+                    "registry_commit": "a" * 40,
+                }
+            },
+            "voice_surface_view": {
+                "mode": "egress",
+                "blockers": ["voice transcription is not ready"],
+                "source_capability": {"source_mode": "duplex"},
+            },
+        }
+        summary = {
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "blocked_release_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+            "publish_handoffs": {
+                "family_count": 1,
+                "families": ["local_runtime_test_artifacts"],
+            },
+        }
+
+        def fake_git_status(_path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": "b" * 40,
+            }
+
+        def fake_installers(*, hosted: bool = False) -> dict[str, Any]:
+            if hosted:
+                return {
+                    "ok": True,
+                    "summary": "hosted R29 installers ok",
+                    "hosted_release": {
+                        "release": "spark-cli-public-installer-2026-06-26-r29",
+                        "ref": "spark-cli-public-installer-2026-06-26-r29",
+                        "fresh": True,
+                    },
+                    "checks": [],
+                }
+            return {"ok": True, "summary": "local R29 installers ok", "checks": []}
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
+             patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
+             patch("spark_cli.cli.collect_installer_integrity_payload", side_effect=fake_installers):
+            payload = collect_r30_release_gate_payload(hosted=True)
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(checks["r30_hosted_publication_contract"]["ok"])
+        self.assertTrue(checks["hosted_installers"]["ok"])
+        self.assertIn("baseline-only", checks["r30_hosted_publication_contract"]["detail"])
+        self.assertEqual(
+            checks["r30_hosted_publication_contract"]["actual_release"],
+            "spark-cli-public-installer-2026-06-26-r29",
+        )
+        self.assertEqual(
+            checks["r30_hosted_publication_contract"]["expected_release"],
+            "spark-cli-public-installer-2026-06-27-r30",
+        )
+
     def test_r30_publication_order_names_voice_and_builder_decision_blocks(self) -> None:
         compiled = {
             "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},

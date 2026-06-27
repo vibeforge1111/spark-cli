@@ -81,7 +81,8 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30. The structured `source_truth_blockers` list keeps the hold explicit: `publish_handoffs`, `release_lane`, `r30_voice_registry_decision`, `r30_builder_trace_lifecycle`, and `registry_pins`.
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-26-r29`
-- `hosted_installers`: pass when requested against the R29 baseline; this confirms the hosted public installer is current for R29, not that R30 is published
+- `r30_hosted_publication_contract`: fail when hosted verification is requested before R30 source truth and local installer pins are green. This names the hosted result as baseline-only instead of letting a self-consistent hosted R29 pass look like R30 publication proof.
+- `hosted_installers`: pass when requested against the R29 baseline; this confirms the hosted public installer is current for R29, not that R30 is published.
 
 Direct R30 release-lane blockers:
 

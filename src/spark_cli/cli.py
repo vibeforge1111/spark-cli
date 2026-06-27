@@ -9271,6 +9271,51 @@ def collect_r30_release_gate_payload(
         },
     ]
     if hosted_installers is not None:
+        hosted_release_payload = (
+            hosted_installers.get("hosted_release")
+            if isinstance(hosted_installers.get("hosted_release"), dict)
+            else {}
+        )
+        hosted_release_name = str(hosted_release_payload.get("release") or "")
+        hosted_release_ref = str(hosted_release_payload.get("ref") or "")
+        hosted_release_fresh = bool(hosted_release_payload.get("fresh"))
+        hosted_r30_ready = (
+            source_truth_ready
+            and installer_pins_are_r30
+            and bool(hosted_installers.get("ok"))
+            and hosted_release_fresh
+            and hosted_release_name == R30_INSTALLER_RELEASE_NAME
+            and hosted_release_ref == R30_INSTALLER_RELEASE_NAME
+        )
+        if hosted_r30_ready:
+            hosted_publication_detail = "Hosted installer metadata, bytes, and local R30 source truth agree."
+        elif not source_truth_ready:
+            hosted_publication_detail = (
+                "Hosted installer verification is baseline-only because source/registry truth is not green: "
+                f"{', '.join(source_truth_blockers)}."
+            )
+        elif not installer_pins_are_r30:
+            hosted_publication_detail = "Hosted installer verification is baseline-only because local installer pins have not advanced to R30."
+        elif not bool(hosted_installers.get("ok")):
+            hosted_publication_detail = "Hosted installer metadata or bytes do not pass installer integrity verification."
+        else:
+            hosted_publication_detail = (
+                "Hosted installer verification is not an R30 publication proof: "
+                f"hosted release/ref is {hosted_release_name or '<missing>'}/{hosted_release_ref or '<missing>'}."
+            )
+        checks.append(
+            {
+                "name": "r30_hosted_publication_contract",
+                "ok": hosted_r30_ready,
+                "detail": hosted_publication_detail,
+                "expected_release": R30_INSTALLER_RELEASE_NAME,
+                "actual_release": hosted_release_name,
+                "actual_ref": hosted_release_ref,
+                "hosted_release_fresh": hosted_release_fresh,
+                "source_truth_ready": source_truth_ready,
+                "installer_pins_are_r30": installer_pins_are_r30,
+            }
+        )
         checks.append(
             {
                 "name": "hosted_installers",
