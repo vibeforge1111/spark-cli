@@ -204,6 +204,14 @@ Top commits currently in the R30 handoff stack:
 - `5cf5eac Refresh full canary runtime evidence`
 - `f4e8683 Supersede stale duplicate safe prompt rows`
 
+Required terminal subjects that must survive owner-source porting:
+
+- `Add Telegram rich draft streaming controls`
+- `Package Telegram control release evidence`
+- `Prove Telegram Level 5 activation path`
+- `Fix Level 5 Codex sandbox confirmation`
+- `Surface effective Level 5 sandbox in Telegram`
+
 Minimum owner-lane proof after port:
 
 ```bash
