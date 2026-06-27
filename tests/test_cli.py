@@ -13629,6 +13629,7 @@ class SparkCliTests(unittest.TestCase):
                 "live_level5_env_files_all_profiled_services_full_access\n"
                 "telegram_profile:primary\n"
                 "telegram_profile:sparkqa-bot\n"
+                "missing_or_stale_services\n"
             )
             plan.write_text(fresh_doc_text, encoding="utf-8")
             evidence.write_text(fresh_doc_text, encoding="utf-8")
@@ -13644,6 +13645,117 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(stale["ok"])
         self.assertIn("docs_preserve_level5_profile_env_proof", stale["issues"])
         self.assertTrue(fresh["ok"])
+
+    def test_r30_access_level5_codex_sandbox_status_requires_named_profile_service_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            spark_home = root / "spark-home"
+            source = root / "spawner-ui"
+            telegram = root / "spark-telegram-bot"
+            module_env = spark_home / "config" / "modules"
+            audit_dir = spark_home / "logs" / "remote" / "access"
+            state_dir = spark_home / "state"
+            client = source / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.ts"
+            client_test = source / "src" / "lib" / "server" / "provider-clients" / "codex-cli-client.test.ts"
+            prd_auto = source / "src" / "lib" / "server" / "prd-auto-dispatch.ts"
+            prd_auto_test = source / "src" / "lib" / "server" / "prd-auto-dispatch.test.ts"
+            prd_bridge = source / "src" / "routes" / "api" / "prd-bridge" / "write" / "+server.ts"
+            prd_bridge_test = source / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
+            telegram_actions = telegram / "src" / "accessActions.ts"
+            telegram_actions_test = telegram / "tests" / "accessActions.test.ts"
+            module_env.mkdir(parents=True)
+            audit_dir.mkdir(parents=True)
+            state_dir.mkdir(parents=True)
+            client.parent.mkdir(parents=True)
+            prd_bridge.parent.mkdir(parents=True)
+            telegram_actions.parent.mkdir(parents=True)
+            telegram_actions_test.parent.mkdir(parents=True)
+            client.write_text(
+                "import { resolveCodexSandbox } from '../high-agency-workers';\n"
+                "args.push('--sandbox', resolveCodexSandbox(options.env));\n"
+                "args.push('--sandbox', resolveCodexSandbox({ SPARK_CODEX_SANDBOX: value }));\n",
+                encoding="utf-8",
+            )
+            client_test.write_text("Level 5 guardrails are active --sandbox', 'danger-full-access --sandbox', 'workspace-write\n", encoding="utf-8")
+            prd_auto.write_text("return resolveCodexSandbox(envRecord);\n", encoding="utf-8")
+            prd_auto_test.write_text("uses Level 5 Codex sandbox for direct mission auto-dispatch --sandbox danger-full-access\n", encoding="utf-8")
+            prd_bridge.write_text("resolveCodexSandbox(env)\n", encoding="utf-8")
+            prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
+            telegram_actions.write_text(
+                "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "configured_codex_sandbox\n"
+                "const codexSandbox = String(state.configured_codex_sandbox || '');\n"
+                "Whole-computer operator mode is active for Telegram and Spawner\n",
+                encoding="utf-8",
+            )
+            telegram_actions_test.write_text(
+                "runs Level 5 setup with high-agency guardrails and reports active services '--enable-high-agency' configured_codex_sandbox: 'danger-full-access'\n",
+                encoding="utf-8",
+            )
+            level5_env = (
+                "SPARK_ALLOW_HIGH_AGENCY_WORKERS=1\n"
+                "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1\n"
+                "SPARK_CODEX_SANDBOX=danger-full-access\n"
+            )
+            (module_env / "spawner-ui.env").write_text(level5_env, encoding="utf-8")
+            (module_env / "spark-telegram-bot.env").write_text(level5_env, encoding="utf-8")
+            (module_env / "spark-telegram-bot.primary.env").write_text(level5_env, encoding="utf-8")
+            (module_env / "spark-telegram-bot.sparkqa-bot.env").write_text(level5_env, encoding="utf-8")
+            (audit_dir / "level5.jsonl").write_text(
+                json.dumps({
+                    "timestamp": "2026-06-27T10:00:00Z",
+                    "action_id": "level5_guardrails_configure",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (state_dir / "pids.json").write_text(
+                json.dumps({
+                    "spawner-ui": {
+                        "pid": 111,
+                        "module": "spawner-ui",
+                        "started_at": "2026-06-27T10:01:00Z",
+                    },
+                    "spark-telegram-bot:primary": {
+                        "pid": 222,
+                        "module": "spark-telegram-bot",
+                        "profile": "primary",
+                        "started_at": "2026-06-27T10:01:00Z",
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            stale = collect_r30_access_level5_codex_sandbox_status(
+                {},
+                spawner_source_path=source,
+                telegram_source_path=telegram,
+                check_live_env=True,
+                spark_home=spark_home,
+            )
+            pids = json.loads((state_dir / "pids.json").read_text(encoding="utf-8"))
+            pids["spark-telegram-bot:sparkqa-bot"] = {
+                "pid": 333,
+                "module": "spark-telegram-bot",
+                "profile": "sparkqa-bot",
+                "started_at": "2026-06-27T10:01:00Z",
+            }
+            (state_dir / "pids.json").write_text(json.dumps(pids), encoding="utf-8")
+            fresh = collect_r30_access_level5_codex_sandbox_status(
+                {},
+                spawner_source_path=source,
+                telegram_source_path=telegram,
+                check_live_env=True,
+                spark_home=spark_home,
+            )
+
+        self.assertFalse(stale["ok"])
+        self.assertIn("live_level5_named_telegram_profiles_restarted_after_guardrail_configure", stale["issues"])
+        self.assertEqual(
+            stale["live_service_state"]["missing_or_stale_services"],
+            ["spark-telegram-bot:sparkqa-bot"],
+        )
+        self.assertTrue(fresh["ok"])
+        self.assertEqual(fresh["live_service_state"]["missing_or_stale_services"], [])
 
     def test_r30_handoff_manifest_status_matches_live_classification(self) -> None:
         classification = {

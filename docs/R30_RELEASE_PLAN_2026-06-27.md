@@ -19,7 +19,7 @@ R30 is ready only when a fresh user install can prove the same core claims that 
 - Capability evidence includes last-success and last-boundary or failure proof.
 - Surface evals keep Spark replies human instead of rigid.
 - Voice is represented truthfully: source hooks are duplex, current runtime mode is egress because transcription is not ready, and action paths remain confirmation-bound.
-- Access level 5 launches Codex workers with explicit `danger-full-access` sandboxing when Level 5 guardrails are active, including direct provider, PRD auto-dispatch, PRD bridge, and Telegram `/access 5` activation paths. R30 must also prove the live installed Level 5 env bundle for the base Telegram service and named Telegram profiles, including `telegram_profile:primary` and `telegram_profile:sparkqa-bot`, through `live_level5_env_files_all_profiled_services_full_access`.
+- Access level 5 launches Codex workers with explicit `danger-full-access` sandboxing when Level 5 guardrails are active, including direct provider, PRD auto-dispatch, PRD bridge, and Telegram `/access 5` activation paths. R30 must also prove the live installed Level 5 env bundle for the base Telegram service and named Telegram profiles, including `telegram_profile:primary` and `telegram_profile:sparkqa-bot`, through `live_level5_env_files_all_profiled_services_full_access`. The release gate must also prove `missing_or_stale_services=[]` for named Telegram profiles so one restarted bot cannot mask another stale/read-only profile.
 - Installer, registry, installed runtime, hosted metadata, and docs agree.
 
 ## Current Baseline

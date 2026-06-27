@@ -8354,6 +8354,7 @@ def collect_r30_access_level5_codex_sandbox_status(
         configured = level5_guardrails_configured_by_audit(home=home)
         live_service_state = level5_service_guardrail_state(home=home, configured=configured)
         live_services_ok = bool(live_service_state.get("enabled"))
+        live_named_profile_services_ok = live_services_ok and not live_service_state.get("missing_or_stale_services")
     if check_docs:
         for path in [R30_RELEASE_PLAN_PATH, R30_EVIDENCE_PACKET_PATH]:
             ref = str(path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path)
@@ -8370,6 +8371,9 @@ def collect_r30_access_level5_codex_sandbox_status(
         and "danger-full-access" in cli_access_test_text,
         "cli_level5_named_telegram_profile_env_tests_exist": "test_access_setup_level5_repairs_named_telegram_profile_guardrails" in cli_access_test_text
         and "test_access_status_level5_blocks_stale_named_telegram_profile_guardrails" in cli_access_test_text,
+        "cli_level5_named_telegram_profile_service_tests_exist": "test_access_level5_service_proof_requires_each_named_telegram_profile_restart" in cli_access_test_text
+        and "test_access_level5_service_proof_accepts_all_named_telegram_profiles_restarted" in cli_access_test_text
+        and "missing_or_stale_services" in cli_access_test_text,
         "client_exists": bool(client_text),
         "client_test_exists": bool(client_test_text),
         "client_uses_shared_sandbox_resolver": "resolveCodexSandbox" in client_text,
@@ -8397,6 +8401,7 @@ def collect_r30_access_level5_codex_sandbox_status(
     if check_live_env:
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
         checks["live_level5_services_restarted_after_guardrail_configure"] = live_services_ok
+        checks["live_level5_named_telegram_profiles_restarted_after_guardrail_configure"] = live_named_profile_services_ok
     if check_docs:
         checks["docs_preserve_level5_profile_env_proof"] = docs_ok and all(
             needle in docs_text
@@ -8404,6 +8409,7 @@ def collect_r30_access_level5_codex_sandbox_status(
                 "telegram_profile:primary",
                 "telegram_profile:sparkqa-bot",
                 "live_level5_env_files_all_profiled_services_full_access",
+                "missing_or_stale_services",
             ]
         )
     issues = [name for name, ok in checks.items() if not ok]
