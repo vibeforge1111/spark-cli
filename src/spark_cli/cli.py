@@ -6217,7 +6217,10 @@ def browser_use_status_file_payload() -> dict[str, Any]:
     if not BROWSER_USE_STATUS_PATH.exists():
         return {}
     try:
-        data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
+        try:
+            data = json.loads(BROWSER_USE_STATUS_PATH.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "status": "error",
