@@ -62,6 +62,7 @@ Use this order for R30. Do not skip ahead.
 3. R30 installer manifest and script release pins updated only after the source tag exists.
 4. Hosted R30 metadata convergence at `agent.sparkswarm.ai`.
 5. Fresh local proof packet:
+   - `spark verify --r30 --json`
    - `spark os compile --json`
    - `spark live status --json`
    - `spark verify --registry-pins --json`

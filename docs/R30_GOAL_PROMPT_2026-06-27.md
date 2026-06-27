@@ -30,6 +30,7 @@ Task list:
 5. Resolve Builder historical trace lifecycle with owner-approved close evidence or keep it explicit as historical handoff.
 6. Only after source and registry truth are green, prepare R30 installer pins and manifest as one named batch.
 7. Run proof gates and record evidence:
+   - `spark verify --r30 --json`
    - `spark os compile --json`
    - `spark live status --json`
    - `spark verify --registry-pins --json`

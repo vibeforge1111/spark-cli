@@ -20,6 +20,7 @@ Complete these before changing `scripts/installer-manifest.json` or installer sc
 4. Run:
 
 ```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
 spark os compile --json
@@ -27,6 +28,7 @@ spark os compile --json
 
 Expected before manifest edit:
 
+- R30 release gate blocks only on installer pins awaiting the authorized R30 manifest batch
 - registry pins pass
 - provenance passes
 - Spark OS compile reports `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`
@@ -57,6 +59,7 @@ Do not publish hosted installer files until the local installer gate passes.
 After deploying R30 to `agent.sparkswarm.ai`, run:
 
 ```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --hosted-installers --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json
 ```
 

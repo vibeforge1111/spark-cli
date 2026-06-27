@@ -43,6 +43,7 @@ from spark_cli.cli import (
     collect_module_provenance_payload,
     collect_drift_sentinel_payload,
     collect_harness_vendor_integrity_payload,
+    collect_r30_release_gate_payload,
     collect_registry_pin_drift_payload,
     collect_sandbox_verify_payload,
     collect_setup_configuration,
@@ -13012,6 +13013,67 @@ class SparkCliTests(unittest.TestCase):
             self.assertEqual(args.func(args), 0)
         collect_mock.assert_called_once_with(hosted=False)
         self.assertIn("local_install.sh", stdout.getvalue())
+
+    def test_r30_release_gate_blocks_open_handoffs_and_old_installer_pins(self) -> None:
+        compiled = {
+            "registry": {"modules": {"spark-voice-comms": {"commit": "a" * 40}}},
+            "installed_modules": {
+                "spark-voice-comms": {
+                    "path": "/tmp/spark-voice-comms",
+                    "registry_commit": "a" * 40,
+                }
+            },
+        }
+        summary = {
+            "repo_board": {
+                "dirty_repo_count": 0,
+                "blocked_release_count": 0,
+                "critical_duplicate_truth_count": 0,
+            },
+            "publish_handoffs": {
+                "family_count": 2,
+                "families": ["local_runtime_test_artifacts", "builder_trace_health"],
+            },
+        }
+
+        def fake_git_status(_path: Path) -> dict[str, Any]:
+            return {
+                "available": True,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "head_commit": "a" * 40,
+            }
+
+        with patch("spark_cli.cli.compile_system_map", return_value=compiled), \
+             patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
+             patch("spark_cli.cli.compile_summary", return_value=summary), \
+             patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-voice-comms", "ok": False}]}), \
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
+            payload = collect_r30_release_gate_payload()
+
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertFalse(payload["ok"])
+        self.assertFalse(checks["publish_handoffs"]["ok"])
+        self.assertEqual(checks["publish_handoffs"]["families"], ["local_runtime_test_artifacts", "builder_trace_health"])
+        self.assertFalse(checks["registry_pins"]["ok"])
+        self.assertFalse(checks["r30_installer_pins"]["ok"])
+        self.assertIn("spark-cli-public-installer-2026-06-22-r28", checks["r30_installer_pins"]["detail"])
+
+    def test_verify_r30_uses_release_gate_payload(self) -> None:
+        args = build_parser().parse_args(["verify", "--r30", "--json"])
+        payload = {
+            "ok": False,
+            "summary": "Spark R30 release gate",
+            "release": "spark-cli-public-installer-2026-06-27-r30",
+            "checks": [{"name": "registry_pins", "ok": False, "detail": "pin drift"}],
+        }
+        with patch("spark_cli.cli.collect_r30_release_gate_payload", return_value=payload) as collect_mock, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        collect_mock.assert_called_once_with(hosted=False)
+        rendered = json.loads(stdout.getvalue())
+        self.assertEqual(rendered["summary"], "Spark R30 release gate")
 
     def test_verify_hosted_installers_plain_prints_release_freshness(self) -> None:
         args = build_parser().parse_args(["verify", "--installers", "--hosted-installers"])

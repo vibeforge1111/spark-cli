@@ -109,6 +109,7 @@ TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
+R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 SHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'SPARK_CLI_RELEASE_NAME="\$\{SPARK_CLI_RELEASE_NAME:-([^}]+)\}"')
 SHELL_INSTALLER_REF_PATTERN = re.compile(r'SPARK_DEFAULT_CLI_REF="([A-Za-z0-9._/-]+)"')
 POWERSHELL_INSTALLER_RELEASE_PATTERN = re.compile(r'\$SparkCliReleaseName\s*=\s*"([^"]+)"')
@@ -7957,6 +7958,136 @@ def _release_lane_strict_gate(
     }
 
 
+def collect_r30_release_gate_payload(
+    *,
+    desktop: Path | None = None,
+    spark_home: Path | None = None,
+    registry_path: Path | None = None,
+    hosted: bool = False,
+) -> dict[str, Any]:
+    desktop = desktop or (Path.home() / "Desktop")
+    spark_home = spark_home or SPARK_HOME
+    registry_path = registry_path or LOCAL_REGISTRY_PATH
+    installed_path = spark_home / "state" / "installed.json"
+
+    compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
+    written = write_compiled_outputs(spark_home / "state" / "system-map", compiled)
+    os_summary = compile_summary(compiled, written)
+    repo_board = os_summary.get("repo_board") if isinstance(os_summary.get("repo_board"), dict) else {}
+    publish_handoffs = os_summary.get("publish_handoffs") if isinstance(os_summary.get("publish_handoffs"), dict) else {}
+    critical_duplicate_truth_count = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)
+    blocked_release_count = int(repo_board.get("blocked_release_count") or 0)
+    release_lane = _release_lane_strict_gate(
+        compiled,
+        spark_cli_root=REPO_ROOT,
+        registry_path=registry_path,
+        installed_path=installed_path,
+        critical_duplicate_truth_count=critical_duplicate_truth_count,
+    )
+    registry_pins = collect_registry_pin_drift_payload(registry=load_json(registry_path, {}))
+    local_installers = collect_installer_integrity_payload(hosted=False)
+    hosted_installers = collect_installer_integrity_payload(hosted=True) if hosted else None
+    installer_source = installer_manifest_payload().get("source", {})
+    installer_release = str(installer_source.get("releaseName") or "")
+    installer_ref = str(installer_source.get("ref") or "")
+    docs = [
+        "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
+        "docs/R30_RELEASE_PLAN_2026-06-27.md",
+        "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+        "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+        "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+        "docs/R30_INSTALLER_PREP_2026-06-27.md",
+        "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
+        "docs/R30_GOAL_PROMPT_2026-06-27.md",
+    ]
+    missing_docs = [path for path in docs if not (REPO_ROOT / path).exists()]
+    handoff_families = list(publish_handoffs.get("families") or [])
+
+    checks = [
+        {
+            "name": "r30_docs",
+            "ok": not missing_docs,
+            "detail": "R30 documentation packet is present." if not missing_docs else f"Missing R30 docs: {', '.join(missing_docs)}.",
+            "missing": missing_docs,
+        },
+        {
+            "name": "os_compile",
+            "ok": dirty_repo_count == 0 and blocked_release_count == 0 and critical_duplicate_truth_count == 0,
+            "detail": (
+                f"dirty_repo_count={dirty_repo_count}, blocked_release_count={blocked_release_count}, "
+                f"critical_duplicate_truth_count={critical_duplicate_truth_count}"
+            ),
+        },
+        {
+            "name": "publish_handoffs",
+            "ok": int(publish_handoffs.get("family_count") or 0) == 0,
+            "detail": "No publish handoffs remain." if not handoff_families else f"Open publish handoffs: {', '.join(handoff_families)}.",
+            "families": handoff_families,
+            "summary": publish_handoffs,
+        },
+        {
+            "name": "release_lane",
+            "ok": bool(release_lane.get("ok")),
+            "detail": (
+                f"{int(release_lane.get('dirty_repo_count') or 0)} dirty release repos; "
+                f"{int(release_lane.get('issue_count') or 0)} release-lane issues"
+            ),
+            "summary": release_lane,
+        },
+        {
+            "name": "registry_pins",
+            "ok": bool(registry_pins.get("ok")),
+            "detail": registry_pins.get("summary", "registry pin drift check"),
+            "failures": [check for check in registry_pins.get("checks", []) if not check.get("ok")],
+        },
+        {
+            "name": "local_installers",
+            "ok": bool(local_installers.get("ok")),
+            "detail": local_installers.get("summary", "local installer integrity"),
+        },
+        {
+            "name": "r30_installer_pins",
+            "ok": installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME,
+            "detail": (
+                "Installer manifest/scripts point at the R30 release id."
+                if installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
+                else f"Installer still points at {installer_release or '<missing>'} / {installer_ref or '<missing>'}."
+            ),
+            "expected_release": R30_INSTALLER_RELEASE_NAME,
+            "actual_release": installer_release,
+            "actual_ref": installer_ref,
+        },
+    ]
+    if hosted_installers is not None:
+        checks.append(
+            {
+                "name": "hosted_installers",
+                "ok": bool(hosted_installers.get("ok")),
+                "detail": hosted_installers.get("summary", "hosted installer integrity"),
+            }
+        )
+
+    return {
+        "ok": all(bool(check.get("ok")) for check in checks),
+        "summary": "Spark R30 release gate",
+        "release": R30_INSTALLER_RELEASE_NAME,
+        "hosted": hosted,
+        "checks": checks,
+        "os_compile": {
+            "ok": dirty_repo_count == 0 and blocked_release_count == 0 and critical_duplicate_truth_count == 0,
+            "dirty_repo_count": dirty_repo_count,
+            "blocked_release_count": blocked_release_count,
+            "critical_duplicate_truth_count": critical_duplicate_truth_count,
+        },
+        "publish_handoffs": publish_handoffs,
+        "release_lane": release_lane,
+        "registry_pins": registry_pins,
+        "local_installers": local_installers,
+        "hosted_installers": hosted_installers,
+    }
+
+
 def _relative_file_hashes(root: Path) -> dict[str, str]:
     if not root.exists() or not root.is_dir():
         return {}
@@ -14425,6 +14556,18 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 print(f"      warning: {warning}")
         return 0 if payload["ok"] else 1
 
+    if getattr(args, "r30", False):
+        payload = collect_r30_release_gate_payload(hosted=bool(getattr(args, "hosted_installers", False)))
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0 if payload["ok"] else 1
+        print(payload["summary"])
+        print(f"Release: {payload['release']}")
+        for check in payload["checks"]:
+            marker = "[OK]" if check["ok"] else "[FIX]"
+            print(f"{marker} {check['name']}: {check['detail']}")
+        return 0 if payload["ok"] else 1
+
     if getattr(args, "installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
@@ -17513,6 +17656,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--hosted", action="store_true", help="Verify hosted Docker/Railway security posture")
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
     verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
+    verify_parser.add_argument("--r30", action="store_true", help="Run the Spark R30 release gate without publishing or changing installer pins")
     verify_parser.add_argument("--sandboxes", action="store_true", help="Verify optional SSH/Modal sandbox readiness without running cloud smoke jobs")
     verify_parser.add_argument("--mission", action="store_true", help="Preflight the autonomous mission lane: Governor HMAC key, mission provider, and a real round-trip mission completing (not silently expiring)")
     verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")

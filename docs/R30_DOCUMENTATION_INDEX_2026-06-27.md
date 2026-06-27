@@ -22,6 +22,7 @@ installer pin changes, hosted publication, or public release claims.
 
 Current green proof:
 
+- `spark verify --r30 --json` exists as the executable R30 release gate.
 - Telegram reliability/control layer is clean.
 - Spark OS compile is green with `gaps=0`.
 - Local installer integrity is green for the current R28 manifest.
@@ -39,3 +40,9 @@ Current blockers:
 Do not update R30 installer pins or publish hosted installer files until
 source-owner commits, installed runtime heads, registry pins, installer
 manifest, checksums, hosted metadata, and documentation all agree.
+
+Start every R30 release check with:
+
+```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
+```
