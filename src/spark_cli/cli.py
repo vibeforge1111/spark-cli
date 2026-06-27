@@ -8116,6 +8116,26 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
     else:
+        expected_top_level = {
+            "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
+            "release": R30_INSTALLER_RELEASE_NAME,
+            "status": "blocked_before_registry_or_installer_publication",
+            "module": "spark-voice-comms",
+        }
+        for key, expected in expected_top_level.items():
+            if handoff_manifest.get(key) != expected:
+                manifest_issues.append(f"{key}_mismatch")
+        publication_boundary = str(handoff_manifest.get("publication_boundary") or "").lower()
+        voice_boundary_terms = [
+            "no voice registry pin",
+            "installed metadata",
+            "installer pin",
+            "tag",
+            "deploy",
+            "hosted publication",
+        ]
+        if not all(term in publication_boundary for term in voice_boundary_terms):
+            manifest_issues.append("publication_boundary_not_explicit")
         expected_pairs = {
             "expected_registry_commit": row.get("expected_commit"),
             "local_head": row.get("actual_commit"),

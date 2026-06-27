@@ -13464,6 +13464,14 @@ class SparkCliTests(unittest.TestCase):
             manifest_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "module": "spark-voice-comms",
+                        "publication_boundary": (
+                            "No voice registry pin, installed metadata, installer pin, tag, deploy, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "expected_registry_commit": "a" * 40,
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
@@ -13557,6 +13565,11 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertFalse(payload["ok"])
         self.assertIn("expected_registry_commit_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("schema_version_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("release_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("status_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("module_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("publication_boundary_not_explicit", payload["handoff_manifest_issues"])
         self.assertIn("local_head_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_not_rejected_for_final_r30_claim", payload["handoff_manifest_issues"])
         self.assertIn("existing_public_ref_mismatch", payload["handoff_manifest_issues"])
@@ -13572,6 +13585,14 @@ class SparkCliTests(unittest.TestCase):
             manifest_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "module": "spark-voice-comms",
+                        "publication_boundary": (
+                            "No voice registry pin, installed metadata, installer pin, tag, deploy, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
                         "expected_registry_commit": "a" * 40,
                         "local_head": "b" * 40,
                         "installed_registry_commit": "c" * 40,
