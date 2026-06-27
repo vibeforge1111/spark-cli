@@ -16,6 +16,14 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
+Fresh CLI proof refresh at `2026-06-27T16:02:08Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; all listed Spark modules healthy, including Telegram relay runtime
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: `ok=false`; only failing module remains `spark-voice-comms`
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`
+
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, voice runtime truth, Access 5 sandbox evidence, local installer integrity, and publication order. Blocking checks: publish handoffs, release-lane registry/runtime issues, voice registry truth, registry pin drift, and pre-R30 installer pins. |
@@ -32,7 +40,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Spark OS Compile Details
 
-Generated at `2026-06-27T10:00:59Z`.
+Latest CLI proof refresh: `2026-06-27T16:02:08Z`.
 
 Important fields:
 
