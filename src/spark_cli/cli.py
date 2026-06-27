@@ -8643,6 +8643,10 @@ def collect_r30_access_level5_codex_sandbox_status(
     prd_bridge_test_path = spawner_path / "src" / "routes" / "api" / "prd-bridge" / "write" / "clarification-policy.test.ts"
     telegram_actions_path = telegram_path / "src" / "accessActions.ts"
     telegram_actions_test_path = telegram_path / "tests" / "accessActions.test.ts"
+    telegram_level5_env_path = telegram_path / "src" / "level5RuntimeEnv.ts"
+    telegram_level5_env_test_path = telegram_path / "tests" / "level5RuntimeEnv.test.ts"
+    telegram_recursive_path = telegram_path / "src" / "recursive.ts"
+    telegram_recursive_test_path = telegram_path / "tests" / "recursiveLevel5RuntimeEnv.test.ts"
     cli_access_path = REPO_ROOT / "src" / "spark_cli" / "sandbox" / "access.py"
     cli_access_test_path = REPO_ROOT / "tests" / "test_access.py"
 
@@ -8656,6 +8660,10 @@ def collect_r30_access_level5_codex_sandbox_status(
     prd_bridge_test_text = read_optional(prd_bridge_test_path)
     telegram_actions_text = read_optional(telegram_actions_path)
     telegram_actions_test_text = read_optional(telegram_actions_test_path)
+    telegram_level5_env_text = read_optional(telegram_level5_env_path)
+    telegram_level5_env_test_text = read_optional(telegram_level5_env_test_path)
+    telegram_recursive_text = read_optional(telegram_recursive_path)
+    telegram_recursive_test_text = read_optional(telegram_recursive_test_path)
     cli_access_text = read_optional(cli_access_path)
     cli_access_test_text = read_optional(cli_access_test_path)
     live_env_state: dict[str, Any] = {}
@@ -8741,6 +8749,19 @@ def collect_r30_access_level5_codex_sandbox_status(
         "telegram_test_proves_level5_setup_command": "runs Level 5 setup with high-agency guardrails and reports active services" in telegram_actions_test_text
         and "'--enable-high-agency'" in telegram_actions_test_text
         and "effective_codex_sandbox: 'danger-full-access'" in telegram_actions_test_text,
+        "telegram_effective_level5_runtime_env_helper_exists": "effectiveLevel5RuntimeEnv" in telegram_level5_env_text
+        and "persistedTelegramLevel5Env" in telegram_level5_env_text
+        and "spark-telegram-bot.${profile}.env" in telegram_level5_env_text
+        and "SPARK_CODEX_SANDBOX: persisted.SPARK_CODEX_SANDBOX" in telegram_level5_env_text,
+        "telegram_level5_runtime_env_test_proves_stale_read_only_promotion": "promotes stale read-only Telegram process env from persisted Level 5 guardrails" in telegram_level5_env_test_text
+        and "uses profile-specific persisted Level 5 guardrails for Telegram profiles" in telegram_level5_env_test_text
+        and "SPARK_CODEX_SANDBOX: 'read-only'" in telegram_level5_env_test_text
+        and "danger-full-access" in telegram_level5_env_test_text,
+        "telegram_spark_cli_runner_uses_effective_level5_env": "env: effectiveLevel5RuntimeEnv(process.env)" in telegram_actions_text,
+        "telegram_recursive_bridge_uses_effective_level5_env": "import { effectiveLevel5RuntimeEnv } from './level5RuntimeEnv';" in telegram_recursive_text
+        and "effectiveLevel5RuntimeEnv({ ...process.env })" in telegram_recursive_text,
+        "telegram_recursive_bridge_test_proves_effective_env": "recursive bridge subprocesses inherit effective Level 5 runtime env" in telegram_recursive_test_text
+        and "effectiveLevel5RuntimeEnv({ ...process.env })" in telegram_recursive_test_text,
     }
     if check_live_env:
         checks["live_level5_env_files_all_profiled_services_full_access"] = live_env_ok
@@ -8779,6 +8800,10 @@ def collect_r30_access_level5_codex_sandbox_status(
             "prd_bridge_test": str(prd_bridge_test_path),
             "telegram_actions": str(telegram_actions_path),
             "telegram_actions_test": str(telegram_actions_test_path),
+            "telegram_level5_runtime_env": str(telegram_level5_env_path),
+            "telegram_level5_runtime_env_test": str(telegram_level5_env_test_path),
+            "telegram_recursive": str(telegram_recursive_path),
+            "telegram_recursive_test": str(telegram_recursive_test_path),
             "cli_access": str(cli_access_path),
             "cli_access_test": str(cli_access_test_path),
         },

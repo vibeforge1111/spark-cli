@@ -13967,6 +13967,41 @@ class SparkCliTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_r30_telegram_level5_fixture(self, telegram: Path) -> None:
+        level5_env = telegram / "src" / "level5RuntimeEnv.ts"
+        level5_env_test = telegram / "tests" / "level5RuntimeEnv.test.ts"
+        recursive = telegram / "src" / "recursive.ts"
+        recursive_test = telegram / "tests" / "recursiveLevel5RuntimeEnv.test.ts"
+        level5_env.parent.mkdir(parents=True, exist_ok=True)
+        level5_env_test.parent.mkdir(parents=True, exist_ok=True)
+        level5_env.write_text(
+            "export function effectiveLevel5RuntimeEnv(env) {\n"
+            "  const profile = env.SPARK_TELEGRAM_PROFILE;\n"
+            "  const persisted = persistedTelegramLevel5Env(env);\n"
+            "  const path = `spark-telegram-bot.${profile}.env`;\n"
+            "  return { ...env, SPARK_CODEX_SANDBOX: persisted.SPARK_CODEX_SANDBOX, path };\n"
+            "}\n"
+            "function persistedTelegramLevel5Env() { return { SPARK_CODEX_SANDBOX: 'danger-full-access' }; }\n",
+            encoding="utf-8",
+        )
+        level5_env_test.write_text(
+            "promotes stale read-only Telegram process env from persisted Level 5 guardrails\n"
+            "uses profile-specific persisted Level 5 guardrails for Telegram profiles\n"
+            "SPARK_CODEX_SANDBOX: 'read-only'\n"
+            "danger-full-access\n",
+            encoding="utf-8",
+        )
+        recursive.write_text(
+            "import { effectiveLevel5RuntimeEnv } from './level5RuntimeEnv';\n"
+            "const env = effectiveLevel5RuntimeEnv({ ...process.env });\n",
+            encoding="utf-8",
+        )
+        recursive_test.write_text(
+            "recursive bridge subprocesses inherit effective Level 5 runtime env\n"
+            "effectiveLevel5RuntimeEnv({ ...process.env })\n",
+            encoding="utf-8",
+        )
+
     def test_r30_access_level5_codex_sandbox_status_passes_with_spawner_source_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -14020,6 +14055,7 @@ class SparkCliTests(unittest.TestCase):
             )
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "env: effectiveLevel5RuntimeEnv(process.env)\n"
                 "effective_codex_sandbox\n"
                 "const codexSandbox = String(state.effective_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
@@ -14031,6 +14067,7 @@ class SparkCliTests(unittest.TestCase):
                 "effective_codex_sandbox: 'danger-full-access'\n",
                 encoding="utf-8",
             )
+            self.write_r30_telegram_level5_fixture(telegram)
             payload = collect_r30_access_level5_codex_sandbox_status(
                 {},
                 spawner_source_path=source,
@@ -14088,6 +14125,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "env: effectiveLevel5RuntimeEnv(process.env)\n"
                 "configured_codex_sandbox\n"
                 "const codexSandbox = String(state.configured_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
@@ -14098,6 +14136,7 @@ class SparkCliTests(unittest.TestCase):
                 "effective_codex_sandbox: 'danger-full-access'\n",
                 encoding="utf-8",
             )
+            self.write_r30_telegram_level5_fixture(telegram)
 
             payload = collect_r30_access_level5_codex_sandbox_status(
                 {},
@@ -14144,6 +14183,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "env: effectiveLevel5RuntimeEnv(process.env)\n"
                 "effective_codex_sandbox\n"
                 "const codexSandbox = String(state.effective_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
@@ -14153,6 +14193,7 @@ class SparkCliTests(unittest.TestCase):
                 "runs Level 5 setup with high-agency guardrails and reports active services '--enable-high-agency' effective_codex_sandbox: 'danger-full-access'\n",
                 encoding="utf-8",
             )
+            self.write_r30_telegram_level5_fixture(telegram)
             payload = collect_r30_access_level5_codex_sandbox_status(
                 {},
                 release_lane={"rows": [
@@ -14197,6 +14238,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "env: effectiveLevel5RuntimeEnv(process.env)\n"
                 "effective_codex_sandbox\n"
                 "const codexSandbox = String(state.effective_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
@@ -14206,6 +14248,7 @@ class SparkCliTests(unittest.TestCase):
                 "runs Level 5 setup with high-agency guardrails and reports active services '--enable-high-agency' effective_codex_sandbox: 'danger-full-access'\n",
                 encoding="utf-8",
             )
+            self.write_r30_telegram_level5_fixture(telegram)
             stale_doc_text = "Level 5 uses danger-full-access.\n"
             plan.write_text(stale_doc_text, encoding="utf-8")
             evidence.write_text(stale_doc_text, encoding="utf-8")
@@ -14277,6 +14320,7 @@ class SparkCliTests(unittest.TestCase):
             prd_bridge_test.write_text("SPARK_CODEX_SANDBOX: 'danger-full-access' --sandbox danger-full-access\n", encoding="utf-8")
             telegram_actions.write_text(
                 "command: ['access', 'setup', '--level', '5', '--enable-high-agency', '--json']\n"
+                "env: effectiveLevel5RuntimeEnv(process.env)\n"
                 "effective_codex_sandbox\n"
                 "const codexSandbox = String(state.effective_codex_sandbox || '');\n"
                 "Whole-computer operator mode is active for Telegram and Spawner\n",
@@ -14286,6 +14330,7 @@ class SparkCliTests(unittest.TestCase):
                 "runs Level 5 setup with high-agency guardrails and reports active services '--enable-high-agency' effective_codex_sandbox: 'danger-full-access'\n",
                 encoding="utf-8",
             )
+            self.write_r30_telegram_level5_fixture(telegram)
             level5_env = (
                 "SPARK_ALLOW_HIGH_AGENCY_WORKERS=1\n"
                 "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1\n"
