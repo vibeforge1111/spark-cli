@@ -29,6 +29,30 @@ R30 is still blocked until these handoffs are source-owned and verified.
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..f21522accf66` | owner branch `c94eac853fed`; registry/tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 43-commit trace/proof/media/memory stack. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
 | `spark-cli` | local R30 prep commits through `65b9be9` | hosted R29 tag `7751ef43581c`; local installer manifest/scripts remain R28 | Include R30 docs and voice source-discovery fix in the source release before installer pins move. |
 
+## R30 Gate Classification
+
+`spark verify --r30 --json` now classifies release-lane registry/runtime issue
+rows so owner handoffs can be sequenced without hiding broader drift.
+
+Direct R30 blockers:
+
+- `domain-chip-memory`
+- `spark-intelligence-builder`
+- `spark-telegram-bot`
+- `spark-voice-comms`
+- `spawner-ui`
+
+Supporting release-hygiene rows:
+
+- `domain-chip-spark-qa-evidence-lane`
+- `spark-character`
+- `spark-harness-core`
+- `spark-researcher`
+- `spark-skill-graphs`
+
+All ten rows still block public installer truth until registry, installed
+runtime metadata, and owner-source refs converge.
+
 ## Exact Commit Lists
 
 ### `spark-telegram-bot`

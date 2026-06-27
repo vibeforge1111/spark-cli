@@ -56,23 +56,26 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `r30_docs`: pass
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `publish_handoffs`: fail, open families are `local_runtime_test_artifacts` and `builder_trace_health`
-- `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows
+- `release_lane`: fail, `0` dirty release repos and `10` release-lane issue rows, classified as `5` direct R30 blockers and `5` supporting hygiene rows
 - `registry_pins`: fail
 - `local_installers`: pass
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-22-r28`
 
-Release-lane issue rows:
+Direct R30 release-lane blockers:
 
 - `domain-chip-memory`: head differs from registry
-- `domain-chip-spark-qa-evidence-lane`: head and installed metadata differ from registry
-- `spark-character`: head differs from registry
-- `spark-harness-core`: head differs from registry
 - `spark-intelligence-builder`: head differs from registry
-- `spark-researcher`: head differs from registry
-- `spark-skill-graphs`: head and installed metadata differ from registry
 - `spark-telegram-bot`: head differs from registry
 - `spark-voice-comms`: head and installed metadata differ from registry
 - `spawner-ui`: head differs from registry
+
+Supporting release-hygiene rows:
+
+- `domain-chip-spark-qa-evidence-lane`: head and installed metadata differ from registry
+- `spark-character`: head differs from registry
+- `spark-harness-core`: head differs from registry
+- `spark-researcher`: head differs from registry
+- `spark-skill-graphs`: head and installed metadata differ from registry
 
 Builder trace current health:
 
