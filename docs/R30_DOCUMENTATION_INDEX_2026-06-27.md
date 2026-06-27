@@ -30,6 +30,7 @@ Current green proof:
 - `spark verify --r30 --json` exists as the executable R30 release gate.
 - The R30 owner handoff manifest is present and checked by `spark verify --r30 --json` for module and commit alignment.
 - The R30 local runtime artifacts handoff manifest is present and checked by `spark verify --r30 --json` for Telegram/Spawner owner, commit, installed-metadata, and proof-command alignment.
+- The R30 local runtime handoff docs are checked against the structured artifact manifest for module heads, ranges, commit counts, required terminal subjects, and proof commands.
 - Spark live status is checked by `spark verify --r30 --json`.
 - The publication-order guard is green while source truth is red because installer pins remain pre-R30.
 - Telegram reliability/control layer is clean.

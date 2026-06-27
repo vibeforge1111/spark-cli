@@ -9008,7 +9008,7 @@ def collect_r30_local_runtime_handoff_docs_status(
     return {
         "ok": not issues,
         "detail": (
-            "R30 local runtime handoff docs match structured artifact heads and ranges."
+            "R30 local runtime handoff docs match structured artifact heads, ranges, required subjects, and proof commands."
             if not issues
             else f"R30 local runtime handoff docs are stale: {', '.join(issues)}."
         ),

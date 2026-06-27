@@ -13779,6 +13779,8 @@ class SparkCliTests(unittest.TestCase):
             )
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["issues"], [])
+        self.assertIn("required subjects", payload["detail"])
+        self.assertIn("proof commands", payload["detail"])
 
     def test_r30_access_level5_codex_sandbox_status_reports_missing_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
