@@ -26,6 +26,12 @@ Run this from the exact branch or worktree intended for production. Do not push
 installer changes until this gate passes and any paired Spark repo updates are
 ready to ship together.
 
+For the R30 installer batch, start from:
+
+- [R30 release plan](./R30_RELEASE_PLAN_2026-06-27.md)
+- [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
+- [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
+
 ```bash
 python -m pytest
 python -m spark_cli.cli verify --installers --json
