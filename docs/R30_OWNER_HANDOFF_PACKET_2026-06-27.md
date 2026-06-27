@@ -401,7 +401,10 @@ live access payload must also report `effective_access_level=5` and
 restart, green env files alone, or a stale current-process sandbox as proof that
 SparkRecursive/SparkQA-style bot profiles are writable. Stale no-token profile
 files must remain visible as `skipped_unstartable_telegram_profiles` instead of
-silently downgrading the whole install to workspace mode.
+silently downgrading the whole install to workspace mode. `spark live status`
+must use the same startable-profile rule: a no-token named profile can be shown
+as stopped/unstartable, but it must not make the primary Telegram bot, Spawner,
+or Level 5 proof look read-only or failed.
 
 Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is carried as explicit historical release debt and is still:
 

@@ -3426,6 +3426,16 @@ def telegram_profile_should_autostart(profile_state: Any) -> bool:
     return not (isinstance(profile_state, dict) and profile_state.get("autostart") is False)
 
 
+def telegram_profile_has_startable_token(profile: str | None) -> bool:
+    normalized = normalize_telegram_profile(profile)
+    if telegram_profile_is_default(normalized):
+        path = MODULE_CONFIG_DIR / "spark-telegram-bot.env"
+    else:
+        path = MODULE_CONFIG_DIR / f"spark-telegram-bot.{normalized}.env"
+    values = read_generated_env(path)
+    return bool(values.get("BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN"))
+
+
 def primary_telegram_profile(setup_state: dict[str, Any] | None = None) -> str:
     state = setup_state if isinstance(setup_state, dict) else load_json(CONFIG_PATH, {})
     if not isinstance(state, dict):
@@ -8384,6 +8394,52 @@ def collect_r30_builder_trace_lifecycle_status(publish_handoffs: dict[str, Any])
     }
 
 
+def classify_r30_publish_handoff_blockers(
+    publish_handoffs: dict[str, Any],
+    *,
+    local_runtime_artifacts_handoff: dict[str, Any],
+    builder_trace_lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    families = [
+        str(family)
+        for family in publish_handoffs.get("families", [])
+        if str(family)
+    ] if isinstance(publish_handoffs.get("families"), list) else []
+    if not families:
+        families = sorted(
+            key
+            for key, value in publish_handoffs.items()
+            if isinstance(value, dict) and key not in {"families", "family_count"}
+        )
+
+    carried: list[str] = []
+    blocking: list[str] = []
+    reasons: dict[str, str] = {}
+    for family in families:
+        if family == "local_runtime_test_artifacts" and bool(local_runtime_artifacts_handoff.get("ok")):
+            carried.append(family)
+            reasons[family] = "publication-bound local runtime artifacts are covered by the R30 handoff manifest"
+            continue
+        if (
+            family == "builder_trace_health"
+            and bool(builder_trace_lifecycle.get("ok"))
+            and str(builder_trace_lifecycle.get("decision") or "") == "builder_trace_lifecycle_historical_handoff_carried"
+        ):
+            carried.append(family)
+            reasons[family] = "historical Builder trace family is explicitly carried with current windows clean"
+            continue
+        blocking.append(family)
+        reasons[family] = "owner-source or registry closure evidence is still required"
+
+    return {
+        "ok": not blocking,
+        "families": families,
+        "blocking_families": blocking,
+        "carried_families": carried,
+        "reasons": reasons,
+    }
+
+
 def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, Any]:
     modules = status_payload.get("modules") if isinstance(status_payload.get("modules"), list) else []
     unhealthy = []
@@ -9270,6 +9326,11 @@ def collect_r30_release_gate_payload(
     local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
+    publish_handoff_blockers = classify_r30_publish_handoff_blockers(
+        publish_handoffs,
+        local_runtime_artifacts_handoff=local_runtime_artifacts_handoff,
+        builder_trace_lifecycle=builder_trace_lifecycle,
+    )
     access_level5_codex_sandbox = collect_r30_access_level5_codex_sandbox_status(
         compiled,
         release_lane=release_lane,
@@ -9287,7 +9348,7 @@ def collect_r30_release_gate_payload(
     installer_ref = str(installer_source.get("ref") or "")
     installer_pins_are_r30 = installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
     source_truth_ready = (
-        int(publish_handoffs.get("family_count") or 0) == 0
+        bool(publish_handoff_blockers.get("ok"))
         and bool(handoff_manifest.get("ok"))
         and bool(local_runtime_artifacts_handoff.get("ok"))
         and bool(release_lane.get("ok"))
@@ -9296,7 +9357,7 @@ def collect_r30_release_gate_payload(
         and bool(registry_pins.get("ok"))
     )
     source_truth_blockers: list[str] = []
-    if int(publish_handoffs.get("family_count") or 0) != 0:
+    if not bool(publish_handoff_blockers.get("ok")):
         source_truth_blockers.append("publish_handoffs")
     if not bool(handoff_manifest.get("ok")):
         source_truth_blockers.append("owner_handoff_manifest")
@@ -9363,9 +9424,15 @@ def collect_r30_release_gate_payload(
         },
         {
             "name": "publish_handoffs",
-            "ok": int(publish_handoffs.get("family_count") or 0) == 0,
-            "detail": "No publish handoffs remain." if not handoff_families else f"Open publish handoffs: {', '.join(handoff_families)}.",
+            "ok": bool(publish_handoff_blockers.get("ok")),
+            "detail": (
+                "No blocking publish handoffs remain."
+                if bool(publish_handoff_blockers.get("ok"))
+                else f"Blocking publish handoffs: {', '.join(publish_handoff_blockers.get('blocking_families') or [])}."
+            ),
             "families": handoff_families,
+            "blocking_families": publish_handoff_blockers.get("blocking_families", []),
+            "carried_families": publish_handoff_blockers.get("carried_families", []),
             "summary": publish_handoffs,
         },
         {
@@ -9535,6 +9602,7 @@ def collect_r30_release_gate_payload(
             "critical_duplicate_truth_count": critical_duplicate_truth_count,
         },
         "publish_handoffs": publish_handoffs,
+        "publish_handoff_blockers": publish_handoff_blockers,
         "owner_handoff_manifest": handoff_manifest,
         "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
         "cli_owner_handoff_docs": cli_owner_handoff_docs,
@@ -16789,7 +16857,11 @@ def expected_runtime_process_names(installed_names: set[str], setup_state: dict[
         names.append("spawner-ui")
     if isinstance(profiles, dict) and "spark-telegram-bot" in installed_names:
         for profile, profile_state in sorted(profiles.items()):
-            if isinstance(profile_state, dict) and telegram_profile_should_autostart(profile_state):
+            if (
+                isinstance(profile_state, dict)
+                and telegram_profile_should_autostart(profile_state)
+                and telegram_profile_has_startable_token(str(profile))
+            ):
                 process_key = module_process_key("spark-telegram-bot", str(profile))
                 if process_key not in names:
                     names.append(process_key)

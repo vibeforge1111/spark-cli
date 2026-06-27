@@ -42,6 +42,7 @@ from spark_cli.cli import (
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
     collect_drift_sentinel_payload,
+    classify_r30_publish_handoff_blockers,
     collect_harness_vendor_integrity_payload,
     collect_r30_access_level5_codex_sandbox_status,
     collect_r30_builder_trace_lifecycle_status,
@@ -8665,10 +8666,28 @@ class SparkCliTests(unittest.TestCase):
             }
         }
 
-        self.assertEqual(
-            expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
-            ["spawner-ui", "spark-telegram-bot:spark-agi"],
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.MODULE_CONFIG_DIR", Path(tmp_dir)):
+            (Path(tmp_dir) / "spark-telegram-bot.spark-agi.env").write_text("BOT_TOKEN=fake-token\n", encoding="utf-8")
+            self.assertEqual(
+                expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+                ["spawner-ui", "spark-telegram-bot:spark-agi"],
+            )
+
+    def test_expected_runtime_process_names_skips_unstartable_named_telegram_profiles(self) -> None:
+        setup_state = {
+            "telegram_profiles": {
+                "sparkqa-bot": {"relay_port": 8790},
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.MODULE_CONFIG_DIR", Path(tmp_dir)):
+            (Path(tmp_dir) / "spark-telegram-bot.sparkqa-bot.env").write_text("BOT_NAME=sparkqa-bot\n", encoding="utf-8")
+            self.assertEqual(
+                expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+                ["spawner-ui"],
+            )
 
     def test_expected_runtime_process_names_keeps_autostart_profile_for_external_ingress(self) -> None:
         setup_state = {
@@ -8679,10 +8698,13 @@ class SparkCliTests(unittest.TestCase):
             },
         }
 
-        self.assertEqual(
-            expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
-            ["spawner-ui", "spark-telegram-bot:primary"],
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.MODULE_CONFIG_DIR", Path(tmp_dir)):
+            (Path(tmp_dir) / "spark-telegram-bot.primary.env").write_text("TELEGRAM_BOT_TOKEN=fake-token\n", encoding="utf-8")
+            self.assertEqual(
+                expected_runtime_process_names({"spark-telegram-bot", "spawner-ui"}, setup_state),
+                ["spawner-ui", "spark-telegram-bot:primary"],
+            )
 
     def test_expected_runtime_process_names_uses_default_bot_without_profiles(self) -> None:
         self.assertEqual(
@@ -13841,6 +13863,46 @@ class SparkCliTests(unittest.TestCase):
         payload = collect_r30_builder_trace_lifecycle_status({})
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["decision"], "builder_trace_lifecycle_clear")
+
+    def test_r30_publish_handoff_blockers_carry_documented_non_current_families(self) -> None:
+        payload = classify_r30_publish_handoff_blockers(
+            {
+                "family_count": 2,
+                "families": ["local_runtime_test_artifacts", "builder_trace_health"],
+            },
+            local_runtime_artifacts_handoff={"ok": True},
+            builder_trace_lifecycle={
+                "ok": True,
+                "decision": "builder_trace_lifecycle_historical_handoff_carried",
+            },
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["blocking_families"], [])
+        self.assertEqual(
+            payload["carried_families"],
+            ["local_runtime_test_artifacts", "builder_trace_health"],
+        )
+
+    def test_r30_publish_handoff_blockers_keep_uncleared_families_blocking(self) -> None:
+        payload = classify_r30_publish_handoff_blockers(
+            {
+                "local_runtime_test_artifacts": {"owners": ["spark-telegram-bot"]},
+                "builder_trace_health": {"unresolved_high_severity_open_count": 1},
+                "unknown_family": {},
+            },
+            local_runtime_artifacts_handoff={"ok": False},
+            builder_trace_lifecycle={
+                "ok": True,
+                "decision": "builder_trace_lifecycle_current_clean",
+            },
+        )
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["blocking_families"],
+            ["builder_trace_health", "local_runtime_test_artifacts", "unknown_family"],
+        )
 
     def write_r30_spawner_level5_fixture(self, source: Path) -> None:
         high_agency_workers = source / "src" / "lib" / "server" / "high-agency-workers.ts"

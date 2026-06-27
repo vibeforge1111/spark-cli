@@ -32,7 +32,7 @@ Local evidence captured on 2026-06-27:
 - Hosted installer: `agent.sparkswarm.ai` serves R29, and local installer manifest/scripts now match that hosted baseline.
 - `spark verify --provenance --json`: passes; signed commit enforcement remains report-only.
 - `spark verify --registry-pins --json`: fails only because `spark-voice-comms` registry pin lags `refs/heads/main`.
-- Spark OS publish handoffs remain visible: 2 local runtime test artifacts and 1 historical Builder trace lifecycle family.
+- Spark OS publish handoffs remain visible but classified: `local_runtime_test_artifacts` and `builder_trace_health` are carried evidence, not fresh source-truth blockers, while owner-source, registry, and installer convergence remain blocked.
 
 Detailed owner-source audit: [R30 source owner audit](./R30_SOURCE_OWNER_AUDIT_2026-06-27.md). Concrete owner-lane ranges: [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md). Voice registry decision: [R30 voice registry decision](./R30_VOICE_REGISTRY_DECISION_2026-06-27.md). Builder trace lifecycle decision: [R30 Builder trace lifecycle decision](./R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md). Current local proof status: [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md).
 
@@ -54,6 +54,7 @@ Use this order for R30. Do not skip ahead.
 | `spark-cli` | Local head includes R30 prep plus the voice source discovery fix; manifest now points at the public R29 baseline. | Include the voice discovery fix and R30 docs in the source-owner release before changing installer pins to R30. |
 | `spark-voice-comms` | Installed source is importable; registry pin `21a9467e...` lags remote `main`/tag `spark-ship-2026-06-26` at `c74490d...`; local voice checkout `7555a36...` is ahead of its branch with trace/governor proof. | Do not pin R30 voice to the earlier public tag if R30 claims current voice trace proof. Port/tag the local voice trace/governor commits first, then update registry and installed-state truth together. |
 | Builder trace health | Current windows clean; one historical high-severity lifecycle family remains from 2026-06-02. | Close with owner-approved lifecycle evidence or keep explicit as a non-hidden historical publish handoff. |
+| Named Telegram profiles | `primary` is running; stale no-token `sparkqa-bot` remains visible as configured but unstartable. | Access 5 and live status must require every startable/already-running profile, skip no-token profiles explicitly, and never let a skipped profile downgrade proven Level 5 to read-only. |
 | Hosted installer | Hosted and local installer truth agree on R29. | Publish R30 only after local manifest, hosted scripts, hosted checksums, commands metadata, and release manifest all agree on R30. |
 
 ## R30 Must Have
