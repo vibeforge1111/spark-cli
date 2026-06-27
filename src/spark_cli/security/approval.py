@@ -549,6 +549,19 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve hosted deploy",
         )
+    if (
+        first == "gcloud"
+        and (lowered[1:3] in (["run", "deploy"], ["app", "deploy"], ["functions", "deploy"]) or second == "deploy")
+    ) or (first == "firebase" and second == "deploy"):
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "high",
+            "Command can publish or redeploy hosted Google/Firebase infrastructure.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve hosted deploy",
+        )
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
         return _decision(
             parts,
