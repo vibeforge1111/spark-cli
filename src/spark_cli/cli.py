@@ -129,7 +129,7 @@ R30_DIRECT_RELEASE_MODULES = {
 }
 R30_RELEASE_LANE_ACTIONS = {
     "domain-chip-memory": {
-        "next_action": "Review/push the vNext memory write authority proof or replace it with equivalent owner-source proof before registry movement.",
+        "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
         "proof_commands": ["PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"],
     },
     "domain-chip-spark-qa-evidence-lane": {
@@ -145,7 +145,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-intelligence-builder": {
-        "next_action": "Review/push or rebase the Builder trace/proof stack, then keep the historical trace lifecycle visible or close it with owner evidence.",
+        "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
         "proof_commands": [
             "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
         ],
@@ -159,7 +159,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm run control:proof:reliability",
             "npm run build",
@@ -177,7 +177,7 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes, then rerun Spawner checks before registry pin movement.",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client and PRD-lane Level 5 Codex sandbox fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
         "proof_commands": [
             "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
             "npm run check",

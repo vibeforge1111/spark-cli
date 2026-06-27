@@ -13453,12 +13453,14 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("Level 5 Codex sandbox confirmation fix", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("current owner release base", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("npm run build", blockers["spark-telegram-bot"]["proof_commands"])
         self.assertIn(
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
             blockers["spark-telegram-bot"]["proof_commands"],
         )
         self.assertIn("PRD-lane Level 5 Codex sandbox fixes", blockers["spawner-ui"]["next_action"])
+        self.assertIn("current owner release base", blockers["spawner-ui"]["next_action"])
         self.assertIn("npm run check", blockers["spawner-ui"]["proof_commands"])
         self.assertTrue(any("high-agency-workers.test.ts" in command for command in blockers["spawner-ui"]["proof_commands"]))
         self.assertIn("voice trace/governor commits", blockers["spark-voice-comms"]["next_action"])
