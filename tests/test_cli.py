@@ -1703,6 +1703,33 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_pulumi_live_mutations(self) -> None:
+        up = approval_required_for_command(["pulumi", "up", "--yes"], CommandContext(non_interactive=True))
+        self.assertTrue(up.requires_approval)
+        self.assertEqual(up.action_class, "external_publish")
+        self.assertEqual(up.risk, "high")
+        self.assertEqual(up.approval_mode, "blocked")
+        self.assertEqual(up.confirmation_phrase, "approve infrastructure change")
+
+        destroy = approval_required_for_command(["pulumi", "destroy", "--yes"], CommandContext(non_interactive=True))
+        self.assertTrue(destroy.requires_approval)
+        self.assertEqual(destroy.action_class, "external_publish")
+        self.assertEqual(destroy.risk, "critical")
+
+        imported = approval_required_for_command(
+            ["pulumi", "import", "aws:s3/bucket:Bucket", "logs", "bucket-name"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(imported.requires_approval)
+        self.assertEqual(imported.action_class, "external_publish")
+        self.assertEqual(imported.risk, "high")
+
+        preview = approval_required_for_command(["pulumi", "preview"], CommandContext(non_interactive=True))
+        self.assertFalse(preview.requires_approval)
+
+        stack_output = approval_required_for_command(["pulumi", "stack", "output"], CommandContext(non_interactive=True))
+        self.assertFalse(stack_output.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),

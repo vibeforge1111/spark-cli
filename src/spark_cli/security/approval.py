@@ -573,13 +573,23 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
-    if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
+    if first in {"kubectl", "helm", "terraform"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,
             ctx,
             "external_publish",
             "critical" if "destroy" in lowered or "delete" in lowered else "high",
             "Command can mutate live infrastructure.",
+            target_display=" ".join(parts[:5]),
+            confirmation_phrase="approve infrastructure change",
+        )
+    if first == "pulumi" and second in {"up", "destroy", "import"}:
+        return _decision(
+            parts,
+            ctx,
+            "external_publish",
+            "critical" if second == "destroy" else "high",
+            "Command can mutate live infrastructure through Pulumi.",
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
