@@ -19,7 +19,7 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 - `spawner-ui`: local branch is ahead of the owner release branch.
 - `spark-voice-comms`: the public `spark-ship-2026-06-26` tag is test-clean, but it does not include the local voice trace/governor commits that make the current Spark OS voice proof truthful.
 - `domain-chip-memory` and `spark-intelligence-builder`: local heads are ahead of owner branches.
-- Builder trace health still has one historical lifecycle family that must remain visible until source-owned closure exists.
+- Builder trace health still has one historical lifecycle family; the R30 gate now carries it as explicit historical release debt while current windows stay clean and the exact family remains visible.
 - `spark-cli`: local R30 prep now includes the executable R30 gate, live-status gate, Access 5 Codex sandbox gate with named-profile env proof (`live_level5_env_files_all_profiled_services_full_access`) and explicit `current_process_codex_sandbox` / `service_codex_sandbox` / `effective_codex_sandbox` fields, the `r30_unattended_identity_guard` fake-token smoke, voice runtime truth gate with `requires_confirmation_for_actions=true`, local runtime artifact handoff gate, structured publication source blockers (`source_truth_blockers`), the R29 hosted/local installer baseline alignment, and the `r30_hosted_publication_contract` check that prevents hosted R29 integrity from being read as R30 publication proof. It has not been published or tagged as R30.
 
 ## Current Heads And Pins
@@ -31,7 +31,7 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 | `spawner-ui` | `7110dce4030a` on `release/stability-2026-06-02-spawner-authority` | owner branch `fdb8fded4744`; remote `main` `451d009aad84`; tag `spark-ship-2026-06-22` `19b7d0bff144` | registry pin `19b7d0bff144`; classified `local_runtime_test_artifact` | Push/port the local merge/fix stack, including direct-client and PRD-lane Level 5 Codex sandbox fixes, before changing registry. |
 | `spark-voice-comms` | `7555a363d763` on `codex/turnintent-voice-policy-20260531`; ahead 2 of owner branch | owner branch `12bddc9bd0bd`; remote `main` and tag `spark-ship-2026-06-26` `c74490d68ece` | registry pin `21a9467e9bd4`; installed state still records `0d6e366fd04d` | Do not pin R30 voice to `c74490d` if R30 claims current voice trace proof. Port/tag local trace/governor commits first, then update registry and installed state truth together. |
 | `domain-chip-memory` | `1fd272e519b5`; ahead 1 | owner branch `3116ccaa3977`; remote `main` `72a660a69c0c`; tag `spark-ship-2026-06-22` `f7f16a6ea8ee` | registry pin `f7f16a6ea8ee` | Owner can review/push the vNext memory authority proof before R30 registry claims. |
-| `spark-intelligence-builder` | `f21522accf66`; ahead 43 | owner branch `c94eac853fed`; remote `main` `9d7bdefaa9a0`; tag `spark-ship-2026-06-22` `e7f80fbf03bd` | registry pin `e7f80fbf03bd` | Owner can review/push or port the merge/fix stack; Builder historical trace lifecycle remains a separate handoff. |
+| `spark-intelligence-builder` | `f21522accf66`; ahead 43 | owner branch `c94eac853fed`; remote `main` `9d7bdefaa9a0`; tag `spark-ship-2026-06-22` `e7f80fbf03bd` | registry pin `e7f80fbf03bd` | Owner can review/push or port the merge/fix stack. The Builder historical trace lifecycle is carried as explicit historical release debt, not hidden closure. |
 
 ## Voice Registry Decision
 
@@ -72,11 +72,12 @@ The remaining unresolved historical trace family is:
 - current 24h high-open count: `0`
 - reason code: redacted by the trace index
 
-R30 must not hide this family. Either add source-owned lifecycle closure evidence after confirming the guardrail is still active, or keep this as an explicit historical publish handoff.
+R30 must not hide this family. It is currently carried as an explicit historical publish handoff while current windows remain clean. Removing it still requires source-owned lifecycle closure evidence after confirming the guardrail is still active.
 
 ## Proof Captured
 
-- `spark os compile --json`: green at `2026-06-27T14:43:44Z`, with `dirty_repo_count=0`, `gaps=0`, 2 local runtime test artifacts, and 1 Builder historical lifecycle handoff still visible.
+- `spark os compile --json`: green at `2026-06-27T19:16:04Z`, with `dirty_repo_count=0`, `gaps=0`, 2 local runtime test artifacts, and 1 Builder historical lifecycle handoff still visible.
+- `spark verify --r30 --json`: after `ea4e020`, `r30_builder_trace_lifecycle` is no longer a source-truth blocker when the exact historical family is carried and current windows remain clean.
 - `spark verify --r30 --json`: green for R30 docs, OS compile, live status, owner handoff manifest, local runtime artifact handoff manifest, voice runtime truth, Access 5 sandbox evidence, local installers, and publication order; red for the real source/registry/publish blockers.
 - `spark-voice-comms` remote tag worktree test: `121 passed`.
 - `spark-voice-comms` installed local branch test: `80 passed`.

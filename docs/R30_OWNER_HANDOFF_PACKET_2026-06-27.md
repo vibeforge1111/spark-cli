@@ -371,7 +371,7 @@ accept a module-level Telegram restart, green env files alone, or a stale
 current-process sandbox as proof that SparkRecursive/SparkQA-style bot profiles
 are writable.
 
-Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is still:
+Keep this separate from the historical lifecycle close. The remaining Builder lifecycle family is carried as explicit historical release debt and is still:
 
 - component: `telegram_runtime`
 - event type: `tool_call_ledger_recorded`
