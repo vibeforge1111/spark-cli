@@ -286,30 +286,44 @@ def level5_service_guardrail_state(
         pids = json.loads(pids_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pids = {}
-    expected = {
-        "spawner-ui": False,
-        "spark-telegram-bot": False,
-    }
+    telegram_profiles: list[str] = []
+    for path in level5_telegram_env_paths(home=spark_home, env=env):
+        if path.name == "spark-telegram-bot.env":
+            continue
+        profile = path.stem.removeprefix("spark-telegram-bot.")
+        if profile:
+            telegram_profiles.append(profile)
+    telegram_service_labels = [f"spark-telegram-bot:{profile}" for profile in sorted(set(telegram_profiles))]
+    if not telegram_service_labels:
+        telegram_service_labels = ["spark-telegram-bot"]
+    expected = {"spawner-ui": False, **{label: False for label in telegram_service_labels}}
     modules: dict[str, Any] = {}
     if isinstance(pids, dict):
         for key, record in pids.items():
             if not isinstance(record, dict):
                 continue
             module = str(record.get("module") or key.split(":", 1)[0])
-            if module not in expected:
+            profile = str(record.get("profile") or "")
+            service_label = f"{module}:{profile}" if module == "spark-telegram-bot" and profile else module
+            if service_label not in expected and module == "spark-telegram-bot" and "spark-telegram-bot" in expected:
+                service_label = "spark-telegram-bot"
+            if service_label not in expected:
                 continue
             started_at = _parse_utc_timestamp(record.get("started_at"))
             active = bool(started_at is not None and started_at >= configured_at)
-            previous = modules.get(module)
+            previous = modules.get(service_label)
             if previous is None or active:
-                modules[module] = {
+                modules[service_label] = {
                     "active": active,
                     "pid": record.get("pid"),
+                    "profile": profile or None,
                     "started_at": record.get("started_at"),
                 }
             if active:
-                expected[module] = True
+                expected[service_label] = True
+    missing = [label for label, active in expected.items() if not active]
     state["modules"] = modules
+    state["missing_or_stale_services"] = missing
     state["enabled"] = all(expected.values())
     if state["enabled"]:
         state["activation_state"] = "active"
@@ -744,6 +758,8 @@ def access_lane_payload(
         level5_activation_state = "active_for_services"
     elif level5_process_active:
         level5_activation_state = "session_only"
+    elif level5_configured and level5_service_state.get("activation_state") == "partial":
+        level5_activation_state = "partial"
     elif level5_restart_required:
         level5_activation_state = "restart_required"
     elif any((

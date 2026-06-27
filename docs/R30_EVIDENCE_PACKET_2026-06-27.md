@@ -35,6 +35,7 @@ Fresh CLI proof refresh at `2026-06-27T16:02:08Z`:
 | Telegram `npm run control:proof:reliability` | PASS | Fresh-strict audit clean for actionable/latest gaps; live trace clean; render firewall, capsules, evals, legacy prompt surface, capability evidence, and surface eval all clean. |
 | Telegram `npm run build` | PASS | TypeScript compile passed. |
 | Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 0 growing, 0 new over cap. |
+| Level 5 named-profile service proof | PASS | `PYTHONPATH=src python3 -m pytest -q tests/test_access.py` passed with new regressions proving every named Telegram profile must restart after Level 5 guardrail setup. If one profile is stale or missing, Level 5 reports `partial`, `service_enabled=false`, and effective access stays at Level 4. |
 | R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | PASS | Hosted `agent.sparkswarm.ai` and local committed installer truth agree on R29. Hosted script bytes match hosted checksum metadata; hosted command metadata and release manifest match R29. This does not claim R30 readiness. |
 
@@ -74,7 +75,7 @@ Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 -
 - `r30_voice_registry_decision`: fail by design until `spark-voice-comms` trace/governor commits are source-owned and registry/installed truth converge; the structured voice owner handoff manifest is present and checked for exact commits, proof commands, and rejection of the existing public tag as the final R30 voice claim
 - `r30_voice_runtime_truth`: pass, R30 docs match compiled voice runtime truth with `voice_surface_mode=egress`, `voice_surface_blockers=1`, blocker `voice transcription is not ready`, and `requires_confirmation_for_actions=true`
 - `r30_builder_trace_lifecycle`: fail by design until Builder owner-source closure evidence exists or the historical family is explicitly carried in release truth
-- `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration.
+- `r30_access_level5_codex_sandbox`: pass, CLI transition proof plus installed Spawner and Telegram sources prove `/access 5` activates high-agency guardrails and all known Codex lanes inherit Level 5 `danger-full-access`. The R30 gate also checks live installed env/profile state through `live_level5_env_files_all_profiled_services_full_access`: `spawner`, `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all exist with the Level 5 env bundle, and the services restarted after Level 5 guardrail configuration. The service proof is now per named Telegram profile, not merely per `spark-telegram-bot` module, so a stale SparkRecursive/SparkQA-style profile cannot hide behind another restarted bot process.
 - `registry_pins`: fail
 - `local_installers`: pass
 - `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30. The structured `source_truth_blockers` list keeps the hold explicit: `publish_handoffs`, `release_lane`, and `registry_pins`.
@@ -100,6 +101,17 @@ Fresh direct-blocker proof results:
 These passes prove the local direct-blocker stacks are test-clean. They do not
 remove the R30 block until owner-source refs, registry pins, and installed
 metadata converge.
+
+## Level 5 Read-Only Regression Boundary
+
+Fresh access hardening run at `2026-06-27T16:07Z`:
+
+- `spark access status --level 5 --json`: local installed state is `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, and configured Codex sandbox is `danger-full-access`.
+- Live env files checked: `spawner`, base `telegram`, `telegram_profile:primary`, and `telegram_profile:sparkqa-bot` all carry `SPARK_ALLOW_HIGH_AGENCY_WORKERS=1`, `SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1`, and `SPARK_CODEX_SANDBOX=danger-full-access`.
+- New regression: a Level 5 setup with `primary` restarted but `sparkqa-bot` not restarted must report `activation_state=partial`, `service_enabled=false`, `missing_or_stale_services=["spark-telegram-bot:sparkqa-bot"]`, and effective access Level 4.
+- New regression: the same setup with both named Telegram profiles restarted reports `activation_state=active_for_services`, `service_enabled=true`, and effective access Level 5.
+
+This closes the read-only drift class where Telegram `/access 5` or a lower-level-to-Level-5 promotion could look globally active while one named bot profile was still running with stale sandbox settings.
 
 Supporting release-hygiene rows:
 
