@@ -31,6 +31,20 @@ and Builder historical trace health are carried explicitly, not hidden.
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
 
+## Supporting Hygiene Queue
+
+These rows must not block the first direct R30 control-layer convergence, but
+they must stay visible before anyone claims Spark-wide publish truth across the
+full 11-repo lane.
+
+| Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before Spark-wide publish |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | `domain-chip-spark-qa-evidence-lane` | `main` at `4ea32635bf08`; reconcile branch `476644de047e` | `215c6b9cbefb` | registry `476644de047e`; installed metadata `fc1a8b42bdc7` | Decide whether the local `main` commit is source truth or reset/install back to the reconcile pin; then align installed metadata. |
+| 2 | `spark-character` | `spark-ship-2026-06-26` at `8cad27624c4b`; registry tag `spark-ship-2026-06-22` at `6901e2e2ab0a` | `cf8177561c16` | registry/installed `6901e2e2ab0a` | Review the character-network-policy lane against the newer public tag before claiming character publish truth. |
+| 3 | `spark-harness-core` | `main` at `a78c5bb2137a`; registry tag `v1.0.0-rc.2` at `71e564b36b93` | `b190986996f0` | registry/installed `71e564b36b93` | Decide whether the charter-link lane should become owner release truth or return runtime to the registry tag. |
+| 4 | `spark-researcher` | `main` / `spark-ship-2026-06-26` at `9ac089dd791c`; registry tag `spark-ship-2026-06-22` at `906592e2bb02` | `587dbd2a57d6` | registry/installed `906592e2bb02` | Review the self-edit-governor lane against the current public tag before claiming researcher publish truth. |
+| 5 | `spark-skill-graphs` | `main` at `bc30ee37b646`; reconcile branch `59c211afc6f0` | `8dcdd172f35f` | registry `59c211afc6f0`; installed metadata `8dcdd172f35f` | Resolve the split where installed metadata follows local `main` but registry still points at reconcile. |
+
 ## Required Proof Commands
 
 Run these on the owner-source ref before changing registry pins.
@@ -70,6 +84,16 @@ PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts
 
 ```bash
 PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py
+```
+
+### Supporting Hygiene Repos
+
+Until owner-specific proof commands are promoted, the Spark-wide hygiene proof is:
+
+```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
 ```
 
 ## After Owner Source Lands
