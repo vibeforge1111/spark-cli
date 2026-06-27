@@ -8169,6 +8169,8 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             "required_owner_release_base_ref": "refs/heads/main",
             "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
             "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+            "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+            "candidate_owner_release_branch_remote_exists": False,
             "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
             "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
             "local_range": f"origin/codex/turnintent-voice-policy-20260531..{row.get('actual_commit')}",
@@ -8276,6 +8278,11 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
         "expected_registry_commit": row.get("expected_commit"),
         "local_head": row.get("actual_commit"),
         "installed_registry_commit": row.get("installed_registry_commit"),
+        "candidate_owner_release_branch_remote_exists": (
+            handoff_manifest.get("candidate_owner_release_branch_remote_exists")
+            if isinstance(handoff_manifest, dict)
+            else None
+        ),
         "issues": list(row.get("issues") or []),
         "next_action": row.get("next_action"),
         "proof_commands": list(row.get("proof_commands") or []),

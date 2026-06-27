@@ -13525,6 +13525,8 @@ class SparkCliTests(unittest.TestCase):
                         "required_owner_release_base_ref": "refs/heads/main",
                         "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
                         "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+                        "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+                        "candidate_owner_release_branch_remote_exists": False,
                         "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",
@@ -13610,6 +13612,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["handoff_manifest_issues"], [])
         self.assertEqual(payload["expected_registry_commit"], "a" * 40)
         self.assertEqual(payload["local_head"], "b" * 40)
+        self.assertIs(payload["candidate_owner_release_branch_remote_exists"], False)
         self.assertIn("trace/governor commits", payload["detail"])
         self.assertIn("PYTHONPATH=src python3 -m pytest -q", payload["proof_commands"])
 
@@ -13659,6 +13662,8 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("required_owner_release_base_ref_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("required_owner_release_base_commit_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("candidate_owner_release_branch_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("candidate_owner_release_branch_remote_ref_mismatch", payload["handoff_manifest_issues"])
+        self.assertIn("candidate_owner_release_branch_remote_exists_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("local_range_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("voice_changed_files_mismatch", payload["handoff_manifest_issues"])
@@ -13696,6 +13701,8 @@ class SparkCliTests(unittest.TestCase):
                         "required_owner_release_base_ref": "refs/heads/main",
                         "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
                         "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+                        "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+                        "candidate_owner_release_branch_remote_exists": False,
                         "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
                         "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
                         "local_range": f"origin/codex/turnintent-voice-policy-20260531..{'b' * 40}",

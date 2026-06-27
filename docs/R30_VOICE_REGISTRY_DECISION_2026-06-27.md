@@ -21,6 +21,7 @@ Current facts recorded by the R30 gate:
 - prepared local owner-lane voice head: `c502ec096cefb48839e3279d3392343231884415`
 - original local voice proof branch head: `7555a363d7638537b1a9ec1ee377e460d2343323`
 - installed metadata still records: `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`
+- fresh remote audit at `2026-06-28T02:40Z`: no remote `refs/heads/release/r30-voice-trace-governor` branch exists; `refs/heads/main` and `refs/tags/spark-ship-2026-06-26` still point at `c74490d68ece65ffad21dc5b88f44602e1afa703`, and `refs/heads/codex/turnintent-voice-policy-20260531` still points at `12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4`
 - structured handoff manifest: [R30 voice owner handoff manifest](./R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
 
 Local voice proof is test-clean, but not yet public release truth:

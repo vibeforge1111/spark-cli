@@ -14,6 +14,8 @@
   "required_owner_release_base_ref": "refs/heads/main",
   "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
   "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+  "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+  "candidate_owner_release_branch_remote_exists": false,
   "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
   "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
   "local_head": "c502ec096cefb48839e3279d3392343231884415",
