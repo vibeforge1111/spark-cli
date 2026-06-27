@@ -1539,7 +1539,10 @@ def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(
             f"Configuration error: '{path}' contains invalid JSON at "
