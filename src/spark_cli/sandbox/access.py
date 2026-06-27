@@ -752,6 +752,14 @@ def access_lane_payload(
     level5_service_active = bool(level5_service_state.get("enabled"))
     level5_enabled = level5_process_active or level5_service_active
     level5_restart_required = level5_configured and not level5_enabled
+    current_process_codex_sandbox = env_values.get("SPARK_CODEX_SANDBOX") or DEFAULT_CODEX_SANDBOX
+    configured_codex_sandbox = generated_env.get("SPARK_CODEX_SANDBOX") or ""
+    service_codex_sandbox = configured_codex_sandbox if level5_service_active else ""
+    effective_codex_sandbox = (
+        "danger-full-access"
+        if level >= 5 and (level5_process_active or level5_service_active)
+        else current_process_codex_sandbox
+    )
     if level5_process_active and level5_configured:
         level5_activation_state = "active"
     elif level5_service_active:
@@ -913,8 +921,11 @@ def access_lane_payload(
             "service_enabled": level5_service_active,
             "service_guardrails": level5_service_state,
             "external_paths": level5_external_paths,
-            "codex_sandbox": env_values.get("SPARK_CODEX_SANDBOX") or "workspace-write",
-            "configured_codex_sandbox": generated_env.get("SPARK_CODEX_SANDBOX") or "",
+            "codex_sandbox": current_process_codex_sandbox,
+            "current_process_codex_sandbox": current_process_codex_sandbox,
+            "service_codex_sandbox": service_codex_sandbox,
+            "effective_codex_sandbox": effective_codex_sandbox,
+            "configured_codex_sandbox": configured_codex_sandbox,
             "env_file_state": env_file_state,
             "restart_required": level5_restart_required,
             "env_files": written_level5_env,

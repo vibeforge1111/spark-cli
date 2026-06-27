@@ -361,6 +361,9 @@ class AccessSetupTests(unittest.TestCase):
         self.assertTrue(payload["state_machine"]["can_operate_whole_computer"])
         self.assertFalse(payload["state_machine"]["current_process_can_operate_whole_computer"])
         self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
+        self.assertEqual(payload["level5"]["current_process_codex_sandbox"], "workspace-write")
+        self.assertEqual(payload["level5"]["service_codex_sandbox"], "danger-full-access")
+        self.assertEqual(payload["level5"]["effective_codex_sandbox"], "danger-full-access")
         self.assertEqual(payload["next"], "spark access status --level 5")
         self.assertEqual(payload["recommended"]["id"], "level5_operator")
 
@@ -405,6 +408,9 @@ class AccessSetupTests(unittest.TestCase):
             self.assertEqual(status_payload["effective_access_level"], 5)
             self.assertEqual(status_payload["level5"]["activation_state"], "active_for_services")
             self.assertEqual(status_payload["level5"]["configured_codex_sandbox"], "danger-full-access")
+            self.assertEqual(status_payload["level5"]["current_process_codex_sandbox"], "workspace-write")
+            self.assertEqual(status_payload["level5"]["service_codex_sandbox"], "danger-full-access")
+            self.assertEqual(status_payload["level5"]["effective_codex_sandbox"], "danger-full-access")
             self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
             self.assertFalse(status_payload["state_machine"]["current_process_can_operate_whole_computer"])
 
@@ -491,6 +497,8 @@ class AccessSetupTests(unittest.TestCase):
         self.assertTrue(payload["level5"]["service_enabled"])
         self.assertEqual(payload["effective_access_level"], 5)
         self.assertEqual(payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
+        self.assertEqual(payload["level5"]["service_codex_sandbox"], "danger-full-access")
+        self.assertEqual(payload["level5"]["effective_codex_sandbox"], "danger-full-access")
         self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
 
     def test_access_status_level5_session_only_needs_persistent_setup(self) -> None:
