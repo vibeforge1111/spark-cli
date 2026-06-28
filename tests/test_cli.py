@@ -49,6 +49,7 @@ from spark_cli.cli import (
     collect_r30_live_status_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
+    collect_r30_owner_action_packet,
     collect_r30_release_gate_payload,
     collect_r30_unattended_identity_guard_status,
     collect_r30_voice_registry_decision_status,
@@ -14826,6 +14827,92 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["instruction_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("next_action_mismatch", payload["instruction_mismatches"][0]["issues"])
         self.assertIn("proof_commands_mismatch", payload["instruction_mismatches"][0]["issues"])
+
+    def test_r30_owner_action_packet_joins_voice_patch_manifest(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-voice-comms",
+                    "issues": ["head_differs_from_registry"],
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "installed_registry_commit": "c" * 40,
+                    "next_action": "port voice source",
+                    "proof_commands": ["PYTHONPATH=src python3 -m pytest -q"],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            owner_manifest = root / "owner.json"
+            voice_manifest = root / "voice.json"
+            owner_manifest.write_text(
+                json.dumps(
+                    {
+                        "direct_blockers": [
+                            {
+                                "module": "spark-voice-comms",
+                                "owner_refs": {"main": "c74490d68ece65ffad21dc5b88f44602e1afa703"},
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            voice_manifest.write_text(
+                json.dumps(
+                    {
+                        "owner_handoff_patch": {
+                            "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+                            "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                            "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+                            "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+                            "publication_authority": False,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_owner_action_packet(
+                classification,
+                owner_manifest_path=owner_manifest,
+                voice_manifest_path=voice_manifest,
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["direct_blocker_count"], 1)
+        action = payload["actions"][0]
+        self.assertEqual(action["module"], "spark-voice-comms")
+        self.assertFalse(action["registry_movement_allowed"])
+        self.assertEqual(action["owner_handoff_patch"]["expected_tree"], "e3e1f881497011917fd9baa4f56db811ebccff7e")
+        self.assertIn("does not authorize push", payload["publication_boundary"])
+
+    def test_r30_owner_action_packet_requires_patch_proof(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-telegram-bot",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "installed_registry_commit": "a" * 40,
+                    "next_action": "port telegram",
+                    "proof_commands": ["npm run build"],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            owner_manifest = Path(tmp_dir) / "owner.json"
+            voice_manifest = Path(tmp_dir) / "voice.json"
+            owner_manifest.write_text(json.dumps({"direct_blockers": [{"module": "spark-telegram-bot"}]}), encoding="utf-8")
+            voice_manifest.write_text(json.dumps({}), encoding="utf-8")
+            payload = collect_r30_owner_action_packet(
+                classification,
+                owner_manifest_path=owner_manifest,
+                voice_manifest_path=voice_manifest,
+            )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("missing_owner_handoff_patch_proof", payload["actions"][0]["action_issues"])
 
     def test_r30_cli_owner_handoff_docs_status_requires_live_head_command(self) -> None:
         release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}

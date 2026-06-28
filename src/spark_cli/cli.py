@@ -9376,6 +9376,89 @@ def collect_r30_local_runtime_artifacts_handoff_status(
     }
 
 
+def collect_r30_owner_action_packet(
+    release_lane_classification: dict[str, Any],
+    *,
+    owner_manifest_path: Path | None = None,
+    voice_manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    owner_manifest = load_json(owner_manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH, {})
+    voice_manifest = load_json(voice_manifest_path or R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH, {})
+    owner_rows = owner_manifest.get("direct_blockers") if isinstance(owner_manifest, dict) else []
+    owner_rows = owner_rows if isinstance(owner_rows, list) else []
+    owner_by_module = {
+        str(row.get("module") or ""): row
+        for row in owner_rows
+        if isinstance(row, dict)
+    }
+    direct_rows = release_lane_classification.get("direct_blockers")
+    direct_rows = direct_rows if isinstance(direct_rows, list) else []
+    actions: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for row in direct_rows:
+        if not isinstance(row, dict):
+            issues.append("invalid_direct_blocker_row")
+            continue
+        module = str(row.get("module") or "")
+        manifest_row = owner_by_module.get(module, {})
+        owner_handoff_patch = (
+            voice_manifest.get("owner_handoff_patch")
+            if module == "spark-voice-comms" and isinstance(voice_manifest, dict)
+            else manifest_row.get("owner_handoff_patch")
+        )
+        if not isinstance(owner_handoff_patch, dict):
+            owner_handoff_patch = {}
+        action = {
+            "module": module,
+            "issues": row.get("issues") if isinstance(row.get("issues"), list) else [],
+            "expected_registry_commit": row.get("expected_commit"),
+            "local_head": row.get("actual_commit"),
+            "installed_registry_commit": row.get("installed_registry_commit"),
+            "next_action": row.get("next_action"),
+            "proof_commands": row.get("proof_commands") if isinstance(row.get("proof_commands"), list) else [],
+            "owner_refs": manifest_row.get("owner_refs") if isinstance(manifest_row.get("owner_refs"), dict) else {},
+            "owner_handoff_patch": {
+                "path": owner_handoff_patch.get("path"),
+                "base_commit": owner_handoff_patch.get("base_commit"),
+                "expected_tree": owner_handoff_patch.get("expected_tree"),
+                "sha256": owner_handoff_patch.get("sha256"),
+                "publication_authority": owner_handoff_patch.get("publication_authority"),
+            },
+            "registry_movement_allowed": False,
+        }
+        action_issues: list[str] = []
+        if not module:
+            action_issues.append("missing_module")
+        if not action["next_action"]:
+            action_issues.append("missing_next_action")
+        if not action["proof_commands"]:
+            action_issues.append("missing_proof_commands")
+        patch = action["owner_handoff_patch"]
+        if not patch.get("path") or not patch.get("base_commit") or not patch.get("expected_tree"):
+            action_issues.append("missing_owner_handoff_patch_proof")
+        if patch.get("publication_authority") is not False:
+            action_issues.append("owner_handoff_patch_publication_boundary_missing")
+        if action_issues:
+            action["action_issues"] = action_issues
+            issues.append(f"{module or '<unknown>'}:{','.join(action_issues)}")
+        actions.append(action)
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 owner action packet is ready for source-owner handoff."
+            if not issues
+            else f"R30 owner action packet has issues: {', '.join(issues)}."
+        ),
+        "direct_blocker_count": len(actions),
+        "actions": actions,
+        "issues": issues,
+        "publication_boundary": (
+            "Read-only handoff packet. It does not authorize push, tag, deploy, "
+            "registry pin update, installer pin update, or hosted publication."
+        ),
+    }
+
+
 def collect_r30_local_runtime_git_range_status(source_path: Path, local_range: str) -> dict[str, Any]:
     if ".." not in local_range:
         return {"ok": False, "issues": ["invalid_local_range"]}
@@ -9684,6 +9767,7 @@ def collect_r30_release_gate_payload(
     cli_owner_handoff_docs = collect_r30_cli_owner_handoff_docs_status(release_lane)
     local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
+    owner_action_packet = collect_r30_owner_action_packet(release_lane_classification)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     publish_handoff_blockers = classify_r30_publish_handoff_blockers(
         publish_handoffs,
@@ -9712,6 +9796,7 @@ def collect_r30_release_gate_payload(
         and bool(local_runtime_artifacts_handoff.get("ok"))
         and bool(cli_owner_handoff_docs.get("ok"))
         and bool(local_runtime_handoff_docs.get("ok"))
+        and bool(owner_action_packet.get("ok"))
         and bool(release_lane.get("ok"))
         and bool(voice_registry_decision.get("ok"))
         and bool(builder_trace_lifecycle.get("ok"))
@@ -9728,6 +9813,8 @@ def collect_r30_release_gate_payload(
         source_truth_blockers.append("r30_cli_owner_handoff_docs")
     if not bool(local_runtime_handoff_docs.get("ok")):
         source_truth_blockers.append("r30_local_runtime_handoff_docs")
+    if not bool(owner_action_packet.get("ok")):
+        source_truth_blockers.append("r30_owner_action_packet")
     if not bool(release_lane.get("ok")):
         source_truth_blockers.append("release_lane")
     if not bool(voice_registry_decision.get("ok")):
@@ -9843,6 +9930,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(voice_registry_decision.get("ok")),
             "detail": voice_registry_decision.get("detail", "R30 voice registry decision"),
             "summary": voice_registry_decision,
+        },
+        {
+            "name": "r30_owner_action_packet",
+            "ok": bool(owner_action_packet.get("ok")),
+            "detail": owner_action_packet.get("detail", "R30 owner action packet"),
+            "summary": owner_action_packet,
         },
         {
             "name": "r30_voice_runtime_truth",
@@ -9973,6 +10066,7 @@ def collect_r30_release_gate_payload(
         "cli_owner_handoff_docs": cli_owner_handoff_docs,
         "local_runtime_handoff_docs": local_runtime_handoff_docs,
         "voice_registry_decision": voice_registry_decision,
+        "owner_action_packet": owner_action_packet,
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
         "access_level5_codex_sandbox": access_level5_codex_sandbox,
