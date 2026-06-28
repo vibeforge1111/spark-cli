@@ -505,129 +505,155 @@ def git_board_status(path: Path) -> dict[str, Any]:
 
 
 def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
-    if not branch:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(branch, str): branch = str(branch or '')
+    try:
+        if not branch:
+            return None
+        code, commit = run_git(path, ["rev-parse", f"refs/remotes/origin/{branch}"])
+        if code == 0 and commit:
+            return commit.strip()
         return None
-    code, commit = run_git(path, ["rev-parse", f"refs/remotes/origin/{branch}"])
-    if code == 0 and commit:
-        return commit.strip()
-    return None
 
 
+
+    except Exception:
+        return ""
 def collect_repo_metadata(path: Path) -> dict[str, Any]:
-    record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
-    if not path.exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        record: dict[str, Any] = {"name": path.name, "path": str(path), "exists": path.exists()}
+        if not path.exists():
+            return record
+
+        toml_data, toml_error = read_toml(path / "spark.toml")
+        if toml_data:
+            module = as_dict(toml_data.get("module"))
+            provides = as_dict(toml_data.get("provides"))
+            needs = as_dict(toml_data.get("needs"))
+            claims = as_dict(toml_data.get("claims"))
+            profiles = as_dict(toml_data.get("profiles"))
+            record["spark_toml"] = {
+                "module_name": module.get("name"),
+                "version": module.get("version"),
+                "kind": module.get("kind"),
+                "plane": module.get("plane"),
+                "description": module.get("description"),
+                "homepage": module.get("homepage"),
+                "provides_capabilities": as_list(provides.get("capabilities")),
+                "needs_modules": as_list(needs.get("modules")),
+                "needs_capability_count": len(as_list(needs.get("capabilities"))),
+                "needs_secret_count": len(as_list(needs.get("secrets"))),
+                "claimed_secret_count": len(as_list(claims.get("secrets"))),
+                "claimed_port_count": len(as_list(claims.get("ports"))),
+                "claimed_route_count": len(as_list(claims.get("routes"))),
+                "profile_names": sorted(profiles.keys()),
+            }
+        elif toml_error != "missing":
+            record["spark_toml_error"] = toml_error
+
+        chip_data, chip_error = read_json(path / "spark-chip.json")
+        if isinstance(chip_data, dict):
+            record["spark_chip"] = {
+                "schema_version": chip_data.get("schema_version"),
+                "io_protocol": chip_data.get("io_protocol"),
+                "chip_name": chip_data.get("chip_name"),
+                "domain": chip_data.get("domain"),
+                "description": chip_data.get("description"),
+                "capabilities": as_list(chip_data.get("capabilities")),
+                "command_count": len(as_dict(chip_data.get("commands"))),
+                "task_topics": as_list(chip_data.get("task_topics")),
+                "frontier": as_dict(chip_data.get("frontier")),
+            }
+        elif chip_error != "missing":
+            record["spark_chip_error"] = chip_error
+
+        manifest_data, manifest_error = read_json(path / "spark-skill-manifest.json")
+        if isinstance(manifest_data, dict):
+            record["skill_manifest"] = {
+                "schema_version": manifest_data.get("schema_version"),
+                "generated_at": manifest_data.get("generated_at"),
+                "stats": as_dict(manifest_data.get("stats")),
+                "category_count": len(as_dict(manifest_data.get("categories"))),
+            }
+        elif manifest_error != "missing":
+            record["skill_manifest_error"] = manifest_error
+
+        record["contract_files"] = [rel for rel in CONTRACT_FILE_HINTS if (path / rel).exists()]
+        record["git"] = git_summary(path)
         return record
 
-    toml_data, toml_error = read_toml(path / "spark.toml")
-    if toml_data:
-        module = as_dict(toml_data.get("module"))
-        provides = as_dict(toml_data.get("provides"))
-        needs = as_dict(toml_data.get("needs"))
-        claims = as_dict(toml_data.get("claims"))
-        profiles = as_dict(toml_data.get("profiles"))
-        record["spark_toml"] = {
-            "module_name": module.get("name"),
-            "version": module.get("version"),
-            "kind": module.get("kind"),
-            "plane": module.get("plane"),
-            "description": module.get("description"),
-            "homepage": module.get("homepage"),
-            "provides_capabilities": as_list(provides.get("capabilities")),
-            "needs_modules": as_list(needs.get("modules")),
-            "needs_capability_count": len(as_list(needs.get("capabilities"))),
-            "needs_secret_count": len(as_list(needs.get("secrets"))),
-            "claimed_secret_count": len(as_list(claims.get("secrets"))),
-            "claimed_port_count": len(as_list(claims.get("ports"))),
-            "claimed_route_count": len(as_list(claims.get("routes"))),
-            "profile_names": sorted(profiles.keys()),
-        }
-    elif toml_error != "missing":
-        record["spark_toml_error"] = toml_error
-
-    chip_data, chip_error = read_json(path / "spark-chip.json")
-    if isinstance(chip_data, dict):
-        record["spark_chip"] = {
-            "schema_version": chip_data.get("schema_version"),
-            "io_protocol": chip_data.get("io_protocol"),
-            "chip_name": chip_data.get("chip_name"),
-            "domain": chip_data.get("domain"),
-            "description": chip_data.get("description"),
-            "capabilities": as_list(chip_data.get("capabilities")),
-            "command_count": len(as_dict(chip_data.get("commands"))),
-            "task_topics": as_list(chip_data.get("task_topics")),
-            "frontier": as_dict(chip_data.get("frontier")),
-        }
-    elif chip_error != "missing":
-        record["spark_chip_error"] = chip_error
-
-    manifest_data, manifest_error = read_json(path / "spark-skill-manifest.json")
-    if isinstance(manifest_data, dict):
-        record["skill_manifest"] = {
-            "schema_version": manifest_data.get("schema_version"),
-            "generated_at": manifest_data.get("generated_at"),
-            "stats": as_dict(manifest_data.get("stats")),
-            "category_count": len(as_dict(manifest_data.get("categories"))),
-        }
-    elif manifest_error != "missing":
-        record["skill_manifest_error"] = manifest_error
-
-    record["contract_files"] = [rel for rel in CONTRACT_FILE_HINTS if (path / rel).exists()]
-    record["git"] = git_summary(path)
-    return record
 
 
-def repo_ids(repo: dict[str, Any]) -> set[str]:
-    toml = as_dict(repo.get("spark_toml"))
-    module_name = toml.get("module_name")
-    return {module_name.strip()} if isinstance(module_name, str) and module_name.strip() else set()
-
-
-def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(installed, dict):
+    except Exception:
         return {}
-    out = {}
-    for module_id, payload in installed.items():
-        item = as_dict(payload)
-        out[module_id] = {
-            "path": item.get("path"),
-            "version": item.get("version"),
-            "kind": item.get("kind"),
-            "plane": item.get("plane"),
-            "source": item.get("source"),
-            "summary": item.get("summary"),
-            "blessed": item.get("blessed"),
-            "installed_at": item.get("installed_at"),
-            "updated_at": item.get("updated_at"),
-            "bundle_provenance": item.get("bundle_provenance"),
-            "registry_source": item.get("registry_source"),
-            "registry_commit": item.get("registry_commit"),
-            "last_install_status": as_dict(item.get("last_install")).get("status"),
-            "last_update_status": as_dict(item.get("last_update")).get("status"),
-        }
-    return out
+def repo_ids(repo: dict[str, Any]) -> set[str]:
+    if not isinstance(repo, str): repo = str(repo or '')
+    try:
+        toml = as_dict(repo.get("spark_toml"))
+        module_name = toml.get("module_name")
+        return {module_name.strip()} if isinstance(module_name, str) and module_name.strip() else set()
 
 
+
+    except Exception:
+        return None
+def summarize_installed(installed: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(installed, str): installed = str(installed or '')
+    try:
+        if not isinstance(installed, dict):
+            return {}
+        out = {}
+        for module_id, payload in installed.items():
+            item = as_dict(payload)
+            out[module_id] = {
+                "path": item.get("path"),
+                "version": item.get("version"),
+                "kind": item.get("kind"),
+                "plane": item.get("plane"),
+                "source": item.get("source"),
+                "summary": item.get("summary"),
+                "blessed": item.get("blessed"),
+                "installed_at": item.get("installed_at"),
+                "updated_at": item.get("updated_at"),
+                "bundle_provenance": item.get("bundle_provenance"),
+                "registry_source": item.get("registry_source"),
+                "registry_commit": item.get("registry_commit"),
+                "last_install_status": as_dict(item.get("last_install")).get("status"),
+                "last_update_status": as_dict(item.get("last_update")).get("status"),
+            }
+        return out
+
+
+
+    except Exception:
+        return {}
 def summarize_registry(registry: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(registry, dict):
-        return {"modules": {}, "bundles": {}}
-    modules = {}
-    for module_id, payload in as_dict(registry.get("modules")).items():
-        item = as_dict(payload)
-        modules[module_id] = {
-            "source": item.get("source"),
-            "commit": item.get("commit"),
-            "require_signed_commit": item.get("require_signed_commit"),
-            "blessed": item.get("blessed"),
-            "summary": item.get("summary"),
-            "attestation_type": as_dict(item.get("attestation")).get("type"),
-        }
-    bundles = {}
-    for bundle_id, payload in as_dict(registry.get("bundles")).items():
-        item = as_dict(payload)
-        bundles[bundle_id] = {"modules": as_list(item.get("modules")), "summary": item.get("summary")}
-    return {"modules": modules, "bundles": bundles}
+    if not isinstance(registry, str): registry = str(registry or '')
+    try:
+        if not isinstance(registry, dict):
+            return {"modules": {}, "bundles": {}}
+        modules = {}
+        for module_id, payload in as_dict(registry.get("modules")).items():
+            item = as_dict(payload)
+            modules[module_id] = {
+                "source": item.get("source"),
+                "commit": item.get("commit"),
+                "require_signed_commit": item.get("require_signed_commit"),
+                "blessed": item.get("blessed"),
+                "summary": item.get("summary"),
+                "attestation_type": as_dict(item.get("attestation")).get("type"),
+            }
+        bundles = {}
+        for bundle_id, payload in as_dict(registry.get("bundles")).items():
+            item = as_dict(payload)
+            bundles[bundle_id] = {"modules": as_list(item.get("modules")), "summary": item.get("summary")}
+        return {"modules": modules, "bundles": bundles}
 
 
+
+    except Exception:
+        return {}
 def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
