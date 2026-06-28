@@ -9166,6 +9166,16 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         },
     }
     expected_owner_handoff_patches = {
+        "spark-telegram-bot": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+            "sha256": "7bc405d733b68ce0f67f4c69028a9691f61d1a6c5f896f89c3e7ad4e9bb99fb9",
+            "line_count": 87391,
+            "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "expected_tree": "c8775e75635967da666f16ae9d09268a1d299b85",
+            "publication_authority": False,
+            "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
+        },
         "spawner-ui": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
@@ -9174,6 +9184,7 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
             "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
             "publication_authority": False,
+            "proof_result_terms": ["59 passed", "build passed"],
         },
     }
     issues: list[str] = []
@@ -9240,6 +9251,8 @@ def collect_r30_local_runtime_artifacts_handoff_status(
                 row_issues.append("missing_owner_handoff_patch")
             else:
                 for key, expected_value in expected_patch.items():
+                    if key == "proof_result_terms":
+                        continue
                     if patch.get(key) != expected_value:
                         row_issues.append(f"owner_handoff_patch_{key}_mismatch")
                 patch_ref = str(patch.get("path") or "")
@@ -9262,7 +9275,8 @@ def collect_r30_local_runtime_artifacts_handoff_status(
                 if not all(term in apply_check for term in apply_terms):
                     row_issues.append("owner_handoff_patch_apply_check_incomplete")
                 proof_result = str(patch.get("proof_result") or "").lower()
-                if "59 passed" not in proof_result or "build passed" not in proof_result:
+                proof_terms = expected_patch.get("proof_result_terms") if isinstance(expected_patch.get("proof_result_terms"), list) else []
+                if not all(str(term).lower() in proof_result for term in proof_terms):
                     row_issues.append("owner_handoff_patch_proof_result_incomplete")
         required_subjects = item.get("required_terminal_subjects") if isinstance(item.get("required_terminal_subjects"), list) else []
         for subject in R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS.get(module, []):

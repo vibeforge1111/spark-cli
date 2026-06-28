@@ -11,7 +11,7 @@ hosted publication changes.
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
 red only for release-truth work. Rechecked from `spark-cli` head
-`29a6a4c1deec78eab11bf0b312772cd6ddc2e595`; dirty release repo count remained
+`34c0cce0d3ee7aebab57cd184a66df308a84c82b`; dirty release repo count remained
 `0`, OS compile stayed green, the owner handoff manifest stayed aligned, and
 the Access 5 anti-read-only gate stayed green.
 
@@ -50,7 +50,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `29a6a4c1deec` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, and Access 5 anti-read-only verifier hardening before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `34c0cce0d3ee` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, and the Telegram owner-handoff patch gate before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
@@ -79,6 +79,14 @@ npm run build
 npm run check:line-count
 npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/recursiveLevel5RuntimeEnv.test.ts tests/telegramCommandAuthority.test.ts
 ```
+
+Owner handoff patch artifact:
+
+- `docs/r30/patches/r30-telegram-control-reliability-stack.patch`
+- SHA256 `7bc405d733b68ce0f67f4c69028a9691f61d1a6c5f896f89c3e7ad4e9bb99fb9`
+- applies to public owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579`
+- produces tree `c8775e75635967da666f16ae9d09268a1d299b85`, matching local proof head `0cd7914e0c66d84416554399d57837556dff55d5`
+- this is review/apply material only, not registry, tag, installer, or publication authority
 
 ### `spawner-ui`
 
