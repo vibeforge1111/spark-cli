@@ -17,6 +17,9 @@ when all of these are true:
 5. Default Codex worker launchers use the persisted Level 5 service guardrails
    even when the current parent process still has stale `read-only` or
    `workspace-write` values.
+6. `level5.full_permission_proof.ok` is `true`; when the proof object is
+   present, Telegram treats it as authoritative and does not fall back to older
+   green-looking fields.
 
 If any one of those is false, Spark must say Level 5 is blocked or partial; it
 must not claim full operator access.
@@ -32,6 +35,7 @@ Fresh local audit on 2026-06-28:
 - Current shell Codex sandbox: `workspace-write`
 - Service Codex sandbox: `danger-full-access`
 - Effective Codex sandbox: `danger-full-access`
+- Full permission proof: `ok=true`, `missing=[]`
 - Spark workspace writable: `true`
 - Service can operate whole computer: `true`
 - Missing/stale services: none
@@ -51,6 +55,9 @@ uses stale process env directly is a release bug.
   effective for services.
 - Telegram refuses to switch the chat to operator unless the CLI payload proves
   effective full-access sandbox and the Telegram runner write probe passes.
+- Telegram now consumes `level5.full_permission_proof` directly. If that proof
+  exists and is not green, the chat stays out of operator mode even if older
+  compatibility fields look green.
 - Telegram natural language changes such as "change my access level from one to
   five confirm" preserve the confirmation and still require fresh Level 5 proof.
 - Spawner default Codex launch paths now have regression coverage proving stale
@@ -85,6 +92,14 @@ npm test -- --run \
 
 Result: Telegram Access 5, stale-env promotion, and permission-proof tests passed.
 
+```bash
+npm test -- --run tests/accessPolicy.test.ts tests/accessActions.test.ts \
+  tests/profileEnv.test.ts tests/recursiveLevel5RuntimeEnv.test.ts
+```
+
+Result: 2026-06-28 focused Telegram proof passed, including CLI proof-object
+adoption and stale read-only env promotion.
+
 ## Non-Bugs That Can Still Say Read-Only
 
 - Historical mission result rows may still contain old read-only failure text.
@@ -102,4 +117,5 @@ Any new Codex launch surface must add a test for this exact stale-env shape:
 - persisted service env says Level 5 full access,
 - current process env says `SPARK_CODEX_SANDBOX=read-only` or `workspace-write`,
 - default Codex launch resolves to `--sandbox danger-full-access`,
+- `level5.full_permission_proof.ok` is the authoritative full-access verdict,
 - intentionally read-only commands remain intentionally read-only.
