@@ -47,6 +47,8 @@ Fresh R30 proof refresh at `2026-06-28T09:38:46Z`:
   `I am asking about a bug in mission routing. Do not launch a mission; just explain the likely failure class.`;
   `Do not repair anything. Just tell me whether a repair is needed right now, using fresh state.`;
   `If memory says Spawner is down but spark live status says it is up, which source wins?`.
+- Recapture runbook:
+  [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md).
 - Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`
   remains red by design: `dirty_repo_count=0`, `5` direct R30 blockers, `0`
   supporting hygiene rows, `source_truth_ready=false`, and
