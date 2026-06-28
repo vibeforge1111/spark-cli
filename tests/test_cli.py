@@ -14516,15 +14516,15 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "a1abe7e2ce57ae9d9ee5174b2511d97de83d94d71846936722a0150ea90ff72d",
-                                    "line_count": 87456,
+                                    "sha256": "adea73124a41c40088c0feec4ef0009e42b74e81cdc0002c38adf4beabdf0a89",
+                                    "line_count": 87499,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "7e6a23e6b476cbea861dfede7373a8c631150952",
+                                    "expected_tree": "f3afd923ed56e103e25f741b53204796299d634d",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"7e6a23e6b476cbea861dfede7373a8c631150952\""
+                                        "\"f3afd923ed56e103e25f741b53204796299d634d\""
                                     ),
                                     "proof_result": "reliability passed; build passed; line-count passed",
                                     "publication_authority": False,
@@ -14980,22 +14980,26 @@ class SparkCliTests(unittest.TestCase):
                                     "Use proof oracle for Telegram Level 5",
                                     "Require effective Level 5 sandbox proof in Telegram",
                                     "Require Level 5 proof for operator access status",
+                                    "Harden Telegram Level 5 runtime env",
+                                    "Compact Telegram imports after Level 5 env fix",
+                                    "Harden Recursive Level 5 runtime env",
                                     "Preserve Telegram token during profile health checks",
                                     "Harden Telegram profile Level 5 env proof",
+                                    "Refresh Telegram Level 5 profile env",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "a1abe7e2ce57ae9d9ee5174b2511d97de83d94d71846936722a0150ea90ff72d",
-                                    "line_count": 87456,
+                                    "sha256": "adea73124a41c40088c0feec4ef0009e42b74e81cdc0002c38adf4beabdf0a89",
+                                    "line_count": 87499,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "7e6a23e6b476cbea861dfede7373a8c631150952",
+                                    "expected_tree": "f3afd923ed56e103e25f741b53204796299d634d",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"7e6a23e6b476cbea861dfede7373a8c631150952\""
+                                        "\"f3afd923ed56e103e25f741b53204796299d634d\""
                                     ),
                                     "proof_result": "reliability passed; build passed; line-count passed",
                                     "publication_authority": False,
@@ -15499,22 +15503,26 @@ class SparkCliTests(unittest.TestCase):
                             "Use proof oracle for Telegram Level 5",
                             "Require effective Level 5 sandbox proof in Telegram",
                             "Require Level 5 proof for operator access status",
+                            "Harden Telegram Level 5 runtime env",
+                            "Compact Telegram imports after Level 5 env fix",
+                            "Harden Recursive Level 5 runtime env",
                             "Preserve Telegram token during profile health checks",
-                                    "Harden Telegram profile Level 5 env proof",
+                            "Harden Telegram profile Level 5 env proof",
+                            "Refresh Telegram Level 5 profile env",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "owner_handoff_patch": {
                             "patch_type": "tree_diff",
                             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                            "sha256": "a1abe7e2ce57ae9d9ee5174b2511d97de83d94d71846936722a0150ea90ff72d",
-                            "line_count": 87456,
+                            "sha256": "adea73124a41c40088c0feec4ef0009e42b74e81cdc0002c38adf4beabdf0a89",
+                            "line_count": 87499,
                             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                            "expected_tree": "7e6a23e6b476cbea861dfede7373a8c631150952",
+                            "expected_tree": "f3afd923ed56e103e25f741b53204796299d634d",
                             "apply_check": (
                                 "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                 "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                 "git add -A && test \"$(git write-tree)\" = "
-                                "\"7e6a23e6b476cbea861dfede7373a8c631150952\""
+                                "\"f3afd923ed56e103e25f741b53204796299d634d\""
                             ),
                             "proof_result": "reliability passed; build passed; line-count passed",
                             "publication_authority": False,

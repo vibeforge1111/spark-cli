@@ -32,7 +32,7 @@ Current `release_lane` mismatches from the same gate:
 | Class | Module | Local head | Registry truth | Installed metadata | Issues |
 | --- | --- | --- | --- | --- | --- |
 | Direct R30 | `spark-voice-comms` | `c502ec096cef` | `21a9467e9bd4` | `0d6e366fd04d` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
-| Direct R30 | `spark-telegram-bot` | `dec4b016148` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
+| Direct R30 | `spark-telegram-bot` | `d2f13ee33044` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
 | Direct R30 | `spawner-ui` | `3042f8acbdde` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `f21522accf66` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
@@ -46,7 +46,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before registry |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | `c502ec096cef` on `release/r30-voice-trace-governor` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` | Port/tag trace/governor commits or equivalent source-owned proof, then rerun voice and R30 gates. |
-| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `dec4b016148` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation, and active Telegram profile stale read-only env proof. |
+| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `d2f13ee33044` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation, active Telegram profile stale read-only env proof, and startup profile-env refresh over stale read-only process env. |
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
@@ -83,9 +83,9 @@ npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/r
 Owner handoff patch artifact:
 
 - `docs/r30/patches/r30-telegram-control-reliability-stack.patch`
-- SHA256 `a1abe7e2ce57ae9d9ee5174b2511d97de83d94d71846936722a0150ea90ff72d`
+- SHA256 `adea73124a41c40088c0feec4ef0009e42b74e81cdc0002c38adf4beabdf0a89`
 - applies to public owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579`
-- produces tree `7e6a23e6b476cbea861dfede7373a8c631150952`, matching local proof head `dec4b0161482e9dd12df2480f348dcf7e4edacae`
+- produces tree `f3afd923ed56e103e25f741b53204796299d634d`, matching local proof head `d2f13ee33044dfbc37a43cf9c629903908659317`
 - this is review/apply material only, not registry, tag, installer, or publication authority
 
 ### `spawner-ui`
