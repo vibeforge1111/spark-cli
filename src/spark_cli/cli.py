@@ -223,7 +223,7 @@ R30_RELEASE_LANE_ACTIONS = {
         ],
     },
     "spawner-ui": {
-        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes plus active Level 5 full-access lane classification onto the current owner release base, then rerun Spawner checks before registry pin movement.",
         "proof_commands": [
             "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
             "npm run build",
@@ -9254,12 +9254,12 @@ def collect_r30_handoff_manifest_status(
         "spawner-ui": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-            "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
-            "line_count": 2343,
+            "sha256": "20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223",
+            "line_count": 2459,
             "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-            "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
+            "expected_tree": "4e685e6206f788d28d40bc13a86b87285c1982da",
             "publication_authority": False,
-            "proof_result_terms": ["61 passed", "build passed"],
+            "proof_result_terms": ["22 passed", "build passed"],
         },
     }
     commit_mismatches: list[dict[str, Any]] = []
@@ -9461,12 +9461,12 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spawner-ui": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-            "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
-            "line_count": 2343,
+            "sha256": "20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223",
+            "line_count": 2459,
             "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-            "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
+            "expected_tree": "4e685e6206f788d28d40bc13a86b87285c1982da",
             "publication_authority": False,
-            "proof_result_terms": ["61 passed", "build passed"],
+            "proof_result_terms": ["22 passed", "build passed"],
         },
     }
     issues: list[str] = []

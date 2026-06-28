@@ -15244,17 +15244,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-                                    "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
-                                    "line_count": 2343,
+                                    "sha256": "20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223",
+                                    "line_count": 2459,
                                     "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-                                    "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
+                                    "expected_tree": "4e685e6206f788d28d40bc13a86b87285c1982da",
                                     "apply_check": (
                                         "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && "
                                         "git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"5c67da065bc1eedd1d4f95c35b9e2fa3839789fb\""
+                                        "\"4e685e6206f788d28d40bc13a86b87285c1982da\""
                                     ),
-                                    "proof_result": "61 passed; build passed",
+                                    "proof_result": "22 passed; build passed",
                                     "publication_authority": False,
                                 },
                                 "owner_action": "Port onto the current owner release base before registry movement.",

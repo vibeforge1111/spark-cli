@@ -164,6 +164,45 @@ index 00000000..81230ffb
 +	console.error(error instanceof Error ? error.message : String(error));
 +	process.exitCode = 1;
 +}
+diff --git a/src/lib/server/access-execution-lanes.test.ts b/src/lib/server/access-execution-lanes.test.ts
+index f2a661b4..73fde3d7 100644
+--- a/src/lib/server/access-execution-lanes.test.ts
++++ b/src/lib/server/access-execution-lanes.test.ts
+@@ -196,7 +196,7 @@ describe('recommendAccessExecutionLane', () => {
+ 		});
+ 	});
+ 
+-	it('allows Level 5 whole-computer mode only after all runtime guardrails are active', () => {
++	it('allows Level 5 whole-computer mode as a full-access lane only after all runtime guardrails are active', () => {
+ 		const result = recommendAccessExecutionLane({
+ 			accessLevel: 5,
+ 			env: {
+@@ -213,7 +213,7 @@ describe('recommendAccessExecutionLane', () => {
+ 			setupMode: 'automatic',
+ 			available: true,
+ 			sparkCliAction: 'spark access status --level 5',
+-			runPolicy: 'auto_read_only',
++			runPolicy: 'auto_safe',
+ 			rollback: 'spark access disable-level5'
+ 		});
+ 	});
+diff --git a/src/lib/server/access-execution-lanes.ts b/src/lib/server/access-execution-lanes.ts
+index 82f56dbd..d8e76ed5 100644
+--- a/src/lib/server/access-execution-lanes.ts
++++ b/src/lib/server/access-execution-lanes.ts
+@@ -208,10 +208,10 @@ function operatorLane(allowed: boolean): AccessExecutionLane {
+ 			? 'Level 5 is explicitly enabled for this trusted local install.'
+ 			: 'Level 5 is blocked until high-agency worker guardrails are explicitly enabled.',
+ 		userMessage: allowed
+-			? 'Whole-computer operator mode is available, but I will still prefer a sandbox unless the task truly needs broader access.'
++			? 'Whole-computer operator mode is available for tasks that need trusted local machine access.'
+ 			: 'Whole-computer access is not enabled. I can use the safer Level 4 sandbox path instead.',
+ 		sparkCliAction: allowed ? 'spark access status --level 5' : 'spark access setup --level 5 --enable-high-agency',
+-		runPolicy: allowed ? 'auto_read_only' : 'explicit_opt_in',
++		runPolicy: allowed ? 'auto_safe' : 'explicit_opt_in',
+ 		confirmation: allowed ? undefined : 'Enable whole-computer operator mode',
+ 		rollback: allowed ? 'spark access disable-level5' : undefined
+ 	};
 diff --git a/src/lib/server/command-runner.ts b/src/lib/server/command-runner.ts
 index 479c2f39..242fa007 100644
 --- a/src/lib/server/command-runner.ts
@@ -1848,6 +1887,83 @@ index f457188c..62d4f0c0 100644
  			});
  
  			const workerState = this.workerSessions.get(context.sessionId);
+diff --git a/src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts b/src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
+index 60c67cf8..9f069990 100644
+--- a/src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
++++ b/src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
+@@ -1,4 +1,7 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
+ 
+ const { PRIVATE_ENV, runAccessExecutionActionMock } = vi.hoisted(() => ({
+ 	PRIVATE_ENV: {
+@@ -26,6 +29,11 @@ import {
+ 
+ const originalBridgeKey = process.env.SPARK_BRIDGE_API_KEY;
+ const originalDockerAvailable = process.env.SPARK_DOCKER_AVAILABLE;
++const originalHighAgencyWorkers = process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++const originalExternalProjectPaths = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++const originalCodexSandbox = process.env.SPARK_CODEX_SANDBOX;
++const originalSparkHome = process.env.SPARK_HOME;
++let testSparkHome: string | null = null;
+ 
+ function restoreEnv(name: string, value: string | undefined) {
+ 	if (value === undefined) delete process.env[name];
+@@ -48,13 +56,24 @@ describe('/api/access/execution-lanes', () => {
+ 		PRIVATE_ENV.SPARK_BRIDGE_API_KEY = '';
+ 		PRIVATE_ENV.MCP_API_KEY = '';
+ 		runAccessExecutionActionMock.mockReset();
++		testSparkHome = mkdtempSync(join(tmpdir(), 'spawner-access-lanes-'));
++		process.env.SPARK_HOME = testSparkHome;
+ 		process.env.SPARK_DOCKER_AVAILABLE = '0';
+ 		delete process.env.SPARK_BRIDGE_API_KEY;
++		delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++		delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++		delete process.env.SPARK_CODEX_SANDBOX;
+ 	});
+ 
+ 	afterEach(() => {
+ 		restoreEnv('SPARK_BRIDGE_API_KEY', originalBridgeKey);
+ 		restoreEnv('SPARK_DOCKER_AVAILABLE', originalDockerAvailable);
++		restoreEnv('SPARK_ALLOW_HIGH_AGENCY_WORKERS', originalHighAgencyWorkers);
++		restoreEnv('SPARK_ALLOW_EXTERNAL_PROJECT_PATHS', originalExternalProjectPaths);
++		restoreEnv('SPARK_CODEX_SANDBOX', originalCodexSandbox);
++		restoreEnv('SPARK_HOME', originalSparkHome);
++		if (testSparkHome) rmSync(testSparkHome, { recursive: true, force: true });
++		testSparkHome = null;
+ 	});
+ 
+ 	it('returns a nontechnical Level 4 execution-lane status by default', async () => {
+@@ -117,6 +136,27 @@ describe('/api/access/execution-lanes', () => {
+ 		});
+ 	});
+ 
++	it('returns active Level 5 as an automatic full-access lane when operator guardrails are enabled', async () => {
++		process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS = '1';
++		process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS = '1';
++		process.env.SPARK_CODEX_SANDBOX = 'danger-full-access';
++
++		const response = await GET(
++			routeEvent('http://127.0.0.1/api/access/execution-lanes?accessLevel=5') as never
++		);
++		const body = await response.json();
++
++		expect(response.status).toBe(200);
++		expect(body.access.recommended).toMatchObject({
++			id: 'level5_operator',
++			available: true,
++			setupMode: 'automatic',
++			sparkCliAction: 'spark access status --level 5',
++			runPolicy: 'auto_safe'
++		});
++		expect(body.access.recommended.userMessage).toContain('trusted local machine access');
++	});
++
+ 	it('executes an authenticated fixed access action through POST', async () => {
+ 		PRIVATE_ENV.SPARK_BRIDGE_API_KEY = 'bridge-secret';
+ 		runAccessExecutionActionMock.mockResolvedValueOnce({
 diff --git a/src/routes/api/events/+server.ts b/src/routes/api/events/+server.ts
 index 88042ac0..110b33ce 100644
 --- a/src/routes/api/events/+server.ts

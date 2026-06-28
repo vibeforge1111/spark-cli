@@ -16,6 +16,14 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
+Fresh access/reliability refresh at `2026-06-28T05:33:54Z`:
+
+- Telegram `npm run control:proof:live-trace`: `Status: clean`; live route proof `ready (5/4)`, no-action route proof `ready (5/4)`, safe prompt proof `ready (4/4)`, and stale live route evidence `0`.
+- Telegram `npm run control:proof:reliability`: passed. Fresh-strict audit remains actionable/blocking/latest clean; legacy proof gaps are still backed only in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`.
+- Telegram `npm run build`: passed.
+- Telegram `npm run check:line-count`: passed with `13` baselined god-files, `2` shrinking, `0` growing, and `0` new over cap.
+- `spawner-ui` active Level 5 execution-lane proof: commit `029c2086efcf48444865696333ccc6c756290d83` makes the live Spawner access API report active Level 5 as `level5_operator`, `automatic`, `auto_safe` instead of a read-only lane. Focused Spawner tests passed with `22 passed`; `npm run build` passed. This remains local runtime artifact proof until owner-source and registry truth converge.
+
 Fresh CLI proof refresh at `2026-06-28T04:37:39Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
@@ -105,8 +113,8 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spark-telegram-bot`: owner handoff tree-diff patch `docs/r30/patches/r30-telegram-control-reliability-stack.patch` has SHA256 `350f3802b2e5e06bcac9c757e5dc138b86dbdabb5600110a1d40078dbce4b41e`; applying it to public owner base `67ad9e6ed297` produces tree `9a7fb309f934`, carrying local proof head `7cb3ce139213` as review/apply material only, not registry or publication authority.
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spark-voice-comms`: owner handoff patch `docs/r30/patches/r30-voice-trace-governor.patch` has SHA256 `f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff`; applying it to public base `c74490d68ece` produces tree `e3e1f8814970` and `PYTHONPATH=src python3 -m pytest -q` passes with `132 passed`.
-- `spawner-ui`: focused Codex sandbox lane tests passed, `20 passed` for the refreshed Level 5 worker-env slice; `npm run build` passed. Local head is `7b31391560a4`, including the stale read-only default Codex launch proof plus direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, and Codex worker env propagation.
-- `spawner-ui`: owner handoff tree-diff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34`; applying it to owner base `fdb8fded4744` produces tree `5c67da065bc1`. Fresh proof at `2026-06-28T03:04:29Z`: the focused Spawner lane passed with `61 passed`, `npm run build` passed, and `npm run check` passed with 0 Svelte errors and 0 warnings. The known local relay stderr from stopped/unauthorized relay endpoints did not fail the focused tests. This is review/apply material only, not registry or publication authority; the tree-diff form is intentional because the local Spawner range contains a merge-shaped history.
+- `spawner-ui`: focused access-lane/Codex sandbox tests passed, `22 passed` for the refreshed Level 5 execution-lane slice; `npm run build` passed. Local head is `029c2086efcf`, including the stale read-only default Codex launch proof plus direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, Codex worker env propagation, and active Level 5 full-access lane classification.
+- `spawner-ui`: owner handoff tree-diff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223`; applying it to owner base `fdb8fded4744` produces tree `4e685e6206f7`. Fresh proof at `2026-06-28T03:04:29Z`: the refreshed Spawner access-lane proof passed with `22 passed` and `npm run build` passed; the earlier broader Spawner check lane remains recorded as passing before the active Level 5 lane classification refresh. The known local relay stderr from stopped/unauthorized relay endpoints did not fail the focused tests. This is review/apply material only, not registry or publication authority; the tree-diff form is intentional because the local Spawner range contains a merge-shaped history.
 
 Fresh voice owner-lane proof at `2026-06-28T04:41:25Z`; remote owner refs were rechecked at `2026-06-28T04:41:25Z`:
 
@@ -122,7 +130,7 @@ Fresh voice owner-lane proof at `2026-06-28T04:41:25Z`; remote owner refs were r
 Fresh Builder/Spawner handoff verifier result at `2026-06-28T05:06:40Z`:
 
 - `spark-intelligence-builder` local proof head is now `ca21e183c6c04a658260b218e22fad7b67e02cc7`; regenerated `docs/r30/patches/r30-builder-trace-proof-stack.patch` has SHA256 `48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d` and applies to owner base `c94eac853fed935ac09bed1c56912968f3365c14`, producing tree `a9aedb619481ffc9fa22d6289e82df47400948cf`. Builder proof passed: `208 passed, 26 subtests passed`.
-- `spawner-ui` local proof head is now `7b31391560a4f7b14fe2983514a61e623b77266e`; regenerated `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34` and applies to owner base `fdb8fded47447417dbf146130bddd0967e1f6bc0`, producing tree `5c67da065bc1eedd1d4f95c35b9e2fa3839789fb`. Spawner focused proof passed: `61 passed`.
+- `spawner-ui` local proof head is now `029c2086efcf48444865696333ccc6c756290d83`; regenerated `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223` and applies to owner base `fdb8fded47447417dbf146130bddd0967e1f6bc0`, producing tree `4e685e6206f788d28d40bc13a86b87285c1982da`. Spawner access-lane focused proof passed: `22 passed`; build passed.
 - Clean `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after commit `caabb4a` still reports `ok=false`, by design, with `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`. `owner_handoff_manifest`, `r30_owner_handoff_patch_apply`, `r30_access_level5_codex_sandbox`, and `publication_order` are green; `release_lane` reports `0` dirty release repos and `5` direct R30 blockers.
 
 Executable owner-handoff patch apply verification at `2026-06-28T03:42:45Z`:
