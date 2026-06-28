@@ -14485,6 +14485,22 @@ class SparkCliTests(unittest.TestCase):
                                 },
                                 "next_action": "port telegram",
                                 "proof_commands": ["npm run build"],
+                                "owner_handoff_patch": {
+                                    "patch_type": "tree_diff",
+                                    "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+                                    "sha256": "7bc405d733b68ce0f67f4c69028a9691f61d1a6c5f896f89c3e7ad4e9bb99fb9",
+                                    "line_count": 87391,
+                                    "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                                    "expected_tree": "c8775e75635967da666f16ae9d09268a1d299b85",
+                                    "apply_check": (
+                                        "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
+                                        "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
+                                        "git add -A && test \"$(git write-tree)\" = "
+                                        "\"c8775e75635967da666f16ae9d09268a1d299b85\""
+                                    ),
+                                    "proof_result": "reliability passed; build passed; line-count passed",
+                                    "publication_authority": False,
+                                },
                                 "local_proof": "passed",
                             }
                         ],

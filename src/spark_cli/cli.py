@@ -8987,6 +8987,26 @@ def collect_r30_handoff_manifest_status(
             "publication_authority": False,
             "proof_result_terms": ["208 passed", "26 subtests passed"],
         },
+        "spark-telegram-bot": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+            "sha256": "7bc405d733b68ce0f67f4c69028a9691f61d1a6c5f896f89c3e7ad4e9bb99fb9",
+            "line_count": 87391,
+            "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "expected_tree": "c8775e75635967da666f16ae9d09268a1d299b85",
+            "publication_authority": False,
+            "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
+        },
+        "spawner-ui": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+            "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
+            "line_count": 2275,
+            "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+            "publication_authority": False,
+            "proof_result_terms": ["59 passed", "build passed"],
+        },
     }
     commit_mismatches: list[dict[str, Any]] = []
     instruction_mismatches: list[dict[str, Any]] = []
