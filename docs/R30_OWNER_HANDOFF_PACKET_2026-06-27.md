@@ -301,6 +301,7 @@ Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..6f48013edb22fbf558735b59e11b95
 Top commits currently in the R30 handoff stack:
 
 - `6f48013 Honor CLI Level 5 permission proof`
+- `7cb3ce1 Preserve natural Level 5 confirmations`
 - `ce4a234 Require Telegram Level 5 full permission proof`
 - `Document Level 5 full permission audit`
 - `d2f13ee Refresh Telegram Level 5 profile env`
