@@ -11,7 +11,7 @@ hosted publication changes.
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
 red only for release-truth work. Rechecked from `spark-cli` head
-`34c0cce0d3ee7aebab57cd184a66df308a84c82b`; dirty release repo count remained
+`d5a97c03b9bef9e457ee2684018e4ef8c9a22bc4`; dirty release repo count remained
 `0`, OS compile stayed green, the owner handoff manifest stayed aligned, and
 the Access 5 anti-read-only gate stayed green.
 
@@ -50,7 +50,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `34c0cce0d3ee` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, and the Telegram owner-handoff patch gate before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `d5a97c03b9be` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the Telegram owner-handoff patch gate, and the direct owner manifest patch gate before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
