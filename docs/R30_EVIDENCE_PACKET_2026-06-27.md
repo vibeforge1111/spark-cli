@@ -113,6 +113,17 @@ Fresh voice owner-lane proof at `2026-06-28T01:50:12Z`; remote owner refs were r
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
 - Remote audit at `2026-06-28T02:08:33Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
+Fresh owner-handoff patch apply verification at `2026-06-28T02:43:50Z`:
+
+- `domain-chip-memory`, `spark-intelligence-builder`, `spark-telegram-bot`,
+  `spark-voice-comms`, and `spawner-ui` handoff patches all apply to their
+  recorded owner bases and produce the recorded target trees.
+- The Telegram patch still emits the known one-line blank-EOF whitespace
+  warning during `git apply`; the resulting tree still matches
+  `89d073b222eae9f5e65c6236dfbc01d689354f2d`.
+- This is handoff material verification only. It does not authorize registry,
+  tag, installer, hosted, or installed-metadata movement.
+
 Required terminal subjects preserved in the local runtime artifact manifest:
 
 - `spark-telegram-bot`: `Add Telegram rich draft streaming controls`, `Package Telegram control release evidence`, `Prove Telegram Level 5 activation path`, `Fix Level 5 Codex sandbox confirmation`, `Surface effective Level 5 sandbox in Telegram`, `Block Level 5 full-access copy on read-only sandbox`, `Require effective Level 5 sandbox before operator claims`, `Harden Telegram Level 5 sandbox status`, `Harden Telegram Level 5 proof gate`, `Use proof oracle for Telegram Level 5`, `Require effective Level 5 sandbox proof in Telegram`, `Require Level 5 proof for operator access status`, `Harden Telegram Level 5 runtime env`, `Compact Telegram imports after Level 5 env fix`, `Harden Recursive Level 5 runtime env`, `Preserve Telegram token during profile health checks`, `Harden Telegram profile Level 5 env proof`, `Refresh Telegram Level 5 profile env`, `Require Telegram Level 5 full permission proof`

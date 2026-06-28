@@ -101,6 +101,25 @@ These are local proof passes, not owner-source convergence. Registry and
 installer truth must not move until the corresponding owner-source refs exist
 and installed metadata is updated through the normal path.
 
+Fresh owner-handoff patch apply verification at `2026-06-28T02:43:50Z`:
+
+- `domain-chip-memory`: `r30-memory-authority-proof.patch` applies to
+  `3116ccaa3977279581cb09d6e02353485de8a9b3` and produces tree
+  `ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0`.
+- `spark-intelligence-builder`: `r30-builder-trace-proof-stack.patch` applies
+  to `c94eac853fed935ac09bed1c56912968f3365c14` and produces tree
+  `ca8819d76e14d48bdac00090580b5483a5056be3`.
+- `spark-telegram-bot`: `r30-telegram-control-reliability-stack.patch`
+  applies to `67ad9e6ed297baf6c9daa74b879fa45bc45bd579` and produces tree
+  `89d073b222eae9f5e65c6236dfbc01d689354f2d`. `git apply` still reports the
+  known one-line blank-EOF whitespace warning; the resulting tree matches.
+- `spark-voice-comms`: `r30-voice-trace-governor.patch` applies with `git am`
+  to `c74490d68ece65ffad21dc5b88f44602e1afa703` and produces tree
+  `e3e1f881497011917fd9baa4f56db811ebccff7e`.
+- `spawner-ui`: `r30-spawner-runtime-artifact-tree.patch` applies to
+  `fdb8fded47447417dbf146130bddd0967e1f6bc0` and produces tree
+  `126d215fcfd798256cbafb2dbf35899c85f6bea2`.
+
 ## Owner-Lane Command Checklist
 
 These commands are for the owner lane after authorization. They are written so
