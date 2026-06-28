@@ -2712,113 +2712,133 @@ def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "redaction": "aggregate counts only; event summaries, facts, and provenance JSON omitted",
-    }
-    if not db_path.exists():
-        return out
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "redaction": "aggregate counts only; event summaries, facts, and provenance JSON omitted",
+        }
+        if not db_path.exists():
+            return out
         try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                return out
-            out["table_exists"] = True
-            out["row_count"] = int(conn.execute("select count(*) from builder_events").fetchone()[0])
-            out["created_at_min"] = conn.execute("select min(created_at) from builder_events").fetchone()[0]
-            out["created_at_max"] = conn.execute("select max(created_at) from builder_events").fetchone()[0]
-            for column in ("event_type", "truth_kind", "target_surface", "component", "evidence_lane", "severity", "status"):
-                rows = conn.execute(
-                    f'select "{column}" as value, count(*) as n from builder_events group by "{column}" order by n desc limit 40'
-                ).fetchall()
-                out[f"{column}_counts"] = {str(row["value"]): int(row["n"]) for row in rows}
-            for column in ("trace_ref", "request_id", "correlation_id", "parent_event_id"):
-                missing = conn.execute(
-                    f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                ).fetchone()[0]
-                out[f"missing_{column}_count"] = int(missing)
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    return out
+                out["table_exists"] = True
+                out["row_count"] = int(conn.execute("select count(*) from builder_events").fetchone()[0])
+                out["created_at_min"] = conn.execute("select min(created_at) from builder_events").fetchone()[0]
+                out["created_at_max"] = conn.execute("select max(created_at) from builder_events").fetchone()[0]
+                for column in ("event_type", "truth_kind", "target_surface", "component", "evidence_lane", "severity", "status"):
+                    rows = conn.execute(
+                        f'select "{column}" as value, count(*) as n from builder_events group by "{column}" order by n desc limit 40'
+                    ).fetchall()
+                    out[f"{column}_counts"] = {str(row["value"]): int(row["n"]) for row in rows}
+                for column in ("trace_ref", "request_id", "correlation_id", "parent_event_id"):
+                    missing = conn.execute(
+                        f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
+                    ).fetchone()[0]
+                    out[f"missing_{column}_count"] = int(missing)
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
 
 
+
+    except Exception:
+        return {}
 def inspect_builder_event_samples(builder_home: Path, *, limit: int = 40) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "limit": limit,
-        "redaction": "allowlisted event metadata only; summaries, facts JSON, provenance JSON, and message text omitted",
-    }
-    if not db_path.exists():
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "limit": limit,
+            "redaction": "allowlisted event metadata only; summaries, facts JSON, provenance JSON, and message text omitted",
+        }
+        if not db_path.exists():
+            return out
+
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    return out
+                out["table_exists"] = True
+                columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+                selected = [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
+                if not selected:
+                    out["events"] = []
+                    out["sample_count"] = 0
+                    return out
+
+                quoted = ", ".join(f'"{column}"' for column in selected)
+                order_column = "created_at" if "created_at" in columns else "rowid"
+                rows = conn.execute(
+                    f'select {quoted} from builder_events order by "{order_column}" desc limit ?',
+                    (max(0, min(int(limit), 100)),),
+                ).fetchall()
+                events: list[dict[str, Any]] = []
+                trace_counts: Counter[str] = Counter()
+                for row in rows:
+                    event: dict[str, Any] = {}
+                    for column in selected:
+                        event[column] = safe_builder_event_value(column, row[column])
+                    trace_ref = str(event.get("trace_ref") or "").strip()
+                    trace_counts[trace_ref or "[missing]"] += 1
+                    events.append(event)
+                out["events"] = events
+                out["sample_count"] = len(events)
+                out["top_trace_refs"] = [
+                    {"trace_ref": trace_ref, "event_count": count}
+                    for trace_ref, count in trace_counts.most_common(20)
+                    if trace_ref != "[missing]"
+                ]
+                out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                return out
-            out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
-            selected = [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
-            if not selected:
-                out["events"] = []
-                out["sample_count"] = 0
-                return out
-
-            quoted = ", ".join(f'"{column}"' for column in selected)
-            order_column = "created_at" if "created_at" in columns else "rowid"
-            rows = conn.execute(
-                f'select {quoted} from builder_events order by "{order_column}" desc limit ?',
-                (max(0, min(int(limit), 100)),),
-            ).fetchall()
-            events: list[dict[str, Any]] = []
-            trace_counts: Counter[str] = Counter()
-            for row in rows:
-                event: dict[str, Any] = {}
-                for column in selected:
-                    event[column] = safe_builder_event_value(column, row[column])
-                trace_ref = str(event.get("trace_ref") or "").strip()
-                trace_counts[trace_ref or "[missing]"] += 1
-                events.append(event)
-            out["events"] = events
-            out["sample_count"] = len(events)
-            out["top_trace_refs"] = [
-                {"trace_ref": trace_ref, "event_count": count}
-                for trace_ref, count in trace_counts.most_common(20)
-                if trace_ref != "[missing]"
-            ]
-            out["missing_trace_ref_count"] = int(trace_counts.get("[missing]", 0))
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
 
 
+    except Exception:
+        return {}
 def selected_builder_event_columns(columns: list[str]) -> list[str]:
-    return [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
+    if not isinstance(columns, str): columns = str(columns or '')
+    try:
+        return [column for column in SAFE_BUILDER_EVENT_SAMPLE_COLUMNS if column in columns]
 
 
+
+    except Exception:
+        return []
 def sanitize_builder_event_row(row: sqlite3.Row, selected: list[str]) -> dict[str, Any]:
-    event: dict[str, Any] = {}
-    for column in selected:
-        event[column] = safe_builder_event_value(column, row[column])
-    return event
+    if not isinstance(selected, str): selected = str(selected or '')
+    try:
+        event: dict[str, Any] = {}
+        for column in selected:
+            event[column] = safe_builder_event_value(column, row[column])
+        return event
 
 
+
+    except Exception:
+        return {}
 def inspect_builder_trace_groups(
     builder_home: Path,
     *,
@@ -2826,91 +2846,96 @@ def inspect_builder_trace_groups(
     events_per_trace: int = 12,
     edge_sample_limit: int = 24,
 ) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "group_limit": group_limit,
-        "events_per_trace": events_per_trace,
-        "edge_sample_limit": edge_sample_limit,
-        "redaction": (
-            "trace grouping over allowlisted event metadata only; summaries, facts JSON, "
-            "provenance JSON, and raw event bodies omitted"
-        ),
-    }
-    if not db_path.exists():
-        return out
-
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                return out
-            out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
-            if "trace_ref" not in columns:
-                out["trace_ref_column_exists"] = False
-                return out
-            selected = selected_builder_event_columns(columns)
-            if not selected:
-                out["groups"] = []
-                out["group_count"] = 0
-                return out
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "group_limit": group_limit,
+            "events_per_trace": events_per_trace,
+            "edge_sample_limit": edge_sample_limit,
+            "redaction": (
+                "trace grouping over allowlisted event metadata only; summaries, facts JSON, "
+                "provenance JSON, and raw event bodies omitted"
+            ),
+        }
+        if not db_path.exists():
+            return out
 
-            group_rows = conn.execute(
-                """
-                select trace_ref, count(*) as event_count, min(created_at) as first_seen_at, max(created_at) as last_seen_at
-                from builder_events
-                where trace_ref is not null and trim(trace_ref) != ''
-                group by trace_ref
-                order by max(created_at) desc
-                limit ?
-                """,
-                (max(0, min(int(group_limit), 50)),),
-            ).fetchall()
-            quoted = ", ".join(f'"{column}"' for column in selected)
-            groups = []
-            for group_row in group_rows:
-                trace_ref = str(group_row["trace_ref"] or "")
-                event_rows = conn.execute(
-                    f"""
-                    select {quoted}
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    return out
+                out["table_exists"] = True
+                columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+                if "trace_ref" not in columns:
+                    out["trace_ref_column_exists"] = False
+                    return out
+                selected = selected_builder_event_columns(columns)
+                if not selected:
+                    out["groups"] = []
+                    out["group_count"] = 0
+                    return out
+
+                group_rows = conn.execute(
+                    """
+                    select trace_ref, count(*) as event_count, min(created_at) as first_seen_at, max(created_at) as last_seen_at
                     from builder_events
-                    where trace_ref = ?
-                    order by created_at asc
+                    where trace_ref is not null and trim(trace_ref) != ''
+                    group by trace_ref
+                    order by max(created_at) desc
                     limit ?
                     """,
-                    (trace_ref, max(0, min(int(events_per_trace), 50))),
+                    (max(0, min(int(group_limit), 50)),),
                 ).fetchall()
-                groups.append(
-                    {
-                        "trace_ref": safe_builder_event_value("trace_ref", trace_ref),
-                        "event_count": int(group_row["event_count"] or 0),
-                        "first_seen_at": group_row["first_seen_at"],
-                        "last_seen_at": group_row["last_seen_at"],
-                        "topology": builder_trace_topology(
-                            conn,
-                            columns,
-                            trace_ref=trace_ref,
-                            event_count=int(group_row["event_count"] or 0),
-                            edge_sample_limit=edge_sample_limit,
-                        ),
-                        "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
-                    }
-                )
-            out["groups"] = groups
-            out["group_count"] = len(groups)
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+                quoted = ", ".join(f'"{column}"' for column in selected)
+                groups = []
+                for group_row in group_rows:
+                    trace_ref = str(group_row["trace_ref"] or "")
+                    event_rows = conn.execute(
+                        f"""
+                        select {quoted}
+                        from builder_events
+                        where trace_ref = ?
+                        order by created_at asc
+                        limit ?
+                        """,
+                        (trace_ref, max(0, min(int(events_per_trace), 50))),
+                    ).fetchall()
+                    groups.append(
+                        {
+                            "trace_ref": safe_builder_event_value("trace_ref", trace_ref),
+                            "event_count": int(group_row["event_count"] or 0),
+                            "first_seen_at": group_row["first_seen_at"],
+                            "last_seen_at": group_row["last_seen_at"],
+                            "topology": builder_trace_topology(
+                                conn,
+                                columns,
+                                trace_ref=trace_ref,
+                                event_count=int(group_row["event_count"] or 0),
+                                edge_sample_limit=edge_sample_limit,
+                            ),
+                            "events": [sanitize_builder_event_row(row, selected) for row in event_rows],
+                        }
+                    )
+                out["groups"] = groups
+                out["group_count"] = len(groups)
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
 
 
+
+    except Exception:
+        return {}
 def builder_trace_topology(
     conn: sqlite3.Connection,
     columns: list[str],
