@@ -1675,105 +1675,125 @@ def json_proof_verdict(
     source_kind: str,
     passed_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    repo_path = Path(repo_path)
-    rel_path = str(rel_path or "")
-    domain = str(domain or "")
-    source_kind = str(source_kind or "")
-    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
-    path = repo_path / rel_path
-    data, error = read_json(path)
-    if error == "missing":
-        return missing_proof_verdict(domain)
-    if error:
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    if not isinstance(rel_path, str): rel_path = str(rel_path or '')
+    if not isinstance(domain, str): domain = str(domain or '')
+    if not isinstance(source_kind, str): source_kind = str(source_kind or '')
+    if not isinstance(passed_keys, str): passed_keys = str(passed_keys or '')
+    try:
+        repo_path = Path(repo_path)
+        rel_path = str(rel_path or "")
+        domain = str(domain or "")
+        source_kind = str(source_kind or "")
+        passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
+        path = repo_path / rel_path
+        data, error = read_json(path)
+        if error == "missing":
+            return missing_proof_verdict(domain)
+        if error:
+            return proof_verdict(
+                domain=domain,
+                status="read_error",
+                source_kind=source_kind,
+                source_ref=repo_source_ref(repo_path, path),
+            )
+        payload = as_dict(data)
         return proof_verdict(
             domain=domain,
-            status="read_error",
+            status=status_from_json_verdict(payload, passed_keys=passed_keys_tuple),
             source_kind=source_kind,
             source_ref=repo_source_ref(repo_path, path),
-        )
-    payload = as_dict(data)
-    return proof_verdict(
-        domain=domain,
-        status=status_from_json_verdict(payload, passed_keys=passed_keys_tuple),
-        source_kind=source_kind,
-        source_ref=repo_source_ref(repo_path, path),
-        schema_version=first_string(payload.get("schema_version")),
-        raw_status=first_string(payload.get("status")),
-        raw_verdict=first_string(payload.get("verdict")),
-        detail_counts={
-            "required_before_approval_count": len(as_list(payload.get("required_before_approval"))),
-            "blocked_reason_count": len(as_list(as_dict(payload.get("stop_ship")).get("blocked_reasons"))),
-        },
-    )
-
-
-def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
-    repo_path = Path(repo_path)
-    rel_path = str(rel_path or "")
-    runs_root = repo_path / "runs"
-    if not runs_root.exists():
-        return None
-    try:
-        for run_dir in sorted((child for child in runs_root.iterdir() if child.is_dir()), key=lambda item: item.name.lower()):
-            candidate = run_dir / rel_path
-            if candidate.exists():
-                return candidate
-    except Exception:
-        return None
-    return None
-
-
-def labs_creator_proof_sources(repo_path: Path) -> dict[str, Any]:
-    repo_path = Path(repo_path)
-    gate_path = repo_path / LABS_CREATOR_SURFACE_FILES["release_gate"]
-    benchmark_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["benchmark_manifest"])
-    loop_policy_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["loop_policy"])
-    proof_sources = {
-        "gate": source_presence_verdict(
-            domain="gate",
-            repo_path=repo_path,
-            source_path=gate_path,
-            source_kind="release_gate_source",
-        ),
-        "benchmark": (
-            proof_verdict(
-                domain="benchmark",
-                status="present_unverified",
-                source_kind="benchmark_manifest",
-                source_ref=repo_source_ref(repo_path, benchmark_path),
-            )
-            if benchmark_path
-            else missing_proof_verdict("benchmark")
-        ),
-        "privacy": missing_proof_verdict("privacy"),
-        "rollback": missing_proof_verdict("rollback"),
-        "authority": missing_proof_verdict("authority"),
-        "publication": missing_proof_verdict("publication"),
-    }
-
-    if loop_policy_path:
-        data, error = read_json(loop_policy_path)
-        payload = as_dict(data)
-        proof_sources["rollback"] = proof_verdict(
-            domain="rollback",
-            status="present_unverified" if not error else "read_error",
-            source_kind="autoloop_rollback_policy",
-            source_ref=repo_source_ref(repo_path, loop_policy_path),
             schema_version=first_string(payload.get("schema_version")),
-            detail_counts={"rollback_condition_present": int(bool(payload.get("rollback_condition")))},
+            raw_status=first_string(payload.get("status")),
+            raw_verdict=first_string(payload.get("verdict")),
+            detail_counts={
+                "required_before_approval_count": len(as_list(payload.get("required_before_approval"))),
+                "blocked_reason_count": len(as_list(as_dict(payload.get("stop_ship")).get("blocked_reasons"))),
+            },
         )
-        if payload.get("network_publication_allowed") is False:
-            proof_sources["publication"] = proof_verdict(
-                domain="publication",
-                status="blocked",
-                source_kind="autoloop_publication_boundary",
+
+
+
+    except Exception:
+        return {}
+def first_run_artifact(repo_path: Path, rel_path: str) -> Path | None:
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    if not isinstance(rel_path, str): rel_path = str(rel_path or '')
+    try:
+        repo_path = Path(repo_path)
+        rel_path = str(rel_path or "")
+        runs_root = repo_path / "runs"
+        if not runs_root.exists():
+            return None
+        try:
+            for run_dir in sorted((child for child in runs_root.iterdir() if child.is_dir()), key=lambda item: item.name.lower()):
+                candidate = run_dir / rel_path
+                if candidate.exists():
+                    return candidate
+        except Exception:
+            return None
+        return None
+
+
+
+    except Exception:
+        return Path(".")
+def labs_creator_proof_sources(repo_path: Path) -> dict[str, Any]:
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    try:
+        repo_path = Path(repo_path)
+        gate_path = repo_path / LABS_CREATOR_SURFACE_FILES["release_gate"]
+        benchmark_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["benchmark_manifest"])
+        loop_policy_path = first_run_artifact(repo_path, LABS_CREATOR_RUN_ARTIFACTS["loop_policy"])
+        proof_sources = {
+            "gate": source_presence_verdict(
+                domain="gate",
+                repo_path=repo_path,
+                source_path=gate_path,
+                source_kind="release_gate_source",
+            ),
+            "benchmark": (
+                proof_verdict(
+                    domain="benchmark",
+                    status="present_unverified",
+                    source_kind="benchmark_manifest",
+                    source_ref=repo_source_ref(repo_path, benchmark_path),
+                )
+                if benchmark_path
+                else missing_proof_verdict("benchmark")
+            ),
+            "privacy": missing_proof_verdict("privacy"),
+            "rollback": missing_proof_verdict("rollback"),
+            "authority": missing_proof_verdict("authority"),
+            "publication": missing_proof_verdict("publication"),
+        }
+
+        if loop_policy_path:
+            data, error = read_json(loop_policy_path)
+            payload = as_dict(data)
+            proof_sources["rollback"] = proof_verdict(
+                domain="rollback",
+                status="present_unverified" if not error else "read_error",
+                source_kind="autoloop_rollback_policy",
                 source_ref=repo_source_ref(repo_path, loop_policy_path),
                 schema_version=first_string(payload.get("schema_version")),
-                raw_status="network_publication_allowed=false",
+                detail_counts={"rollback_condition_present": int(bool(payload.get("rollback_condition")))},
             )
-    return proof_sources
+            if payload.get("network_publication_allowed") is False:
+                proof_sources["publication"] = proof_verdict(
+                    domain="publication",
+                    status="blocked",
+                    source_kind="autoloop_publication_boundary",
+                    source_ref=repo_source_ref(repo_path, loop_policy_path),
+                    schema_version=first_string(payload.get("schema_version")),
+                    raw_status="network_publication_allowed=false",
+                )
+        return proof_sources
 
 
+
+    except Exception:
+        return {}
 def swarm_specialization_proof_sources(
     repo_path: Path,
     *,
@@ -1782,98 +1802,111 @@ def swarm_specialization_proof_sources(
     promotion_packet_count: int,
     evidence_ledger_count: int,
 ) -> dict[str, Any]:
-    repo_path = Path(repo_path)
-    benchmark_adapter_counts = benchmark_adapter_counts if isinstance(benchmark_adapter_counts, dict) else {}
-    rollback_policy_counts = rollback_policy_counts if isinstance(rollback_policy_counts, dict) else {}
-    promotion_packet_count = int(promotion_packet_count or 0)
-    evidence_ledger_count = int(evidence_ledger_count or 0)
-    proof_sources = {
-        "benchmark": (
-            proof_verdict(domain="benchmark", status="present_unverified", source_kind="benchmark_adapter_config")
-            if benchmark_adapter_counts
-            else missing_proof_verdict("benchmark")
-        ),
-        "publication": json_proof_verdict(
-            repo_path=repo_path,
-            rel_path=SWARM_CAPABILITY_VERDICT_FILES["publication_approval"],
-            domain="publication",
-            source_kind="publication_approval",
-            passed_keys=("network_publication_allowed",),
-        ),
-        "privacy": missing_proof_verdict("privacy"),
-        "rollback": (
-            proof_verdict(domain="rollback", status="present_unverified", source_kind="rollback_policy_config")
-            if rollback_policy_counts
-            else missing_proof_verdict("rollback")
-        ),
-        "authority": json_proof_verdict(
-            repo_path=repo_path,
-            rel_path=SWARM_CAPABILITY_VERDICT_FILES["github_ruleset_review"],
-            domain="authority",
-            source_kind="github_ruleset_review",
-            passed_keys=("ruleset_review_passed",),
-        ),
-        "trace": (
-            proof_verdict(
-                domain="trace",
-                status="present_unverified",
-                source_kind="collective_packet_or_ledger",
-                detail_counts={
-                    "promotion_packet_count": promotion_packet_count,
-                    "evidence_ledger_count": evidence_ledger_count,
-                },
-            )
-            if promotion_packet_count or evidence_ledger_count
-            else missing_proof_verdict("trace")
-        ),
-    }
-    return proof_sources
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    if not isinstance(benchmark_adapter_counts, str): benchmark_adapter_counts = str(benchmark_adapter_counts or '')
+    if not isinstance(rollback_policy_counts, str): rollback_policy_counts = str(rollback_policy_counts or '')
+    try:
+        repo_path = Path(repo_path)
+        benchmark_adapter_counts = benchmark_adapter_counts if isinstance(benchmark_adapter_counts, dict) else {}
+        rollback_policy_counts = rollback_policy_counts if isinstance(rollback_policy_counts, dict) else {}
+        promotion_packet_count = int(promotion_packet_count or 0)
+        evidence_ledger_count = int(evidence_ledger_count or 0)
+        proof_sources = {
+            "benchmark": (
+                proof_verdict(domain="benchmark", status="present_unverified", source_kind="benchmark_adapter_config")
+                if benchmark_adapter_counts
+                else missing_proof_verdict("benchmark")
+            ),
+            "publication": json_proof_verdict(
+                repo_path=repo_path,
+                rel_path=SWARM_CAPABILITY_VERDICT_FILES["publication_approval"],
+                domain="publication",
+                source_kind="publication_approval",
+                passed_keys=("network_publication_allowed",),
+            ),
+            "privacy": missing_proof_verdict("privacy"),
+            "rollback": (
+                proof_verdict(domain="rollback", status="present_unverified", source_kind="rollback_policy_config")
+                if rollback_policy_counts
+                else missing_proof_verdict("rollback")
+            ),
+            "authority": json_proof_verdict(
+                repo_path=repo_path,
+                rel_path=SWARM_CAPABILITY_VERDICT_FILES["github_ruleset_review"],
+                domain="authority",
+                source_kind="github_ruleset_review",
+                passed_keys=("ruleset_review_passed",),
+            ),
+            "trace": (
+                proof_verdict(
+                    domain="trace",
+                    status="present_unverified",
+                    source_kind="collective_packet_or_ledger",
+                    detail_counts={
+                        "promotion_packet_count": promotion_packet_count,
+                        "evidence_ledger_count": evidence_ledger_count,
+                    },
+                )
+                if promotion_packet_count or evidence_ledger_count
+                else missing_proof_verdict("trace")
+            ),
+        }
+        return proof_sources
 
 
+
+    except Exception:
+        return {}
 def capability_proof_summary(
     proof_verdicts: dict[str, Any],
     required_labels: dict[str, str],
 ) -> dict[str, Any]:
-    proof_verdicts = proof_verdicts if isinstance(proof_verdicts, dict) else {}
-    required_labels = required_labels if isinstance(required_labels, dict) else {}
-    counts: Counter[str] = Counter()
-    passed: list[str] = []
-    blocked: list[str] = []
-    unverified: list[str] = []
-    missing: list[str] = []
+    if not isinstance(proof_verdicts, str): proof_verdicts = str(proof_verdicts or '')
+    if not isinstance(required_labels, str): required_labels = str(required_labels or '')
+    try:
+        proof_verdicts = proof_verdicts if isinstance(proof_verdicts, dict) else {}
+        required_labels = required_labels if isinstance(required_labels, dict) else {}
+        counts: Counter[str] = Counter()
+        passed: list[str] = []
+        blocked: list[str] = []
+        unverified: list[str] = []
+        missing: list[str] = []
 
-    for domain, label in required_labels.items():
-        verdict = as_dict(proof_verdicts.get(domain))
-        status = str(verdict.get("status") or "missing")
-        counts[status] += 1
-        if status == "passed":
-            passed.append(label)
-        elif status == "blocked":
-            blocked.append(label)
-        elif status == "present_unverified":
-            unverified.append(label)
+        for domain, label in required_labels.items():
+            verdict = as_dict(proof_verdicts.get(domain))
+            status = str(verdict.get("status") or "missing")
+            counts[status] += 1
+            if status == "passed":
+                passed.append(label)
+            elif status == "blocked":
+                blocked.append(label)
+            elif status == "present_unverified":
+                unverified.append(label)
+            else:
+                missing.append(label)
+
+        if blocked:
+            overall = "blocked"
+        elif missing or unverified:
+            overall = "missing_required_verdicts"
         else:
-            missing.append(label)
+            overall = "passed"
 
-    if blocked:
-        overall = "blocked"
-    elif missing or unverified:
-        overall = "missing_required_verdicts"
-    else:
-        overall = "passed"
-
-    return {
-        "overall_status": overall,
-        "required_proofs": list(required_labels.values()),
-        "passed_proofs": passed,
-        "blocked_proofs": blocked,
-        "unverified_proofs": unverified,
-        "missing_proofs": missing,
-        "unsatisfied_proofs": [*blocked, *unverified, *missing],
-        "status_counts": dict(sorted(counts.items())),
-    }
+        return {
+            "overall_status": overall,
+            "required_proofs": list(required_labels.values()),
+            "passed_proofs": passed,
+            "blocked_proofs": blocked,
+            "unverified_proofs": unverified,
+            "missing_proofs": missing,
+            "unsatisfied_proofs": [*blocked, *unverified, *missing],
+            "status_counts": dict(sorted(counts.items())),
+        }
 
 
+
+    except Exception:
+        return {}
 def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
     repo_path = Path(repo_path)
     schema_dir = repo_path / "docs" / "creator_system" / "schemas"
