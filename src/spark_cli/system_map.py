@@ -629,121 +629,141 @@ def summarize_registry(registry: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def inspect_builder_state_db(builder_home: Path) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "redaction": "table names and row counts only; no row contents read",
-    }
-    if not db_path.exists():
-        return out
-
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
-            out["table_count"] = len(tables)
-            out["tables_of_interest"] = {}
-            for table in BUILDER_TABLES_OF_INTEREST:
-                if table not in tables:
-                    out["tables_of_interest"][table] = {"exists": False}
-                    continue
-                count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
-                out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
-
-
-def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
-    paths_list = [Path(p) for p in as_list(repo_paths)]
-    for repo in paths_list:
-        candidate = repo / "docs" / "SPARK_UPGRADE_LEDGER.yaml"
-        if not candidate.exists():
-            continue
-        try:
-            text = candidate.read_text(encoding="utf-8")
-        except Exception as exc:
-            return {"exists": True, "path": str(candidate), "error": f"{type(exc).__name__}: {exc}"}
-        statuses = Counter(re.findall(r"(?m)^\s*status:\s*([a-zA-Z0-9_.-]+)\s*$", text))
-        schema_match = re.search(r"(?m)^\s*schema(?:_version)?:\s*([a-zA-Z0-9_.-]+)\s*$", text)
-        return {
-            "exists": True,
-            "path": str(candidate),
-            "schema_hint": schema_match.group(1) if schema_match else None,
-            "status_counts": dict(sorted(statuses.items())),
-            "redaction": "status counts only; ledger item contents omitted",
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "redaction": "table names and row counts only; no row contents read",
         }
-    return {"exists": False}
+        if not db_path.exists():
+            return out
 
-
-def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
-    path = Path(builder_home) / "artifacts" / "capability-ledger" / "capability-ledger.json"
-    data, error = read_json(path)
-    out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; contents omitted"}
-    if error and error != "missing":
-        out["error"] = error
-        return out
-    if isinstance(data, list):
-        out["entry_count"] = len(data)
-    elif isinstance(data, dict):
-        out["top_level_keys"] = sorted(str(k) for k in data.keys())
-        for key, value in data.items():
-            if isinstance(value, list):
-                out[f"{key}_count"] = len(value)
-    return out
-
-
-def count_safe_jsonl(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    out: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "redaction": "line counts, parse counts, key presence, and allowlisted primitive counters only",
-    }
-    if not path.exists():
-        return out
-
-    line_count = parsed_count = parse_errors = redacted_key_name_count = 0
-    key_counts: Counter[str] = Counter()
-    value_counts: dict[str, Counter[str]] = {key: Counter() for key in SAFE_JSONL_COUNT_KEYS}
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                line_count += 1
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    parse_errors += 1
-                    continue
-                parsed_count += 1
-                if not isinstance(payload, dict):
-                    continue
-                for key, value in payload.items():
-                    key_name = str(key)
-                    if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
-                        redacted_key_name_count += 1
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
+                out["table_count"] = len(tables)
+                out["tables_of_interest"] = {}
+                for table in BUILDER_TABLES_OF_INTEREST:
+                    if table not in tables:
+                        out["tables_of_interest"][table] = {"exists": False}
                         continue
-                    key_counts[key_name] += 1
-                    if key in value_counts and isinstance(value, (str, int, float, bool)) and value is not None:
-                        value_counts[key][str(value)[:80]] += 1
-    except Exception as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+                    count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
+                    out["tables_of_interest"][table] = {"exists": True, "row_count": int(count)}
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
-    out["line_count"] = line_count
-    out["parsed_count"] = parsed_count
-    out["parse_errors"] = parse_errors
-    out["redacted_key_name_count"] = redacted_key_name_count
-    out["top_keys"] = dict(key_counts.most_common(30))
-    out["safe_value_counts"] = {key: dict(counter.most_common(30)) for key, counter in value_counts.items() if counter}
-    return out
 
 
+    except Exception:
+        return {}
+def summarize_upgrade_ledger(repo_paths: list[Path]) -> dict[str, Any]:
+    if not isinstance(repo_paths, list): repo_paths = list(repo_paths or [])
+    try:
+        paths_list = [Path(p) for p in as_list(repo_paths)]
+        for repo in paths_list:
+            candidate = repo / "docs" / "SPARK_UPGRADE_LEDGER.yaml"
+            if not candidate.exists():
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except Exception as exc:
+                return {"exists": True, "path": str(candidate), "error": f"{type(exc).__name__}: {exc}"}
+            statuses = Counter(re.findall(r"(?m)^\s*status:\s*([a-zA-Z0-9_.-]+)\s*$", text))
+            schema_match = re.search(r"(?m)^\s*schema(?:_version)?:\s*([a-zA-Z0-9_.-]+)\s*$", text)
+            return {
+                "exists": True,
+                "path": str(candidate),
+                "schema_hint": schema_match.group(1) if schema_match else None,
+                "status_counts": dict(sorted(statuses.items())),
+                "redaction": "status counts only; ledger item contents omitted",
+            }
+        return {"exists": False}
+
+
+
+    except Exception:
+        return {}
+def summarize_capability_ledger(builder_home: Path) -> dict[str, Any]:
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        path = Path(builder_home) / "artifacts" / "capability-ledger" / "capability-ledger.json"
+        data, error = read_json(path)
+        out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; contents omitted"}
+        if error and error != "missing":
+            out["error"] = error
+            return out
+        if isinstance(data, list):
+            out["entry_count"] = len(data)
+        elif isinstance(data, dict):
+            out["top_level_keys"] = sorted(str(k) for k in data.keys())
+            for key, value in data.items():
+                if isinstance(value, list):
+                    out[f"{key}_count"] = len(value)
+        return out
+
+
+
+    except Exception:
+        return {}
+def count_safe_jsonl(path: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        out: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "redaction": "line counts, parse counts, key presence, and allowlisted primitive counters only",
+        }
+        if not path.exists():
+            return out
+
+        line_count = parsed_count = parse_errors = redacted_key_name_count = 0
+        key_counts: Counter[str] = Counter()
+        value_counts: dict[str, Counter[str]] = {key: Counter() for key in SAFE_JSONL_COUNT_KEYS}
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    line_count += 1
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        parse_errors += 1
+                        continue
+                    parsed_count += 1
+                    if not isinstance(payload, dict):
+                        continue
+                    for key, value in payload.items():
+                        key_name = str(key)
+                        if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
+                            redacted_key_name_count += 1
+                            continue
+                        key_counts[key_name] += 1
+                        if key in value_counts and isinstance(value, (str, int, float, bool)) and value is not None:
+                            value_counts[key][str(value)[:80]] += 1
+        except Exception as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        out["line_count"] = line_count
+        out["parsed_count"] = parsed_count
+        out["parse_errors"] = parse_errors
+        out["redacted_key_name_count"] = redacted_key_name_count
+        out["top_keys"] = dict(key_counts.most_common(30))
+        out["safe_value_counts"] = {key: dict(counter.most_common(30)) for key, counter in value_counts.items() if counter}
+        return out
+
+
+
+    except Exception:
+        return {}
 def inspect_safe_jsonl_samples(
     path: Path,
     *,
@@ -752,66 +772,74 @@ def inspect_safe_jsonl_samples(
     identifier_fields: dict[str, str] | None = None,
     limit: int = 40,
 ) -> dict[str, Any]:
-    path = Path(path)
-    safe_fields = tuple(str(f) for f in as_list(safe_fields))
-    out: dict[str, Any] = {
-        "source": str(source or ""),
-        "path": str(path),
-        "exists": path.exists(),
-        "limit": int(limit or 40),
-        "redaction": "bounded samples over allowlisted primitive metadata only; raw messages and text previews omitted",
-    }
-    if not path.exists():
-        return out
-
-    identifier_fields = as_dict(identifier_fields)
-    line_count = parsed_count = parse_errors = redacted_key_name_count = 0
-    key_counts: Counter[str] = Counter()
-    samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit or 40), 100)))
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(source, str): source = str(source or '')
+    if not isinstance(safe_fields, str): safe_fields = str(safe_fields or '')
+    if not isinstance(identifier_fields, str): identifier_fields = str(identifier_fields or '')
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                line_count += 1
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    parse_errors += 1
-                    continue
-                parsed_count += 1
-                if not isinstance(payload, dict):
-                    continue
-                for key in payload:
-                    key_name = str(key)
-                    if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
-                        redacted_key_name_count += 1
+        path = Path(path)
+        safe_fields = tuple(str(f) for f in as_list(safe_fields))
+        out: dict[str, Any] = {
+            "source": str(source or ""),
+            "path": str(path),
+            "exists": path.exists(),
+            "limit": int(limit or 40),
+            "redaction": "bounded samples over allowlisted primitive metadata only; raw messages and text previews omitted",
+        }
+        if not path.exists():
+            return out
+
+        identifier_fields = as_dict(identifier_fields)
+        line_count = parsed_count = parse_errors = redacted_key_name_count = 0
+        key_counts: Counter[str] = Counter()
+        samples: deque[dict[str, Any]] = deque(maxlen=max(0, min(int(limit or 40), 100)))
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
                         continue
-                    key_counts[key_name] += 1
-                sample: dict[str, Any] = {}
-                for field in safe_fields:
-                    if field in payload:
-                        sample[field] = safe_jsonl_sample_value(
-                            field,
-                            payload.get(field),
-                            identifier_fields=identifier_fields,
-                        )
-                if sample:
-                    samples.append(sample)
-    except Exception as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+                    line_count += 1
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        parse_errors += 1
+                        continue
+                    parsed_count += 1
+                    if not isinstance(payload, dict):
+                        continue
+                    for key in payload:
+                        key_name = str(key)
+                        if any(hint in key_name.lower() for hint in SENSITIVE_KEY_NAME_HINTS):
+                            redacted_key_name_count += 1
+                            continue
+                        key_counts[key_name] += 1
+                    sample: dict[str, Any] = {}
+                    for field in safe_fields:
+                        if field in payload:
+                            sample[field] = safe_jsonl_sample_value(
+                                field,
+                                payload.get(field),
+                                identifier_fields=identifier_fields,
+                            )
+                    if sample:
+                        samples.append(sample)
+        except Exception as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        out["line_count"] = line_count
+        out["parsed_count"] = parsed_count
+        out["parse_errors"] = parse_errors
+        out["redacted_key_name_count"] = redacted_key_name_count
+        out["top_keys"] = dict(key_counts.most_common(30))
+        out["samples"] = list(samples)
+        out["sample_count"] = len(samples)
         return out
 
-    out["line_count"] = line_count
-    out["parsed_count"] = parsed_count
-    out["parse_errors"] = parse_errors
-    out["redacted_key_name_count"] = redacted_key_name_count
-    out["top_keys"] = dict(key_counts.most_common(30))
-    out["samples"] = list(samples)
-    out["sample_count"] = len(samples)
-    return out
 
 
+    except Exception:
+        return {}
 def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[str, str]) -> Any:
     field = str(field or "")
     identifier_fields = as_dict(identifier_fields)
