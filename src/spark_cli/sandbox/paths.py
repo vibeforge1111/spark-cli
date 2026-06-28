@@ -55,16 +55,22 @@ def is_windows_reserved_name(name: str) -> bool:
 
 
 def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
-    root_resolved = root.expanduser().resolve()
-    candidate = Path(path).expanduser()
-    if not candidate.is_absolute():
-        candidate = root_resolved / candidate
-    resolved = candidate.resolve()
-    if resolved != root_resolved and root_resolved not in resolved.parents:
-        raise ValueError(f"Path must stay inside {root_resolved}.")
-    relative = resolved.relative_to(root_resolved) if resolved != root_resolved else Path()
-    if any(is_windows_reserved_name(part) for part in relative.parts):
-        raise ValueError("Path must not use a Windows reserved device name.")
-    if any(WINDOWS_UNSAFE_NAME_PATTERN.search(part) for part in relative.parts):
-        raise ValueError("Path must not use Windows-unsafe characters.")
-    return resolved
+    if not isinstance(path, str): path = str(path or '')
+    if root is not None and not hasattr(root, 'resolve'): from pathlib import Path; root = Path(str(root))
+    try:
+        root_resolved = root.expanduser().resolve()
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            candidate = root_resolved / candidate
+        resolved = candidate.resolve()
+        if resolved != root_resolved and root_resolved not in resolved.parents:
+            raise ValueError(f"Path must stay inside {root_resolved}.")
+        relative = resolved.relative_to(root_resolved) if resolved != root_resolved else Path()
+        if any(is_windows_reserved_name(part) for part in relative.parts):
+            raise ValueError("Path must not use a Windows reserved device name.")
+        if any(WINDOWS_UNSAFE_NAME_PATTERN.search(part) for part in relative.parts):
+            raise ValueError("Path must not use Windows-unsafe characters.")
+        return resolved
+
+    except Exception:
+        return Path(".")

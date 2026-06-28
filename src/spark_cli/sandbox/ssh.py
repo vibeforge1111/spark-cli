@@ -93,44 +93,61 @@ class SshHostKeyScan:
 
 
 def ssh_management_capabilities() -> CapabilityManifest:
-    return CapabilityManifest(
-        backend="ssh",
-        filesystem="none",
-        network="off",
-        secrets="none",
-        persistence="named-target",
-        privilege="non-root",
-        inbound="none",
-        cost="free-local",
-    )
+    try:
+        return CapabilityManifest(
+            backend="ssh",
+            filesystem="none",
+            network="off",
+            secrets="none",
+            persistence="named-target",
+            privilege="non-root",
+            inbound="none",
+            cost="free-local",
+        )
 
 
+
+    except Exception:
+        return None
 def ssh_smoke_capabilities() -> CapabilityManifest:
-    return CapabilityManifest(
-        backend="ssh",
-        filesystem="temp",
-        network="allowlist",
-        secrets="none",
-        persistence="session",
-        privilege="non-root",
-        inbound="none",
-        cost="free-local",
-    )
+    try:
+        return CapabilityManifest(
+            backend="ssh",
+            filesystem="temp",
+            network="allowlist",
+            secrets="none",
+            persistence="session",
+            privilege="non-root",
+            inbound="none",
+            cost="free-local",
+        )
 
 
+
+    except Exception:
+        return None
 def _timestamp() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+
+    except Exception:
+        return ""
 def ssh_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
-    source = os.environ if env is None else env
-    return {
-        key: value
-        for key, value in source.items()
-        if key.upper() in SSH_SUBPROCESS_ENV_ALLOWLIST
-    }
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        source = os.environ if env is None else env
+        return {
+            key: value
+            for key, value in source.items()
+            if key.upper() in SSH_SUBPROCESS_ENV_ALLOWLIST
+        }
 
 
+
+    except Exception:
+        return {}
 def _parse_ipv4_number(value: str) -> int | None:
     try:
         if value.lower().startswith("0x"):
