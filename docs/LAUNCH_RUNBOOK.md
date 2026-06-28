@@ -93,18 +93,24 @@ bash ./install.sh
 Both installers install the CLI, run the default starter setup, and write Spark
 state under `~/.spark` unless `SPARK_HOME` is set.
 
-## Non-interactive setup
+## Identity Setup
 
-Use a BotFather token and at least one Telegram admin id. Keep secrets in
-environment variables or a shell prompt; do not paste them into files that may be
-committed.
+Use a BotFather token and at least one Telegram admin id. Keep secrets in a
+shell prompt, `@env:` references, or the Spark secret backend; do not paste them
+into files that may be committed.
+
+Initial Telegram identity and operator-access setup is intentionally
+interactive. A non-interactive command that includes `--bot-token` or
+`--admin-telegram-ids` is a sensitive `identity_access_mutation` and must fail
+closed before writing generated config or state. Use an interactive terminal for
+the initial identity mutation:
 
 ```bash
-spark setup --non-interactive \
-  --bot-token "$TELEGRAM_BOT_TOKEN" \
-  --admin-telegram-ids "$TELEGRAM_ADMIN_IDS" \
+spark setup \
+  --bot-token "@env:TELEGRAM_BOT_TOKEN" \
+  --admin-telegram-ids "@env:TELEGRAM_ADMIN_IDS" \
   --llm-provider zai \
-  --zai-api-key "$ZAI_API_KEY"
+  --zai-api-key "@env:ZAI_API_KEY"
 ```
 
 Z.AI launch defaults:
@@ -152,9 +158,11 @@ Then verify in Telegram:
 - a normal message receives an LLM-backed response
 - `/diagnose` reports Telegram, LLM, memory, and mission relay state
 
-## Sandbox smoke
+## Sandbox Smoke
 
-Before launch, run at least one clean install with an isolated `SPARK_HOME`.
+Before launch, run at least one guarded refusal smoke with an isolated
+`SPARK_HOME`. This proves unattended identity mutation fails closed; it is not a
+successful fresh install.
 
 Windows PowerShell:
 
@@ -169,8 +177,7 @@ spark setup --non-interactive `
   --no-autostart `
   --no-start-now `
   --skip-install-commands `
-  --skip-runtime-check
-spark status --json
+  --skip-runtime-check; "exit=$LASTEXITCODE"
 ```
 
 Linux or WSL:
@@ -186,11 +193,17 @@ spark setup --non-interactive \
   --no-autostart \
   --no-start-now \
   --skip-install-commands \
-  --skip-runtime-check
-spark status --json
+  --skip-runtime-check ; echo "exit=$?"
 ```
 
-After the smoke, scan generated config, state, and logs for accidental secrets
+Expected result:
+
+- exit code `2`
+- output says Spark blocked a sensitive `identity_access_mutation`
+- no generated module env/state files contain the fake token, fake provider key,
+  old dashboard variables, or private-key material
+
+After the smoke, scan generated config, state, and logs for accidental residue
 or deferred dashboard configuration. Keep the scan focused on generated files;
 installed source checkouts can contain redaction fixtures and runbook examples.
 
@@ -199,10 +212,10 @@ grep -R "fake-zai-key\|fake-token\|SPARK_API_URL\|SPARK_DASHBOARD_URL\|sscli_v1\
   "$SPARK_HOME/config" "$SPARK_HOME/state" "$SPARK_HOME/logs" 2>/dev/null || true
 ```
 
-The fake LLM key must not appear in generated module env files. Non-secret Z.AI
-metadata such as provider, base URL, and model is expected. With a fake
-Telegram token and `--no-start-now`, `spark status` may report the Telegram bot
-or runtime processes as unhealthy; that is expected for this no-secret smoke.
+The fake token and fake LLM key must not appear in generated module env files.
+Do not use this guarded-refusal lane to claim runtime setup success; run the
+interactive identity setup lane with a disposable test bot when release truth is
+green enough for a full fresh-install smoke.
 
 ## Troubleshooting
 

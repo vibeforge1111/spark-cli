@@ -15129,6 +15129,17 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["generated_files"], ["config/modules/spark-telegram-bot.env"])
         self.assertEqual(payload["forbidden_hits"], ["config/modules/spark-telegram-bot.env"])
 
+    def test_launch_runbook_keeps_identity_setup_interactive(self) -> None:
+        runbook = (Path(__file__).resolve().parents[1] / "docs" / "LAUNCH_RUNBOOK.md").read_text(encoding="utf-8")
+        sandbox_smoke = runbook[runbook.index("## Sandbox Smoke"):runbook.index("## Troubleshooting")]
+
+        self.assertIn("Initial Telegram identity and operator-access setup is intentionally", runbook)
+        self.assertIn("identity_access_mutation", runbook)
+        self.assertIn("spark setup \\\n  --bot-token", runbook)
+        self.assertIn("exit code `2`", runbook)
+        self.assertNotIn("spark setup --non-interactive \\\n  --bot-token \"$TELEGRAM_BOT_TOKEN\"", runbook)
+        self.assertNotIn("spark status --json", sandbox_smoke)
+
     def test_r30_local_runtime_artifacts_handoff_matches_live_rows(self) -> None:
         classification = {
             "direct_blockers": [
