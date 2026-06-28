@@ -14557,15 +14557,15 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "350f3802b2e5e06bcac9c757e5dc138b86dbdabb5600110a1d40078dbce4b41e",
-                                    "line_count": 87779,
+                                    "sha256": "5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f",
+                                    "line_count": 87829,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "9a7fb309f93434b6d70e72e1724daaf085da958d",
+                                    "expected_tree": "0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"9a7fb309f93434b6d70e72e1724daaf085da958d\""
+                                        "\"0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b\""
                                     ),
                                     "proof_result": "reliability passed; build passed; line-count passed",
                                     "publication_authority": False,
@@ -15194,21 +15194,22 @@ class SparkCliTests(unittest.TestCase):
                                     "Harden Telegram profile Level 5 env proof",
                                     "Refresh Telegram Level 5 profile env",
                                     "Require Telegram Level 5 full permission proof",
+                                    "Honor CLI Level 5 permission proof",
                                     "Preserve natural Level 5 confirmations",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "350f3802b2e5e06bcac9c757e5dc138b86dbdabb5600110a1d40078dbce4b41e",
-                                    "line_count": 87779,
+                                    "sha256": "5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f",
+                                    "line_count": 87829,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "9a7fb309f93434b6d70e72e1724daaf085da958d",
+                                    "expected_tree": "0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"9a7fb309f93434b6d70e72e1724daaf085da958d\""
+                                        "\"0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b\""
                                     ),
                                     "proof_result": "reliability passed; build passed; line-count passed",
                                     "publication_authority": False,
@@ -15719,21 +15720,22 @@ class SparkCliTests(unittest.TestCase):
                             "Harden Telegram profile Level 5 env proof",
                             "Refresh Telegram Level 5 profile env",
                             "Require Telegram Level 5 full permission proof",
+                            "Honor CLI Level 5 permission proof",
                             "Preserve natural Level 5 confirmations",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "owner_handoff_patch": {
                             "patch_type": "tree_diff",
                             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                            "sha256": "350f3802b2e5e06bcac9c757e5dc138b86dbdabb5600110a1d40078dbce4b41e",
-                            "line_count": 87779,
+                            "sha256": "5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f",
+                            "line_count": 87829,
                             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                            "expected_tree": "9a7fb309f93434b6d70e72e1724daaf085da958d",
+                            "expected_tree": "0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b",
                             "apply_check": (
                                 "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                 "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                 "git add -A && test \"$(git write-tree)\" = "
-                                "\"9a7fb309f93434b6d70e72e1724daaf085da958d\""
+                                "\"0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b\""
                             ),
                             "proof_result": "reliability passed; build passed; line-count passed",
                             "publication_authority": False,

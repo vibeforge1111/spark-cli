@@ -105,7 +105,7 @@ Fresh local proof status for direct blockers, refreshed at `2026-06-27T21:33:59Z
 
 - `domain-chip-memory`: owner handoff patch `docs/r30/patches/r30-memory-authority-proof.patch` has SHA256 `58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83`; applying the tree-diff patch to owner branch base `3116ccaa3977` produces tree `ae30034f03ac`. `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter. This is review/apply material only, not registry or publication authority.
 - `spark-intelligence-builder`: owner handoff patch `docs/r30/patches/r30-builder-trace-proof-stack.patch` has SHA256 `48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d`; applying the tree-diff patch to owner branch base `c94eac853fed` produces tree `a9aedb619481`. `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 53.29s`. This is review/apply material only, not registry or publication authority.
-- `spark-telegram-bot`: reliability, build, line-count, and profile-specific Level 5 env proof gates passed. Owner handoff patch `docs/r30/patches/r30-telegram-control-reliability-stack.patch` has SHA256 `5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f`; applying the tree-diff patch to public owner base `67ad9e6ed297` produces tree `dfdb23f10fce`, carrying local proof head `6f48013edb22` as review/apply material only, not registry or publication authority.
+- `spark-telegram-bot`: reliability, build, line-count, and profile-specific Level 5 env proof gates passed. Owner handoff patch `docs/r30/patches/r30-telegram-control-reliability-stack.patch` has SHA256 `5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f`; applying the tree-diff patch to public owner base `67ad9e6ed297` produces tree `0b4112a97ab8`, carrying local proof head `6f48013edb22` as review/apply material only, not registry or publication authority.
 - `spark-voice-comms`: pytest passed.
 - `spark-voice-comms`: owner handoff patch `docs/r30/patches/r30-voice-trace-governor.patch` applies to public base `c74490d68ece`, produces tree `e3e1f8814970`, and passes `132 passed`; this remains review/apply material only, not registry or publication authority.
 - `spawner-ui`: owner handoff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223`; applying the tree-diff patch to owner base `fdb8fded4744` produces tree `4e685e6206f7`. Focused access-lane and Codex sandbox tests passed with `22 passed`, and `npm run build` passed. This is review/apply material only, not registry or publication authority.
@@ -129,7 +129,7 @@ worktrees from the recorded owner bases, applies each patch, and requires
   `a9aedb619481ffc9fa22d6289e82df47400948cf`.
 - `spark-telegram-bot`: `r30-telegram-control-reliability-stack.patch`
   applies to `67ad9e6ed297baf6c9daa74b879fa45bc45bd579` and produces tree
-  `dfdb23f10fcea93c1dc12d6f03a501df685d19d0`. `git apply` still reports
+  `0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b`. `git apply` still reports
   known blank-EOF whitespace warnings; the resulting tree matches.
 - `spark-voice-comms`: `r30-voice-trace-governor.patch` applies with `git am`
   to `c74490d68ece65ffad21dc5b88f44602e1afa703` and produces tree

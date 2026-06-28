@@ -86,7 +86,7 @@ Owner handoff patch artifact:
 - `docs/r30/patches/r30-telegram-control-reliability-stack.patch`
 - SHA256 `5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f`
 - applies to public owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579`
-- produces tree `dfdb23f10fcea93c1dc12d6f03a501df685d19d0`, carrying local proof head `6f48013edb22fbf558735b59e11b95b3f0413584`
+- produces tree `0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b`, carrying local proof head `6f48013edb22fbf558735b59e11b95b3f0413584`
 - this is review/apply material only, not registry, tag, installer, or publication authority
 
 ### `spawner-ui`
