@@ -132,82 +132,107 @@ def ssh_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def _parse_ipv4_number(value: str) -> int | None:
+    if not isinstance(value, str): value = str(value or '')
     try:
-        if value.lower().startswith("0x"):
-            return int(value[2:], 16)
-        if len(value) > 1 and value.startswith("0"):
-            return int(value[1:] or "0", 8)
-        return int(value, 10)
-    except ValueError:
-        return None
+        try:
+            if value.lower().startswith("0x"):
+                return int(value[2:], 16)
+            if len(value) > 1 and value.startswith("0"):
+                return int(value[1:] or "0", 8)
+            return int(value, 10)
+        except ValueError:
+            return None
 
 
+
+    except Exception:
+        return 0
 def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
-    if not host or not all(char in "0123456789abcdefABCDEFxX." for char in host):
-        return None
-    parts = host.split(".")
-    if len(parts) > 4 or any(part == "" for part in parts):
-        return None
-    numbers = [_parse_ipv4_number(part) for part in parts]
-    if any(number is None for number in numbers):
-        return None
-    octets: list[int]
-    if len(numbers) == 1:
-        value = int(numbers[0])
-        if value > 0xFFFFFFFF:
-            return None
-        octets = [
-            (value >> 24) & 0xFF,
-            (value >> 16) & 0xFF,
-            (value >> 8) & 0xFF,
-            value & 0xFF,
-        ]
-    elif len(numbers) == 2:
-        first, rest = (int(number) for number in numbers)
-        if first > 0xFF or rest > 0xFFFFFF:
-            return None
-        octets = [first, (rest >> 16) & 0xFF, (rest >> 8) & 0xFF, rest & 0xFF]
-    elif len(numbers) == 3:
-        first, second, rest = (int(number) for number in numbers)
-        if first > 0xFF or second > 0xFF or rest > 0xFFFF:
-            return None
-        octets = [first, second, (rest >> 8) & 0xFF, rest & 0xFF]
-    else:
-        if any(int(number) > 0xFF for number in numbers):
-            return None
-        octets = [int(number) for number in numbers]
-    return ipaddress.IPv4Address(bytes(octets))
-
-
-def _ssh_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not isinstance(host, str): host = str(host or '')
     try:
-        return ipaddress.ip_address(host)
-    except ValueError:
-        return _legacy_ipv4_address(host)
+        if not host or not all(char in "0123456789abcdefABCDEFxX." for char in host):
+            return None
+        parts = host.split(".")
+        if len(parts) > 4 or any(part == "" for part in parts):
+            return None
+        numbers = [_parse_ipv4_number(part) for part in parts]
+        if any(number is None for number in numbers):
+            return None
+        octets: list[int]
+        if len(numbers) == 1:
+            value = int(numbers[0])
+            if value > 0xFFFFFFFF:
+                return None
+            octets = [
+                (value >> 24) & 0xFF,
+                (value >> 16) & 0xFF,
+                (value >> 8) & 0xFF,
+                value & 0xFF,
+            ]
+        elif len(numbers) == 2:
+            first, rest = (int(number) for number in numbers)
+            if first > 0xFF or rest > 0xFFFFFF:
+                return None
+            octets = [first, (rest >> 16) & 0xFF, (rest >> 8) & 0xFF, rest & 0xFF]
+        elif len(numbers) == 3:
+            first, second, rest = (int(number) for number in numbers)
+            if first > 0xFF or second > 0xFF or rest > 0xFFFF:
+                return None
+            octets = [first, second, (rest >> 8) & 0xFF, rest & 0xFF]
+        else:
+            if any(int(number) > 0xFF for number in numbers):
+                return None
+            octets = [int(number) for number in numbers]
+        return ipaddress.IPv4Address(bytes(octets))
 
 
+
+    except Exception:
+        return None
+def _ssh_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not isinstance(host, str): host = str(host or '')
+    try:
+        try:
+            return ipaddress.ip_address(host)
+        except ValueError:
+            return _legacy_ipv4_address(host)
+
+
+
+    except Exception:
+        return None
 def _is_metadata_host(value: str) -> bool:
-    if value == "metadata.google.internal":
-        return True
-    ip = _ssh_host_ip(value)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        if value == "metadata.google.internal":
+            return True
+        ip = _ssh_host_ip(value)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
 
 
+
+    except Exception:
+        return False
 def validate_ssh_host(host: str) -> str:
-    value = str(host or "").strip().lower().rstrip(".")
-    if not value:
-        raise ValueError("SSH host is required.")
-    if "://" in value or "/" in value or "\\" in value or "@" in value:
-        raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
-    if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
-        raise ValueError("SSH host contains unsupported characters.")
-    if _is_metadata_host(value):
-        raise ValueError("SSH host must not point at a cloud metadata service.")
-    return value
+    if not isinstance(host, str): host = str(host or '')
+    try:
+        value = str(host or "").strip().lower().rstrip(".")
+        if not value:
+            raise ValueError("SSH host is required.")
+        if "://" in value or "/" in value or "\\" in value or "@" in value:
+            raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
+        if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
+            raise ValueError("SSH host contains unsupported characters.")
+        if _is_metadata_host(value):
+            raise ValueError("SSH host must not point at a cloud metadata service.")
+        return value
 
 
+
+    except Exception:
+        return ""
 def validate_ssh_user(user: str) -> str:
     value = str(user or "").strip()
     if value == "root":
