@@ -64,6 +64,7 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
   and `PYTHONPATH=src python3 -m pytest -q`. This is an apply/review artifact,
   not publication authority.
 - current remote audit at `2026-06-28T03:29:13Z`: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
+- executable remote-ref audit at `2026-06-28T03:50:55Z`: `verify --r30` now runs `git ls-remote` against `spark-voice-comms` and confirms the recorded voice refs are still current. It checks `refs/heads/main`, `refs/tags/spark-ship-2026-06-26`, `refs/heads/codex/turnintent-voice-policy-20260531`, and the absence of `refs/heads/release/r30-voice-trace-governor`.
 
 This prepared lane reduces the owner-source handoff gap, but it does not clear
 the R30 voice registry decision until the release ref is source-owned remotely,

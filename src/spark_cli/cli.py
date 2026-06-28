@@ -120,6 +120,7 @@ R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
+R30_VOICE_REPO_URL = "https://github.com/vibeforge1111/spark-voice-comms"
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
     "spark-intelligence-builder",
@@ -8117,6 +8118,100 @@ def classify_r30_release_lane_rows(release_lane: dict[str, Any]) -> dict[str, An
     }
 
 
+def collect_r30_voice_remote_ref_audit(handoff_manifest: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(handoff_manifest, dict) or not handoff_manifest:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit cannot run without the handoff manifest.",
+            "issues": ["missing_handoff_manifest"],
+            "refs": {},
+        }
+    candidate_ref = str(handoff_manifest.get("candidate_owner_release_branch_remote_ref") or "")
+    owner_branch = str(handoff_manifest.get("owner_branch") or "")
+    owner_ref = f"refs/heads/{owner_branch.removeprefix('origin/')}" if owner_branch.startswith("origin/") else owner_branch
+    expected_refs = {
+        "remote_main_commit": ("refs/heads/main", str(handoff_manifest.get("remote_main_commit") or "")),
+        "existing_public_ref_commit": (
+            str(handoff_manifest.get("existing_public_ref") or ""),
+            str(handoff_manifest.get("existing_public_ref_commit") or ""),
+        ),
+        "required_owner_release_base_commit": (
+            str(handoff_manifest.get("required_owner_release_base_ref") or ""),
+            str(handoff_manifest.get("required_owner_release_base_commit") or ""),
+        ),
+        "owner_branch_commit": (owner_ref, str(handoff_manifest.get("owner_branch_commit") or "")),
+    }
+    refs_to_query = sorted({ref for ref, _expected in expected_refs.values() if ref} | ({candidate_ref} if candidate_ref else set()))
+    issues: list[str] = []
+    if not refs_to_query:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit has no refs to query.",
+            "issues": ["missing_remote_refs"],
+            "refs": {},
+        }
+    try:
+        result = subprocess.run(
+            git_command("ls-remote", normalize_git_url(R30_VOICE_REPO_URL), *refs_to_query),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit timed out.",
+            "issues": ["remote_audit_timeout"],
+            "refs": {},
+        }
+    except OSError as error:
+        return {
+            "ok": False,
+            "detail": f"Voice remote ref audit could not start git: {error}.",
+            "issues": ["remote_audit_git_unavailable"],
+            "refs": {},
+        }
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        return {
+            "ok": False,
+            "detail": "Voice remote ref audit failed.",
+            "issues": ["remote_audit_failed"],
+            "refs": {},
+            "failure_detail": detail[-1000:],
+        }
+    resolved_refs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and GIT_COMMIT_SHA_PATTERN.match(parts[0]):
+            resolved_refs[parts[1]] = parts[0].lower()
+    for key, (ref, expected_commit) in expected_refs.items():
+        if not ref:
+            issues.append(f"{key}_missing_ref")
+            continue
+        actual_commit = resolved_refs.get(ref)
+        if not actual_commit:
+            issues.append(f"{key}_remote_ref_missing:{ref}")
+        elif expected_commit.lower() != actual_commit:
+            issues.append(f"{key}_remote_mismatch:{ref}")
+    candidate_exists = bool(candidate_ref and resolved_refs.get(candidate_ref))
+    expected_candidate_exists = handoff_manifest.get("candidate_owner_release_branch_remote_exists")
+    if candidate_exists != expected_candidate_exists:
+        issues.append("candidate_owner_release_branch_remote_exists_live_mismatch")
+    return {
+        "ok": not issues,
+        "detail": (
+            "Voice remote refs still match the R30 handoff decision."
+            if not issues
+            else f"Voice remote ref audit has issues: {', '.join(issues)}."
+        ),
+        "issues": issues,
+        "refs": resolved_refs,
+        "candidate_owner_release_branch_remote_exists": candidate_exists,
+    }
+
+
 def collect_r30_voice_registry_decision_status(release_lane_classification: dict[str, Any]) -> dict[str, Any]:
     voice_rows = [
         row
@@ -8152,6 +8247,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     changed_files = handoff_manifest.get("changed_files") if isinstance(handoff_manifest, dict) else None
     diffstat = handoff_manifest.get("diffstat") if isinstance(handoff_manifest, dict) else None
     owner_handoff_patch = handoff_manifest.get("owner_handoff_patch") if isinstance(handoff_manifest, dict) else None
+    remote_ref_audit = collect_r30_voice_remote_ref_audit(handoff_manifest if isinstance(handoff_manifest, dict) else {})
     iso_utc_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
@@ -8351,6 +8447,8 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             for key, expected in required_runtime_truth.items():
                 if runtime_truth.get(key) != expected:
                     manifest_issues.append(f"voice_runtime_truth_{key}_mismatch")
+        if not remote_ref_audit.get("ok"):
+            manifest_issues.extend(f"remote_ref_audit:{issue}" for issue in remote_ref_audit.get("issues", []))
     return {
         "ok": False,
         "decision": "owner_source_required_before_registry_pin",
@@ -8371,6 +8469,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             if isinstance(handoff_manifest, dict)
             else None
         ),
+        "remote_ref_audit": remote_ref_audit,
         "remote_audit_at": handoff_manifest.get("remote_audit_at") if isinstance(handoff_manifest, dict) else None,
         "prepared_lane_proof_checked_at": (
             (handoff_manifest.get("prepared_local_release_lane") or {}).get("proof_checked_at")

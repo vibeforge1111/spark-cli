@@ -54,6 +54,7 @@ from spark_cli.cli import (
     collect_r30_release_gate_payload,
     collect_r30_unattended_identity_guard_status,
     collect_r30_voice_registry_decision_status,
+    collect_r30_voice_remote_ref_audit,
     collect_r30_voice_runtime_truth_status,
     collect_registry_pin_drift_payload,
     collect_r30_handoff_manifest_status,
@@ -13630,7 +13631,8 @@ class SparkCliTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path), \
+                 patch("spark_cli.cli.collect_r30_voice_remote_ref_audit", return_value={"ok": True, "issues": []}):
                 payload = collect_r30_voice_registry_decision_status(
                     {
                         "direct_blockers": [
@@ -13675,7 +13677,8 @@ class SparkCliTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path), \
+                 patch("spark_cli.cli.collect_r30_voice_remote_ref_audit", return_value={"ok": True, "issues": []}):
                 payload = collect_r30_voice_registry_decision_status(
                     {
                         "direct_blockers": [
@@ -13822,7 +13825,8 @@ class SparkCliTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path):
+            with patch("spark_cli.cli.R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH", manifest_path), \
+                 patch("spark_cli.cli.collect_r30_voice_remote_ref_audit", return_value={"ok": True, "issues": []}):
                 payload = collect_r30_voice_registry_decision_status(
                     {
                         "direct_blockers": [
@@ -13839,6 +13843,36 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertFalse(payload["ok"])
         self.assertIn("missing_required_voice_commit_full_hashes", payload["handoff_manifest_issues"])
+
+    def test_r30_voice_remote_ref_audit_detects_candidate_branch_drift(self) -> None:
+        manifest = {
+            "remote_main_commit": "a" * 40,
+            "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+            "existing_public_ref_commit": "a" * 40,
+            "required_owner_release_base_ref": "refs/heads/main",
+            "required_owner_release_base_commit": "a" * 40,
+            "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+            "owner_branch_commit": "b" * 40,
+            "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+            "candidate_owner_release_branch_remote_exists": False,
+        }
+        stdout = "\n".join(
+            [
+                f"{'a' * 40}\trefs/heads/main",
+                f"{'a' * 40}\trefs/tags/spark-ship-2026-06-26",
+                f"{'b' * 40}\trefs/heads/codex/turnintent-voice-policy-20260531",
+                f"{'c' * 40}\trefs/heads/release/r30-voice-trace-governor",
+            ]
+        )
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=["git"], returncode=0, stdout=stdout, stderr=""),
+        ):
+            payload = collect_r30_voice_remote_ref_audit(manifest)
+
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["candidate_owner_release_branch_remote_exists"])
+        self.assertIn("candidate_owner_release_branch_remote_exists_live_mismatch", payload["issues"])
 
     def test_r30_voice_registry_decision_passes_when_voice_has_no_release_lane_blocker(self) -> None:
         payload = collect_r30_voice_registry_decision_status({"direct_blockers": []})
