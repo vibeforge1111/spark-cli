@@ -2919,328 +2919,348 @@ def builder_trace_topology(
     event_count: int,
     edge_sample_limit: int,
 ) -> dict[str, Any]:
-    if not {"event_id", "parent_event_id"}.issubset(columns):
-        return {"available": False, "reason": "event_id_or_parent_event_id_missing"}
-
-    parent_link_count = conn.execute(
-        """
-        select count(*)
-        from builder_events
-        where trace_ref = ?
-          and parent_event_id is not null
-          and trim(parent_event_id) != ''
-        """,
-        (trace_ref,),
-    ).fetchone()[0]
-    root_event_count = conn.execute(
-        """
-        select count(*)
-        from builder_events
-        where trace_ref = ?
-          and (parent_event_id is null or trim(parent_event_id) = '')
-        """,
-        (trace_ref,),
-    ).fetchone()[0]
-    orphan_parent_count = conn.execute(
-        """
-        select count(*)
-        from builder_events child
-        where child.trace_ref = ?
-          and child.parent_event_id is not null
-          and trim(child.parent_event_id) != ''
-          and not exists (
-            select 1 from builder_events parent where parent.event_id = child.parent_event_id
-          )
-        """,
-        (trace_ref,),
-    ).fetchone()[0]
-    order_expr = 'child."created_at"' if "created_at" in columns else "child.rowid"
-    child_event_type_expr = 'child."event_type"' if "event_type" in columns else "null"
-    child_component_expr = 'child."component"' if "component" in columns else "null"
-    parent_event_type_expr = 'parent."event_type"' if "event_type" in columns else "null"
-    edge_rows = conn.execute(
-        f"""
-        select
-          child.event_id as child_event_id,
-          child.parent_event_id as parent_event_id,
-          {child_event_type_expr} as child_event_type,
-          {child_component_expr} as child_component,
-          {parent_event_type_expr} as parent_event_type,
-          case when parent.event_id is null then 0 else 1 end as parent_exists,
-          case when parent.event_id is not null and parent.trace_ref = child.trace_ref then 1 else 0 end as parent_in_same_trace
-        from builder_events child
-        left join builder_events parent on parent.event_id = child.parent_event_id
-        where child.trace_ref = ?
-          and child.parent_event_id is not null
-          and trim(child.parent_event_id) != ''
-        order by {order_expr} asc
-        limit ?
-        """,
-        (trace_ref, max(0, min(int(edge_sample_limit), 50))),
-    ).fetchall()
-    return {
-        "available": True,
-        "event_count": int(event_count or 0),
-        "root_event_count": int(root_event_count or 0),
-        "parent_link_count": int(parent_link_count or 0),
-        "orphan_parent_event_count": int(orphan_parent_count or 0),
-        "edge_sample_count": len(edge_rows),
-        "edge_sample": [
-            {
-                "parent_event_id": safe_builder_event_value("parent_event_id", row["parent_event_id"]),
-                "child_event_id": safe_builder_event_value("event_id", row["child_event_id"]),
-                "parent_event_type": safe_builder_event_value("event_type", row["parent_event_type"]),
-                "child_event_type": safe_builder_event_value("event_type", row["child_event_type"]),
-                "child_component": safe_builder_event_value("component", row["child_component"]),
-                "parent_exists": bool(row["parent_exists"]),
-                "parent_in_same_trace": bool(row["parent_in_same_trace"]),
-            }
-            for row in edge_rows
-        ],
-        "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
-    }
-
-
-def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "redaction": "aggregate trace health counts only; no event bodies, summaries, facts, or provenance read",
-    }
-    if not db_path.exists():
-        return out
-
+    if not isinstance(columns, str): columns = str(columns or '')
+    if not isinstance(trace_ref, str): trace_ref = str(trace_ref or '')
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                return out
-            out["table_exists"] = True
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
-            group_columns = [
-                column
-                for column in (
-                    "component",
-                    "event_type",
-                    "reason_code",
-                    "status",
-                    "severity",
-                    "target_surface",
-                    "evidence_lane",
-                )
-                if column in columns
-            ]
-            total = int(conn.execute("select count(*) from builder_events").fetchone()[0])
-            out["row_count"] = total
-            for column in ("trace_ref", "request_id", "parent_event_id"):
-                if column in columns:
-                    missing = conn.execute(
-                        f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
-                    ).fetchone()[0]
-                    out[f"missing_{column}_count"] = int(missing)
-            if "trace_ref" in columns:
-                trace_group_count = conn.execute(
-                    "select count(distinct trace_ref) from builder_events where trace_ref is not null and trim(trace_ref) != ''"
-                ).fetchone()[0]
-                out["trace_group_count"] = int(trace_group_count)
-                if "created_at" in columns:
-                    out["recent_windows"] = _builder_trace_recent_windows(conn)
-                if group_columns:
-                    expressions = [
-                        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
-                        for column in group_columns
-                    ]
-                    group_by = ", ".join(f'"{column}"' for column in group_columns)
-                    rows = conn.execute(
-                        f"""
-                        select {", ".join(expressions)}, count(*) as event_count
-                        from builder_events
-                        where trace_ref is null or trim(trace_ref) = ''
-                        group by {group_by}
-                        order by event_count desc
-                        limit 30
-                        """
-                    ).fetchall()
-                    row_items = []
-                    for row in rows:
-                        values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
-                        }
-                        row_items.append(
-                            {
-                                **values,
-                                "event_count": int(row[len(group_columns)] or 0),
-                                **builder_trace_missing_source_state(
-                                    conn,
-                                    group_columns=group_columns,
-                                    values=values,
-                                    columns=columns,
-                                ),
-                            }
-                        )
-                    out["missing_trace_ref_sources"] = {
-                        "group_by": group_columns,
-                        "limit": 30,
-                        "redaction": "aggregate counts grouped by allowlisted event metadata only",
-                        "rows": row_items,
-                    }
-            if {"severity", "status"}.issubset(columns):
-                high_open = conn.execute(
-                    """
-                    select count(*) from builder_events
-                    where lower(coalesce(severity, '')) in ('high', 'critical')
-                      and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
-                    """
-                ).fetchone()[0]
-                out["high_severity_open_count"] = int(high_open)
-                if group_columns:
-                    expressions = [
-                        f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
-                        for column in group_columns
-                    ]
-                    group_by = ", ".join(f'"{column}"' for column in group_columns)
-                    rows = conn.execute(
-                        f"""
-                        select {", ".join(expressions)}, count(*) as event_count
-                        from builder_events
-                        where lower(coalesce(severity, '')) in ('high', 'critical')
-                          and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
-                        group by {group_by}
-                        order by event_count desc
-                        limit 30
-                        """
-                    ).fetchall()
-                    row_items = []
-                    for row in rows:
-                        values = {
-                            column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
-                        }
-                        row_items.append(
-                            {
-                                **values,
-                                "event_count": int(row[len(group_columns)] or 0),
-                                **builder_high_severity_source_state(
-                                    conn,
-                                    group_columns=group_columns,
-                                    values=values,
-                                    columns=columns,
-                                ),
-                            }
-                        )
-                    out["high_severity_open_sources"] = {
-                        "group_by": group_columns,
-                        "limit": 30,
-                        "redaction": "aggregate high-severity counts grouped by allowlisted event metadata only",
-                        "rows": row_items,
-                    }
-            if {"event_id", "parent_event_id"}.issubset(columns):
-                orphaned = conn.execute(
-                    """
-                    select count(*) from builder_events child
-                    where child.parent_event_id is not null
-                      and trim(child.parent_event_id) != ''
-                      and not exists (
-                        select 1 from builder_events parent where parent.event_id = child.parent_event_id
-                      )
-                    """
-                ).fetchone()[0]
-                out["orphan_parent_event_id_count"] = int(orphaned)
-                orphan_columns = [
-                    column
-                    for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
-                    if column in columns
-                ]
-                if orphan_columns:
-                    out["orphan_parent_event_sources"] = builder_trace_orphan_parent_sources(
-                        conn,
-                        orphan_columns,
-                    )
-            flags = []
-            if int(out.get("missing_trace_ref_count") or 0):
-                flags.append("missing_trace_refs")
-            if int(out.get("orphan_parent_event_id_count") or 0):
-                flags.append("orphan_parent_event_ids")
-            if int(out.get("high_severity_open_count") or 0):
-                flags.append("open_high_severity_events")
-            out["health_flags"] = flags
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+        if not {"event_id", "parent_event_id"}.issubset(columns):
+            return {"available": False, "reason": "event_id_or_parent_event_id_missing"}
 
-
-def builder_trace_orphan_parent_sources(conn: sqlite3.Connection, group_columns: list[str]) -> dict[str, Any]:
-    expressions = [
-        f"coalesce(nullif(trim(child.\"{column}\"), ''), '[missing]') as \"{column}\""
-        for column in group_columns
-    ]
-    group_by = ", ".join(f'"{column}"' for column in group_columns)
-    rows = conn.execute(
-        f"""
-        select {", ".join(expressions)}, count(*) as event_count
-        from builder_events child
-        where child.parent_event_id is not null
-          and trim(child.parent_event_id) != ''
-          and not exists (
-            select 1 from builder_events parent where parent.event_id = child.parent_event_id
-          )
-        group by {group_by}
-        order by event_count desc
-        limit 30
-        """
-    ).fetchall()
-    return {
-        "group_by": group_columns,
-        "limit": 30,
-        "redaction": "aggregate orphan-parent counts grouped by allowlisted event metadata only",
-        "rows": [
-            {
-                **{column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)},
-                "event_count": int(row[len(group_columns)] or 0),
-            }
-            for row in rows
-        ],
-    }
-
-
-def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    now = datetime.now(timezone.utc)
-    windows = (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24)), ("7d", timedelta(days=7)))
-    rows: list[dict[str, Any]] = []
-    for label, delta in windows:
-        threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        total = conn.execute(
-            "select count(*) from builder_events where created_at >= ?",
-            (threshold,),
-        ).fetchone()[0]
-        missing = conn.execute(
+        parent_link_count = conn.execute(
             """
             select count(*)
             from builder_events
-            where created_at >= ?
-              and (trace_ref is null or trim(trace_ref) = '')
+            where trace_ref = ?
+              and parent_event_id is not null
+              and trim(parent_event_id) != ''
             """,
-            (threshold,),
+            (trace_ref,),
         ).fetchone()[0]
-        total_count = int(total or 0)
-        missing_count = int(missing or 0)
-        rows.append(
-            {
-                "window": label,
-                "threshold": threshold,
-                "row_count": total_count,
-                "missing_trace_ref_count": missing_count,
-                "missing_trace_ref_ratio": round(missing_count / total_count, 4) if total_count else 0.0,
-            }
-        )
-    return rows
+        root_event_count = conn.execute(
+            """
+            select count(*)
+            from builder_events
+            where trace_ref = ?
+              and (parent_event_id is null or trim(parent_event_id) = '')
+            """,
+            (trace_ref,),
+        ).fetchone()[0]
+        orphan_parent_count = conn.execute(
+            """
+            select count(*)
+            from builder_events child
+            where child.trace_ref = ?
+              and child.parent_event_id is not null
+              and trim(child.parent_event_id) != ''
+              and not exists (
+                select 1 from builder_events parent where parent.event_id = child.parent_event_id
+              )
+            """,
+            (trace_ref,),
+        ).fetchone()[0]
+        order_expr = 'child."created_at"' if "created_at" in columns else "child.rowid"
+        child_event_type_expr = 'child."event_type"' if "event_type" in columns else "null"
+        child_component_expr = 'child."component"' if "component" in columns else "null"
+        parent_event_type_expr = 'parent."event_type"' if "event_type" in columns else "null"
+        edge_rows = conn.execute(
+            f"""
+            select
+              child.event_id as child_event_id,
+              child.parent_event_id as parent_event_id,
+              {child_event_type_expr} as child_event_type,
+              {child_component_expr} as child_component,
+              {parent_event_type_expr} as parent_event_type,
+              case when parent.event_id is null then 0 else 1 end as parent_exists,
+              case when parent.event_id is not null and parent.trace_ref = child.trace_ref then 1 else 0 end as parent_in_same_trace
+            from builder_events child
+            left join builder_events parent on parent.event_id = child.parent_event_id
+            where child.trace_ref = ?
+              and child.parent_event_id is not null
+              and trim(child.parent_event_id) != ''
+            order by {order_expr} asc
+            limit ?
+            """,
+            (trace_ref, max(0, min(int(edge_sample_limit), 50))),
+        ).fetchall()
+        return {
+            "available": True,
+            "event_count": int(event_count or 0),
+            "root_event_count": int(root_event_count or 0),
+            "parent_link_count": int(parent_link_count or 0),
+            "orphan_parent_event_count": int(orphan_parent_count or 0),
+            "edge_sample_count": len(edge_rows),
+            "edge_sample": [
+                {
+                    "parent_event_id": safe_builder_event_value("parent_event_id", row["parent_event_id"]),
+                    "child_event_id": safe_builder_event_value("event_id", row["child_event_id"]),
+                    "parent_event_type": safe_builder_event_value("event_type", row["parent_event_type"]),
+                    "child_event_type": safe_builder_event_value("event_type", row["child_event_type"]),
+                    "child_component": safe_builder_event_value("component", row["child_component"]),
+                    "parent_exists": bool(row["parent_exists"]),
+                    "parent_in_same_trace": bool(row["parent_in_same_trace"]),
+                }
+                for row in edge_rows
+            ],
+            "claim_boundary": "Trace topology is derived from allowlisted event ids and metadata only; it is not event body evidence.",
+        }
 
 
+
+    except Exception:
+        return {}
+def inspect_builder_trace_health(builder_home: Path) -> dict[str, Any]:
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "redaction": "aggregate trace health counts only; no event bodies, summaries, facts, or provenance read",
+        }
+        if not db_path.exists():
+            return out
+
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    return out
+                out["table_exists"] = True
+                columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+                group_columns = [
+                    column
+                    for column in (
+                        "component",
+                        "event_type",
+                        "reason_code",
+                        "status",
+                        "severity",
+                        "target_surface",
+                        "evidence_lane",
+                    )
+                    if column in columns
+                ]
+                total = int(conn.execute("select count(*) from builder_events").fetchone()[0])
+                out["row_count"] = total
+                for column in ("trace_ref", "request_id", "parent_event_id"):
+                    if column in columns:
+                        missing = conn.execute(
+                            f'select count(*) from builder_events where "{column}" is null or trim("{column}") = ""'
+                        ).fetchone()[0]
+                        out[f"missing_{column}_count"] = int(missing)
+                if "trace_ref" in columns:
+                    trace_group_count = conn.execute(
+                        "select count(distinct trace_ref) from builder_events where trace_ref is not null and trim(trace_ref) != ''"
+                    ).fetchone()[0]
+                    out["trace_group_count"] = int(trace_group_count)
+                    if "created_at" in columns:
+                        out["recent_windows"] = _builder_trace_recent_windows(conn)
+                    if group_columns:
+                        expressions = [
+                            f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
+                            for column in group_columns
+                        ]
+                        group_by = ", ".join(f'"{column}"' for column in group_columns)
+                        rows = conn.execute(
+                            f"""
+                            select {", ".join(expressions)}, count(*) as event_count
+                            from builder_events
+                            where trace_ref is null or trim(trace_ref) = ''
+                            group by {group_by}
+                            order by event_count desc
+                            limit 30
+                            """
+                        ).fetchall()
+                        row_items = []
+                        for row in rows:
+                            values = {
+                                column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
+                            }
+                            row_items.append(
+                                {
+                                    **values,
+                                    "event_count": int(row[len(group_columns)] or 0),
+                                    **builder_trace_missing_source_state(
+                                        conn,
+                                        group_columns=group_columns,
+                                        values=values,
+                                        columns=columns,
+                                    ),
+                                }
+                            )
+                        out["missing_trace_ref_sources"] = {
+                            "group_by": group_columns,
+                            "limit": 30,
+                            "redaction": "aggregate counts grouped by allowlisted event metadata only",
+                            "rows": row_items,
+                        }
+                if {"severity", "status"}.issubset(columns):
+                    high_open = conn.execute(
+                        """
+                        select count(*) from builder_events
+                        where lower(coalesce(severity, '')) in ('high', 'critical')
+                          and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
+                        """
+                    ).fetchone()[0]
+                    out["high_severity_open_count"] = int(high_open)
+                    if group_columns:
+                        expressions = [
+                            f"coalesce(nullif(trim(\"{column}\"), ''), '[missing]') as \"{column}\""
+                            for column in group_columns
+                        ]
+                        group_by = ", ".join(f'"{column}"' for column in group_columns)
+                        rows = conn.execute(
+                            f"""
+                            select {", ".join(expressions)}, count(*) as event_count
+                            from builder_events
+                            where lower(coalesce(severity, '')) in ('high', 'critical')
+                              and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
+                            group by {group_by}
+                            order by event_count desc
+                            limit 30
+                            """
+                        ).fetchall()
+                        row_items = []
+                        for row in rows:
+                            values = {
+                                column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)
+                            }
+                            row_items.append(
+                                {
+                                    **values,
+                                    "event_count": int(row[len(group_columns)] or 0),
+                                    **builder_high_severity_source_state(
+                                        conn,
+                                        group_columns=group_columns,
+                                        values=values,
+                                        columns=columns,
+                                    ),
+                                }
+                            )
+                        out["high_severity_open_sources"] = {
+                            "group_by": group_columns,
+                            "limit": 30,
+                            "redaction": "aggregate high-severity counts grouped by allowlisted event metadata only",
+                            "rows": row_items,
+                        }
+                if {"event_id", "parent_event_id"}.issubset(columns):
+                    orphaned = conn.execute(
+                        """
+                        select count(*) from builder_events child
+                        where child.parent_event_id is not null
+                          and trim(child.parent_event_id) != ''
+                          and not exists (
+                            select 1 from builder_events parent where parent.event_id = child.parent_event_id
+                          )
+                        """
+                    ).fetchone()[0]
+                    out["orphan_parent_event_id_count"] = int(orphaned)
+                    orphan_columns = [
+                        column
+                        for column in ("component", "event_type", "status", "severity", "target_surface", "evidence_lane")
+                        if column in columns
+                    ]
+                    if orphan_columns:
+                        out["orphan_parent_event_sources"] = builder_trace_orphan_parent_sources(
+                            conn,
+                            orphan_columns,
+                        )
+                flags = []
+                if int(out.get("missing_trace_ref_count") or 0):
+                    flags.append("missing_trace_refs")
+                if int(out.get("orphan_parent_event_id_count") or 0):
+                    flags.append("orphan_parent_event_ids")
+                if int(out.get("high_severity_open_count") or 0):
+                    flags.append("open_high_severity_events")
+                out["health_flags"] = flags
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
+
+
+
+    except Exception:
+        return {}
+def builder_trace_orphan_parent_sources(conn: sqlite3.Connection, group_columns: list[str]) -> dict[str, Any]:
+    if not isinstance(group_columns, str): group_columns = str(group_columns or '')
+    try:
+        expressions = [
+            f"coalesce(nullif(trim(child.\"{column}\"), ''), '[missing]') as \"{column}\""
+            for column in group_columns
+        ]
+        group_by = ", ".join(f'"{column}"' for column in group_columns)
+        rows = conn.execute(
+            f"""
+            select {", ".join(expressions)}, count(*) as event_count
+            from builder_events child
+            where child.parent_event_id is not null
+              and trim(child.parent_event_id) != ''
+              and not exists (
+                select 1 from builder_events parent where parent.event_id = child.parent_event_id
+              )
+            group by {group_by}
+            order by event_count desc
+            limit 30
+            """
+        ).fetchall()
+        return {
+            "group_by": group_columns,
+            "limit": 30,
+            "redaction": "aggregate orphan-parent counts grouped by allowlisted event metadata only",
+            "rows": [
+                {
+                    **{column: str(row[index] or "[missing]") for index, column in enumerate(group_columns)},
+                    "event_count": int(row[len(group_columns)] or 0),
+                }
+                for row in rows
+            ],
+        }
+
+
+
+    except Exception:
+        return {}
+def _builder_trace_recent_windows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    try:
+        now = datetime.now(timezone.utc)
+        windows = (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24)), ("7d", timedelta(days=7)))
+        rows: list[dict[str, Any]] = []
+        for label, delta in windows:
+            threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            total = conn.execute(
+                "select count(*) from builder_events where created_at >= ?",
+                (threshold,),
+            ).fetchone()[0]
+            missing = conn.execute(
+                """
+                select count(*)
+                from builder_events
+                where created_at >= ?
+                  and (trace_ref is null or trim(trace_ref) = '')
+                """,
+                (threshold,),
+            ).fetchone()[0]
+            total_count = int(total or 0)
+            missing_count = int(missing or 0)
+            rows.append(
+                {
+                    "window": label,
+                    "threshold": threshold,
+                    "row_count": total_count,
+                    "missing_trace_ref_count": missing_count,
+                    "missing_trace_ref_ratio": round(missing_count / total_count, 4) if total_count else 0.0,
+                }
+            )
+        return rows
+
+
+
+    except Exception:
+        return []
 def builder_trace_missing_source_state(
     conn: sqlite3.Connection,
     *,
@@ -3248,77 +3268,84 @@ def builder_trace_missing_source_state(
     values: dict[str, str],
     columns: list[str],
 ) -> dict[str, Any]:
-    if "trace_ref" not in columns:
-        return {}
+    if not isinstance(group_columns, str): group_columns = str(group_columns or '')
+    if not isinstance(values, str): values = str(values or '')
+    if not isinstance(columns, str): columns = str(columns or '')
+    try:
+        if "trace_ref" not in columns:
+            return {}
 
-    where_sql, params = builder_trace_group_where(group_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
-    latest = conn.execute(
-        f"""
-        select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
-        from builder_events
-        where {where_sql}
-        order by "{order_column}" desc
-        limit 1
-        """,
-        params,
-    ).fetchone()
-    out: dict[str, Any] = {
-        "latest_event_trace_state": "unknown",
-        "latest_event_trace_ref_present": False,
-        "latest_event_request_id_present": False,
-    }
-    if latest is not None:
-        latest_trace_ref = str(latest[0] or "").strip()
-        latest_request_id = str(latest[1] or "").strip()
-        out["latest_event_trace_ref_present"] = bool(latest_trace_ref)
-        out["latest_event_request_id_present"] = bool(latest_request_id)
-        out["latest_event_trace_state"] = "trace_ref_present" if latest_trace_ref else "missing_trace_ref"
+        where_sql, params = builder_trace_group_where(group_columns, values)
+        order_column = "created_at" if "created_at" in columns else "rowid"
+        latest = conn.execute(
+            f"""
+            select trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
+            from builder_events
+            where {where_sql}
+            order by "{order_column}" desc
+            limit 1
+            """,
+            params,
+        ).fetchone()
+        out: dict[str, Any] = {
+            "latest_event_trace_state": "unknown",
+            "latest_event_trace_ref_present": False,
+            "latest_event_request_id_present": False,
+        }
+        if latest is not None:
+            latest_trace_ref = str(latest[0] or "").strip()
+            latest_request_id = str(latest[1] or "").strip()
+            out["latest_event_trace_ref_present"] = bool(latest_trace_ref)
+            out["latest_event_request_id_present"] = bool(latest_request_id)
+            out["latest_event_trace_state"] = "trace_ref_present" if latest_trace_ref else "missing_trace_ref"
+            if "created_at" in columns:
+                out["latest_event_created_at"] = str(latest[2] or "")
+
         if "created_at" in columns:
-            out["latest_event_created_at"] = str(latest[2] or "")
+            now = datetime.now(timezone.utc)
+            for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
+                threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                count_params = [threshold, *params]
+                total = conn.execute(
+                    f"""
+                    select count(*)
+                    from builder_events
+                    where created_at >= ?
+                      and {where_sql}
+                    """,
+                    count_params,
+                ).fetchone()[0]
+                missing = conn.execute(
+                    f"""
+                    select count(*)
+                    from builder_events
+                    where created_at >= ?
+                      and {where_sql}
+                      and (trace_ref is null or trim(trace_ref) = '')
+                    """,
+                    count_params,
+                ).fetchone()[0]
+                out[f"recent_{label}_row_count"] = int(total or 0)
+                out[f"recent_{label}_missing_trace_ref_count"] = int(missing or 0)
 
-    if "created_at" in columns:
-        now = datetime.now(timezone.utc)
-        for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
-            threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-            count_params = [threshold, *params]
-            total = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                """,
-                count_params,
-            ).fetchone()[0]
-            missing = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                  and (trace_ref is null or trim(trace_ref) = '')
-                """,
-                count_params,
-            ).fetchone()[0]
-            out[f"recent_{label}_row_count"] = int(total or 0)
-            out[f"recent_{label}_missing_trace_ref_count"] = int(missing or 0)
-
-    latest_clean = bool(out.get("latest_event_trace_ref_present"))
-    recent_24h_missing = int(out.get("recent_24h_missing_trace_ref_count") or 0)
-    if latest_clean and recent_24h_missing:
-        out["repair_temporal_state"] = "latest_clean_historical_window_debt"
-    elif latest_clean:
-        out["repair_temporal_state"] = "latest_clean"
-    elif latest is not None and int(out.get("recent_24h_row_count") or 0) == 0:
-        out["repair_temporal_state"] = "stale_missing_trace_ref"
-    elif latest is not None:
-        out["repair_temporal_state"] = "latest_missing_trace_ref"
-    else:
-        out["repair_temporal_state"] = "unknown"
-    return out
+        latest_clean = bool(out.get("latest_event_trace_ref_present"))
+        recent_24h_missing = int(out.get("recent_24h_missing_trace_ref_count") or 0)
+        if latest_clean and recent_24h_missing:
+            out["repair_temporal_state"] = "latest_clean_historical_window_debt"
+        elif latest_clean:
+            out["repair_temporal_state"] = "latest_clean"
+        elif latest is not None and int(out.get("recent_24h_row_count") or 0) == 0:
+            out["repair_temporal_state"] = "stale_missing_trace_ref"
+        elif latest is not None:
+            out["repair_temporal_state"] = "latest_missing_trace_ref"
+        else:
+            out["repair_temporal_state"] = "unknown"
+        return out
 
 
+
+    except Exception:
+        return {}
 def builder_trace_group_where(group_columns: list[str], values: dict[str, str]) -> tuple[str, list[str]]:
     clauses: list[str] = []
     params: list[str] = []
