@@ -1459,127 +1459,150 @@ def key_has_raw_memory_hint(key: Any) -> bool:
 
 
 def safe_memory_status_value(value: Any, *, depth: int = 0) -> Any:
-    depth = int(depth or 0)
-    if depth > 4:
-        return "[depth-limit]"
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    if isinstance(value, str):
-        return safe_short_string(value)
-    if isinstance(value, list):
-        return [safe_memory_status_value(item, depth=depth + 1) for item in value[:50]]
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in list(value.items())[:80]:
-            if key_has_raw_memory_hint(key):
-                continue
-            out[str(key)[:120]] = safe_memory_status_value(item, depth=depth + 1)
-        return out
-    return str(type(value).__name__)
+    try:
+        depth = int(depth or 0)
+        if depth > 4:
+            return "[depth-limit]"
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            return safe_short_string(value)
+        if isinstance(value, list):
+            return [safe_memory_status_value(item, depth=depth + 1) for item in value[:50]]
+        if isinstance(value, dict):
+            out: dict[str, Any] = {}
+            for key, item in list(value.items())[:80]:
+                if key_has_raw_memory_hint(key):
+                    continue
+                out[str(key)[:120]] = safe_memory_status_value(item, depth=depth + 1)
+            return out
+        return str(type(value).__name__)
 
 
+
+    except Exception:
+        return None
 def count_raw_memory_hint_keys(value: Any) -> int:
-    if isinstance(value, dict):
-        count = sum(1 for key in value.keys() if key_has_raw_memory_hint(key))
-        return count + sum(count_raw_memory_hint_keys(item) for item in value.values())
-    if isinstance(value, list):
-        return sum(count_raw_memory_hint_keys(item) for item in value)
-    return 0
+    try:
+        if isinstance(value, dict):
+            count = sum(1 for key in value.keys() if key_has_raw_memory_hint(key))
+            return count + sum(count_raw_memory_hint_keys(item) for item in value.values())
+        if isinstance(value, list):
+            return sum(count_raw_memory_hint_keys(item) for item in value)
+        return 0
 
 
+
+    except Exception:
+        return 0
 def read_memory_movement_status_export(builder_home: Path) -> dict[str, Any]:
-    builder_home = Path(builder_home)
-    path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
-    data, error = read_json(path)
-    out: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "redaction": "allowlisted status fields only; rows, raw memory text, and evidence bodies omitted",
-    }
-    if error and error != "missing":
-        out["error"] = error
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        builder_home = Path(builder_home)
+        path = builder_home / "artifacts" / "memory-movement-index" / "memory-movement-status.json"
+        data, error = read_json(path)
+        out: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "redaction": "allowlisted status fields only; rows, raw memory text, and evidence bodies omitted",
+        }
+        if error and error != "missing":
+            out["error"] = error
+            return out
+        if not isinstance(data, dict):
+            return out
+
+        allowed: dict[str, Any] = {}
+        for key in sorted(SAFE_MEMORY_STATUS_KEYS):
+            if key in data:
+                allowed[key] = safe_memory_status_value(data[key])
+        out["status"] = allowed
+        out["omitted_top_level_keys"] = sorted(
+            str(key) for key in data.keys() if key not in SAFE_MEMORY_STATUS_KEYS and not key_has_raw_memory_hint(key)
+        )[:80]
+        out["raw_hint_key_count"] = count_raw_memory_hint_keys(data)
         return out
-    if not isinstance(data, dict):
-        return out
-
-    allowed: dict[str, Any] = {}
-    for key in sorted(SAFE_MEMORY_STATUS_KEYS):
-        if key in data:
-            allowed[key] = safe_memory_status_value(data[key])
-    out["status"] = allowed
-    out["omitted_top_level_keys"] = sorted(
-        str(key) for key in data.keys() if key not in SAFE_MEMORY_STATUS_KEYS and not key_has_raw_memory_hint(key)
-    )[:80]
-    out["raw_hint_key_count"] = count_raw_memory_hint_keys(data)
-    return out
 
 
+
+    except Exception:
+        return {}
 def count_files_under(path: Path, *, max_files: int = 5000) -> dict[str, Any]:
-    path = Path(path)
-    out: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "redaction": "counts only; file names and file bodies omitted",
-    }
-    if not path.exists():
-        return out
-
-    file_count = 0
-    dir_count = 0
-    extension_counts: Counter[str] = Counter()
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        for child in path.rglob("*"):
-            if child.is_dir():
-                dir_count += 1
-                continue
-            if not child.is_file():
-                continue
-            file_count += 1
-            suffix = child.suffix.lower() or "[none]"
-            extension_counts[suffix] += 1
-            if file_count >= max_files:
-                out["max_files_reached"] = True
-                break
-    except OSError as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+        path = Path(path)
+        out: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "redaction": "counts only; file names and file bodies omitted",
+        }
+        if not path.exists():
+            return out
+
+        file_count = 0
+        dir_count = 0
+        extension_counts: Counter[str] = Counter()
+        try:
+            for child in path.rglob("*"):
+                if child.is_dir():
+                    dir_count += 1
+                    continue
+                if not child.is_file():
+                    continue
+                file_count += 1
+                suffix = child.suffix.lower() or "[none]"
+                extension_counts[suffix] += 1
+                if file_count >= max_files:
+                    out["max_files_reached"] = True
+                    break
+        except OSError as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        out["file_count"] = file_count
+        out["dir_count"] = dir_count
+        out["extension_counts"] = dict(sorted(extension_counts.items()))
         return out
 
-    out["file_count"] = file_count
-    out["dir_count"] = dir_count
-    out["extension_counts"] = dict(sorted(extension_counts.items()))
-    return out
 
 
+    except Exception:
+        return {}
 def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
-    path = Path(path)
-    out: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "schema_count": 0,
-        "schemas": [],
-        "redaction": "schema file names only; schema bodies omitted",
-    }
-    if not path.exists():
-        return out
-
-    names: list[str] = []
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        for child in sorted(path.glob("*.schema.json"), key=lambda item: item.name.lower()):
-            if not child.is_file():
-                continue
-            names.append(child.name)
-            if len(names) >= max_files:
-                out["max_files_reached"] = True
-                break
-    except OSError as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+        path = Path(path)
+        out: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "schema_count": 0,
+            "schemas": [],
+            "redaction": "schema file names only; schema bodies omitted",
+        }
+        if not path.exists():
+            return out
+
+        names: list[str] = []
+        try:
+            for child in sorted(path.glob("*.schema.json"), key=lambda item: item.name.lower()):
+                if not child.is_file():
+                    continue
+                names.append(child.name)
+                if len(names) >= max_files:
+                    out["max_files_reached"] = True
+                    break
+        except OSError as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        out["schema_count"] = len(names)
+        out["schemas"] = names
         return out
 
-    out["schema_count"] = len(names)
-    out["schemas"] = names
-    return out
 
 
+    except Exception:
+        return {}
 def repo_source_ref(repo_path: Path, path: Path) -> str:
     repo_path = Path(repo_path)
     path = Path(path)
