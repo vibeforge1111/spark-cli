@@ -649,6 +649,56 @@ def access_automation_payload(
     }
 
 
+def level5_full_permission_proof(
+    *,
+    level: int,
+    effective_access_level: int,
+    level5_enabled: bool,
+    level5_configured: bool,
+    level5_activation_state: str,
+    level5_service_active: bool,
+    level5_process_active: bool,
+    level5_restart_required: bool,
+    effective_codex_sandbox: str,
+    env_file_state: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    checks = {
+        "requested_level_is_5": level >= 5,
+        "effective_access_level_is_5": effective_access_level == 5,
+        "whole_computer_capability_active": level5_enabled,
+        "service_or_process_active": level5_service_active or level5_process_active,
+        "guardrail_env_files_current": bool(env_file_state) and all(bool(item.get("ok")) for item in env_file_state.values()),
+        "guardrails_configured": level5_configured,
+        "restart_not_required": not level5_restart_required,
+        "effective_codex_sandbox_full_access": effective_codex_sandbox == "danger-full-access",
+    }
+    ok = all(checks.values())
+    missing = [name for name, passed in checks.items() if not passed]
+    return {
+        "ok": ok,
+        "state": "full_access" if ok else "blocked_or_partial",
+        "checks": checks,
+        "missing": missing,
+        "required": [
+            "requested_level_is_5",
+            "effective_access_level_is_5",
+            "whole_computer_capability_active",
+            "service_or_process_active",
+            "guardrail_env_files_current",
+            "guardrails_configured",
+            "restart_not_required",
+            "effective_codex_sandbox_full_access",
+        ],
+        "summary": (
+            "Level 5 is full permission for this Spark service lane."
+            if ok
+            else "Level 5 must stay blocked or partial until every full-permission proof check passes."
+        ),
+        "activation_state": level5_activation_state,
+        "effective_codex_sandbox": effective_codex_sandbox,
+    }
+
+
 def access_lane_payload(
     *,
     level: int = 4,
@@ -918,6 +968,18 @@ def access_lane_payload(
         ok = bool(workspace_preflight.get("writable"))
         if level >= 5:
             ok = ok and bool(level5_enabled or level5_restart_required)
+    full_permission_proof = level5_full_permission_proof(
+        level=level,
+        effective_access_level=effective_access_level,
+        level5_enabled=level5_enabled,
+        level5_configured=level5_configured,
+        level5_activation_state=level5_activation_state,
+        level5_service_active=level5_service_active,
+        level5_process_active=level5_process_active,
+        level5_restart_required=level5_restart_required,
+        effective_codex_sandbox=effective_codex_sandbox,
+        env_file_state=env_file_state,
+    )
 
     return {
         "ok": ok,
@@ -942,6 +1004,7 @@ def access_lane_payload(
             "effective_codex_sandbox": effective_codex_sandbox,
             "configured_codex_sandbox": configured_codex_sandbox,
             "env_file_state": env_file_state,
+            "full_permission_proof": full_permission_proof,
             "restart_required": level5_restart_required,
             "env_files": written_level5_env,
             "audit": sandbox_audit_ref("access", "level5") if written_level5_env else {},

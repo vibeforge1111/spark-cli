@@ -364,6 +364,9 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["level5"]["current_process_codex_sandbox"], "workspace-write")
         self.assertEqual(payload["level5"]["service_codex_sandbox"], "danger-full-access")
         self.assertEqual(payload["level5"]["effective_codex_sandbox"], "danger-full-access")
+        self.assertTrue(payload["level5"]["full_permission_proof"]["ok"])
+        self.assertEqual(payload["level5"]["full_permission_proof"]["state"], "full_access")
+        self.assertEqual(payload["level5"]["full_permission_proof"]["missing"], [])
         self.assertEqual(payload["next"], "spark access status --level 5")
         self.assertEqual(payload["recommended"]["id"], "level5_operator")
 
@@ -411,6 +414,8 @@ class AccessSetupTests(unittest.TestCase):
             self.assertEqual(status_payload["level5"]["current_process_codex_sandbox"], "workspace-write")
             self.assertEqual(status_payload["level5"]["service_codex_sandbox"], "danger-full-access")
             self.assertEqual(status_payload["level5"]["effective_codex_sandbox"], "danger-full-access")
+            self.assertTrue(status_payload["level5"]["full_permission_proof"]["ok"])
+            self.assertEqual(status_payload["level5"]["full_permission_proof"]["missing"], [])
             self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
             self.assertFalse(status_payload["state_machine"]["current_process_can_operate_whole_computer"])
 
@@ -493,6 +498,8 @@ class AccessSetupTests(unittest.TestCase):
             self.assertEqual(status_payload["level5"]["service_codex_sandbox"], "danger-full-access")
             self.assertEqual(status_payload["level5"]["effective_codex_sandbox"], "danger-full-access")
             self.assertEqual(status_payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
+            self.assertTrue(status_payload["level5"]["full_permission_proof"]["ok"])
+            self.assertEqual(status_payload["level5"]["full_permission_proof"]["missing"], [])
             self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
 
     def test_access_level5_service_proof_requires_each_named_telegram_profile_restart(self) -> None:
@@ -530,6 +537,9 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["level5"]["activation_state"], "partial")
         self.assertFalse(payload["level5"]["service_enabled"])
         self.assertEqual(payload["effective_access_level"], 4)
+        self.assertFalse(payload["level5"]["full_permission_proof"]["ok"])
+        self.assertIn("effective_access_level_is_5", payload["level5"]["full_permission_proof"]["missing"])
+        self.assertIn("effective_codex_sandbox_full_access", payload["level5"]["full_permission_proof"]["missing"])
         self.assertEqual(
             payload["level5"]["service_guardrails"]["missing_or_stale_services"],
             ["spark-telegram-bot:sparkqa-bot"],
@@ -580,6 +590,8 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
         self.assertEqual(payload["level5"]["service_codex_sandbox"], "danger-full-access")
         self.assertEqual(payload["level5"]["effective_codex_sandbox"], "danger-full-access")
+        self.assertTrue(payload["level5"]["full_permission_proof"]["ok"])
+        self.assertEqual(payload["level5"]["full_permission_proof"]["missing"], [])
         self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
 
     def test_access_level5_service_proof_skips_unstartable_stale_telegram_profile(self) -> None:
