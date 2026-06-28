@@ -3320,18 +3320,24 @@ def builder_trace_missing_source_state(
 
 
 def builder_trace_group_where(group_columns: list[str], values: dict[str, str]) -> tuple[str, list[str]]:
-    clauses: list[str] = []
-    params: list[str] = []
-    for column in group_columns:
-        value = str(values.get(column) or "[missing]")
-        if value == "[missing]":
-            clauses.append(f'("{column}" is null or trim("{column}") = "")')
-        else:
-            clauses.append(f'coalesce(nullif(trim("{column}"), \'\'), \'[missing]\') = ?')
-            params.append(value)
-    return " and ".join(clauses) if clauses else "1 = 1", params
+    if not isinstance(group_columns, str): group_columns = str(group_columns or '')
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        clauses: list[str] = []
+        params: list[str] = []
+        for column in group_columns:
+            value = str(values.get(column) or "[missing]")
+            if value == "[missing]":
+                clauses.append(f'("{column}" is null or trim("{column}") = "")')
+            else:
+                clauses.append(f'coalesce(nullif(trim("{column}"), \'\'), \'[missing]\') = ?')
+                params.append(value)
+        return " and ".join(clauses) if clauses else "1 = 1", params
 
 
+
+    except Exception:
+        return ()
 def builder_high_severity_source_state(
     conn: sqlite3.Connection,
     *,
@@ -3339,235 +3345,260 @@ def builder_high_severity_source_state(
     values: dict[str, str],
     columns: list[str],
 ) -> dict[str, Any]:
-    identity_columns = [
-        column
-        for column in group_columns
-        if column not in {"status", "severity"} and column in columns
-    ]
-    if not identity_columns:
-        identity_columns = [column for column in ("component", "event_type") if column in columns]
-    where_sql, params = builder_trace_group_where(identity_columns, values)
-    order_column = "created_at" if "created_at" in columns else "rowid"
-    latest = conn.execute(
-        f"""
-        select status, severity, trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
-        from builder_events
-        where {where_sql}
-        order by "{order_column}" desc
-        limit 1
-        """,
-        params,
-    ).fetchone()
-    out: dict[str, Any] = {
-        "latest_lifecycle_state": "unknown",
-        "latest_event_status": None,
-        "latest_event_severity": None,
-        "latest_event_trace_ref_present": False,
-        "latest_event_request_id_present": False,
-    }
-    if latest is not None:
-        latest_status = str(latest[0] or "").strip().lower()
-        latest_severity = str(latest[1] or "").strip().lower()
-        latest_trace_ref = str(latest[2] or "").strip()
-        latest_request_id = str(latest[3] or "").strip()
-        out["latest_event_status"] = latest_status or None
-        out["latest_event_severity"] = latest_severity or None
-        out["latest_event_trace_ref_present"] = bool(latest_trace_ref)
-        out["latest_event_request_id_present"] = bool(latest_request_id)
+    if not isinstance(group_columns, str): group_columns = str(group_columns or '')
+    if not isinstance(values, str): values = str(values or '')
+    if not isinstance(columns, str): columns = str(columns or '')
+    try:
+        identity_columns = [
+            column
+            for column in group_columns
+            if column not in {"status", "severity"} and column in columns
+        ]
+        if not identity_columns:
+            identity_columns = [column for column in ("component", "event_type") if column in columns]
+        where_sql, params = builder_trace_group_where(identity_columns, values)
+        order_column = "created_at" if "created_at" in columns else "rowid"
+        latest = conn.execute(
+            f"""
+            select status, severity, trace_ref, request_id{', created_at' if 'created_at' in columns else ''}
+            from builder_events
+            where {where_sql}
+            order by "{order_column}" desc
+            limit 1
+            """,
+            params,
+        ).fetchone()
+        out: dict[str, Any] = {
+            "latest_lifecycle_state": "unknown",
+            "latest_event_status": None,
+            "latest_event_severity": None,
+            "latest_event_trace_ref_present": False,
+            "latest_event_request_id_present": False,
+        }
+        if latest is not None:
+            latest_status = str(latest[0] or "").strip().lower()
+            latest_severity = str(latest[1] or "").strip().lower()
+            latest_trace_ref = str(latest[2] or "").strip()
+            latest_request_id = str(latest[3] or "").strip()
+            out["latest_event_status"] = latest_status or None
+            out["latest_event_severity"] = latest_severity or None
+            out["latest_event_trace_ref_present"] = bool(latest_trace_ref)
+            out["latest_event_request_id_present"] = bool(latest_request_id)
+            if "created_at" in columns:
+                out["latest_event_created_at"] = str(latest[4] or "")
+            if latest_status in {"resolved", "closed", "succeeded", "ok", "recorded"} and latest_severity in {
+                "",
+                "info",
+                "low",
+                "medium",
+            }:
+                out["latest_lifecycle_state"] = "latest_resolved"
+            elif latest_status in {"open", "failed", "error", "blocked"} and latest_severity in {"high", "critical"}:
+                out["latest_lifecycle_state"] = "latest_open_high_severity"
+            else:
+                out["latest_lifecycle_state"] = "latest_unknown"
+
         if "created_at" in columns:
-            out["latest_event_created_at"] = str(latest[4] or "")
-        if latest_status in {"resolved", "closed", "succeeded", "ok", "recorded"} and latest_severity in {
-            "",
-            "info",
-            "low",
-            "medium",
-        }:
-            out["latest_lifecycle_state"] = "latest_resolved"
-        elif latest_status in {"open", "failed", "error", "blocked"} and latest_severity in {"high", "critical"}:
-            out["latest_lifecycle_state"] = "latest_open_high_severity"
+            now = datetime.now(timezone.utc)
+            for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
+                threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                count_params = [threshold, *params]
+                total = conn.execute(
+                    f"""
+                    select count(*)
+                    from builder_events
+                    where created_at >= ?
+                      and {where_sql}
+                    """,
+                    count_params,
+                ).fetchone()[0]
+                high_open = conn.execute(
+                    f"""
+                    select count(*)
+                    from builder_events
+                    where created_at >= ?
+                      and {where_sql}
+                      and lower(coalesce(severity, '')) in ('high', 'critical')
+                      and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
+                    """,
+                    count_params,
+                ).fetchone()[0]
+                out[f"recent_{label}_row_count"] = int(total or 0)
+                out[f"recent_{label}_high_open_count"] = int(high_open or 0)
+
+        if (
+            out.get("latest_lifecycle_state") == "latest_open_high_severity"
+            and int(out.get("recent_24h_row_count") or 0) == 0
+        ):
+            out["lifecycle_temporal_state"] = "stale_open_high_severity"
+        elif out.get("latest_lifecycle_state") == "latest_resolved":
+            out["lifecycle_temporal_state"] = "latest_resolved"
+        elif out.get("latest_lifecycle_state") == "latest_open_high_severity":
+            out["lifecycle_temporal_state"] = "latest_open_high_severity"
         else:
-            out["latest_lifecycle_state"] = "latest_unknown"
-
-    if "created_at" in columns:
-        now = datetime.now(timezone.utc)
-        for label, delta in (("1h", timedelta(hours=1)), ("24h", timedelta(hours=24))):
-            threshold = (now - delta).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-            count_params = [threshold, *params]
-            total = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                """,
-                count_params,
-            ).fetchone()[0]
-            high_open = conn.execute(
-                f"""
-                select count(*)
-                from builder_events
-                where created_at >= ?
-                  and {where_sql}
-                  and lower(coalesce(severity, '')) in ('high', 'critical')
-                  and lower(coalesce(status, '')) in ('open', 'failed', 'error', 'blocked')
-                """,
-                count_params,
-            ).fetchone()[0]
-            out[f"recent_{label}_row_count"] = int(total or 0)
-            out[f"recent_{label}_high_open_count"] = int(high_open or 0)
-
-    if (
-        out.get("latest_lifecycle_state") == "latest_open_high_severity"
-        and int(out.get("recent_24h_row_count") or 0) == 0
-    ):
-        out["lifecycle_temporal_state"] = "stale_open_high_severity"
-    elif out.get("latest_lifecycle_state") == "latest_resolved":
-        out["lifecycle_temporal_state"] = "latest_resolved"
-    elif out.get("latest_lifecycle_state") == "latest_open_high_severity":
-        out["lifecycle_temporal_state"] = "latest_open_high_severity"
-    else:
-        out["lifecycle_temporal_state"] = str(out.get("latest_lifecycle_state") or "unknown")
-    return out
+            out["lifecycle_temporal_state"] = str(out.get("latest_lifecycle_state") or "unknown")
+        return out
 
 
+
+    except Exception:
+        return {}
 def build_modules(
     registry: dict[str, Any],
     installed: dict[str, Any],
     repos: list[dict[str, Any]],
     running: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    repo_by_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for repo in repos:
-        for repo_id in repo_ids(repo):
-            repo_by_id[repo_id].append(repo)
-
-    ids = set(registry.get("modules", {}).keys()) | set(installed.keys()) | set(repo_by_id.keys())
-    modules = []
-    for module_id in sorted(ids):
-        reg = as_dict(registry.get("modules", {}).get(module_id))
-        inst = as_dict(installed.get(module_id))
-        matching_repos = repo_by_id.get(module_id, [])
-        primary_repo = matching_repos[0] if matching_repos else {}
-        toml = as_dict(primary_repo.get("spark_toml"))
-        modules.append(
-            {
-                "id": module_id,
-                "summary": first_string(inst.get("summary"), reg.get("summary"), toml.get("description")),
-                "plane": first_string(inst.get("plane"), toml.get("plane")),
-                "kind": first_string(inst.get("kind"), toml.get("kind")),
-                "version": first_string(inst.get("version"), toml.get("version")),
-                "registry": reg or None,
-                "installed": inst or None,
-                "repos": [
-                    {
-                        "name": repo.get("name"),
-                        "path": repo.get("path"),
-                        "contract_files": repo.get("contract_files"),
-                        "git": repo.get("git"),
-                    }
-                    for repo in matching_repos
-                ],
-                "provides_capabilities": as_list(toml.get("provides_capabilities")),
-                "needs_modules": as_list(toml.get("needs_modules")),
-                "running_instances": [
-                    item
-                    for item in running
-                    if item.get("module") == module_id or str(item.get("id", "")).startswith(f"{module_id}:")
-                ],
-            }
-        )
-    return modules
-
-
-def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
-    chip_manifests = []
-    module_capabilities = []
-    skill_graphs = []
-    contract_sources = []
-    creator_system_surfaces = []
-    specialization_path_surfaces = []
-
-    for repo in repos:
-        repo_path = Path(str(repo.get("path") or ""))
-        chip = as_dict(repo.get("spark_chip"))
-        if chip:
-            chip_manifests.append(
-                {
-                    "repo": repo.get("name"),
-                    "path": repo.get("path"),
-                    "schema_version": chip.get("schema_version"),
-                    "io_protocol": chip.get("io_protocol"),
-                    "chip_name": chip.get("chip_name"),
-                    "domain": chip.get("domain"),
-                    "capability_count": len(as_list(chip.get("capabilities"))),
-                    "capabilities": as_list(chip.get("capabilities")),
-                    "task_topics": as_list(chip.get("task_topics")),
-                    "frontier": chip.get("frontier"),
-                }
-            )
-
-        toml = as_dict(repo.get("spark_toml"))
-        caps = as_list(toml.get("provides_capabilities"))
-        if caps:
-            module_capabilities.append(
-                {
-                    "repo": repo.get("name"),
-                    "module_name": toml.get("module_name"),
-                    "plane": toml.get("plane"),
-                    "capabilities": caps,
-                }
-            )
-
-        skill_manifest = as_dict(repo.get("skill_manifest"))
-        if skill_manifest:
-            skill_graphs.append(
-                {
-                    "repo": repo.get("name"),
-                    "schema_version": skill_manifest.get("schema_version"),
-                    "generated_at": skill_manifest.get("generated_at"),
-                    "stats": skill_manifest.get("stats"),
-                    "category_count": skill_manifest.get("category_count"),
-                }
-            )
-
-        contract_files = as_list(repo.get("contract_files"))
-        if contract_files:
-            contract_sources.append({"repo": repo.get("name"), "files": contract_files})
-
-        labs_surface = inspect_labs_creator_surface(repo_path)
-        if labs_surface:
-            creator_system_surfaces.append(labs_surface)
-
-        swarm_surface = inspect_swarm_specialization_surface(repo_path)
-        if swarm_surface:
-            specialization_path_surfaces.append(swarm_surface)
-
-    return {
-        "schema_version": CAPABILITY_CATALOG_SCHEMA,
-        "generated_at": utc_now(),
-        "redaction": "capability metadata only; command bodies, logs, and runtime outputs omitted",
-        "chip_manifests": chip_manifests,
-        "module_capabilities": module_capabilities,
-        "skill_graphs": skill_graphs,
-        "contract_sources": contract_sources,
-        "creator_system_surfaces": creator_system_surfaces,
-        "specialization_path_surfaces": specialization_path_surfaces,
-        "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
-    }
-
-
-def read_text_or_none(path: Path) -> str | None:
-    if not path:
-        return None
-    path = Path(path)
-    if not path.exists():
-        return None
+    if not isinstance(registry, str): registry = str(registry or '')
+    if not isinstance(installed, str): installed = str(installed or '')
+    if not isinstance(repos, str): repos = str(repos or '')
+    if not isinstance(running, str): running = str(running or '')
     try:
-        return path.read_text(encoding="utf-8-sig")
+        repo_by_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for repo in repos:
+            for repo_id in repo_ids(repo):
+                repo_by_id[repo_id].append(repo)
+
+        ids = set(registry.get("modules", {}).keys()) | set(installed.keys()) | set(repo_by_id.keys())
+        modules = []
+        for module_id in sorted(ids):
+            reg = as_dict(registry.get("modules", {}).get(module_id))
+            inst = as_dict(installed.get(module_id))
+            matching_repos = repo_by_id.get(module_id, [])
+            primary_repo = matching_repos[0] if matching_repos else {}
+            toml = as_dict(primary_repo.get("spark_toml"))
+            modules.append(
+                {
+                    "id": module_id,
+                    "summary": first_string(inst.get("summary"), reg.get("summary"), toml.get("description")),
+                    "plane": first_string(inst.get("plane"), toml.get("plane")),
+                    "kind": first_string(inst.get("kind"), toml.get("kind")),
+                    "version": first_string(inst.get("version"), toml.get("version")),
+                    "registry": reg or None,
+                    "installed": inst or None,
+                    "repos": [
+                        {
+                            "name": repo.get("name"),
+                            "path": repo.get("path"),
+                            "contract_files": repo.get("contract_files"),
+                            "git": repo.get("git"),
+                        }
+                        for repo in matching_repos
+                    ],
+                    "provides_capabilities": as_list(toml.get("provides_capabilities")),
+                    "needs_modules": as_list(toml.get("needs_modules")),
+                    "running_instances": [
+                        item
+                        for item in running
+                        if item.get("module") == module_id or str(item.get("id", "")).startswith(f"{module_id}:")
+                    ],
+                }
+            )
+        return modules
+
+
+
     except Exception:
-        return None
+        return []
+def build_capability_catalog(repos: list[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(repos, str): repos = str(repos or '')
+    try:
+        chip_manifests = []
+        module_capabilities = []
+        skill_graphs = []
+        contract_sources = []
+        creator_system_surfaces = []
+        specialization_path_surfaces = []
+
+        for repo in repos:
+            repo_path = Path(str(repo.get("path") or ""))
+            chip = as_dict(repo.get("spark_chip"))
+            if chip:
+                chip_manifests.append(
+                    {
+                        "repo": repo.get("name"),
+                        "path": repo.get("path"),
+                        "schema_version": chip.get("schema_version"),
+                        "io_protocol": chip.get("io_protocol"),
+                        "chip_name": chip.get("chip_name"),
+                        "domain": chip.get("domain"),
+                        "capability_count": len(as_list(chip.get("capabilities"))),
+                        "capabilities": as_list(chip.get("capabilities")),
+                        "task_topics": as_list(chip.get("task_topics")),
+                        "frontier": chip.get("frontier"),
+                    }
+                )
+
+            toml = as_dict(repo.get("spark_toml"))
+            caps = as_list(toml.get("provides_capabilities"))
+            if caps:
+                module_capabilities.append(
+                    {
+                        "repo": repo.get("name"),
+                        "module_name": toml.get("module_name"),
+                        "plane": toml.get("plane"),
+                        "capabilities": caps,
+                    }
+                )
+
+            skill_manifest = as_dict(repo.get("skill_manifest"))
+            if skill_manifest:
+                skill_graphs.append(
+                    {
+                        "repo": repo.get("name"),
+                        "schema_version": skill_manifest.get("schema_version"),
+                        "generated_at": skill_manifest.get("generated_at"),
+                        "stats": skill_manifest.get("stats"),
+                        "category_count": skill_manifest.get("category_count"),
+                    }
+                )
+
+            contract_files = as_list(repo.get("contract_files"))
+            if contract_files:
+                contract_sources.append({"repo": repo.get("name"), "files": contract_files})
+
+            labs_surface = inspect_labs_creator_surface(repo_path)
+            if labs_surface:
+                creator_system_surfaces.append(labs_surface)
+
+            swarm_surface = inspect_swarm_specialization_surface(repo_path)
+            if swarm_surface:
+                specialization_path_surfaces.append(swarm_surface)
+
+        return {
+            "schema_version": CAPABILITY_CATALOG_SCHEMA,
+            "generated_at": utc_now(),
+            "redaction": "capability metadata only; command bodies, logs, and runtime outputs omitted",
+            "chip_manifests": chip_manifests,
+            "module_capabilities": module_capabilities,
+            "skill_graphs": skill_graphs,
+            "contract_sources": contract_sources,
+            "creator_system_surfaces": creator_system_surfaces,
+            "specialization_path_surfaces": specialization_path_surfaces,
+            "capability_cards": build_capability_cards(creator_system_surfaces, specialization_path_surfaces),
+        }
 
 
+
+    except Exception:
+        return {}
+def read_text_or_none(path: Path) -> str | None:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        if not path:
+            return None
+        path = Path(path)
+        if not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8-sig")
+        except Exception:
+            return None
+
+
+
+    except Exception:
+        return ""
 def literal_assignment(text: str | None, name: str) -> Any:
     text_str = str(text or "")
     if not text_str:
