@@ -3723,151 +3723,178 @@ def inspect_cli_access_source(path: Path) -> dict[str, Any]:
 
 
 def inspect_cli_capability_source(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    text = read_text_or_none(path)
-    toxic_pairs = literal_assignment(text, "TOXIC_CAPABILITY_PAIRS")
-    dimensions = []
-    for name, body in re.findall(r"(\w+Capability)\s*=\s*Literal\[(.*?)\]", text or "", re.S):
-        dimensions.append({"dimension": name.replace("Capability", "").lower(), "values": clean_ts_union(re.findall(r"'([^']+)'|\"([^\"]+)\"", body))})
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        text = read_text_or_none(path)
+        toxic_pairs = literal_assignment(text, "TOXIC_CAPABILITY_PAIRS")
+        dimensions = []
+        for name, body in re.findall(r"(\w+Capability)\s*=\s*Literal\[(.*?)\]", text or "", re.S):
+            dimensions.append({"dimension": name.replace("Capability", "").lower(), "values": clean_ts_union(re.findall(r"'([^']+)'|\"([^\"]+)\"", body))})
 
-    safe_pairs = []
-    if isinstance(toxic_pairs, tuple):
-        for pair in toxic_pairs:
-            if isinstance(pair, tuple) and len(pair) >= 3:
-                safe_pairs.append({"left": pair[0], "right": pair[1], "reason": pair[2]})
+        safe_pairs = []
+        if isinstance(toxic_pairs, tuple):
+            for pair in toxic_pairs:
+                if isinstance(pair, tuple) and len(pair) >= 3:
+                    safe_pairs.append({"left": pair[0], "right": pair[1], "reason": pair[2]})
 
-    return {
-        "source": str(path),
-        "exists": path.exists(),
-        "capability_dimensions": dimensions,
-        "toxic_capability_pairs": safe_pairs,
-        "toxic_pair_count": len(safe_pairs),
-    }
+        return {
+            "source": str(path),
+            "exists": path.exists(),
+            "capability_dimensions": dimensions,
+            "toxic_capability_pairs": safe_pairs,
+            "toxic_pair_count": len(safe_pairs),
+        }
 
 
+
+    except Exception:
+        return {}
 def inspect_telegram_access_source(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    text = read_text_or_none(path)
-    profiles = parse_ts_union_values(text, "SparkAccessProfile")
-    requirements = parse_ts_union_values(text, "SparkAccessRequirement")
-    access_levels = parse_ts_access_levels(text)
-    matrix = {
-        "spawner_build": ts_allowed_profiles(text, "sparkAccessAllowsSpawnerBuilds", profiles),
-        "external_research": ts_allowed_profiles(text, "sparkAccessAllowsExternalResearch", profiles),
-        "operating_system": ts_allowed_profiles(text, "sparkAccessAllowsOperatingSystemWork", profiles),
-    }
-    return {
-        "source": str(path),
-        "exists": path.exists(),
-        "profiles": [{"profile": profile, "level": access_levels.get(profile)} for profile in profiles],
-        "requirements": requirements,
-        "allow_matrix": {key: value for key, value in matrix.items() if value},
-        "runtime_guardrails": {
-            "hosted_full_access_env_checked": "SPARK_ALLOW_HOSTED_FULL_ACCESS" in (text or ""),
-            "level5_guardrails_checked": "sparkLevel5RuntimeGuardrailsActive" in (text or ""),
-            "high_agency_worker_env_checked": "SPARK_ALLOW_HIGH_AGENCY_WORKERS" in (text or ""),
-        },
-    }
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        text = read_text_or_none(path)
+        profiles = parse_ts_union_values(text, "SparkAccessProfile")
+        requirements = parse_ts_union_values(text, "SparkAccessRequirement")
+        access_levels = parse_ts_access_levels(text)
+        matrix = {
+            "spawner_build": ts_allowed_profiles(text, "sparkAccessAllowsSpawnerBuilds", profiles),
+            "external_research": ts_allowed_profiles(text, "sparkAccessAllowsExternalResearch", profiles),
+            "operating_system": ts_allowed_profiles(text, "sparkAccessAllowsOperatingSystemWork", profiles),
+        }
+        return {
+            "source": str(path),
+            "exists": path.exists(),
+            "profiles": [{"profile": profile, "level": access_levels.get(profile)} for profile in profiles],
+            "requirements": requirements,
+            "allow_matrix": {key: value for key, value in matrix.items() if value},
+            "runtime_guardrails": {
+                "hosted_full_access_env_checked": "SPARK_ALLOW_HOSTED_FULL_ACCESS" in (text or ""),
+                "level5_guardrails_checked": "sparkLevel5RuntimeGuardrailsActive" in (text or ""),
+                "high_agency_worker_env_checked": "SPARK_ALLOW_HIGH_AGENCY_WORKERS" in (text or ""),
+            },
+        }
 
 
+
+    except Exception:
+        return {}
 def extract_js_object_block(text: str | None, marker: str) -> str:
-    text_str = str(text or "")
-    marker_str = str(marker or "")
-    if not text_str or not marker_str:
-        return ""
-    marker_index = text_str.find(marker_str)
-    if marker_index < 0:
-        return ""
-    start = text_str.find("{", marker_index)
-    if start < 0:
-        return ""
-    depth = 0
-    quote: str | None = None
-    escaped = False
-    for index in range(start, len(text_str)):
-        char = text_str[index]
-        if quote:
-            if escaped:
-                escaped = False
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(marker, str): marker = str(marker or '')
+    try:
+        text_str = str(text or "")
+        marker_str = str(marker or "")
+        if not text_str or not marker_str:
+            return ""
+        marker_index = text_str.find(marker_str)
+        if marker_index < 0:
+            return ""
+        start = text_str.find("{", marker_index)
+        if start < 0:
+            return ""
+        depth = 0
+        quote: str | None = None
+        escaped = False
+        for index in range(start, len(text_str)):
+            char = text_str[index]
+            if quote:
+                if escaped:
+                    escaped = False
+                    continue
+                if char == "\\":
+                    escaped = True
+                    continue
+                if char == quote:
+                    quote = None
                 continue
-            if char == "\\":
-                escaped = True
+            if char in {"'", '"', "`"}:
+                quote = char
                 continue
-            if char == quote:
-                quote = None
-            continue
-        if char in {"'", '"', "`"}:
-            quote = char
-            continue
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text_str[start + 1 : index]
-    return ""
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text_str[start + 1 : index]
+        return ""
 
 
+
+    except Exception:
+        return ""
 def inspect_spawner_access_sources(root: Path) -> dict[str, Any]:
-    root = Path(root)
-    lanes_path = root / "src" / "lib" / "server" / "access-execution-lanes.ts"
-    actions_path = root / "src" / "lib" / "server" / "access-execution-actions.ts"
-    high_agency_path = root / "src" / "lib" / "server" / "high-agency-workers.ts"
-    mission_access_path = root / "src" / "lib" / "server" / "mission-control-access.ts"
-    lanes_text = read_text_or_none(lanes_path)
-    actions_text = read_text_or_none(actions_path)
-    high_agency_text = read_text_or_none(high_agency_path)
-    mission_access_text = read_text_or_none(mission_access_path)
+    if root is not None and not hasattr(root, 'resolve'): from pathlib import Path; root = Path(str(root))
+    try:
+        root = Path(root)
+        lanes_path = root / "src" / "lib" / "server" / "access-execution-lanes.ts"
+        actions_path = root / "src" / "lib" / "server" / "access-execution-actions.ts"
+        high_agency_path = root / "src" / "lib" / "server" / "high-agency-workers.ts"
+        mission_access_path = root / "src" / "lib" / "server" / "mission-control-access.ts"
+        lanes_text = read_text_or_none(lanes_path)
+        actions_text = read_text_or_none(actions_path)
+        high_agency_text = read_text_or_none(high_agency_path)
+        mission_access_text = read_text_or_none(mission_access_path)
 
-    actions = []
-    actions_block = extract_js_object_block(actions_text, "ACCESS_EXECUTION_ACTIONS")
-    action_matches = list(re.finditer(r"^\s*(\w+):\s*{", actions_block, re.M))
-    for index, match in enumerate(action_matches):
-        action_id = match.group(1)
-        next_start = action_matches[index + 1].start() if index + 1 < len(action_matches) else len(actions_block)
-        body = actions_block[match.end() : next_start]
-        actions.append(
-            {
-                "id": regex_string(body, r"id:\s*'([^']+)'") or action_id,
-                "lane_id": regex_string(body, r"laneId:\s*'([^']+)'"),
-                "display_command": regex_string(body, r"displayCommand:\s*'([^']+)'"),
-                "run_policy": regex_string(body, r"runPolicy:\s*'([^']+)'"),
-                "confirmation_required": "confirmation:" in body,
-                "rollback_declared": "rollback:" in body,
-            }
-        )
+        actions = []
+        actions_block = extract_js_object_block(actions_text, "ACCESS_EXECUTION_ACTIONS")
+        action_matches = list(re.finditer(r"^\s*(\w+):\s*{", actions_block, re.M))
+        for index, match in enumerate(action_matches):
+            action_id = match.group(1)
+            next_start = action_matches[index + 1].start() if index + 1 < len(action_matches) else len(actions_block)
+            body = actions_block[match.end() : next_start]
+            actions.append(
+                {
+                    "id": regex_string(body, r"id:\s*'([^']+)'") or action_id,
+                    "lane_id": regex_string(body, r"laneId:\s*'([^']+)'"),
+                    "display_command": regex_string(body, r"displayCommand:\s*'([^']+)'"),
+                    "run_policy": regex_string(body, r"runPolicy:\s*'([^']+)'"),
+                    "confirmation_required": "confirmation:" in body,
+                    "rollback_declared": "rollback:" in body,
+                }
+            )
 
-    return {
-        "sources": {
-            "lanes": {"path": str(lanes_path), "exists": lanes_path.exists()},
-            "actions": {"path": str(actions_path), "exists": actions_path.exists()},
-            "high_agency": {"path": str(high_agency_path), "exists": high_agency_path.exists()},
-            "mission_control_access": {"path": str(mission_access_path), "exists": mission_access_path.exists()},
-        },
-        "lane_ids": parse_ts_union_values(lanes_text, "AccessExecutionLaneId"),
-        "run_policies": parse_ts_union_values(lanes_text, "AccessRunPolicy"),
-        "fixed_actions": actions,
-        "confirmation_gated_action_count": sum(1 for action in actions if action.get("confirmation_required")),
-        "level5_guardrail_keys": sorted(set(re.findall(r"SPARK_[A-Z0-9_]+", high_agency_text or ""))),
-        "mission_control_modes": parse_ts_union_values(mission_access_text, "MissionControlAccessMode"),
-        "mobile_privacy_contract": {
-            "status_metadata_default": "status-metadata" in (mission_access_text or ""),
-            "private_payloads_stay_local": "privatePayloadsStayLocal" in (mission_access_text or ""),
-        },
-    }
+        return {
+            "sources": {
+                "lanes": {"path": str(lanes_path), "exists": lanes_path.exists()},
+                "actions": {"path": str(actions_path), "exists": actions_path.exists()},
+                "high_agency": {"path": str(high_agency_path), "exists": high_agency_path.exists()},
+                "mission_control_access": {"path": str(mission_access_path), "exists": mission_access_path.exists()},
+            },
+            "lane_ids": parse_ts_union_values(lanes_text, "AccessExecutionLaneId"),
+            "run_policies": parse_ts_union_values(lanes_text, "AccessRunPolicy"),
+            "fixed_actions": actions,
+            "confirmation_gated_action_count": sum(1 for action in actions if action.get("confirmation_required")),
+            "level5_guardrail_keys": sorted(set(re.findall(r"SPARK_[A-Z0-9_]+", high_agency_text or ""))),
+            "mission_control_modes": parse_ts_union_values(mission_access_text, "MissionControlAccessMode"),
+            "mobile_privacy_contract": {
+                "status_metadata_default": "status-metadata" in (mission_access_text or ""),
+                "private_payloads_stay_local": "privatePayloadsStayLocal" in (mission_access_text or ""),
+            },
+        }
 
 
+
+    except Exception:
+        return {}
 def js_const_object_values(text: str | None, object_name: str) -> dict[str, str]:
-    text_str = str(text or "")
-    object_name_str = str(object_name or "")
-    if not text_str or not object_name_str:
-        return {}
-    match = re.search(rf"export\s+const\s+{re.escape(object_name_str)}\s*=\s*{{(?P<body>.*?)\n}};", text_str, re.S)
-    if not match:
-        return {}
-    return {key: value for key, value in re.findall(r"(\w+):\s*['\"]([^'\"]+)['\"]", match.group("body"))}
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(object_name, str): object_name = str(object_name or '')
+    try:
+        text_str = str(text or "")
+        object_name_str = str(object_name or "")
+        if not text_str or not object_name_str:
+            return {}
+        match = re.search(rf"export\s+const\s+{re.escape(object_name_str)}\s*=\s*{{(?P<body>.*?)\n}};", text_str, re.S)
+        if not match:
+            return {}
+        return {key: value for key, value in re.findall(r"(\w+):\s*['\"]([^'\"]+)['\"]", match.group("body"))}
 
 
+
+    except Exception:
+        return {}
 def inspect_browser_authority(root: Path) -> dict[str, Any]:
     root = Path(root)
     constants_path = root / "src" / "protocol" / "constants.js"
