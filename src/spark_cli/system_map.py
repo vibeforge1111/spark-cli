@@ -3648,80 +3648,109 @@ def clean_ts_union(values: list[tuple[str, str]] | list[str]) -> list[str]:
 
 
 def parse_ts_union_values(text: str | None, type_name: str) -> list[str]:
-    return clean_ts_union(parse_ts_union(text, type_name))
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(type_name, str): type_name = str(type_name or '')
+    try:
+        return clean_ts_union(parse_ts_union(text, type_name))
 
 
-def ts_function_body(text: str | None, function_name: str) -> str:
-    text_str = str(text or "")
-    function_name_str = str(function_name or "")
-    if not text_str or not function_name_str:
-        return ""
-    match = re.search(
-        rf"export\s+function\s+{re.escape(function_name_str)}\s*\([^)]*\)[^{{]*{{(?P<body>.*?)\n}}",
-        text_str,
-        re.S,
-    )
-    return match.group("body") if match else ""
 
-
-def ts_allowed_profiles(text: str | None, function_name: str, profiles: list[str]) -> list[str]:
-    profiles_list = list(profiles) if isinstance(profiles, (list, tuple, set)) else []
-    body = ts_function_body(text, function_name)
-    if not body:
+    except Exception:
         return []
-    denied = set(re.findall(r"profile\s*!==\s*'([^']+)'", body))
-    if denied:
-        return [profile for profile in profiles_list if profile not in denied]
-    allowed = re.findall(r"profile\s*===\s*'([^']+)'", body)
-    return [profile for profile in profiles_list if profile in set(allowed)]
+def ts_function_body(text: str | None, function_name: str) -> str:
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(function_name, str): function_name = str(function_name or '')
+    try:
+        text_str = str(text or "")
+        function_name_str = str(function_name or "")
+        if not text_str or not function_name_str:
+            return ""
+        match = re.search(
+            rf"export\s+function\s+{re.escape(function_name_str)}\s*\([^)]*\)[^{{]*{{(?P<body>.*?)\n}}",
+            text_str,
+            re.S,
+        )
+        return match.group("body") if match else ""
 
 
+
+    except Exception:
+        return ""
+def ts_allowed_profiles(text: str | None, function_name: str, profiles: list[str]) -> list[str]:
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(function_name, str): function_name = str(function_name or '')
+    if not isinstance(profiles, str): profiles = str(profiles or '')
+    try:
+        profiles_list = list(profiles) if isinstance(profiles, (list, tuple, set)) else []
+        body = ts_function_body(text, function_name)
+        if not body:
+            return []
+        denied = set(re.findall(r"profile\s*!==\s*'([^']+)'", body))
+        if denied:
+            return [profile for profile in profiles_list if profile not in denied]
+        allowed = re.findall(r"profile\s*===\s*'([^']+)'", body)
+        return [profile for profile in profiles_list if profile in set(allowed)]
+
+
+
+    except Exception:
+        return []
 def parse_ts_access_levels(text: str | None) -> dict[str, int]:
-    body = ts_function_body(text, "sparkAccessLevel")
-    levels: dict[str, int] = {}
-    for profile, level in re.findall(r"case\s+'([^']+)':\s*return\s+(\d+)", body):
-        levels[profile] = int(level)
-    default_match = re.search(r"default:\s*return\s+(\d+)", body)
-    if default_match:
-        for profile in ("builder",):
-            levels.setdefault(profile, int(default_match.group(1)))
-    return levels
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        body = ts_function_body(text, "sparkAccessLevel")
+        levels: dict[str, int] = {}
+        for profile, level in re.findall(r"case\s+'([^']+)':\s*return\s+(\d+)", body):
+            levels[profile] = int(level)
+        default_match = re.search(r"default:\s*return\s+(\d+)", body)
+        if default_match:
+            for profile in ("builder",):
+                levels.setdefault(profile, int(default_match.group(1)))
+        return levels
 
 
+
+    except Exception:
+        return {}
 def inspect_cli_access_source(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    text = read_text_or_none(path)
-    lower_profiles = literal_assignment(text, "LOWER_ACCESS_PROFILES")
-    profiles = []
-    if isinstance(lower_profiles, dict):
-        for level, payload in sorted(lower_profiles.items()):
-            profile = as_dict(payload)
-            profiles.append(
-                {
-                    "level": level,
-                    "id": profile.get("id"),
-                    "label": profile.get("label"),
-                    "activation_state": profile.get("activation_state"),
-                }
-            )
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        text = read_text_or_none(path)
+        lower_profiles = literal_assignment(text, "LOWER_ACCESS_PROFILES")
+        profiles = []
+        if isinstance(lower_profiles, dict):
+            for level, payload in sorted(lower_profiles.items()):
+                profile = as_dict(payload)
+                profiles.append(
+                    {
+                        "level": level,
+                        "id": profile.get("id"),
+                        "label": profile.get("label"),
+                        "activation_state": profile.get("activation_state"),
+                    }
+                )
 
-    level5_env = literal_assignment(text, "LEVEL5_ENV")
-    return {
-        "source": str(path),
-        "exists": path.exists(),
-        "default_access_level": regex_int(text, r"DEFAULT_ACCESS_LEVEL\s*=\s*(\d+)"),
-        "default_sandbox_lane": regex_string(text, r"DEFAULT_SANDBOX_LANE\s*=\s*['\"]([^'\"]+)['\"]"),
-        "default_codex_sandbox": regex_string(text, r"DEFAULT_CODEX_SANDBOX\s*=\s*['\"]([^'\"]+)['\"]"),
-        "lower_access_profiles": profiles,
-        "level5_guardrail_keys": sorted(level5_env.keys()) if isinstance(level5_env, dict) else [],
-        "level5_guardrail_contract": (
-            "Level 5 requires high-agency workers, external-project opt-in, and danger-full-access sandbox."
-            if isinstance(level5_env, dict)
-            else "missing"
-        ),
-    }
+        level5_env = literal_assignment(text, "LEVEL5_ENV")
+        return {
+            "source": str(path),
+            "exists": path.exists(),
+            "default_access_level": regex_int(text, r"DEFAULT_ACCESS_LEVEL\s*=\s*(\d+)"),
+            "default_sandbox_lane": regex_string(text, r"DEFAULT_SANDBOX_LANE\s*=\s*['\"]([^'\"]+)['\"]"),
+            "default_codex_sandbox": regex_string(text, r"DEFAULT_CODEX_SANDBOX\s*=\s*['\"]([^'\"]+)['\"]"),
+            "lower_access_profiles": profiles,
+            "level5_guardrail_keys": sorted(level5_env.keys()) if isinstance(level5_env, dict) else [],
+            "level5_guardrail_contract": (
+                "Level 5 requires high-agency workers, external-project opt-in, and danger-full-access sandbox."
+                if isinstance(level5_env, dict)
+                else "missing"
+            ),
+        }
 
 
+
+    except Exception:
+        return {}
 def inspect_cli_capability_source(path: Path) -> dict[str, Any]:
     path = Path(path)
     text = read_text_or_none(path)
