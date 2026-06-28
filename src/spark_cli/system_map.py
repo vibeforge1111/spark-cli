@@ -1875,156 +1875,181 @@ def capability_proof_summary(
 
 
 def inspect_labs_creator_surface(repo_path: Path) -> dict[str, Any] | None:
-    repo_path = Path(repo_path)
-    schema_dir = repo_path / "docs" / "creator_system" / "schemas"
-    if not schema_dir.exists() and repo_path.name != "spark-domain-chip-labs":
-        return None
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    try:
+        repo_path = Path(repo_path)
+        schema_dir = repo_path / "docs" / "creator_system" / "schemas"
+        if not schema_dir.exists() and repo_path.name != "spark-domain-chip-labs":
+            return None
 
-    runs_root = repo_path / "runs"
-    run_count = 0
-    artifact_counts: Counter[str] = Counter()
-    if runs_root.exists():
-        try:
-            for run_dir in runs_root.iterdir():
-                if not run_dir.is_dir():
-                    continue
-                run_count += 1
-                for label, rel_path in LABS_CREATOR_RUN_ARTIFACTS.items():
-                    if (run_dir / rel_path).exists():
-                        artifact_counts[label] += 1
-        except Exception:
-            pass
+        runs_root = repo_path / "runs"
+        run_count = 0
+        artifact_counts: Counter[str] = Counter()
+        if runs_root.exists():
+            try:
+                for run_dir in runs_root.iterdir():
+                    if not run_dir.is_dir():
+                        continue
+                    run_count += 1
+                    for label, rel_path in LABS_CREATOR_RUN_ARTIFACTS.items():
+                        if (run_dir / rel_path).exists():
+                            artifact_counts[label] += 1
+            except Exception:
+                pass
 
-    return {
-        "repo": str(repo_path.name or ""),
-        "schema_inventory": count_schema_files(schema_dir),
-        "review_and_release_sources": {
-            label: {"path": str(repo_path / rel_path), "exists": (repo_path / rel_path).exists()}
-            for label, rel_path in LABS_CREATOR_SURFACE_FILES.items()
-        },
-        "creator_run_artifacts": {
-            "run_count": run_count,
-            "artifact_presence_counts": dict(sorted(artifact_counts.items())),
-        },
-        "proof_sources": labs_creator_proof_sources(repo_path),
-        "claim_boundary": (
-            "Creator-system schemas and run artifacts are compatibility and review evidence; "
-            "they are not network publication approval or durable memory truth."
-        ),
-    }
+        return {
+            "repo": str(repo_path.name or ""),
+            "schema_inventory": count_schema_files(schema_dir),
+            "review_and_release_sources": {
+                label: {"path": str(repo_path / rel_path), "exists": (repo_path / rel_path).exists()}
+                for label, rel_path in LABS_CREATOR_SURFACE_FILES.items()
+            },
+            "creator_run_artifacts": {
+                "run_count": run_count,
+                "artifact_presence_counts": dict(sorted(artifact_counts.items())),
+            },
+            "proof_sources": labs_creator_proof_sources(repo_path),
+            "claim_boundary": (
+                "Creator-system schemas and run artifacts are compatibility and review evidence; "
+                "they are not network publication approval or durable memory truth."
+            ),
+        }
 
 
+
+    except Exception:
+        return {}
 def inspect_swarm_specialization_surface(repo_path: Path) -> dict[str, Any] | None:
-    repo_path = Path(repo_path)
-    config_path = repo_path / "config" / "specialization-paths.json"
-    schemas_dir = repo_path / "schemas"
-    has_specialization_schema = False
-    if schemas_dir.exists():
-        try:
-            has_specialization_schema = any(schemas_dir.glob("spark-specialization-path*.schema.json"))
-        except Exception:
-            has_specialization_schema = False
-    if (
-        not config_path.exists()
-        and not has_specialization_schema
-        and repo_path.name != "spark-swarm"
-        and "specialization-path" not in repo_path.name
-    ):
-        return None
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    try:
+        repo_path = Path(repo_path)
+        config_path = repo_path / "config" / "specialization-paths.json"
+        schemas_dir = repo_path / "schemas"
+        has_specialization_schema = False
+        if schemas_dir.exists():
+            try:
+                has_specialization_schema = any(schemas_dir.glob("spark-specialization-path*.schema.json"))
+            except Exception:
+                has_specialization_schema = False
+        if (
+            not config_path.exists()
+            and not has_specialization_schema
+            and repo_path.name != "spark-swarm"
+            and "specialization-path" not in repo_path.name
+        ):
+            return None
 
-    config, error = read_json(config_path)
-    config_dict = as_dict(config)
-    path_rows = as_list(config_dict.get("paths"))
-    categories: Counter[str] = Counter()
-    loop_kinds: Counter[str] = Counter()
-    benchmark_adapters: Counter[str] = Counter()
-    evolution_modes: Counter[str] = Counter()
-    rollback_policies: Counter[str] = Counter()
-    for row in path_rows:
-        item = as_dict(row)
-        categories[str(item.get("category") or "[missing]")] += 1
-        runtime = as_dict(item.get("runtime"))
-        benchmark = as_dict(item.get("benchmark"))
-        defaults = as_dict(item.get("specialization_defaults"))
-        mutation = as_dict(item.get("mutation"))
-        loop_kinds[str(runtime.get("loop_kind") or "[missing]")] += 1
-        benchmark_adapters[str(benchmark.get("adapter") or "[missing]")] += 1
-        evolution_modes[str(defaults.get("evolution_mode") or "[missing]")] += 1
-        rollback_policies[str(mutation.get("rollback_policy") or "[missing]")] += 1
+        config, error = read_json(config_path)
+        config_dict = as_dict(config)
+        path_rows = as_list(config_dict.get("paths"))
+        categories: Counter[str] = Counter()
+        loop_kinds: Counter[str] = Counter()
+        benchmark_adapters: Counter[str] = Counter()
+        evolution_modes: Counter[str] = Counter()
+        rollback_policies: Counter[str] = Counter()
+        for row in path_rows:
+            item = as_dict(row)
+            categories[str(item.get("category") or "[missing]")] += 1
+            runtime = as_dict(item.get("runtime"))
+            benchmark = as_dict(item.get("benchmark"))
+            defaults = as_dict(item.get("specialization_defaults"))
+            mutation = as_dict(item.get("mutation"))
+            loop_kinds[str(runtime.get("loop_kind") or "[missing]")] += 1
+            benchmark_adapters[str(benchmark.get("adapter") or "[missing]")] += 1
+            evolution_modes[str(defaults.get("evolution_mode") or "[missing]")] += 1
+            rollback_policies[str(mutation.get("rollback_policy") or "[missing]")] += 1
 
-    collective_root = repo_path / "collective"
-    promotion_packet_count = 0
-    evidence_ledger_count = 0
-    if collective_root.exists():
-        try:
-            promotion_packet_count = sum(1 for path in collective_root.glob("*/promotion-packet.json") if path.is_file())
-            evidence_ledger_count = sum(1 for path in collective_root.glob("*/evidence-ledger.jsonl") if path.is_file())
-        except Exception:
-            promotion_packet_count = 0
-            evidence_ledger_count = 0
+        collective_root = repo_path / "collective"
+        promotion_packet_count = 0
+        evidence_ledger_count = 0
+        if collective_root.exists():
+            try:
+                promotion_packet_count = sum(1 for path in collective_root.glob("*/promotion-packet.json") if path.is_file())
+                evidence_ledger_count = sum(1 for path in collective_root.glob("*/evidence-ledger.jsonl") if path.is_file())
+            except Exception:
+                promotion_packet_count = 0
+                evidence_ledger_count = 0
 
-    return {
-        "repo": str(repo_path.name or ""),
-        "config": {
-            "path": str(config_path),
-            "exists": config_path.exists(),
-            "error": error,
-            "path_count": len(path_rows),
-            "category_counts": dict(sorted(categories.items())),
-            "loop_kind_counts": dict(sorted(loop_kinds.items())),
-            "benchmark_adapter_counts": dict(sorted(benchmark_adapters.items())),
-            "evolution_mode_counts": dict(sorted(evolution_modes.items())),
-            "rollback_policy_counts": dict(sorted(rollback_policies.items())),
-            "redaction": "commands, labels, repo names, descriptions, and path bodies omitted",
-        },
-        "schema_inventory": count_schema_files(schemas_dir),
-        "publication_governance_sources": {
-            label: {"path": str(repo_path / rel_path), "exists": (repo_path / rel_path).exists()}
-            for label, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
-        },
-        "collective_artifacts": {
-            "promotion_packet_count": promotion_packet_count,
-            "evidence_ledger_count": evidence_ledger_count,
-        },
-        "proof_sources": swarm_specialization_proof_sources(
-            repo_path,
-            benchmark_adapter_counts=dict(benchmark_adapters),
-            rollback_policy_counts=dict(rollback_policies),
-            promotion_packet_count=promotion_packet_count,
-            evidence_ledger_count=evidence_ledger_count,
-        ),
-        "claim_boundary": (
-            "Specialization paths and collective packets are review and benchmark surfaces; "
-            "network-visible publication still requires verified proof and approval gates."
-        ),
-    }
+        return {
+            "repo": str(repo_path.name or ""),
+            "config": {
+                "path": str(config_path),
+                "exists": config_path.exists(),
+                "error": error,
+                "path_count": len(path_rows),
+                "category_counts": dict(sorted(categories.items())),
+                "loop_kind_counts": dict(sorted(loop_kinds.items())),
+                "benchmark_adapter_counts": dict(sorted(benchmark_adapters.items())),
+                "evolution_mode_counts": dict(sorted(evolution_modes.items())),
+                "rollback_policy_counts": dict(sorted(rollback_policies.items())),
+                "redaction": "commands, labels, repo names, descriptions, and path bodies omitted",
+            },
+            "schema_inventory": count_schema_files(schemas_dir),
+            "publication_governance_sources": {
+                label: {"path": str(repo_path / rel_path), "exists": (repo_path / rel_path).exists()}
+                for label, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
+            },
+            "collective_artifacts": {
+                "promotion_packet_count": promotion_packet_count,
+                "evidence_ledger_count": evidence_ledger_count,
+            },
+            "proof_sources": swarm_specialization_proof_sources(
+                repo_path,
+                benchmark_adapter_counts=dict(benchmark_adapters),
+                rollback_policy_counts=dict(rollback_policies),
+                promotion_packet_count=promotion_packet_count,
+                evidence_ledger_count=evidence_ledger_count,
+            ),
+            "claim_boundary": (
+                "Specialization paths and collective packets are review and benchmark surfaces; "
+                "network-visible publication still requires verified proof and approval gates."
+            ),
+        }
 
 
+
+    except Exception:
+        return {}
 def bool_count(items: dict[str, Any]) -> int:
-    return sum(1 for item in items.values() if as_dict(item).get("exists") is True)
+    if not isinstance(items, str): items = str(items or '')
+    try:
+        return sum(1 for item in items.values() if as_dict(item).get("exists") is True)
 
 
+
+    except Exception:
+        return 0
 def capability_card_status_from_labs(surface: dict[str, Any]) -> str:
-    artifacts = as_dict(surface.get("creator_run_artifacts"))
-    schema_inventory = as_dict(surface.get("schema_inventory"))
-    if int(artifacts.get("run_count") or 0) > 0:
-        return "local-artifacts"
-    if int(schema_inventory.get("schema_count") or 0) > 0:
-        return "schema-shaped"
-    return "seen"
+    if not isinstance(surface, str): surface = str(surface or '')
+    try:
+        artifacts = as_dict(surface.get("creator_run_artifacts"))
+        schema_inventory = as_dict(surface.get("schema_inventory"))
+        if int(artifacts.get("run_count") or 0) > 0:
+            return "local-artifacts"
+        if int(schema_inventory.get("schema_count") or 0) > 0:
+            return "schema-shaped"
+        return "seen"
 
 
+
+    except Exception:
+        return ""
 def capability_card_status_from_specialization(surface: dict[str, Any]) -> str:
-    config = as_dict(surface.get("config"))
-    artifacts = as_dict(surface.get("collective_artifacts"))
-    schema_inventory = as_dict(surface.get("schema_inventory"))
-    if int(artifacts.get("promotion_packet_count") or 0) > 0:
-        return "local-artifacts"
-    if int(config.get("path_count") or 0) > 0 or int(schema_inventory.get("schema_count") or 0) > 0:
-        return "schema-shaped"
-    return "seen"
+    if not isinstance(surface, str): surface = str(surface or '')
+    try:
+        config = as_dict(surface.get("config"))
+        artifacts = as_dict(surface.get("collective_artifacts"))
+        schema_inventory = as_dict(surface.get("schema_inventory"))
+        if int(artifacts.get("promotion_packet_count") or 0) > 0:
+            return "local-artifacts"
+        if int(config.get("path_count") or 0) > 0 or int(schema_inventory.get("schema_count") or 0) > 0:
+            return "schema-shaped"
+        return "seen"
 
 
+
+    except Exception:
+        return ""
 def capability_proof_state(status: str) -> str:
     if status == "schema-shaped":
         return "schema_only"
