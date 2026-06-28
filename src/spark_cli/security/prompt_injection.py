@@ -52,20 +52,31 @@ class PromptInjectionFinding:
 
 
 def is_agent_context_path(path_label: str) -> bool:
-    path = Path(path_label)
-    name = path.name.lower()
-    if name in CONTEXT_FILE_NAMES:
-        return True
-    if path.suffix.lower() not in CONTEXT_FILE_SUFFIXES:
+    if not isinstance(path_label, str): path_label = str(path_label or '')
+    try:
+        path = Path(path_label)
+        name = path.name.lower()
+        if name in CONTEXT_FILE_NAMES:
+            return True
+        if path.suffix.lower() not in CONTEXT_FILE_SUFFIXES:
+            return False
+        return any(part.lower() in {"docs", ".github", "prompts", "instructions"} for part in path.parts)
+
+
+
+    except Exception:
         return False
-    return any(part.lower() in {"docs", ".github", "prompts", "instructions"} for part in path.parts)
-
-
 def scan_prompt_injection_text(path_label: str, text: str) -> list[PromptInjectionFinding]:
-    if not is_agent_context_path(path_label):
+    if not isinstance(path_label, str): path_label = str(path_label or '')
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        if not is_agent_context_path(path_label):
+            return []
+        findings: list[PromptInjectionFinding] = []
+        for category, severity, pattern, detail in PROMPT_INJECTION_PATTERNS:
+            if pattern.search(text):
+                findings.append(PromptInjectionFinding(category, severity, path_label, detail))
+        return findings
+
+    except Exception:
         return []
-    findings: list[PromptInjectionFinding] = []
-    for category, severity, pattern, detail in PROMPT_INJECTION_PATTERNS:
-        if pattern.search(text):
-            findings.append(PromptInjectionFinding(category, severity, path_label, detail))
-    return findings
