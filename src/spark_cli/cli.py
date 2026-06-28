@@ -159,13 +159,14 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, and state-plus-temp runner preflight onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and health-token preservation fix onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
             "npm run control:proof:reliability",
             "npm run check:line-count",
             "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+            "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts",
         ],
     },
     "spark-voice-comms": {
@@ -201,6 +202,7 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Use proof oracle for Telegram Level 5",
         "Require effective Level 5 sandbox proof in Telegram",
         "Require Level 5 proof for operator access status",
+        "Preserve Telegram token during profile health checks",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",

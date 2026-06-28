@@ -13474,7 +13474,8 @@ class SparkCliTests(unittest.TestCase):
         blockers = {item["module"]: item for item in payload["direct_blockers"]}
         self.assertIn("Telegram", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("Level 5 Codex sandbox confirmation fix", blockers["spark-telegram-bot"]["next_action"])
-        self.assertIn("effective Level 5 sandbox-before-operator-claims guard, and Level 5 status sandbox guard", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard", blockers["spark-telegram-bot"]["next_action"])
+        self.assertIn("health-token preservation fix", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("current owner release base", blockers["spark-telegram-bot"]["next_action"])
         self.assertIn("npm run build", blockers["spark-telegram-bot"]["proof_commands"])
         self.assertIn(
@@ -14934,6 +14935,7 @@ class SparkCliTests(unittest.TestCase):
                                     "Use proof oracle for Telegram Level 5",
                                     "Require effective Level 5 sandbox proof in Telegram",
                                     "Require Level 5 proof for operator access status",
+                                    "Preserve Telegram token during profile health checks",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "owner_action": "Port onto the current owner release base before registry movement.",
@@ -15435,6 +15437,7 @@ class SparkCliTests(unittest.TestCase):
                             "Use proof oracle for Telegram Level 5",
                             "Require effective Level 5 sandbox proof in Telegram",
                             "Require Level 5 proof for operator access status",
+                            "Preserve Telegram token during profile health checks",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "owner_action": "Port onto the current owner release base before registry movement.",

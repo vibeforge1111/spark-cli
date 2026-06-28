@@ -68,8 +68,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "8190500deebe205d68b0f0eb0a746945c898af77",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..8190500deebe205d68b0f0eb0a746945c898af77",
+      "local_head": "0cd7914e0c66d84416554399d57837556dff55d5",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cd7914e0c66d84416554399d57837556dff55d5",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -77,13 +77,14 @@
         "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
       },
       "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, and state-plus-temp runner preflight onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and health-token preservation fix onto the current owner release base, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
         "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
         "npm run build",
         "npm run control:proof:reliability",
         "npm run check:line-count",
-        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts"
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+        "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
       ],
       "local_proof": "passed"
     },
@@ -130,53 +131,7 @@
       "local_proof": "passed"
     }
   ],
-  "supporting_hygiene": [
-    {
-      "module": "domain-chip-spark-qa-evidence-lane",
-      "expected_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
-      "local_head": "215c6b9cbefb6ecc817d24f63e4e510b2c453b28",
-      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
-      "proof_commands": [
-        "spark verify --r30 --json"
-      ]
-    },
-    {
-      "module": "spark-character",
-      "expected_registry_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
-      "local_head": "cf8177561c16fa1dc2a1db96cdc52268f23bc97f",
-      "next_action": "Converge Character owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
-      "proof_commands": [
-        "spark verify --r30 --json"
-      ]
-    },
-    {
-      "module": "spark-harness-core",
-      "expected_registry_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-      "local_head": "b190986996f007c30a0cab04bfd8851db8863a9d",
-      "next_action": "Converge Harness Core owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
-      "proof_commands": [
-        "spark verify --r30 --json"
-      ]
-    },
-    {
-      "module": "spark-researcher",
-      "expected_registry_commit": "906592e2bb025ef485c6320339f714433714c9b6",
-      "local_head": "587dbd2a57d6f75eec81a3b68ef583ea5e803140",
-      "next_action": "Converge Researcher owner source and installed runtime metadata before claiming full Spark-wide publish truth.",
-      "proof_commands": [
-        "spark verify --r30 --json"
-      ]
-    },
-    {
-      "module": "spark-skill-graphs",
-      "expected_registry_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
-      "local_head": "8dcdd172f35f9d2e444577135ec308cb1caa1e21",
-      "next_action": "Converge Skill Graphs owner source and installed metadata before claiming the optional-module lane ship-ready.",
-      "proof_commands": [
-        "spark verify --r30 --json"
-      ]
-    }
-  ],
+  "supporting_hygiene": [],
   "required_after_owner_handoffs": [
     "spark os compile --json",
     "spark live status --json",
