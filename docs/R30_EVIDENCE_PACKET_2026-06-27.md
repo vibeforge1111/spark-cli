@@ -111,7 +111,7 @@ Fresh voice owner-lane proof at `2026-06-28T01:50:12Z`:
 - Rechecked at `2026-06-28T00:54:49Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T01:50:12Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
-- Remote audit at `2026-06-27T23:33:53Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
+- Remote audit at `2026-06-28T01:53:39Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 

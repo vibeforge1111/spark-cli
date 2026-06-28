@@ -21,7 +21,7 @@ Current facts recorded by the R30 gate:
 - prepared local owner-lane voice head: `c502ec096cefb48839e3279d3392343231884415`
 - original local voice proof branch head: `7555a363d7638537b1a9ec1ee377e460d2343323`
 - installed metadata still records: `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`
-- fresh remote audit at `2026-06-27T23:33:53Z`: no remote `refs/heads/release/r30-voice-trace-governor` branch exists; `refs/heads/main` and `refs/tags/spark-ship-2026-06-26` still point at `c74490d68ece65ffad21dc5b88f44602e1afa703`, and `refs/heads/codex/turnintent-voice-policy-20260531` still points at `12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4`
+- fresh remote audit at `2026-06-28T01:53:39Z`: no remote `refs/heads/release/r30-voice-trace-governor` branch exists; `refs/heads/main` and `refs/tags/spark-ship-2026-06-26` still point at `c74490d68ece65ffad21dc5b88f44602e1afa703`, and `refs/heads/codex/turnintent-voice-policy-20260531` still points at `12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4`
 - structured handoff manifest: [R30 voice owner handoff manifest](./R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
 
 Local voice proof is test-clean, but not yet public release truth:
@@ -59,7 +59,7 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
   applies to the public base and produces tree
   `e3e1f881497011917fd9baa4f56db811ebccff7e`; this is an apply/review
   artifact, not publication authority.
-- current remote audit: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
+- current remote audit at `2026-06-28T01:53:39Z`: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
 
 This prepared lane reduces the owner-source handoff gap, but it does not clear
 the R30 voice registry decision until the release ref is source-owned remotely,
