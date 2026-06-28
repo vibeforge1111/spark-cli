@@ -4459,125 +4459,153 @@ def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
 
 
 def build_gaps(system_map: dict[str, Any]) -> list[dict[str, str]]:
-    sys_map = system_map if isinstance(system_map, dict) else {}
-    registry_modules = set(as_dict(sys_map.get("registry", {}).get("modules")).keys())
-    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
-    repos = as_list(sys_map.get("discovered_repos"))
-    raw_gaps: list[dict[str, str]] = []
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    try:
+        sys_map = system_map if isinstance(system_map, dict) else {}
+        registry_modules = set(as_dict(sys_map.get("registry", {}).get("modules")).keys())
+        installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
+        repos = as_list(sys_map.get("discovered_repos"))
+        raw_gaps: list[dict[str, str]] = []
 
-    def add_gap(severity: str, area: str, item: str, message: str) -> None:
-        raw_gaps.append({"severity": str(severity), "area": str(area), "item": str(item), "message": str(message)})
+        def add_gap(severity: str, area: str, item: str, message: str) -> None:
+            raw_gaps.append({"severity": str(severity), "area": str(area), "item": str(item), "message": str(message)})
 
-    for module_id in sorted(registry_modules - installed_modules):
-        add_gap("info", "install", module_id, "Registry module is not installed in the current local Spark home.")
+        for module_id in sorted(registry_modules - installed_modules):
+            add_gap("info", "install", module_id, "Registry module is not installed in the current local Spark home.")
 
-    for module_id in sorted(installed_modules - registry_modules):
-        add_gap("warning", "registry", module_id, "Installed module is missing from spark-cli registry.json.")
+        for module_id in sorted(installed_modules - registry_modules):
+            add_gap("warning", "registry", module_id, "Installed module is missing from spark-cli registry.json.")
 
-    known_modules = registry_modules | installed_modules
-    for repo in repos:
-        repo = as_dict(repo)
-        ids = repo_ids(repo)
-        toml = as_dict(repo.get("spark_toml"))
-        chip = as_dict(repo.get("spark_chip"))
-        if toml and not (ids & known_modules):
-            add_gap(
-                "decision",
-                "system-map",
-                str(toml.get("module_name") or repo.get("name")),
-                "Repo declares spark.toml but is not in installed state or starter registry.",
-            )
-        chip_name = str(chip.get("chip_name") or repo.get("name") or "")
-        if chip and chip_name and chip_name not in known_modules:
-            add_gap(
-                "decision",
-                "capability",
-                chip_name,
-                "Repo declares spark-chip.json but is not in installed state or starter registry.",
-            )
+        known_modules = registry_modules | installed_modules
+        for repo in repos:
+            repo = as_dict(repo)
+            ids = repo_ids(repo)
+            toml = as_dict(repo.get("spark_toml"))
+            chip = as_dict(repo.get("spark_chip"))
+            if toml and not (ids & known_modules):
+                add_gap(
+                    "decision",
+                    "system-map",
+                    str(toml.get("module_name") or repo.get("name")),
+                    "Repo declares spark.toml but is not in installed state or starter registry.",
+                )
+            chip_name = str(chip.get("chip_name") or repo.get("name") or "")
+            if chip and chip_name and chip_name not in known_modules:
+                add_gap(
+                    "decision",
+                    "capability",
+                    chip_name,
+                    "Repo declares spark-chip.json but is not in installed state or starter registry.",
+                )
 
-    for module in as_list(sys_map.get("modules")):
-        installed = as_dict(module.get("installed"))
-        if installed and installed.get("path") and not Path(str(installed.get("path"))).exists():
-            add_gap("warning", "install", str(module.get("id")), "Installed module path does not exist.")
+        for module in as_list(sys_map.get("modules")):
+            installed = as_dict(module.get("installed"))
+            if installed and installed.get("path") and not Path(str(installed.get("path"))).exists():
+                add_gap("warning", "install", str(module.get("id")), "Installed module path does not exist.")
 
-    if not any(as_dict(repo).get("skill_manifest") for repo in repos):
-        add_gap("decision", "skill-graphs", "spark-skill-graphs", "No skill graph manifest discovered; specialist routing cannot be cataloged.")
+        if not any(as_dict(repo).get("skill_manifest") for repo in repos):
+            add_gap("decision", "skill-graphs", "spark-skill-graphs", "No skill graph manifest discovered; specialist routing cannot be cataloged.")
 
-    deduped: dict[tuple[str, str, str, str], dict[str, str]] = {}
-    for gap in raw_gaps:
-        key = (gap["severity"], gap["area"], gap["item"], gap["message"])
-        if key not in deduped:
-            deduped[key] = dict(gap)
-            deduped[key]["count"] = "1"
-        else:
-            deduped[key]["count"] = str(int(deduped[key]["count"]) + 1)
-    return list(deduped.values())
+        deduped: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        for gap in raw_gaps:
+            key = (gap["severity"], gap["area"], gap["item"], gap["message"])
+            if key not in deduped:
+                deduped[key] = dict(gap)
+                deduped[key]["count"] = "1"
+            else:
+                deduped[key]["count"] = str(int(deduped[key]["count"]) + 1)
+        return list(deduped.values())
 
 
+
+    except Exception:
+        return []
 def repo_owner_surface(name: str) -> str:
-    name_str = str(name or "")
-    if name_str in OWNER_SURFACES:
-        return OWNER_SURFACES[name_str]
-    if name_str.startswith("domain-chip-"):
-        return "domain chip candidate"
-    if name_str.startswith("specialization-path-"):
-        return "specialization path candidate"
-    if "telegram" in name_str:
-        return "Telegram-adjacent surface"
-    if "swarm" in name_str:
-        return "Swarm-adjacent surface"
-    if "spark" in name_str:
-        return "Spark-adjacent repo"
-    return "unclassified"
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        name_str = str(name or "")
+        if name_str in OWNER_SURFACES:
+            return OWNER_SURFACES[name_str]
+        if name_str.startswith("domain-chip-"):
+            return "domain chip candidate"
+        if name_str.startswith("specialization-path-"):
+            return "specialization path candidate"
+        if "telegram" in name_str:
+            return "Telegram-adjacent surface"
+        if "swarm" in name_str:
+            return "Swarm-adjacent surface"
+        if "spark" in name_str:
+            return "Spark-adjacent repo"
+        return "unclassified"
 
 
+
+    except Exception:
+        return ""
 def repo_manifest_presence(repo: dict[str, Any]) -> dict[str, bool]:
-    repo_dict = repo if isinstance(repo, dict) else {}
-    contract_files = set(as_list(repo_dict.get("contract_files")))
-    return {
-        "spark_toml": bool(as_dict(repo_dict.get("spark_toml"))),
-        "spark_chip": bool(as_dict(repo_dict.get("spark_chip"))),
-        "skill_manifest": bool(as_dict(repo_dict.get("skill_manifest"))),
-        "agents_md": "AGENTS.md" in contract_files,
-        "contract_file_count": bool(contract_files),
-    }
+    if not isinstance(repo, str): repo = str(repo or '')
+    try:
+        repo_dict = repo if isinstance(repo, dict) else {}
+        contract_files = set(as_list(repo_dict.get("contract_files")))
+        return {
+            "spark_toml": bool(as_dict(repo_dict.get("spark_toml"))),
+            "spark_chip": bool(as_dict(repo_dict.get("spark_chip"))),
+            "skill_manifest": bool(as_dict(repo_dict.get("skill_manifest"))),
+            "agents_md": "AGENTS.md" in contract_files,
+            "contract_file_count": bool(contract_files),
+        }
 
 
+
+    except Exception:
+        return {}
 def repo_release_status(name: str, git: dict[str, Any], manifest: dict[str, bool], registry_present: bool) -> tuple[str, str | None, str]:
-    git_dict = git if isinstance(git, dict) else {}
-    manifest_dict = manifest if isinstance(manifest, dict) else {}
-    name_str = str(name or "")
-    dirty = int(git_dict.get("dirty_tracked_count") or 0)
-    untracked = int(git_dict.get("untracked_count") or 0)
-    behind = int(git_dict.get("behind") or 0)
-    if not git_dict.get("available"):
-        return "not_release_candidate", "not a git repo", "inspect or ignore before product work"
-    if dirty or untracked:
-        return "blocked", "dirty worktree", "curate local changes before merge or release"
-    if behind:
-        return "blocked", "behind upstream", "pull or merge upstream before release"
-    if name_str in CORE_REPOS and not any(manifest_dict.values()):
-        return "blocked", "core repo missing Spark manifest", "add or confirm owner manifest before release"
-    if name_str == "spark-cli" and any(manifest_dict.values()):
-        return "eligible", None, "installer and Spark OS compiler source truth is manifest-declared"
-    if registry_present:
-        return "eligible", None, "safe to consider for the next verified workstream"
-    return "inspect", "not in installer registry", "decide whether this repo should remain local, become a capability, or be ignored"
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(git, str): git = str(git or '')
+    if not isinstance(manifest, str): manifest = str(manifest or '')
+    try:
+        git_dict = git if isinstance(git, dict) else {}
+        manifest_dict = manifest if isinstance(manifest, dict) else {}
+        name_str = str(name or "")
+        dirty = int(git_dict.get("dirty_tracked_count") or 0)
+        untracked = int(git_dict.get("untracked_count") or 0)
+        behind = int(git_dict.get("behind") or 0)
+        if not git_dict.get("available"):
+            return "not_release_candidate", "not a git repo", "inspect or ignore before product work"
+        if dirty or untracked:
+            return "blocked", "dirty worktree", "curate local changes before merge or release"
+        if behind:
+            return "blocked", "behind upstream", "pull or merge upstream before release"
+        if name_str in CORE_REPOS and not any(manifest_dict.values()):
+            return "blocked", "core repo missing Spark manifest", "add or confirm owner manifest before release"
+        if name_str == "spark-cli" and any(manifest_dict.values()):
+            return "eligible", None, "installer and Spark OS compiler source truth is manifest-declared"
+        if registry_present:
+            return "eligible", None, "safe to consider for the next verified workstream"
+        return "inspect", "not in installer registry", "decide whether this repo should remain local, become a capability, or be ignored"
 
 
+
+    except Exception:
+        return ()
 def repo_risk_class(name: str, release_eligibility: str) -> str:
-    name_str = str(name or "")
-    eligibility = str(release_eligibility or "")
-    if name_str in {"spark-cli", "spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"}:
-        return "critical"
-    if eligibility == "blocked":
-        return "high"
-    if name_str in CORE_REPOS:
-        return "medium"
-    return "low"
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(release_eligibility, str): release_eligibility = str(release_eligibility or '')
+    try:
+        name_str = str(name or "")
+        eligibility = str(release_eligibility or "")
+        if name_str in {"spark-cli", "spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"}:
+            return "critical"
+        if eligibility == "blocked":
+            return "high"
+        if name_str in CORE_REPOS:
+            return "medium"
+        return "low"
 
 
+
+    except Exception:
+        return ""
 def repo_by_name(system_map: dict[str, Any], name: str) -> dict[str, Any]:
     sys_map = system_map if isinstance(system_map, dict) else {}
     name_str = str(name or "")
