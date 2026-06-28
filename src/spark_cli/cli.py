@@ -203,7 +203,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening plus the DCL creator-preview guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
@@ -255,7 +255,7 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Refresh Telegram Level 5 profile env",
         "Require Telegram Level 5 full permission proof",
         "Harden Telegram Level 5 proof agreement",
-        "Harden mixed Level 5 access proof",
+        "Improve domain chip creation preview",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",
@@ -9248,10 +9248,10 @@ def collect_r30_handoff_manifest_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "dc9a03c6678b0425e3a47613647543146255c54d4859e47540be8d0b92cc1461",
-            "line_count": 87852,
+            "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
+            "line_count": 87936,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "6159f909c49da15ec88bbf0a0a665347da6d9b33",
+            "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
             "publication_authority": False,
             "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
         },
@@ -9455,10 +9455,10 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "dc9a03c6678b0425e3a47613647543146255c54d4859e47540be8d0b92cc1461",
-            "line_count": 87852,
+            "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
+            "line_count": 87936,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "6159f909c49da15ec88bbf0a0a665347da6d9b33",
+            "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
             "publication_authority": False,
             "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
         },

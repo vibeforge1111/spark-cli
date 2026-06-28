@@ -33,7 +33,7 @@ Current `release_lane` mismatches from the same gate:
 | Class | Module | Local head | Registry truth | Installed metadata | Issues |
 | --- | --- | --- | --- | --- | --- |
 | Direct R30 | `spark-voice-comms` | `c502ec096cef` | `21a9467e9bd4` | `0d6e366fd04d` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
-| Direct R30 | `spark-telegram-bot` | `6188d43fbb46` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
+| Direct R30 | `spark-telegram-bot` | `8958d01a80a4` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
 | Direct R30 | `spawner-ui` | `d7737038dc85` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `ca21e183c6c0` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
@@ -50,7 +50,7 @@ No remote `spark-cli-public-installer-2026-06-27-r30` tag exists yet.
 | Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before registry |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | `c502ec096cef` on `release/r30-voice-trace-governor` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` | Port/tag trace/governor commits or equivalent source-owned proof, then rerun voice and R30 gates. |
-| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `6188d43fbb46` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening. |
+| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `8958d01a80a4` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening plus the DCL creator-preview guard. |
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `d7737038dc85` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `ca21e183c6c0` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
@@ -87,9 +87,9 @@ npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/r
 Owner handoff patch artifact:
 
 - `docs/r30/patches/r30-telegram-control-reliability-stack.patch`
-- SHA256 `dc9a03c6678b0425e3a47613647543146255c54d4859e47540be8d0b92cc1461`
+- SHA256 `2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160`
 - applies to public owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579`
-- produces tree `6159f909c49da15ec88bbf0a0a665347da6d9b33`, carrying local proof head `6188d43fbb465898c35c8228742decfc4be5c7b8`
+- produces tree `94671ae63d4e34fa8a412ccc04ca75f6cac93bc8`, carrying local proof head `8958d01a80a42c7c64c45c63956c1001568a6e11`
 - this is review/apply material only, not registry, tag, installer, or publication authority
 
 ### `spawner-ui`
