@@ -10,11 +10,11 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work. Rechecked after the Telegram handoff audit
-subject alignment; dirty release repo count remained `0`, OS compile stayed
-green, the owner handoff manifest stayed aligned, local runtime handoff docs
-stayed aligned, patch-apply proof stayed green, and the Access 5 anti-read-only
-gate stayed green.
+red only for release-truth work. Rechecked at `2026-06-28T08:17:28Z` after the
+Telegram mixed Level 5 proof hardening and R30 handoff refresh; dirty release
+repo count remained `0`, OS compile stayed green, the owner handoff manifest
+stayed aligned, local runtime handoff docs stayed aligned, patch-apply proof
+stayed green, and the Access 5 anti-read-only gate stayed green.
 
 The current top-level source-truth blocker set is exactly `release_lane`,
 `r30_voice_registry_decision`, and `registry_pins`.
@@ -34,7 +34,7 @@ Current `release_lane` mismatches from the same gate:
 | --- | --- | --- | --- | --- | --- |
 | Direct R30 | `spark-voice-comms` | `c502ec096cef` | `21a9467e9bd4` | `0d6e366fd04d` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
 | Direct R30 | `spark-telegram-bot` | `6188d43fbb46` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
-| Direct R30 | `spawner-ui` | `029c2086efcf` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
+| Direct R30 | `spawner-ui` | `d7737038dc85` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `ca21e183c6c0` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
 
@@ -48,7 +48,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | `c502ec096cef` on `release/r30-voice-trace-governor` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` | Port/tag trace/governor commits or equivalent source-owned proof, then rerun voice and R30 gates. |
 | 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `6188d43fbb46` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening. |
-| 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `029c2086efcf` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes, plus active Level 5 full-access lane classification. |
+| 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `d7737038dc85` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `ca21e183c6c0` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
 | 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | local docs/verifier lane on `harness-discipline-ruleset`; live head is verified by `git rev-parse HEAD` and `verify --r30`, with pre-refresh baseline `3bc788158c535b6a8eb0353e00797d11f39cd064` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, final Telegram full-permission/audit handoff refresh, natural confirmed Level 1/3/4 to Level 5 proof preservation, refreshed Spawner active Level 5 full-access lane proof, fresh voice handoff proof, and hosted R29 baseline evidence before installer pins move to R30. |
@@ -92,7 +92,9 @@ Owner handoff patch artifact:
 ### `spawner-ui`
 
 ```bash
+npm test -- --run src/lib/server/access-execution-actions.test.ts src/lib/server/high-agency-workers.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
 npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
+npm run build
 npm run check
 ```
 
@@ -117,6 +119,14 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
 ```
+
+## Latest Local Gate Snapshot
+
+Fresh checks at `2026-06-28T08:17:28Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: failed only for `release_lane`, `r30_voice_registry_decision`, `registry_pins`, and `r30_installer_pins`; `release_lane` had `dirty_repo_count=0` and 5 direct R30 blockers.
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`; publish handoff families remained `local_runtime_test_artifacts` and `builder_trace_health`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: failed only because `spark-voice-comms` registry pin still lags or diverges from remote `refs/heads/main`.
 
 ## After Owner Source Lands
 
