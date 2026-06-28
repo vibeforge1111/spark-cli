@@ -9,6 +9,20 @@ This packet turns the R30 source-owner audit into concrete owner-lane work. It r
 
 R30 is still blocked until these handoffs are source-owned and verified.
 
+## Current Recheck
+
+Fresh clean-tree recheck at `2026-06-28T05:54:09Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: `ok=false`, by design.
+- `source_truth_ready=false`.
+- `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`.
+- `release_lane`: `0` dirty release repos; `5` direct R30 issues; `0` supporting hygiene rows.
+- `r30_voice_registry_decision`: still blocked until the local voice trace/governor commits or equivalent proof are source-owned remotely.
+- `registry_pins`: still red only because `spark-voice-comms` registry pin `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` lags `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- `r30_installer_pins`: intentionally still R29; installer pins must not move before source and registry truth are green.
+
+The latest access/full-permission proof recorded in the evidence packet remains green: Telegram access/read-only focused tests passed, Spawner access/provider focused tests passed with `44 passed`, CLI Level 5 tests passed, live Access 5 reports `effective_codex_sandbox=danger-full-access`, and live Spawner Level 5 reports `level5_operator` / `automatic` / `auto_safe`.
+
 ## Required Order
 
 1. Review and port/push owner-source commits.
@@ -240,6 +254,43 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
 PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
 spark os compile --json
 ```
+
+## Publishing-Machine Sequence
+
+Use this only after explicit authorization to push/tag/publish. The debugging
+lane must not perform these actions.
+
+1. Land owner-source refs for the five direct R30 modules:
+   `spark-voice-comms`, `spark-telegram-bot`, `spawner-ui`,
+   `domain-chip-memory`, and `spark-intelligence-builder`.
+2. On each owner ref, run the proof command listed above for that module.
+3. Update installed runtime sources through the normal Spark install/update path,
+   not by hand-editing installed metadata.
+4. Update `registry.json` pins and provenance metadata only to owner-source refs
+   that passed proof.
+5. From `spark-cli`, run:
+
+```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
+PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json
+PYTHONPATH=src python3 -m spark_cli.cli os compile --json
+PYTHONPATH=src python3 -m spark_cli.cli live status --json
+```
+
+6. Only after source and registry truth are green, prepare the R30 installer pin
+   batch in `scripts/installer-manifest.json`, `scripts/install.sh`, and
+   `scripts/install.ps1`.
+7. Run:
+
+```bash
+PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json
+PYTHONPATH=src python3 -m pytest tests/test_cli.py -q
+git diff --check
+```
+
+8. Publish hosted installer metadata only as the final authorized batch, then
+   run hosted installer verification.
 
 ## Exact Commit Lists
 
