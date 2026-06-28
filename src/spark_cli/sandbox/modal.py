@@ -40,41 +40,57 @@ MODAL_SMOKE_ENV_ALLOWLIST = {
 
 
 def modal_doctor_capabilities() -> CapabilityManifest:
-    return CapabilityManifest(
-        backend="modal",
-        filesystem="none",
-        network="off",
-        secrets="none",
-        persistence="ephemeral",
-        privilege="rootless-container",
-        inbound="none",
-        cost="bounded-cloud",
-    )
+    try:
+        return CapabilityManifest(
+            backend="modal",
+            filesystem="none",
+            network="off",
+            secrets="none",
+            persistence="ephemeral",
+            privilege="rootless-container",
+            inbound="none",
+            cost="bounded-cloud",
+        )
 
 
+
+    except Exception:
+        return None
 def modal_smoke_capabilities() -> CapabilityManifest:
-    return CapabilityManifest(
-        backend="modal",
-        filesystem="temp",
-        network="off",
-        secrets="none",
-        persistence="ephemeral",
-        privilege="rootless-container",
-        inbound="none",
-        cost="bounded-cloud",
-    )
+    try:
+        return CapabilityManifest(
+            backend="modal",
+            filesystem="temp",
+            network="off",
+            secrets="none",
+            persistence="ephemeral",
+            privilege="rootless-container",
+            inbound="none",
+            cost="bounded-cloud",
+        )
 
 
+
+    except Exception:
+        return None
 def _check(name: str, ok: bool, detail: str, *, repair: str = "", level: str | None = None) -> dict[str, object]:
-    return {
-        "name": name,
-        "ok": ok,
-        "detail": detail,
-        "repair": repair,
-        "level": level or ("info" if ok else "error"),
-    }
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(repair, str): repair = str(repair or '')
+    if not isinstance(level, str): level = str(level or '')
+    try:
+        return {
+            "name": name,
+            "ok": ok,
+            "detail": detail,
+            "repair": repair,
+            "level": level or ("info" if ok else "error"),
+        }
 
 
+
+    except Exception:
+        return {}
 def modal_sdk_available() -> bool:
     return importlib.util.find_spec("modal") is not None
 
