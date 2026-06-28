@@ -26,7 +26,8 @@ must not claim full operator access.
 
 ## Current Live State
 
-Fresh local audit on 2026-06-28:
+Fresh local audit on 2026-06-28, rechecked after Spawner access-action runner
+hardening:
 
 - Effective access level: `5`
 - Level 5 activation state: `active_for_services`
@@ -40,6 +41,7 @@ Fresh local audit on 2026-06-28:
 - Service can operate whole computer: `true`
 - Missing/stale services: none
 - Skipped unstartable Telegram profiles: `sparkqa-bot`
+- `spark live status --json`: `ok=true`, no unhealthy modules reported
 
 The current shell not carrying Level 5 env is acceptable only because the worker
 launchers read persisted module guardrails before launching Codex. A launcher that
@@ -62,10 +64,32 @@ uses stale process env directly is a release bug.
   five confirm" preserve the confirmation and still require fresh Level 5 proof.
 - Spawner default Codex launch paths now have regression coverage proving stale
   `read-only` process env is promoted from persisted Level 5 service guardrails.
+- Spawner access execution actions now use the same persisted Level 5 env
+  promotion before launching `spark` actions, so access repair/setup commands do
+  not inherit stale `read-only` from the service parent process.
 
 ## Proof Commands
 
 Fresh focused proof passed:
+
+```bash
+npm test -- --run \
+  src/lib/server/access-execution-actions.test.ts \
+  src/lib/server/high-agency-workers.test.ts \
+  src/lib/server/provider-clients/codex-cli-client.test.ts \
+  src/lib/services/spark-agent-bridge.test.ts \
+  src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
+```
+
+Result: 2026-06-28 Spawner proof passed with 44 tests, including the regression
+that a stale `SPARK_CODEX_SANDBOX=read-only` service process still launches
+access actions with persisted `danger-full-access` Level 5 env.
+
+```bash
+npm run build
+```
+
+Result: 2026-06-28 Spawner build passed.
 
 ```bash
 npm run test:run -- \

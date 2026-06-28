@@ -125,8 +125,8 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "029c2086efcf48444865696333ccc6c756290d83",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..029c2086efcf48444865696333ccc6c756290d83",
+      "local_head": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754",
       "owner_refs": {
         "main": "451d009aad84142092e9a21bda7788cf07910975",
         "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
@@ -134,7 +134,7 @@
         "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
       },
       "owner_truth": "owner branch fdb8fded4744; remote main/tag spark-ship-2026-06-26 at 451d009aad84; registry baseline tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes plus active Level 5 full-access lane classification onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
@@ -144,13 +144,13 @@
       "owner_handoff_patch": {
         "patch_type": "tree_diff",
         "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-        "sha256": "20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223",
-        "line_count": 2459,
+        "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+        "line_count": 2574,
         "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-        "expected_tree": "4e685e6206f788d28d40bc13a86b87285c1982da",
-        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"4e685e6206f788d28d40bc13a86b87285c1982da\"",
-        "proof_command": "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts && npm run build",
-        "proof_result": "22 passed; build passed",
+        "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"b5c43beb7035eac0d59b8b1d1517a66ab52e0be3\"",
+        "proof_command": "npm test -- --run src/lib/server/access-execution-actions.test.ts src/lib/server/high-agency-workers.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts && npm run build",
+        "proof_result": "44 passed; build passed",
         "publication_authority": false
       },
       "local_proof": "passed"

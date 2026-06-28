@@ -15240,22 +15240,23 @@ class SparkCliTests(unittest.TestCase):
                                     "Honor persisted Level 5 sandbox in Spawner",
                                     "Honor persisted Level 5 worker access",
                                     "Carry Level 5 env into Codex workers",
+                                    "Promote Level 5 env for Spawner access actions",
                                 ],
                                 "proof_commands": ["npm run check"],
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-                                    "sha256": "20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223",
-                                    "line_count": 2459,
+                                    "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+                                    "line_count": 2574,
                                     "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-                                    "expected_tree": "4e685e6206f788d28d40bc13a86b87285c1982da",
+                                    "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
                                     "apply_check": (
                                         "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && "
                                         "git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"4e685e6206f788d28d40bc13a86b87285c1982da\""
+                                        "\"b5c43beb7035eac0d59b8b1d1517a66ab52e0be3\""
                                     ),
-                                    "proof_result": "22 passed; build passed",
+                                    "proof_result": "44 passed; build passed",
                                     "publication_authority": False,
                                 },
                                 "owner_action": "Port onto the current owner release base before registry movement.",
