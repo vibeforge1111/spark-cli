@@ -90,6 +90,13 @@ Fresh post-runbook proof sweep at `2026-06-28T08:49:11Z`:
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: `ok=false` by design; `source_truth_ready=false`; `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`; `installer_pins_are_r30=false`; failing checks are `release_lane`, `r30_voice_registry_decision`, `registry_pins`, and `r30_installer_pins`; `release_lane` reports `0` dirty release repos, `5` direct R30 blockers, and `0` supporting hygiene rows.
 - No registry pin, installer pin, hosted metadata, source tag, deploy, publish, or remote merge was changed during this sweep.
 
+Fresh hosted baseline refresh at `2026-06-28T08:57:48Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json`: `ok=true`; hosted `agent.sparkswarm.ai` still serves the R29 baseline `spark-cli-public-installer-2026-06-26-r29` and matches local installer scripts, hosted checksum metadata, hosted command metadata, and hosted release manifest.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --hosted-installers --json`: `ok=false`; failing checks are `release_lane`, `r30_voice_registry_decision`, `registry_pins`, `r30_installer_pins`, and `r30_hosted_publication_contract`.
+- `r30_hosted_publication_contract` correctly reports hosted verification as baseline-only because source/registry truth is not green: `release_lane`, `r30_voice_registry_decision`, and `registry_pins`.
+- No hosted file, checksum, release manifest, installer pin, registry pin, source tag, deploy, publish, or remote merge was changed during this refresh.
+
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, publish-handoff classification, owner/local handoff docs, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Source-truth blockers are exactly `release_lane`, `r30_voice_registry_decision`, and `registry_pins`; installer pins intentionally remain pre-R30. |
@@ -294,7 +301,7 @@ Current hosted truth:
 - hosted release: `spark-cli-public-installer-2026-06-26-r29`
 - hosted ref: `spark-cli-public-installer-2026-06-26-r29`
 - hosted commit: `a6738be7a97a7254a5b09e06ce08692d99967bd6`
-- hosted verified at: `2026-06-28T06:01:24Z`
+- hosted verified at: `2026-06-28T08:57:48Z`
 - local committed manifest release/ref: `spark-cli-public-installer-2026-06-26-r29`
 
 Hosted self-consistency:
