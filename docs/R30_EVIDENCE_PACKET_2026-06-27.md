@@ -70,6 +70,7 @@ Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --
 - `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, required terminal subjects, exact patch inventory, and fresh owner refs from the 2026-06-28 remote audit. The handoff remains visible as carried publication-bound evidence while owner-source and registry truth converge.
 - `r30_local_runtime_handoff_docs`: pass; the R30 release, source-owner, owner-handoff, and evidence docs preserve the structured artifact module heads, ranges, commit counts, required terminal subjects, and proof commands from the local runtime artifact manifest.
 - `r30_owner_action_packet`: pass; the R30 gate exposes a read-only owner action packet for the five direct blockers with module issues, next action, proof commands, owner refs, handoff patch path, base commit, expected tree, SHA256, and `registry_movement_allowed=false`.
+- `owner_handoff_manifest`: pass only when the recorded owner refs still match live remote refs. The R30 gate now runs `git ls-remote` for memory, Builder, Telegram, voice, and Spawner owner bases, release tags, owner branches, and registry baselines before treating the handoff packet as current.
 - `r30_owner_handoff_patch_apply`: pass; the R30 gate now creates temporary Git worktrees from the recorded owner bases, applies every owner handoff patch, and requires `git write-tree` to match the recorded target tree before source truth can be considered ready.
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `r30_live_status`: pass, Spark live status is green
@@ -129,6 +130,15 @@ Executable owner-handoff patch apply verification at `2026-06-28T03:42:45Z`:
 - This proof is now part of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`.
   It is handoff material verification only and does not authorize registry, tag,
   installer, hosted, or installed-metadata movement.
+
+Executable owner-ref remote audit at `2026-06-28T03:56:05Z`:
+
+- `verify --r30` now runs live `git ls-remote` checks for the direct-blocker
+  owner refs recorded in the R30 owner handoff manifest. Memory, Builder,
+  Telegram, voice, and Spawner all matched their recorded `main`,
+  `spark-ship-2026-06-26`, owner-branch, and registry-baseline refs.
+- This is freshness proof only. It does not authorize source pushes, registry
+  movement, installer pins, or hosted publication.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 

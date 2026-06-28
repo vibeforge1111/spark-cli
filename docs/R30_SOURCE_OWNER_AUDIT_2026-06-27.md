@@ -20,7 +20,7 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 - `spark-voice-comms`: the public `spark-ship-2026-06-26` tag is test-clean, but it does not include the local voice trace/governor commits that make the current Spark OS voice proof truthful.
 - `domain-chip-memory` and `spark-intelligence-builder`: local heads are ahead of owner branches.
 - Builder trace health still has one historical lifecycle family; the R30 gate now carries it as explicit historical release debt while current windows stay clean and the exact family remains visible.
-- `spark-cli`: local R30 prep now includes the executable R30 gate, live-status gate, Access 5 Codex sandbox gate with named-profile env proof (`live_level5_env_files_all_profiled_services_full_access`) and explicit `current_process_codex_sandbox` / `service_codex_sandbox` / `effective_codex_sandbox` fields, plus the R30 anti-read-only verifier hardening through `34c0cce`, the owner-handoff patch gates through `d5a97c0`, the voice prepared-lane commit proof gate through `3e8d607`, the refreshed Telegram Access 5 owner handoff proof through `b1cbe76`, the canonical R30 Telegram handoff gate text through `ee36543`, the refreshed `ce4a234` Telegram Level 5 profile-env handoff proof through `e1d79c8`, the final R30 Telegram full-permission handoff refresh through `5453347`, the updated Telegram Level 5 full-permission audit handoff through `afc9a0b`, and the fresh R30 voice handoff proof refresh through `3499593`. The gate rejects configured-only Telegram Level 5 sandbox proof, requires Telegram effective Level 5 runtime-env promotion plus Recursive bridge subprocess inheritance proof, verifies the Telegram/Spawner owner handoff patch artifacts in both the local-runtime and direct owner manifests, executes every recorded owner handoff patch in a temporary worktree, and requires the voice prepared local release lane to record exact ported commit identities with source commit hashes. It also includes the `r30_unattended_identity_guard` fake-token smoke, voice runtime truth gate with `requires_confirmation_for_actions=true`, local runtime artifact handoff gate, structured publication source blockers (`source_truth_blockers`), the R29 hosted/local installer baseline alignment, and the `r30_hosted_publication_contract` check that prevents hosted R29 integrity from being read as R30 publication proof. It has not been published or tagged as R30.
+- `spark-cli`: local R30 prep now includes the executable R30 gate, live-status gate, Access 5 Codex sandbox gate with named-profile env proof (`live_level5_env_files_all_profiled_services_full_access`) and explicit `current_process_codex_sandbox` / `service_codex_sandbox` / `effective_codex_sandbox` fields, plus the R30 anti-read-only verifier hardening through `34c0cce`, the owner-handoff patch gates through `d5a97c0`, the voice prepared-lane commit proof gate through `3e8d607`, the refreshed Telegram Access 5 owner handoff proof through `b1cbe76`, the canonical R30 Telegram handoff gate text through `ee36543`, the refreshed `ce4a234` Telegram Level 5 profile-env handoff proof through `e1d79c8`, the final R30 Telegram full-permission handoff refresh through `5453347`, the updated Telegram Level 5 full-permission audit handoff through `afc9a0b`, and the fresh R30 voice handoff proof refresh through `3499593`. The gate rejects configured-only Telegram Level 5 sandbox proof, requires Telegram effective Level 5 runtime-env promotion plus Recursive bridge subprocess inheritance proof, verifies the Telegram/Spawner owner handoff patch artifacts in both the local-runtime and direct owner manifests, executes every recorded owner handoff patch in a temporary worktree, runs live owner-ref remote audits for the direct blockers, and requires the voice prepared local release lane to record exact ported commit identities with source commit hashes. It also includes the `r30_unattended_identity_guard` fake-token smoke, voice runtime truth gate with `requires_confirmation_for_actions=true`, local runtime artifact handoff gate, structured publication source blockers (`source_truth_blockers`), the R29 hosted/local installer baseline alignment, and the `r30_hosted_publication_contract` check that prevents hosted R29 integrity from being read as R30 publication proof. It has not been published or tagged as R30.
 
 ## Current Heads And Pins
 
@@ -39,7 +39,7 @@ release truth.
 
 ## Fresh Remote Ref Audit
 
-Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that are not yet registry truth for R30. Rechecked at `2026-06-28T02:37:21Z`; the direct-blocker owner refs below still matched the packet:
+Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that are not yet registry truth for R30. Rechecked by the executable R30 gate at `2026-06-28T03:56:05Z`; the direct-blocker owner refs below still matched the packet:
 
 | Repo | Fresh public owner ref | R30 local/proof ref | Registry/install truth |
 | --- | --- | --- | --- |
@@ -54,8 +54,8 @@ baseline. Each owner must choose the correct current release base, prove the
 ported stack there, then move installed metadata and registry pins together.
 The structured owner handoff manifest now records these direct-blocker
 `owner_refs` exactly, including absent candidate owner branches as `null`, and
-`spark verify --r30 --json` checks them so this remote audit cannot silently
-drift from the executable handoff packet.
+`spark verify --r30 --json` now checks those refs with live `git ls-remote` so
+the remote audit cannot silently drift from the executable handoff packet.
 
 ## Voice Registry Decision
 

@@ -121,6 +121,49 @@ R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECI
 R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
 R30_VOICE_REPO_URL = "https://github.com/vibeforge1111/spark-voice-comms"
+R30_OWNER_REF_AUDIT_SOURCES = {
+    "domain-chip-memory": {
+        "source": "https://github.com/vibeforge1111/domain-chip-memory",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-memory-boundary-20260531",
+        },
+    },
+    "spark-intelligence-builder": {
+        "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-builder-boundary-20260531",
+        },
+    },
+    "spark-telegram-bot": {
+        "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "registry_baseline": "refs/tags/spark-ship-2026-06-22",
+        },
+    },
+    "spark-voice-comms": {
+        "source": R30_VOICE_REPO_URL,
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_branch": "refs/heads/codex/turnintent-voice-policy-20260531",
+        },
+    },
+    "spawner-ui": {
+        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+        "refs": {
+            "main": "refs/heads/main",
+            "spark_ship_2026_06_26": "refs/tags/spark-ship-2026-06-26",
+            "owner_release_branch": "refs/heads/release/stability-2026-06-02-spawner-authority",
+            "registry_baseline": "refs/tags/spark-ship-2026-06-22",
+        },
+    },
+}
 R30_DIRECT_RELEASE_MODULES = {
     "domain-chip-memory",
     "spark-intelligence-builder",
@@ -9017,10 +9060,93 @@ def collect_r30_access_level5_codex_sandbox_status(
     }
 
 
+def collect_r30_owner_ref_remote_audit(manifest_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for row in manifest_rows:
+        module = str(row.get("module") or "")
+        owner_refs = row.get("owner_refs") if isinstance(row.get("owner_refs"), dict) else {}
+        audit_config = R30_OWNER_REF_AUDIT_SOURCES.get(module)
+        if not audit_config:
+            continue
+        source = str(audit_config.get("source") or "")
+        ref_map = audit_config.get("refs") if isinstance(audit_config.get("refs"), dict) else {}
+        refs_to_query = sorted({str(ref) for ref in ref_map.values() if ref})
+        check: dict[str, Any] = {
+            "module": module,
+            "ok": False,
+            "source": source,
+            "refs": {},
+            "issues": [],
+        }
+        if not refs_to_query:
+            check["issues"] = ["missing_ref_map"]
+            issues.append(f"{module}:missing_ref_map")
+            checks.append(check)
+            continue
+        try:
+            result = subprocess.run(
+                git_command("ls-remote", normalize_git_url(source), *refs_to_query),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=REMOTE_GIT_REF_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            check["issues"] = ["remote_audit_timeout"]
+            issues.append(f"{module}:remote_audit_timeout")
+            checks.append(check)
+            continue
+        except OSError as error:
+            check["issues"] = ["remote_audit_git_unavailable"]
+            check["failure_detail"] = str(error)
+            issues.append(f"{module}:remote_audit_git_unavailable")
+            checks.append(check)
+            continue
+        if result.returncode != 0:
+            check["issues"] = ["remote_audit_failed"]
+            check["failure_detail"] = (result.stderr or result.stdout or "").strip()[-1000:]
+            issues.append(f"{module}:remote_audit_failed")
+            checks.append(check)
+            continue
+        resolved_refs: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and GIT_COMMIT_SHA_PATTERN.match(parts[0]):
+                resolved_refs[parts[1]] = parts[0].lower()
+        check["refs"] = resolved_refs
+        row_issues: list[str] = []
+        for key, ref in ref_map.items():
+            expected_commit = owner_refs.get(key)
+            if expected_commit is None:
+                continue
+            actual_commit = resolved_refs.get(str(ref))
+            if not actual_commit:
+                row_issues.append(f"missing_remote_ref:{ref}")
+            elif str(expected_commit).lower() != actual_commit:
+                row_issues.append(f"remote_ref_mismatch:{key}")
+        check["issues"] = row_issues
+        check["ok"] = not row_issues
+        if row_issues:
+            issues.extend(f"{module}:{issue}" for issue in row_issues)
+        checks.append(check)
+    return {
+        "ok": not issues,
+        "detail": (
+            "R30 owner handoff refs match live remote refs."
+            if not issues
+            else f"R30 owner handoff remote refs have issues: {', '.join(issues)}."
+        ),
+        "checks": checks,
+        "issues": issues,
+    }
+
+
 def collect_r30_handoff_manifest_status(
     release_lane_classification: dict[str, Any],
     *,
     manifest_path: Path | None = None,
+    check_remote_refs: bool = False,
 ) -> dict[str, Any]:
     path = manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH
     if not path.exists():
@@ -9140,6 +9266,11 @@ def collect_r30_handoff_manifest_status(
     instruction_mismatches: list[dict[str, Any]] = []
     owner_ref_mismatches: list[dict[str, Any]] = []
     patch_mismatches: list[dict[str, Any]] = []
+    remote_ref_audit = (
+        collect_r30_owner_ref_remote_audit([row for row in manifest_direct_rows if isinstance(row, dict)])
+        if check_remote_refs
+        else {"ok": True, "checks": [], "issues": []}
+    )
     for module, live_row in sorted(live_rows.items()):
         manifest_row = manifest_rows.get(module)
         if not manifest_row:
@@ -9265,6 +9396,8 @@ def collect_r30_handoff_manifest_status(
         issues.append("handoff_instruction_mismatch")
     if owner_ref_mismatches:
         issues.append("owner_ref_mismatch")
+    if not bool(remote_ref_audit.get("ok")):
+        issues.append("owner_ref_remote_audit_mismatch")
     if patch_mismatches:
         issues.append("owner_handoff_patch_mismatch")
     if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
@@ -9279,6 +9412,7 @@ def collect_r30_handoff_manifest_status(
         "commit_mismatches": commit_mismatches,
         "instruction_mismatches": instruction_mismatches,
         "owner_ref_mismatches": owner_ref_mismatches,
+        "remote_ref_audit": remote_ref_audit,
         "patch_mismatches": patch_mismatches,
         "direct_blockers": direct_manifest,
         "supporting_hygiene": supporting_manifest,
@@ -9988,7 +10122,7 @@ def collect_r30_release_gate_payload(
         critical_duplicate_truth_count=critical_duplicate_truth_count,
     )
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
-    handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification)
+    handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification, check_remote_refs=True)
     local_runtime_artifacts_handoff = collect_r30_local_runtime_artifacts_handoff_status(
         release_lane_classification,
         publish_handoffs,

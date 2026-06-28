@@ -51,6 +51,7 @@ from spark_cli.cli import (
     collect_r30_local_runtime_handoff_docs_status,
     collect_r30_owner_handoff_patch_apply_status,
     collect_r30_owner_action_packet,
+    collect_r30_owner_ref_remote_audit,
     collect_r30_release_gate_payload,
     collect_r30_unattended_identity_guard_status,
     collect_r30_voice_registry_decision_status,
@@ -14865,6 +14866,34 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["instruction_mismatches"][0]["module"], "spark-telegram-bot")
         self.assertIn("next_action_mismatch", payload["instruction_mismatches"][0]["issues"])
         self.assertIn("proof_commands_mismatch", payload["instruction_mismatches"][0]["issues"])
+
+    def test_r30_owner_ref_remote_audit_reports_moving_owner_ref(self) -> None:
+        rows = [
+            {
+                "module": "domain-chip-memory",
+                "owner_refs": {
+                    "main": "a" * 40,
+                    "spark_ship_2026_06_26": "a" * 40,
+                    "owner_branch": "b" * 40,
+                },
+            }
+        ]
+        stdout = "\n".join(
+            [
+                f"{'a' * 40}\trefs/heads/main",
+                f"{'a' * 40}\trefs/tags/spark-ship-2026-06-26",
+                f"{'c' * 40}\trefs/heads/codex/turnintent-memory-boundary-20260531",
+            ]
+        )
+        with patch(
+            "spark_cli.cli.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=["git"], returncode=0, stdout=stdout, stderr=""),
+        ):
+            payload = collect_r30_owner_ref_remote_audit(rows)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("domain-chip-memory:remote_ref_mismatch:owner_branch", payload["issues"])
+        self.assertEqual(payload["checks"][0]["refs"]["refs/heads/codex/turnintent-memory-boundary-20260531"], "c" * 40)
 
     def test_r30_owner_action_packet_joins_voice_patch_manifest(self) -> None:
         classification = {
