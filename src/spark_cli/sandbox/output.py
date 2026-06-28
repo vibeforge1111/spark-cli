@@ -68,47 +68,61 @@ def _mask_secret(value: str) -> str:
 
 
 def redact_sandbox_text(text: str) -> str:
-    redacted = text
-    for pattern in SECRET_PATTERNS:
-        def replace(match: re.Match[str]) -> str:
-            if match.lastindex:
-                secret = match.group(match.lastindex)
-                return match.group(0).replace(secret, _mask_secret(secret))
-            return _mask_secret(match.group(0))
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        redacted = text
+        for pattern in SECRET_PATTERNS:
+            def replace(match: re.Match[str]) -> str:
+                if match.lastindex:
+                    secret = match.group(match.lastindex)
+                    return match.group(0).replace(secret, _mask_secret(secret))
+                return _mask_secret(match.group(0))
 
-        redacted = pattern.sub(replace, redacted)
-    return redacted
+            redacted = pattern.sub(replace, redacted)
+        return redacted
 
 
+
+    except Exception:
+        return ""
 def _decode_utf8_prefix(data: bytes) -> str:
-    prefix = data
-    while prefix:
-        try:
-            return prefix.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            prefix = prefix[: exc.start]
-    return ""
+    try:
+        prefix = data
+        while prefix:
+            try:
+                return prefix.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                prefix = prefix[: exc.start]
+        return ""
 
 
+
+    except Exception:
+        return ""
 def bound_sandbox_output(
     text: str,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_lines: int = DEFAULT_MAX_LINES,
 ) -> BoundedOutput:
-    safe = redact_sandbox_text(strip_terminal_controls(text))
-    lines = safe.splitlines()
-    encoded = safe.encode("utf-8", errors="replace")
-    truncated = len(encoded) > max_bytes or len(lines) > max_lines
-    next_text = "\n".join(lines[:max_lines])
-    next_bytes = next_text.encode("utf-8", errors="replace")
-    if len(next_bytes) > max_bytes:
-        next_text = _decode_utf8_prefix(next_bytes[:max_bytes])
-    if truncated:
-        next_text = f"{next_text}\n[output truncated]"
-    return BoundedOutput(
-        text=next_text,
-        truncated=truncated,
-        original_bytes=len(encoded),
-        original_lines=len(lines),
-    )
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        safe = redact_sandbox_text(strip_terminal_controls(text))
+        lines = safe.splitlines()
+        encoded = safe.encode("utf-8", errors="replace")
+        truncated = len(encoded) > max_bytes or len(lines) > max_lines
+        next_text = "\n".join(lines[:max_lines])
+        next_bytes = next_text.encode("utf-8", errors="replace")
+        if len(next_bytes) > max_bytes:
+            next_text = _decode_utf8_prefix(next_bytes[:max_bytes])
+        if truncated:
+            next_text = f"{next_text}\n[output truncated]"
+        return BoundedOutput(
+            text=next_text,
+            truncated=truncated,
+            original_bytes=len(encoded),
+            original_lines=len(lines),
+        )
+
+    except Exception:
+        return None

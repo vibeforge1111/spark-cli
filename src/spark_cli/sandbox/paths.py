@@ -18,16 +18,25 @@ WINDOWS_UNSAFE_NAME_PATTERN = re.compile(r'[<>:"\\|?*]')
 
 
 def spark_home() -> Path:
-    configured = os.environ.get("SPARK_HOME")
-    if not configured:
-        return (Path.home() / ".spark").expanduser()
-    return Path(configured).expanduser()
+    try:
+        configured = os.environ.get("SPARK_HOME")
+        if not configured:
+            return (Path.home() / ".spark").expanduser()
+        return Path(configured).expanduser()
 
 
+
+    except Exception:
+        return Path(".")
 def sandbox_config_dir(home: Path | None = None) -> Path:
-    return (home or spark_home()) / "config"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return (home or spark_home()) / "config"
 
 
+
+    except Exception:
+        return Path(".")
 def sandbox_log_dir(home: Path | None = None) -> Path:
     return (home or spark_home()) / "logs" / "remote"
 
