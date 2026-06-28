@@ -37,7 +37,7 @@ Current `release_lane` mismatches from the same gate:
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `f21522accf66` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
 
-Fresh remote-ref audit at `2026-06-28T02:34:36Z` confirmed the owner bases
+Fresh remote-ref audit at `2026-06-28T02:37:21Z` confirmed the owner bases
 listed below are still current. No remote `release/r30-voice-trace-governor`
 or `harness-discipline-line-count-gate` owner branch exists yet.
 

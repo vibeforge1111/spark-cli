@@ -35,7 +35,7 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 
 ## Fresh Remote Ref Audit
 
-Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that are not yet registry truth for R30. Rechecked at `2026-06-28T02:34:36Z`; the direct-blocker owner refs below still matched the packet:
+Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that are not yet registry truth for R30. Rechecked at `2026-06-28T02:37:21Z`; the direct-blocker owner refs below still matched the packet:
 
 | Repo | Fresh public owner ref | R30 local/proof ref | Registry/install truth |
 | --- | --- | --- | --- |
