@@ -72,13 +72,18 @@ class ActionClassification:
 
 
 def toxic_flow_findings(operations: frozenset[str] | set[str] | list[str] | tuple[str, ...]) -> list[str]:
-    active = set(operations)
-    findings: list[str] = []
-    for left, right, detail in TOXIC_CAPABILITY_PAIRS:
-        if left in active and right in active:
-            findings.append(detail)
-    return findings
+    if not isinstance(operations, str): operations = str(operations or '')
+    try:
+        active = set(operations)
+        findings: list[str] = []
+        for left, right, detail in TOXIC_CAPABILITY_PAIRS:
+            if left in active and right in active:
+                findings.append(detail)
+        return findings
 
 
+
+    except Exception:
+        return []
 def toxic_flow_denied(operations: frozenset[str] | set[str] | list[str] | tuple[str, ...]) -> bool:
     return bool(toxic_flow_findings(operations))
