@@ -52,21 +52,31 @@ class BoundedOutput:
 
 
 def strip_terminal_controls(text: str) -> str:
-    without_sequences = CONTROL_SEQUENCE_RE.sub("", text)
-    return CONTROL_CHAR_RE.sub("", without_sequences)
+    if not isinstance(text, str): text = str(text or '')
+    try:
+        without_sequences = CONTROL_SEQUENCE_RE.sub("", text)
+        return CONTROL_CHAR_RE.sub("", without_sequences)
 
 
+
+    except Exception:
+        return ""
 def _mask_secret(value: str) -> str:
-    if "PRIVATE KEY-----" in value:
-        lines = [line for line in value.splitlines() if line]
-        if len(lines) >= 2:
-            return f"{lines[0]}\n[REDACTED]\n{lines[-1]}"
-        return "[REDACTED]"
-    if len(value) <= 10:
-        return "[REDACTED]"
-    return f"{value[:4]}...[REDACTED]...{value[-4:]}"
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        if "PRIVATE KEY-----" in value:
+            lines = [line for line in value.splitlines() if line]
+            if len(lines) >= 2:
+                return f"{lines[0]}\n[REDACTED]\n{lines[-1]}"
+            return "[REDACTED]"
+        if len(value) <= 10:
+            return "[REDACTED]"
+        return f"{value[:4]}...[REDACTED]...{value[-4:]}"
 
 
+
+    except Exception:
+        return ""
 def redact_sandbox_text(text: str) -> str:
     redacted = text
     for pattern in SECRET_PATTERNS:

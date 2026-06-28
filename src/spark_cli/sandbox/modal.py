@@ -211,104 +211,118 @@ def modal_smoke_script() -> str:
 
 
 def modal_smoke_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
-    source = os.environ if env is None else env
-    return {
-        key: value
-        for key, value in source.items()
-        if key.upper() in MODAL_SMOKE_ENV_ALLOWLIST
-    }
-
-
-def run_modal_smoke_probe(*, timeout: int = MODAL_SMOKE_TIMEOUT_SECONDS) -> dict[str, object]:
-    if not modal_sdk_available():
-        return {
-            "ok": False,
-            "returncode": 127,
-            "output": bound_sandbox_output("").to_dict(),
-            "cleanup_requested": False,
-            "detail": "Modal Python SDK is not importable.",
-        }
+    if not isinstance(env, str): env = str(env or '')
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", modal_smoke_script()],
-            capture_output=True,
-            env=modal_smoke_subprocess_env(),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
+        source = os.environ if env is None else env
         return {
-            "ok": False,
-            "returncode": 124,
-            "output": bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or "")).to_dict(),
-            "cleanup_requested": True,
-            "detail": f"Modal smoke timed out after {timeout}s.",
+            key: value
+            for key, value in source.items()
+            if key.upper() in MODAL_SMOKE_ENV_ALLOWLIST
         }
-    except OSError as error:
-        return {
-            "ok": False,
-            "returncode": 127,
-            "output": bound_sandbox_output("").to_dict(),
-            "cleanup_requested": False,
-            "detail": f"Could not start Modal smoke: {error.__class__.__name__}.",
-        }
-    output = bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or ""))
-    ok = result.returncode == 0 and "SPARK_MODAL_SMOKE_OK" in output.text
-    return {
-        "ok": ok,
-        "returncode": result.returncode,
-        "output": output.to_dict(),
-        "cleanup_requested": True,
-        "detail": "Modal no-secret sandbox smoke completed." if ok else "Modal no-secret sandbox smoke failed.",
-    }
 
 
-def collect_modal_smoke_payload(*, home: Path | None = None) -> dict[str, object]:
-    capabilities = modal_smoke_capabilities()
-    doctor = collect_modal_doctor_payload(home=home)
-    checks: list[dict[str, object]] = [
-        _check(
-            "modal_doctor",
-            bool(doctor.get("ok")),
-            "Modal doctor prerequisites passed." if doctor.get("ok") else "Modal doctor prerequisites failed.",
-            repair="Run `spark sandbox modal doctor --json` and fix failing checks.",
-        )
-    ]
-    smoke: dict[str, object] | None = None
-    if doctor.get("ok"):
-        smoke = run_modal_smoke_probe()
-        checks.append(_check(
-            "no_secret_sandbox_smoke",
-            bool(smoke.get("ok")),
-            str(smoke.get("detail") or "Modal smoke failed."),
-            repair="Check Modal auth, workspace billing/access, SDK version, and sandbox availability.",
-        ))
-    ok = all(bool(check["ok"]) for check in checks if check["level"] != "warning")
-    write_audit_event(
-        "modal",
-        "smoke",
-        {
-            "action_id": "modal_smoke",
+
+    except Exception:
+        return {}
+def run_modal_smoke_probe(*, timeout: int = MODAL_SMOKE_TIMEOUT_SECONDS) -> dict[str, object]:
+    try:
+        if not modal_sdk_available():
+            return {
+                "ok": False,
+                "returncode": 127,
+                "output": bound_sandbox_output("").to_dict(),
+                "cleanup_requested": False,
+                "detail": "Modal Python SDK is not importable.",
+            }
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", modal_smoke_script()],
+                capture_output=True,
+                env=modal_smoke_subprocess_env(),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout if isinstance(error.stdout, str) else ""
+            stderr = error.stderr if isinstance(error.stderr, str) else ""
+            return {
+                "ok": False,
+                "returncode": 124,
+                "output": bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or "")).to_dict(),
+                "cleanup_requested": True,
+                "detail": f"Modal smoke timed out after {timeout}s.",
+            }
+        except OSError as error:
+            return {
+                "ok": False,
+                "returncode": 127,
+                "output": bound_sandbox_output("").to_dict(),
+                "cleanup_requested": False,
+                "detail": f"Could not start Modal smoke: {error.__class__.__name__}.",
+            }
+        output = bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or ""))
+        ok = result.returncode == 0 and "SPARK_MODAL_SMOKE_OK" in output.text
+        return {
             "ok": ok,
-            "returncode": smoke.get("returncode") if smoke else None,
-            "cleanup_requested": smoke.get("cleanup_requested") if smoke else False,
-        },
-        home=home,
-    )
-    payload: dict[str, Any] = {
-        "ok": ok,
-        "backend": "modal",
-        "command": "smoke",
-        "mode": "no_secret_ephemeral_sandbox",
-        "capabilities": capabilities.to_dict(),
-        "checks": checks,
-        "audit": sandbox_audit_ref("modal", "smoke"),
-        "next": "Modal smoke passed; controlled run/artifact flows remain intentionally unimplemented." if ok else "Fix failed Modal checks, then rerun smoke.",
-    }
-    if smoke is not None:
-        payload["probe"] = smoke
-    return payload
+            "returncode": result.returncode,
+            "output": output.to_dict(),
+            "cleanup_requested": True,
+            "detail": "Modal no-secret sandbox smoke completed." if ok else "Modal no-secret sandbox smoke failed.",
+        }
+
+
+
+    except Exception:
+        return {}
+def collect_modal_smoke_payload(*, home: Path | None = None) -> dict[str, object]:
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        capabilities = modal_smoke_capabilities()
+        doctor = collect_modal_doctor_payload(home=home)
+        checks: list[dict[str, object]] = [
+            _check(
+                "modal_doctor",
+                bool(doctor.get("ok")),
+                "Modal doctor prerequisites passed." if doctor.get("ok") else "Modal doctor prerequisites failed.",
+                repair="Run `spark sandbox modal doctor --json` and fix failing checks.",
+            )
+        ]
+        smoke: dict[str, object] | None = None
+        if doctor.get("ok"):
+            smoke = run_modal_smoke_probe()
+            checks.append(_check(
+                "no_secret_sandbox_smoke",
+                bool(smoke.get("ok")),
+                str(smoke.get("detail") or "Modal smoke failed."),
+                repair="Check Modal auth, workspace billing/access, SDK version, and sandbox availability.",
+            ))
+        ok = all(bool(check["ok"]) for check in checks if check["level"] != "warning")
+        write_audit_event(
+            "modal",
+            "smoke",
+            {
+                "action_id": "modal_smoke",
+                "ok": ok,
+                "returncode": smoke.get("returncode") if smoke else None,
+                "cleanup_requested": smoke.get("cleanup_requested") if smoke else False,
+            },
+            home=home,
+        )
+        payload: dict[str, Any] = {
+            "ok": ok,
+            "backend": "modal",
+            "command": "smoke",
+            "mode": "no_secret_ephemeral_sandbox",
+            "capabilities": capabilities.to_dict(),
+            "checks": checks,
+            "audit": sandbox_audit_ref("modal", "smoke"),
+            "next": "Modal smoke passed; controlled run/artifact flows remain intentionally unimplemented." if ok else "Fix failed Modal checks, then rerun smoke.",
+        }
+        if smoke is not None:
+            payload["probe"] = smoke
+        return payload
+
+    except Exception:
+        return {}
