@@ -16,7 +16,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
-Fresh CLI proof refresh at `2026-06-28T02:34:36Z`:
+Fresh CLI proof refresh at `2026-06-28T02:54:34Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
 - `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; all listed Spark modules healthy, including Telegram relay runtime
@@ -41,7 +41,7 @@ Fresh CLI proof refresh at `2026-06-28T02:34:36Z`:
 
 ## Spark OS Compile Details
 
-Latest CLI proof refresh: `2026-06-28T02:34:36Z`.
+Latest CLI proof refresh: `2026-06-28T02:54:34Z`.
 
 Important fields:
 
@@ -228,7 +228,8 @@ Builder trace current health:
 
 ## Telegram Reliability Details
 
-Fresh run generated at `2026-06-27T10:01:25Z` / `2026-06-27T10:01:26Z`.
+Fresh reliability run generated at `2026-06-28T02:54:05Z` /
+`2026-06-28T02:54:06Z`.
 
 Key results:
 
@@ -247,11 +248,10 @@ Key results:
 - Capability evidence: clean.
 - Surface eval: clean, `26` cases checked, `0` issues.
 
-Fresh live recapture at `2026-06-28T01:01:20Z`:
+Fresh proof refresh at `2026-06-28T02:54:34Z`:
 
 - Telegram `npm run build`: passed.
-- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 1 shrinking, 0 growing, 0 new over cap.
-- Sent the four safe SparkRecursive_bot prompts for risk profile, mission-routing explanation, repair-status fresh state, and memory-vs-live-status authority. All four replies stayed no-action/current-state.
+- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap.
 - Telegram `npm run control:proof:live-trace`: passed with `Status: clean`, 16 structurally joined rows, 4 joined live rows, 0 gap rows, live route proof 4/4, no-action route proof 4/4, and safe prompt proof 4/4.
 - Telegram `npm run control:proof:reliability`: passed. Fresh-strict trace audit remains clean for actionable/blocking/latest gaps; legacy proof gaps remain backed and non-release-blocking in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`; render firewall, proof capsules, eval coverage, legacy prompt surface, capability evidence, and surface eval are all clean.
 
