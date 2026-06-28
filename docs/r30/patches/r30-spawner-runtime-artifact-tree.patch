@@ -1241,10 +1241,10 @@ index 00000000..bf426388
 +	};
 +}
 diff --git a/src/lib/server/provider-clients/codex-cli-client.test.ts b/src/lib/server/provider-clients/codex-cli-client.test.ts
-index 2b785018..892fdf6f 100644
+index 2b785018..96ec2502 100644
 --- a/src/lib/server/provider-clients/codex-cli-client.test.ts
 +++ b/src/lib/server/provider-clients/codex-cli-client.test.ts
-@@ -1,11 +1,45 @@
+@@ -1,11 +1,77 @@
  import { describe, expect, it } from 'vitest';
 -import { parseCodexCliCommand } from './codex-cli-client';
 +import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -1277,6 +1277,38 @@ index 2b785018..892fdf6f 100644
 +		});
 +	});
 +
++	it('uses persisted Level 5 guardrails for default Codex exec even when the process env is stale read-only', () => {
++		const sparkHome = mkdtempSync(join(tmpdir(), 'spark-codex-default-level5-'));
++		try {
++			mkdirSync(join(sparkHome, 'config', 'modules'), { recursive: true });
++			writeFileSync(
++				join(sparkHome, 'config', 'modules', 'spawner-ui.env'),
++				[
++					'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++					'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++					'SPARK_CODEX_SANDBOX=danger-full-access',
++					''
++				].join('\n')
++			);
++
++			expect(
++				parseCodexCliCommand('codex exec --model gpt-5.5', {
++					env: {
++						SPARK_HOME: sparkHome,
++						SPARK_ALLOW_HIGH_AGENCY_WORKERS: '0',
++						SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '0',
++						SPARK_CODEX_SANDBOX: 'read-only'
++					}
++				})
++			).toEqual({
++				binary: 'codex',
++				args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'danger-full-access']
++			});
++		} finally {
++			rmSync(sparkHome, { recursive: true, force: true });
++		}
++	});
++
 +	it('preserves explicit profile selection while adding sandbox enforcement', () => {
 +		expect(parseCodexCliCommand('codex exec --model gpt-5.5 --profile speed', { env: {} })).toEqual({
 +			binary: 'codex',
@@ -1293,7 +1325,7 @@ index 2b785018..892fdf6f 100644
  		});
  	});
  
-@@ -15,4 +49,35 @@ describe('parseCodexCliCommand', () => {
+@@ -15,4 +81,35 @@ describe('parseCodexCliCommand', () => {
  			args: ['exec', '--skip-git-repo-check', '--yolo']
  		});
  	});
@@ -1601,7 +1633,7 @@ index 9de931e2..6087c505 100644
  		: resolveContainedPath(defaultRoot, absolutePath, 'Project path');
  
 diff --git a/src/lib/services/spark-agent-bridge.test.ts b/src/lib/services/spark-agent-bridge.test.ts
-index f1a9aab4..fa76f635 100644
+index f1a9aab4..23f0d139 100644
 --- a/src/lib/services/spark-agent-bridge.test.ts
 +++ b/src/lib/services/spark-agent-bridge.test.ts
 @@ -1,4 +1,4 @@
@@ -1618,14 +1650,13 @@ index f1a9aab4..fa76f635 100644
  	providerProcessFailureMessage,
  	providerProcessTimeoutMessage,
  	providerProcessTimeoutMs,
-@@ -147,24 +148,42 @@ describe('prepareProviderWorkingDirectory', () => {
+@@ -147,24 +148,79 @@ describe('prepareProviderWorkingDirectory', () => {
  
  describe('parseProviderCommand', () => {
  	it('allows codex profile selection while preserving sandbox enforcement', () => {
 -		const command = parseProviderCommand(
 -			'codex',
 -			'codex exec --model gpt-5.5 --profile speed --sandbox workspace-write'
--		);
 +		const originalSparkHome = process.env.SPARK_HOME;
 +		const originalHighAgencyWorkers = process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
 +		const originalExternalPaths = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
@@ -1636,20 +1667,7 @@ index f1a9aab4..fa76f635 100644
 +		delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
 +		delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
 +		delete process.env.SPARK_CODEX_SANDBOX;
- 
--		expect(command).toMatchObject({
--			binary: 'codex',
--			args: [
--				'exec',
--				'--skip-git-repo-check',
--				'--model',
--				'gpt-5.5',
--				'--profile',
--				'speed',
--				'--sandbox',
--				'workspace-write'
--			]
--		});
++
 +		try {
 +			const command = parseProviderCommand(
 +				'codex',
@@ -1675,10 +1693,60 @@ index f1a9aab4..fa76f635 100644
 +			restoreEnv('SPARK_ALLOW_EXTERNAL_PROJECT_PATHS', originalExternalPaths);
 +			restoreEnv('SPARK_CODEX_SANDBOX', originalCodexSandbox);
 +		}
++	});
++
++	it('promotes default Codex provider commands from stale read-only env when persisted Level 5 is active', () => {
++		const originalSparkHome = process.env.SPARK_HOME;
++		const originalHighAgencyWorkers = process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++		const originalExternalPaths = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++		const originalCodexSandbox = process.env.SPARK_CODEX_SANDBOX;
++		const sparkHome = mkdtempSync(join(tmpdir(), 'spark-provider-default-level5-'));
++		createdDirs.push(sparkHome);
++		mkdirSync(join(sparkHome, 'config', 'modules'), { recursive: true });
++		writeFileSync(
++			join(sparkHome, 'config', 'modules', 'spawner-ui.env'),
++			[
++				'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++				'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++				'SPARK_CODEX_SANDBOX=danger-full-access',
++				''
++			].join('\n')
+ 		);
++		process.env.SPARK_HOME = sparkHome;
++		process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS = '0';
++		process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS = '0';
++		process.env.SPARK_CODEX_SANDBOX = 'read-only';
+ 
+-		expect(command).toMatchObject({
+-			binary: 'codex',
+-			args: [
+-				'exec',
+-				'--skip-git-repo-check',
+-				'--model',
+-				'gpt-5.5',
+-				'--profile',
+-				'speed',
+-				'--sandbox',
+-				'workspace-write'
+-			]
+-		});
++		try {
++			const command = parseProviderCommand('codex', 'codex exec --model gpt-5.5');
++
++			expect(command).toMatchObject({
++				binary: 'codex',
++				args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'danger-full-access']
++			});
++		} finally {
++			restoreEnv('SPARK_HOME', originalSparkHome);
++			restoreEnv('SPARK_ALLOW_HIGH_AGENCY_WORKERS', originalHighAgencyWorkers);
++			restoreEnv('SPARK_ALLOW_EXTERNAL_PROJECT_PATHS', originalExternalPaths);
++			restoreEnv('SPARK_CODEX_SANDBOX', originalCodexSandbox);
++		}
  	});
  
  	it('rejects unsupported codex command flags', () => {
-@@ -172,6 +191,39 @@ describe('parseProviderCommand', () => {
+@@ -172,6 +228,39 @@ describe('parseProviderCommand', () => {
  			parseProviderCommand('codex', 'codex exec --model gpt-5.5 --profile speed --output json')
  		).toThrow('Codex provider command must be');
  	});

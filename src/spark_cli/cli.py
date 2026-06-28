@@ -9234,10 +9234,10 @@ def collect_r30_handoff_manifest_status(
         "spark-intelligence-builder": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
-            "sha256": "3685894f24b75f5a05716c32ccf83e2b1949fc3ce5d0bc53286b26420f7fbe8d",
-            "line_count": 5826,
+            "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+            "line_count": 5901,
             "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
-            "expected_tree": "ca8819d76e14d48bdac00090580b5483a5056be3",
+            "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
             "publication_authority": False,
             "proof_result_terms": ["208 passed", "26 subtests passed"],
         },
@@ -9254,12 +9254,12 @@ def collect_r30_handoff_manifest_status(
         "spawner-ui": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-            "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
-            "line_count": 2275,
+            "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
+            "line_count": 2343,
             "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-            "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+            "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
             "publication_authority": False,
-            "proof_result_terms": ["59 passed", "build passed"],
+            "proof_result_terms": ["61 passed", "build passed"],
         },
     }
     commit_mismatches: list[dict[str, Any]] = []
@@ -9461,12 +9461,12 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spawner-ui": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-            "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
-            "line_count": 2275,
+            "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
+            "line_count": 2343,
             "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-            "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+            "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
             "publication_authority": False,
-            "proof_result_terms": ["59 passed", "build passed"],
+            "proof_result_terms": ["61 passed", "build passed"],
         },
     }
     issues: list[str] = []

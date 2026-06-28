@@ -1218,7 +1218,7 @@ index dfc6dfd..57b0733 100644
  
  def _render_telegram_voice_not_ready_reply(*, message_kind: str) -> str:
 diff --git a/src/spark_intelligence/bridge_authority.py b/src/spark_intelligence/bridge_authority.py
-index 2f6440f..84f640a 100644
+index 2f6440f..02b368f 100644
 --- a/src/spark_intelligence/bridge_authority.py
 +++ b/src/spark_intelligence/bridge_authority.py
 @@ -30,7 +30,27 @@ _VNEXT_ENVELOPE_KEYS = (
@@ -1277,7 +1277,7 @@ index 2f6440f..84f640a 100644
  def _ledger_binding_reasons(
      *,
      envelope: dict[str, Any],
-@@ -223,6 +264,39 @@ def _with_governor_decision(verdict: BridgeAuthorityVerdict) -> BridgeAuthorityV
+@@ -223,6 +264,93 @@ def _with_governor_decision(verdict: BridgeAuthorityVerdict) -> BridgeAuthorityV
      return replace(verdict, governor_decision=governor_decision)
  
  
@@ -1314,10 +1314,64 @@ index 2f6440f..84f640a 100644
 +    return tool_name
 +
 +
++def _build_denied_tool_call_ledger(
++    *,
++    envelope: dict[str, Any] | None,
++    proposed_action: dict[str, Any] | None,
++    authorization: dict[str, Any] | None,
++    owner_system: str,
++) -> dict[str, Any] | None:
++    if not isinstance(envelope, dict) or envelope.get("schema_version") != "turn-intent-envelope-vnext":
++        return None
++    if not isinstance(proposed_action, dict):
++        return None
++    if not isinstance(authorization, dict) or authorization.get("schema_version") != "authorization-decision-v1":
++        return None
++    if str(authorization.get("verdict") or "") not in {"deny", "denied", "blocked"}:
++        return None
++
++    action_id = str(proposed_action.get("action_id") or authorization.get("action_id") or "")
++    capability_id = str(proposed_action.get("capability_id") or authorization.get("capability_id") or "")
++    turn_id = str(envelope.get("turn_id") or authorization.get("turn_id") or "")
++    action_type = str(proposed_action.get("action_type") or "")
++    created_at = str(authorization.get("created_at") or envelope.get("created_at") or "")
++    args_ref = proposed_action.get("args_ref") if isinstance(proposed_action.get("args_ref"), dict) else None
++    tool_name = f"{owner_system}.{action_type}" if owner_system and action_type else action_type or "unknown_tool"
++    ledger_id = f"ledger:{str(authorization.get('decision_id') or action_id or turn_id).replace(':', '_')}"
++    return {
++        "schema_version": "tool-call-ledger-v1",
++        "ledger_id": ledger_id,
++        "created_at": created_at,
++        "turn_id": turn_id,
++        "action_id": action_id,
++        "capability_id": capability_id,
++        "tool_name": tool_name,
++        "lifecycle": [
++            {"stage": "propose", "at": created_at, "verdict": "passed"},
++            {"stage": "authorize", "at": created_at, "verdict": "denied"},
++            {"stage": "execute", "at": created_at, "verdict": "skipped"},
++        ],
++        "authorization": authorization,
++        "arguments": {
++            "schema_valid": True,
++            "raw_ref": args_ref,
++            "sanitized_ref": args_ref,
++        },
++        "result": {
++            "status": "not_started",
++            "output_ref": None,
++            "error_ref": None,
++            "rollback_ref": None,
++            "summary": "Denied by Harness Core before execution.",
++        },
++        "trace": authorization.get("trace") if isinstance(authorization.get("trace"), dict) else {},
++    }
++
++
  def set_bridge_authority_ledger_context(
      *,
      state_db: Any,
-@@ -527,7 +601,7 @@ def build_telegram_memory_turn_intent_payload_vnext(
+@@ -527,7 +655,7 @@ def build_telegram_memory_turn_intent_payload_vnext(
          session_id=session_id,
          human_id=human_id,
          source_kind=source_kind,
@@ -1326,7 +1380,7 @@ index 2f6440f..84f640a 100644
          owner_system="domain-chip-memory",
          mutation_class="writes_memory",
          intent_summary="User explicitly asked Spark to remember information from this Telegram turn.",
-@@ -838,6 +912,7 @@ def record_bridge_tool_call_ledger(
+@@ -838,6 +966,7 @@ def record_bridge_tool_call_ledger(
          if verdict.reason_codes
          else str(authorization.get("verdict") or "harness_core_authorized")
      )
@@ -1334,7 +1388,7 @@ index 2f6440f..84f640a 100644
  
      event_id = record_event(
          state_db,
-@@ -853,8 +928,8 @@ def record_bridge_tool_call_ledger(
+@@ -853,8 +982,8 @@ def record_bridge_tool_call_ledger(
          agent_id=agent_id,
          actor_id=resolved_actor_id,
          reason_code=reason_code,
@@ -1345,7 +1399,7 @@ index 2f6440f..84f640a 100644
          provenance={
              "source_kind": "spark_harness_core_tool_call_ledger",
              "source_ref": ledger_id,
-@@ -1045,7 +1120,7 @@ def authorize_builder_bridge_action(
+@@ -1045,7 +1174,7 @@ def authorize_builder_bridge_action(
      if vnext_envelope is not None:
          authorization: LegacyToolAuthorization = authorize_vnext_tool_call(
              vnext_envelope,
@@ -1354,7 +1408,7 @@ index 2f6440f..84f640a 100644
              owner_system=owner_system,
              mutation_class=mutation_class,
              publishes=publishes,
-@@ -1062,7 +1137,11 @@ def authorize_builder_bridge_action(
+@@ -1062,12 +1191,22 @@ def authorize_builder_bridge_action(
          )
      verdict = BridgeAuthorityVerdict(
          allowed=authorization.verdict == "allowed",
@@ -1367,7 +1421,19 @@ index 2f6440f..84f640a 100644
          envelope=envelope,
          harness_core_envelope=authorization.turn_intent_envelope_vnext,
          proposed_action=authorization.proposed_action,
-@@ -1127,7 +1206,7 @@ def authorize_pending_confirmation(
+         authorization_decision=authorization.authorization_decision,
+-        tool_call_ledger=authorization.tool_call_ledger,
++        tool_call_ledger=authorization.tool_call_ledger
++        or _build_denied_tool_call_ledger(
++            envelope=authorization.turn_intent_envelope_vnext,
++            proposed_action=authorization.proposed_action,
++            authorization=authorization.authorization_decision,
++            owner_system=owner_system,
++        ),
+     )
+     verdict = _with_governor_decision(verdict)
+     ledger_context = _ledger_context(
+@@ -1127,7 +1266,7 @@ def authorize_pending_confirmation(
      if vnext_envelope is not None:
          authorization: LegacyToolAuthorization = authorize_vnext_tool_call(
              vnext_envelope,
@@ -3844,24 +3910,15 @@ index 1a2a9dc..53a65d0 100644
          self.assertIn("Memory approvals pending: 1", rendered)
          self.assertIn("Stale context: 1 stale", rendered)
 diff --git a/tests/test_bridge_authority.py b/tests/test_bridge_authority.py
-index 1e43747..0e3b0c5 100644
+index 1e43747..d332791 100644
 --- a/tests/test_bridge_authority.py
 +++ b/tests/test_bridge_authority.py
-@@ -320,7 +320,7 @@ def test_builds_memory_write_vnext_turn_intent_for_explicit_observation() -> Non
-     assert payload["selected_move"] == "execute_action"
-     assert payload["action_authority"]["state"] == "executable"
-     assert payload["proposed_actions"][0]["capability_id"] == "capability:domain-chip-memory:memory.write"
--    assert payload["proposed_actions"][0]["action_type"] == "memory.write"
-+    assert payload["proposed_actions"][0]["action_type"] == "write_memory"
- 
-     verdict = authorize_builder_bridge_action(
-         {"turn_intent_envelope_vnext": payload},
 @@ -334,7 +334,7 @@ def test_builds_memory_write_vnext_turn_intent_for_explicit_observation() -> Non
      assert verdict.authorization_decision is not None
      assert verdict.authorization_decision["verdict"] == "allow"
      assert verdict.tool_call_ledger is not None
 -    assert verdict.tool_call_ledger["tool_name"] == DOMAIN_CHIP_MEMORY_WRITE_TOOL_NAME
-+    assert verdict.tool_call_ledger["tool_name"] == "memory.write"
++    assert verdict.tool_call_ledger["tool_name"] == "domain-chip-memory.memory.write"
      assert verdict.governor_decision is not None
      assert verdict.governor_decision["outcome"] == "execute"
  
@@ -3941,7 +3998,7 @@ index 1e43747..0e3b0c5 100644
      state_db = StateDB(tmp_path / "state.sqlite")
      state_db.initialize()
 diff --git a/tests/test_gateway_ask_telegram.py b/tests/test_gateway_ask_telegram.py
-index a433b61..202cc94 100644
+index a433b61..7748c3e 100644
 --- a/tests/test_gateway_ask_telegram.py
 +++ b/tests/test_gateway_ask_telegram.py
 @@ -16,7 +16,7 @@ from spark_intelligence.bridge_authority import (
@@ -4140,6 +4197,24 @@ index a433b61..202cc94 100644
          )
          tool_events = latest_events_by_type(self.state_db, event_type="tool_result_received", limit=20)
          self.assertFalse(
+@@ -985,7 +1156,7 @@ class GatewayAskTelegramTests(SparkTestCase):
+         self.assertIsInstance(vnext, dict)
+         self.assertEqual(vnext["schema_version"], "turn-intent-envelope-vnext")
+         self.assertEqual(vnext["selected_move"], "execute_action")
+-        self.assertEqual(vnext["proposed_actions"][0]["action_type"], "write_memory")
++        self.assertEqual(vnext["proposed_actions"][0]["action_type"], "memory.write")
+         self.assertIsNone(captured.get("governor_decision"))
+         self.assertFalse(captured.get("allow_memory_adapter_envelope"))
+ 
+@@ -1213,7 +1384,7 @@ class GatewayAskTelegramTests(SparkTestCase):
+         vnext = captured.get("turn_intent_payload_vnext")
+         self.assertIsInstance(vnext, dict)
+         self.assertEqual(vnext["schema_version"], "turn-intent-envelope-vnext")
+-        self.assertEqual(vnext["proposed_actions"][0]["action_type"], "write_memory")
++        self.assertEqual(vnext["proposed_actions"][0]["action_type"], "memory.write")
+         self.assertIsNone(captured.get("governor_decision"))
+         self.assertFalse(captured.get("allow_memory_adapter_envelope"))
+ 
 @@ -1312,7 +1483,7 @@ class GatewayAskTelegramTests(SparkTestCase):
                      "external_configured",
                  )

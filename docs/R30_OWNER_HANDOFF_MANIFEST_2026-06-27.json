@@ -38,8 +38,8 @@
     {
       "module": "spark-intelligence-builder",
       "expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
-      "local_head": "f21522accf6687596244f516555d37ffb69200c9",
-      "local_range": "origin/codex/turnintent-builder-boundary-20260531..f21522accf6687596244f516555d37ffb69200c9",
+      "local_head": "ca21e183c6c04a658260b218e22fad7b67e02cc7",
+      "local_range": "origin/codex/turnintent-builder-boundary-20260531..ca21e183c6c04a658260b218e22fad7b67e02cc7",
       "owner_refs": {
         "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
         "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
@@ -54,11 +54,11 @@
       "owner_handoff_patch": {
         "patch_type": "tree_diff",
         "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
-        "sha256": "3685894f24b75f5a05716c32ccf83e2b1949fc3ce5d0bc53286b26420f7fbe8d",
-        "line_count": 5826,
+        "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+        "line_count": 5901,
         "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
-        "expected_tree": "ca8819d76e14d48bdac00090580b5483a5056be3",
-        "apply_check": "git checkout c94eac853fed935ac09bed1c56912968f3365c14 && git apply docs/r30/patches/r30-builder-trace-proof-stack.patch && git add -A && test \"$(git write-tree)\" = \"ca8819d76e14d48bdac00090580b5483a5056be3\"",
+        "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+        "apply_check": "git checkout c94eac853fed935ac09bed1c56912968f3365c14 && git apply docs/r30/patches/r30-builder-trace-proof-stack.patch && git add -A && test \"$(git write-tree)\" = \"a9aedb619481ffc9fa22d6289e82df47400948cf\"",
         "proof_command": "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py",
         "proof_result": "208 passed; 26 subtests passed",
         "publication_authority": false
@@ -125,8 +125,8 @@
     {
       "module": "spawner-ui",
       "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "3042f8acbdde866c2e51ce064113264371d9c171",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..3042f8acbdde866c2e51ce064113264371d9c171",
+      "local_head": "7b31391560a4f7b14fe2983514a61e623b77266e",
+      "local_range": "origin/release/stability-2026-06-02-spawner-authority..7b31391560a4f7b14fe2983514a61e623b77266e",
       "owner_refs": {
         "main": "451d009aad84142092e9a21bda7788cf07910975",
         "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
@@ -143,13 +143,13 @@
       "owner_handoff_patch": {
         "patch_type": "tree_diff",
         "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
-        "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
-        "line_count": 2275,
+        "sha256": "041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34",
+        "line_count": 2343,
         "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
-        "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
-        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"126d215fcfd798256cbafb2dbf35899c85f6bea2\"",
+        "expected_tree": "5c67da065bc1eedd1d4f95c35b9e2fa3839789fb",
+        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"5c67da065bc1eedd1d4f95c35b9e2fa3839789fb\"",
         "proof_command": "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts && npm run build",
-        "proof_result": "59 passed; build passed",
+        "proof_result": "61 passed; build passed",
         "publication_authority": false
       },
       "local_proof": "passed"
