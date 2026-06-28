@@ -33,6 +33,7 @@ Local voice proof is test-clean, but not yet public release truth:
 - fresh recheck at `2026-06-27T22:58:58Z`: local prepared release lane `release/r30-voice-trace-governor` still passes `PYTHONPATH=src python3 -m pytest -q` with `132 passed`
 - fresh recheck at `2026-06-27T23:38:48Z`: local prepared release lane `release/r30-voice-trace-governor` still passes `PYTHONPATH=src python3 -m pytest -q` with `132 passed`
 - fresh recheck at `2026-06-28T00:54:49Z`: local prepared release lane `release/r30-voice-trace-governor` still passes `PYTHONPATH=src python3 -m pytest -q` with `132 passed`
+- fresh recheck at `2026-06-28T01:50:12Z`: local prepared release lane `release/r30-voice-trace-governor` still passes `PYTHONPATH=src python3 -m pytest -q` with `132 passed`
 
 The current local voice proof depends on two commits beyond the owner branch:
 
@@ -52,6 +53,7 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
 - fresh proof: `2026-06-27T22:58:58Z`, `132 passed`
 - fresh proof: `2026-06-27T23:38:48Z`, `132 passed`
 - fresh proof: `2026-06-28T00:54:49Z`, `132 passed`
+- fresh proof: `2026-06-28T01:50:12Z`, `132 passed`
 - owner handoff patch: `docs/r30/patches/r30-voice-trace-governor.patch`
   with SHA256 `f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff`
   applies to the public base and produces tree

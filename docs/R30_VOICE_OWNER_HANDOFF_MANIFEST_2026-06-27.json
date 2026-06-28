@@ -27,7 +27,7 @@
     "pushed_or_tagged": false,
     "registry_truth": false,
     "installed_metadata_truth": false,
-    "proof_checked_at": "2026-06-27T23:38:48Z",
+    "proof_checked_at": "2026-06-28T01:50:12Z",
     "proof_command": "PYTHONPATH=src python3 -m pytest -q",
     "proof_result": "132 passed",
     "ported_commits": [

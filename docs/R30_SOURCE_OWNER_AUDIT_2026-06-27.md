@@ -64,6 +64,7 @@ Evidence:
 - Original local voice proof branch at `7555a363d763` passed `PYTHONPATH=src python3 -m pytest -q`: `80 passed`.
 - Prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed `PYTHONPATH=src python3 -m pytest -q` at `2026-06-27T23:38:48Z`: `132 passed`.
 - The same prepared local owner-lane was rechecked at `2026-06-28T00:54:49Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
+- The same prepared local owner-lane was rechecked at `2026-06-28T01:50:12Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - The local branch adds the current Spark OS voice proof pieces over the owner branch:
   - `8a246af Join voice runtime state traces`
   - `7555a36 Accept media transcription governor authority`
