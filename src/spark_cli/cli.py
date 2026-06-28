@@ -159,7 +159,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and health-token preservation fix onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, and active Telegram profile stale read-only env proof onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
