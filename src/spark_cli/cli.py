@@ -8288,6 +8288,26 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
                 manifest_issues.append("missing_or_invalid_prepared_lane_proof_checked_at")
             if prepared_lane.get("proof_result") != "132 passed":
                 manifest_issues.append("prepared_lane_proof_result_mismatch")
+            ported_commits = prepared_lane.get("ported_commits")
+            if not isinstance(ported_commits, list) or len(ported_commits) != 2:
+                manifest_issues.append("missing_prepared_lane_ported_commits")
+            else:
+                expected_ported_commits = [
+                    {
+                        "commit": "4eef348",
+                        "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+                        "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                        "subject": "Join voice runtime state traces",
+                    },
+                    {
+                        "commit": "c502ec0",
+                        "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+                        "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+                        "subject": "Accept media transcription governor authority",
+                    },
+                ]
+                if ported_commits != expected_ported_commits:
+                    manifest_issues.append("prepared_lane_ported_commits_mismatch")
         if not isinstance(proof_commands, list) or "PYTHONPATH=src python3 -m pytest -q" not in proof_commands:
             manifest_issues.append("missing_voice_pytest_proof_command")
         if not isinstance(proof_commands, list) or "spark os compile --json" not in proof_commands:

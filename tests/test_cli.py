@@ -13561,6 +13561,20 @@ class SparkCliTests(unittest.TestCase):
                         "prepared_local_release_lane": {
                             "proof_checked_at": "2026-06-27T22:58:58Z",
                             "proof_result": "132 passed",
+                            "ported_commits": [
+                                {
+                                    "commit": "4eef348",
+                                    "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+                                    "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                                    "subject": "Join voice runtime state traces",
+                                },
+                                {
+                                    "commit": "c502ec0",
+                                    "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+                                    "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+                                    "subject": "Accept media transcription governor authority",
+                                },
+                            ],
                         },
                         "required_local_commits": [
                             {
@@ -13747,6 +13761,20 @@ class SparkCliTests(unittest.TestCase):
                         "prepared_local_release_lane": {
                             "proof_checked_at": "2026-06-27T22:58:58Z",
                             "proof_result": "132 passed",
+                            "ported_commits": [
+                                {
+                                    "commit": "4eef348",
+                                    "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+                                    "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+                                    "subject": "Join voice runtime state traces",
+                                },
+                                {
+                                    "commit": "c502ec0",
+                                    "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+                                    "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+                                    "subject": "Accept media transcription governor authority",
+                                },
+                            ],
                         },
                         "required_local_commits": [
                             {"commit": "8a246af", "subject": "Join voice runtime state traces"},
