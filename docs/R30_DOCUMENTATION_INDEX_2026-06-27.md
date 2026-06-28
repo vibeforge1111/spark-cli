@@ -24,9 +24,12 @@ Use this index as the entry point for R30 release prep.
 15. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
 16. [R30 Domain Chip Labs Telegram creator plan](./R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md)
 17. [R30 Domain Chip Labs and Spawner readiness spec](./R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md)
-18. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
-19. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
-20. [R30 DCL Spawner Telegram continuation handoff](./R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md)
+18. [R30 DCL Spawner reliability workflows](./R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md)
+19. [R30 DCL system source map](./R30_DCL_SYSTEM_SOURCE_MAP_2026-06-28.md)
+20. [R30 DCL Spawner QA plan](./R30_DCL_SPAWNER_QA_PLAN_2026-06-28.md)
+21. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
+22. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
+23. [R30 DCL Spawner Telegram continuation handoff](./R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md)
 
 ## Current Verdict
 
@@ -59,9 +62,20 @@ Current green proof:
   state, artifact contract, Spawner closure contract, task list, QA matrix,
   planner-first rule, first local Telegram proof slice, and stop-ship
   conditions for this lane.
-- The R30 DCL Spawner Telegram continuation handoff records the current
-  uncommitted red-test slice for creator mission missing-proof closure, the
-  suspected bridge boundary, and the exact QA ladder for the next writable lane.
+- The R30 DCL Spawner reliability workflows document turns the readiness spec
+  into an executable QA ladder across local tests, Telegram Desktop/CUA live
+  checks, DCL contract proof, Spawner closure, Level 5 truth, benchmark/eval
+  proof, and R30 verifier gates.
+- The R30 DCL system source map records where the local contract, closure,
+  proof, benchmark, eval, and readiness surfaces already live before autonomous
+  implementation begins.
+- The R30 DCL Spawner QA plan defines the gate ladder, failure taxonomy, local
+  test matrix, live Telegram Desktop/CUA plan, evidence packet, commit
+  discipline, autonomous run order, and stop conditions.
+- The R30 DCL Spawner Telegram continuation handoff records the original
+  missing-proof red-test slice, the local closure-proof update, the live
+  Telegram Desktop input-safety block, and the exact QA ladder for the next
+  writable lane.
 - The R30 Telegram live trace recapture runbook gives the exact four
   SparkRecursive_bot safe prompts and pass criteria needed before Telegram
   reliability can be called green again.

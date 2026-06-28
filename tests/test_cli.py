@@ -13167,6 +13167,9 @@ class SparkCliTests(unittest.TestCase):
         expected_docs = {
             "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
             "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md",
+            "docs/R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md",
+            "docs/R30_DCL_SYSTEM_SOURCE_MAP_2026-06-28.md",
+            "docs/R30_DCL_SPAWNER_QA_PLAN_2026-06-28.md",
             "docs/R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md",
             "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
             "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",

@@ -36,6 +36,9 @@ regressed.
 ## Recapture Rules
 
 - Use the real `SparkRecursive_bot` private Telegram chat.
+- When using Telegram Desktop/CUA, capture the visible chat first and confirm
+  the message input is empty. If a user draft is present, stop instead of
+  overwriting it.
 - Send only the prompt text blocks below. Do not paste the expected-proof labels
   into Telegram.
 - Do not run, repair, build, launch, publish, deploy, expose secrets, or change

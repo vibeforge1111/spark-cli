@@ -13,6 +13,11 @@ evidence packet required before any R30-ready claim.
 No push, deploy, tag, registry movement, installer pin movement, or hosted
 publication is authorized by this document.
 
+Use
+[R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md](./R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md)
+as the executable companion for local QA, Telegram Desktop/CUA live proof,
+contract checks, benchmark/eval workflow, and R30 verifier sequencing.
+
 ## Great Working State
 
 A user can say, in natural Telegram language, “build/create a domain chip for
