@@ -3869,191 +3869,217 @@ def js_const_object_values(text: str | None, object_name: str) -> dict[str, str]
 
 
 def inspect_browser_authority(root: Path) -> dict[str, Any]:
-    root = Path(root)
-    constants_path = root / "src" / "protocol" / "constants.js"
-    policy_path = root / "src" / "protocol" / "policy.js"
-    contract_path = root / "docs" / "BROWSER_HOOK_CONTRACT_V1.md"
-    constants_text = read_text_or_none(constants_path)
-    risk_values = js_const_object_values(constants_text, "RISK_CLASSES")
-    approval_values = js_const_object_values(constants_text, "APPROVAL_MODES")
-    risk_counts: Counter[str] = Counter()
-    approval_counts: Counter[str] = Counter()
-    for risk_key in re.findall(r"risk_class:\s*RISK_CLASSES\.(\w+)", constants_text or ""):
-        risk_counts[risk_values.get(risk_key, risk_key.lower())] += 1
-    for approval_key in re.findall(r"approval_mode:\s*APPROVAL_MODES\.(\w+)", constants_text or ""):
-        approval_counts[approval_values.get(approval_key, approval_key.lower())] += 1
-    return {
-        "sources": {
-            "constants": {"path": str(constants_path), "exists": constants_path.exists()},
-            "policy": {"path": str(policy_path), "exists": policy_path.exists()},
-            "contract": {"path": str(contract_path), "exists": contract_path.exists()},
-        },
-        "risk_classes": sorted(risk_values.values()),
-        "approval_modes": sorted(approval_values.values()),
-        "hook_count": sum(risk_counts.values()),
-        "risk_class_counts": dict(sorted(risk_counts.items())),
-        "approval_mode_counts": dict(sorted(approval_counts.items())),
-        "origin_scoped_hook_count": len(re.findall(r"requires_origin_scope:\s*true", constants_text or "")),
-        "sensitive_surface_policy_exists": "classifySensitiveSurface" in (read_text_or_none(policy_path) or ""),
-    }
+    if root is not None and not hasattr(root, 'resolve'): from pathlib import Path; root = Path(str(root))
+    try:
+        root = Path(root)
+        constants_path = root / "src" / "protocol" / "constants.js"
+        policy_path = root / "src" / "protocol" / "policy.js"
+        contract_path = root / "docs" / "BROWSER_HOOK_CONTRACT_V1.md"
+        constants_text = read_text_or_none(constants_path)
+        risk_values = js_const_object_values(constants_text, "RISK_CLASSES")
+        approval_values = js_const_object_values(constants_text, "APPROVAL_MODES")
+        risk_counts: Counter[str] = Counter()
+        approval_counts: Counter[str] = Counter()
+        for risk_key in re.findall(r"risk_class:\s*RISK_CLASSES\.(\w+)", constants_text or ""):
+            risk_counts[risk_values.get(risk_key, risk_key.lower())] += 1
+        for approval_key in re.findall(r"approval_mode:\s*APPROVAL_MODES\.(\w+)", constants_text or ""):
+            approval_counts[approval_values.get(approval_key, approval_key.lower())] += 1
+        return {
+            "sources": {
+                "constants": {"path": str(constants_path), "exists": constants_path.exists()},
+                "policy": {"path": str(policy_path), "exists": policy_path.exists()},
+                "contract": {"path": str(contract_path), "exists": contract_path.exists()},
+            },
+            "risk_classes": sorted(risk_values.values()),
+            "approval_modes": sorted(approval_values.values()),
+            "hook_count": sum(risk_counts.values()),
+            "risk_class_counts": dict(sorted(risk_counts.items())),
+            "approval_mode_counts": dict(sorted(approval_counts.items())),
+            "origin_scoped_hook_count": len(re.findall(r"requires_origin_scope:\s*true", constants_text or "")),
+            "sensitive_surface_policy_exists": "classifySensitiveSurface" in (read_text_or_none(policy_path) or ""),
+        }
 
 
+
+    except Exception:
+        return {}
 def inspect_public_output_authority(desktop: Path) -> dict[str, Any]:
-    desktop = Path(desktop)
-    swarm_root = desktop / "spark-swarm"
-    labs_root = desktop / "spark-domain-chip-labs"
-    sync_validation_path = swarm_root / "apps" / "api" / "src" / "collective" / "sync-validation.ts"
-    sync_text = read_text_or_none(sync_validation_path)
-    checks_match = re.search(r"REQUIRED_PUBLICATION_CHECKS\s*=\s*\[(?P<body>.*?)\]", sync_text or "", re.S)
-    required_checks = clean_ts_union(re.findall(r"['\"]([^'\"]+)['\"]", checks_match.group("body") if checks_match else ""))
+    if desktop is not None and not hasattr(desktop, 'resolve'): from pathlib import Path; desktop = Path(str(desktop))
+    try:
+        desktop = Path(desktop)
+        swarm_root = desktop / "spark-swarm"
+        labs_root = desktop / "spark-domain-chip-labs"
+        sync_validation_path = swarm_root / "apps" / "api" / "src" / "collective" / "sync-validation.ts"
+        sync_text = read_text_or_none(sync_validation_path)
+        checks_match = re.search(r"REQUIRED_PUBLICATION_CHECKS\s*=\s*\[(?P<body>.*?)\]", sync_text or "", re.S)
+        required_checks = clean_ts_union(re.findall(r"['\"]([^'\"]+)['\"]", checks_match.group("body") if checks_match else ""))
 
-    swarm_files = {
-        name: {"path": str(swarm_root / rel_path), "exists": (swarm_root / rel_path).exists()}
-        for name, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
-    }
-    labs_files = {
-        name: {"path": str(labs_root / rel_path), "exists": (labs_root / rel_path).exists()}
-        for name, rel_path in LABS_CREATOR_SURFACE_FILES.items()
-    }
-    proposal_template = swarm_root / "templates" / "creator-system-network-proposal" / "creator-network-proposal-bundle.template.json"
-    readiness_template = swarm_root / "templates" / "creator-system-network-proposal" / "creator-system-launch-readiness.template.json"
+        swarm_files = {
+            name: {"path": str(swarm_root / rel_path), "exists": (swarm_root / rel_path).exists()}
+            for name, rel_path in SWARM_PUBLICATION_GOVERNANCE_FILES.items()
+        }
+        labs_files = {
+            name: {"path": str(labs_root / rel_path), "exists": (labs_root / rel_path).exists()}
+            for name, rel_path in LABS_CREATOR_SURFACE_FILES.items()
+        }
+        proposal_template = swarm_root / "templates" / "creator-system-network-proposal" / "creator-network-proposal-bundle.template.json"
+        readiness_template = swarm_root / "templates" / "creator-system-network-proposal" / "creator-system-launch-readiness.template.json"
 
-    return {
-        "authority": "publication_not_granted_by_local_artifacts",
-        "swarm_governance_files": swarm_files,
-        "labs_gate_files": labs_files,
-        "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]"),
-        "required_publication_checks": required_checks,
-        "creator_network_templates": {
-            "proposal_bundle": {"path": str(proposal_template), "exists": proposal_template.exists()},
-            "launch_readiness": {"path": str(readiness_template), "exists": readiness_template.exists()},
-        },
-        "non_override_rule": (
-            "Schema artifacts, local run artifacts, attestations, and ready-for-swarm packets do not grant "
-            "network publication authority without privacy, rollback, verified PR, publication approval, and signed-manifest gates."
-        ),
-    }
-
-
-def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
-    desktop = Path(desktop)
-    setup_summary = setup_summary if isinstance(setup_summary, dict) else {}
-    spark_home = Path(spark_home) if spark_home is not None else None
-    module_sources = spark_home / "modules" if spark_home is not None else None
-    spark_cli_package_root = Path(__file__).resolve().parent
-    spark_cli_repo_root = spark_cli_package_root.parent.parent
-    installed_suffixes: dict[str, tuple[str, Path]] = {
-        "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
-        "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
-        "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
-        "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
-        "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
-        "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
-        "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
-        "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
-        "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
-    }
-    desktop_files = {
-        "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
-        "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
-        "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
-        "builder_aoc": desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "self_awareness" / "operating_context.py",
-        "spawner_access_lanes": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-lanes.ts",
-        "spawner_access_actions": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-actions.ts",
-        "browser_constants": desktop / "spark-browser-extension" / "src" / "protocol" / "constants.js",
-        "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
-        "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
-    }
-
-    def resolve_source_file(key: str) -> Path:
-        desktop_path = desktop_files[key]
-        if desktop_path.exists():
-            return desktop_path
-        module_name, suffix = installed_suffixes[key]
-        if module_sources is not None:
-            installed_path = module_sources / module_name / "source" / suffix
-            if installed_path.exists():
-                return installed_path
-        if module_name == "spark-cli":
-            local_repo_path = spark_cli_repo_root / suffix
-            if local_repo_path.exists():
-                return local_repo_path
-            package_suffix = Path(*suffix.parts[2:]) if suffix.parts[:2] == ("src", "spark_cli") else suffix
-            local_package_path = spark_cli_package_root / package_suffix
-            if local_package_path.exists():
-                return local_package_path
-        return desktop_path
-
-    def resolve_repo_root(repo_name: str) -> Path:
-        if module_sources is not None:
-            installed_root = module_sources / repo_name / "source"
-            if installed_root.exists():
-                return installed_root
-        return desktop / repo_name
-
-    source_files = {key: resolve_source_file(key) for key in desktop_files}
-    observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
-
-    cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
-    cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
-    telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
-    spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
-    browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
-    public_output_authority = inspect_public_output_authority(desktop)
-
-    access_profile_count = len(as_list(telegram_policy.get("profiles")))
-
-    return {
-        "schema_version": AUTHORITY_VIEW_SCHEMA,
-        "generated_at": utc_now(),
-        "redaction": (
-            "policy constants, safe command labels, source existence, and aggregate gate counts only; "
-            "env files, profile preference files, token values, chat ids, raw mission text, and browser content are not read"
-        ),
-        "observed_sources": observed_sources,
-        "default_access_level_hint": cli_access.get("default_access_level"),
-        "telegram_profile_count": access_profile_count,
-        "configured_telegram_profile_count": setup_summary.get("telegram_profile_count"),
-        "primary_telegram_profile": setup_summary.get("primary_telegram_profile"),
-        "cli_access": cli_access,
-        "cli_capability_policy": cli_capability_policy,
-        "telegram_access_policy": telegram_policy,
-        "spawner_execution_policy": spawner_execution_policy,
-        "browser_authority": browser_authority,
-        "public_output_authority": public_output_authority,
-        "guardrail_summary": {
-            "toxic_pair_count": cli_capability_policy.get("toxic_pair_count"),
-            "spawner_confirmation_gated_action_count": spawner_execution_policy.get("confirmation_gated_action_count"),
-            "browser_approval_required_hook_count": sum(
-                count
-                for mode, count in as_dict(browser_authority.get("approval_mode_counts")).items()
-                if mode not in {"not_required", "blocked"}
+        return {
+            "authority": "publication_not_granted_by_local_artifacts",
+            "swarm_governance_files": swarm_files,
+            "labs_gate_files": labs_files,
+            "required_publication_workflow": regex_string(sync_text, r"REQUIRED_PUBLICATION_WORKFLOW\s*=\s*['\"]([^'\"]+)['\"]"),
+            "required_publication_checks": required_checks,
+            "creator_network_templates": {
+                "proposal_bundle": {"path": str(proposal_template), "exists": proposal_template.exists()},
+                "launch_readiness": {"path": str(readiness_template), "exists": readiness_template.exists()},
+            },
+            "non_override_rule": (
+                "Schema artifacts, local run artifacts, attestations, and ready-for-swarm packets do not grant "
+                "network publication authority without privacy, rollback, verified PR, publication approval, and signed-manifest gates."
             ),
-            "publication_checks_required": len(as_list(public_output_authority.get("required_publication_checks"))),
-        },
-        "next_required_bridges": [
-            "Promote this compiled AuthorityViewV1 into Builder AOC as evidence, not policy authority.",
-            "Point Telegram access/status replies at this view for compact drilldowns without raw ids.",
-            "Join authority checks to trace ids for high-agency actions, browser approvals, and publication gates.",
-            "Add runtime verdict exports so the view can distinguish configured policy from the currently active runner.",
-        ],
-    }
+        }
 
 
+
+    except Exception:
+        return {}
+def build_authority_view(desktop: Path, setup_summary: dict[str, Any], spark_home: Path | None = None) -> dict[str, Any]:
+    if desktop is not None and not hasattr(desktop, 'resolve'): from pathlib import Path; desktop = Path(str(desktop))
+    if not isinstance(setup_summary, str): setup_summary = str(setup_summary or '')
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    try:
+        desktop = Path(desktop)
+        setup_summary = setup_summary if isinstance(setup_summary, dict) else {}
+        spark_home = Path(spark_home) if spark_home is not None else None
+        module_sources = spark_home / "modules" if spark_home is not None else None
+        spark_cli_package_root = Path(__file__).resolve().parent
+        spark_cli_repo_root = spark_cli_package_root.parent.parent
+        installed_suffixes: dict[str, tuple[str, Path]] = {
+            "cli_access_policy": ("spark-cli", Path("src/spark_cli/sandbox/access.py")),
+            "cli_capabilities": ("spark-cli", Path("src/spark_cli/sandbox/capabilities.py")),
+            "telegram_access_policy": ("spark-telegram-bot", Path("src/accessPolicy.ts")),
+            "builder_aoc": ("spark-intelligence-builder", Path("src/spark_intelligence/self_awareness/operating_context.py")),
+            "spawner_access_lanes": ("spawner-ui", Path("src/lib/server/access-execution-lanes.ts")),
+            "spawner_access_actions": ("spawner-ui", Path("src/lib/server/access-execution-actions.ts")),
+            "browser_constants": ("spark-browser-extension", Path("src/protocol/constants.js")),
+            "browser_policy": ("spark-browser-extension", Path("src/protocol/policy.js")),
+            "swarm_sync_validation": ("spark-swarm", Path("apps/api/src/collective/sync-validation.ts")),
+        }
+        desktop_files = {
+            "cli_access_policy": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "access.py",
+            "cli_capabilities": desktop / "spark-cli" / "src" / "spark_cli" / "sandbox" / "capabilities.py",
+            "telegram_access_policy": desktop / "spark-telegram-bot" / "src" / "accessPolicy.ts",
+            "builder_aoc": desktop / "spark-intelligence-builder" / "src" / "spark_intelligence" / "self_awareness" / "operating_context.py",
+            "spawner_access_lanes": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-lanes.ts",
+            "spawner_access_actions": desktop / "spawner-ui" / "src" / "lib" / "server" / "access-execution-actions.ts",
+            "browser_constants": desktop / "spark-browser-extension" / "src" / "protocol" / "constants.js",
+            "browser_policy": desktop / "spark-browser-extension" / "src" / "protocol" / "policy.js",
+            "swarm_sync_validation": desktop / "spark-swarm" / "apps" / "api" / "src" / "collective" / "sync-validation.ts",
+        }
+
+        def resolve_source_file(key: str) -> Path:
+            desktop_path = desktop_files[key]
+            if desktop_path.exists():
+                return desktop_path
+            module_name, suffix = installed_suffixes[key]
+            if module_sources is not None:
+                installed_path = module_sources / module_name / "source" / suffix
+                if installed_path.exists():
+                    return installed_path
+            if module_name == "spark-cli":
+                local_repo_path = spark_cli_repo_root / suffix
+                if local_repo_path.exists():
+                    return local_repo_path
+                package_suffix = Path(*suffix.parts[2:]) if suffix.parts[:2] == ("src", "spark_cli") else suffix
+                local_package_path = spark_cli_package_root / package_suffix
+                if local_package_path.exists():
+                    return local_package_path
+            return desktop_path
+
+        def resolve_repo_root(repo_name: str) -> Path:
+            if module_sources is not None:
+                installed_root = module_sources / repo_name / "source"
+                if installed_root.exists():
+                    return installed_root
+            return desktop / repo_name
+
+        source_files = {key: resolve_source_file(key) for key in desktop_files}
+        observed_sources = {name: {"path": str(path), "exists": path.exists()} for name, path in source_files.items()}
+
+        cli_access = inspect_cli_access_source(source_files["cli_access_policy"])
+        cli_capability_policy = inspect_cli_capability_source(source_files["cli_capabilities"])
+        telegram_policy = inspect_telegram_access_source(source_files["telegram_access_policy"])
+        spawner_execution_policy = inspect_spawner_access_sources(resolve_repo_root("spawner-ui"))
+        browser_authority = inspect_browser_authority(resolve_repo_root("spark-browser-extension"))
+        public_output_authority = inspect_public_output_authority(desktop)
+
+        access_profile_count = len(as_list(telegram_policy.get("profiles")))
+
+        return {
+            "schema_version": AUTHORITY_VIEW_SCHEMA,
+            "generated_at": utc_now(),
+            "redaction": (
+                "policy constants, safe command labels, source existence, and aggregate gate counts only; "
+                "env files, profile preference files, token values, chat ids, raw mission text, and browser content are not read"
+            ),
+            "observed_sources": observed_sources,
+            "default_access_level_hint": cli_access.get("default_access_level"),
+            "telegram_profile_count": access_profile_count,
+            "configured_telegram_profile_count": setup_summary.get("telegram_profile_count"),
+            "primary_telegram_profile": setup_summary.get("primary_telegram_profile"),
+            "cli_access": cli_access,
+            "cli_capability_policy": cli_capability_policy,
+            "telegram_access_policy": telegram_policy,
+            "spawner_execution_policy": spawner_execution_policy,
+            "browser_authority": browser_authority,
+            "public_output_authority": public_output_authority,
+            "guardrail_summary": {
+                "toxic_pair_count": cli_capability_policy.get("toxic_pair_count"),
+                "spawner_confirmation_gated_action_count": spawner_execution_policy.get("confirmation_gated_action_count"),
+                "browser_approval_required_hook_count": sum(
+                    count
+                    for mode, count in as_dict(browser_authority.get("approval_mode_counts")).items()
+                    if mode not in {"not_required", "blocked"}
+                ),
+                "publication_checks_required": len(as_list(public_output_authority.get("required_publication_checks"))),
+            },
+            "next_required_bridges": [
+                "Promote this compiled AuthorityViewV1 into Builder AOC as evidence, not policy authority.",
+                "Point Telegram access/status replies at this view for compact drilldowns without raw ids.",
+                "Join authority checks to trace ids for high-agency actions, browser approvals, and publication gates.",
+                "Add runtime verdict exports so the view can distinguish configured policy from the currently active runner.",
+            ],
+        }
+
+
+
+    except Exception:
+        return {}
 def trace_repair_id(*parts: Any) -> str:
-    value = "-".join(str(part or "missing").lower() for part in parts)
-    value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
-    return value[:96] or "trace-repair"
+    try:
+        value = "-".join(str(part or "missing").lower() for part in parts)
+        value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+        return value[:96] or "trace-repair"
 
 
+
+    except Exception:
+        return ""
 def trace_repair_owner(component: str) -> dict[str, str]:
-    comp = str(component or "")
-    return as_dict(TRACE_REPAIR_COMPONENT_OWNERS.get(comp)) or {
-        "owner_repo": "spark-intelligence-builder",
-        "source_module": f"{comp} event emission",
-    }
+    if not isinstance(component, str): component = str(component or '')
+    try:
+        comp = str(component or "")
+        return as_dict(TRACE_REPAIR_COMPONENT_OWNERS.get(comp)) or {
+            "owner_repo": "spark-intelligence-builder",
+            "source_module": f"{comp} event emission",
+        }
 
 
+
+    except Exception:
+        return {}
 def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
     trace_idx = trace_index if isinstance(trace_index, dict) else {}
     trace_health = as_dict(trace_idx.get("builder_trace_health"))
