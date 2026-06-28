@@ -18,9 +18,10 @@ Use this index as the entry point for R30 release prep.
 9. [R30 voice owner handoff manifest](./R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json)
 10. [R30 Builder trace lifecycle decision](./R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md)
 11. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
-12. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
-13. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
-14. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
+12. [R30 installer baseline drift audit](./R30_INSTALLER_BASELINE_DRIFT_AUDIT_2026-06-28.md)
+13. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
+14. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
+15. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
 
 ## Current Verdict
 
@@ -53,6 +54,9 @@ Current blockers:
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder has one historical high-severity lifecycle family carried as explicit release debt; it must remain visible until closed with owner evidence.
 - Hosted `agent.sparkswarm.ai` and local installer files now agree on R29; R30 is not hosted.
+- The R30 installer baseline drift audit confirms no current R30 prep doc claims
+  the local installer baseline is still R28; remaining R28 references are
+  historical context or patch history.
 
 ## Release Rule
 
