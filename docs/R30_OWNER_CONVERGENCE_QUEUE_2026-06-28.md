@@ -10,15 +10,17 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work. Rechecked after the `5453347` full-permission
+red only for release-truth work. Rechecked after the `112affc` Telegram Level 5
 handoff refresh; dirty release repo count remained `0`, OS compile stayed
-green, the owner handoff manifest stayed aligned, and the Access 5
-anti-read-only gate stayed green. Later docs-only checkpoints refresh this
-queue without changing the verifier-code proof boundary.
+green, the owner handoff manifest stayed aligned, patch-apply proof stayed
+green, and the Access 5 anti-read-only gate stayed green.
 
-The current blocker set is still exactly `release_lane`,
+The current top-level source-truth blocker set is exactly
+`r30_local_runtime_handoff_docs`, `release_lane`,
 `r30_voice_registry_decision`, and `registry_pins`.
 
+- `r30_local_runtime_handoff_docs`: Telegram and Spawner local runtime artifacts
+  are documented and patch-proven, but still not owner-source/registry truth.
 - `release_lane`: 5 direct R30 blockers and 0 supporting hygiene rows.
 - `r30_voice_registry_decision`: voice needs source-owned trace/governor proof
   before registry movement.
@@ -51,7 +53,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | local docs/verifier lane, verifier-code proof through `5453347`, Telegram audit handoff through `afc9a0b`, and fresh voice handoff proof through `3499593` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, final Telegram full-permission/audit handoff refresh, and fresh voice handoff proof before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | local docs/verifier lane at `112affc` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, final Telegram full-permission/audit handoff refresh, natural confirmed Level 1/3/4 to Level 5 proof preservation, and fresh voice handoff proof before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
