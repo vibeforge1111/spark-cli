@@ -4579,15 +4579,21 @@ def repo_risk_class(name: str, release_eligibility: str) -> str:
 
 
 def repo_by_name(system_map: dict[str, Any], name: str) -> dict[str, Any]:
-    sys_map = system_map if isinstance(system_map, dict) else {}
-    name_str = str(name or "")
-    for repo in as_list(sys_map.get("discovered_repos")):
-        repo = as_dict(repo)
-        if repo.get("name") == name_str:
-            return repo
-    return {}
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        sys_map = system_map if isinstance(system_map, dict) else {}
+        name_str = str(name or "")
+        for repo in as_list(sys_map.get("discovered_repos")):
+            repo = as_dict(repo)
+            if repo.get("name") == name_str:
+                return repo
+        return {}
 
 
+
+    except Exception:
+        return {}
 def duplicate_truth_item(
     *,
     item_id: str,
@@ -4604,25 +4610,42 @@ def duplicate_truth_item(
     severity: str = "warning",
     evidence_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    item = {
-        "id": str(item_id or ""),
-        "fact": str(fact or ""),
-        "classification": str(classification or ""),
-        "severity": str(severity or "warning"),
-        "owner_repo": str(owner_repo or ""),
-        "canonical_path": str(canonical_path or ""),
-        "duplicate_path": str(duplicate_path or ""),
-        "evidence": str(evidence or ""),
-        "risk": str(risk or ""),
-        "next_safe_action": str(next_safe_action or ""),
-        "verification_command": str(verification_command or ""),
-        "rollback": str(rollback or ""),
-    }
-    if evidence_details is not None:
-        item["evidence_details"] = evidence_details
-    return item
+    if not isinstance(item_id, str): item_id = str(item_id or '')
+    if not isinstance(fact, str): fact = str(fact or '')
+    if not isinstance(classification, str): classification = str(classification or '')
+    if not isinstance(owner_repo, str): owner_repo = str(owner_repo or '')
+    if not isinstance(canonical_path, str): canonical_path = str(canonical_path or '')
+    if not isinstance(duplicate_path, str): duplicate_path = str(duplicate_path or '')
+    if not isinstance(evidence, str): evidence = str(evidence or '')
+    if not isinstance(risk, str): risk = str(risk or '')
+    if not isinstance(next_safe_action, str): next_safe_action = str(next_safe_action or '')
+    if not isinstance(verification_command, str): verification_command = str(verification_command or '')
+    if not isinstance(rollback, str): rollback = str(rollback or '')
+    if not isinstance(severity, str): severity = str(severity or '')
+    if not isinstance(evidence_details, str): evidence_details = str(evidence_details or '')
+    try:
+        item = {
+            "id": str(item_id or ""),
+            "fact": str(fact or ""),
+            "classification": str(classification or ""),
+            "severity": str(severity or "warning"),
+            "owner_repo": str(owner_repo or ""),
+            "canonical_path": str(canonical_path or ""),
+            "duplicate_path": str(duplicate_path or ""),
+            "evidence": str(evidence or ""),
+            "risk": str(risk or ""),
+            "next_safe_action": str(next_safe_action or ""),
+            "verification_command": str(verification_command or ""),
+            "rollback": str(rollback or ""),
+        }
+        if evidence_details is not None:
+            item["evidence_details"] = evidence_details
+        return item
 
 
+
+    except Exception:
+        return {}
 BUILDER_AOC_COMMAND_MARKERS = {
     "panel": '"panel"',
     "black-box": '"black-box"',
@@ -4634,67 +4657,82 @@ BUILDER_AOC_COMMAND_MARKERS = {
 
 
 def dirty_family_for_path(path_value: str) -> str:
-    normalized = str(path_value or "").replace("\\", "/").strip()
-    if " -> " in normalized:
-        normalized = normalized.split(" -> ", 1)[1].strip()
-    parts = [part for part in normalized.split("/") if part]
-    if not parts:
-        return "unknown"
-    if parts[0] == "src" and len(parts) >= 2:
-        return "src/" + parts[1]
-    if parts[0] in {"docs", "tests", "ops", "artifacts", "scripts", ".github"}:
-        return parts[0]
-    return "root"
+    if not isinstance(path_value, str): path_value = str(path_value or '')
+    try:
+        normalized = str(path_value or "").replace("\\", "/").strip()
+        if " -> " in normalized:
+            normalized = normalized.split(" -> ", 1)[1].strip()
+        parts = [part for part in normalized.split("/") if part]
+        if not parts:
+            return "unknown"
+        if parts[0] == "src" and len(parts) >= 2:
+            return "src/" + parts[1]
+        if parts[0] in {"docs", "tests", "ops", "artifacts", "scripts", ".github"}:
+            return parts[0]
+        return "root"
 
 
+
+    except Exception:
+        return ""
 def git_dirty_family_counts(path: Path) -> dict[str, int]:
-    path = Path(path)
-    if not (path / ".git").exists():
-        return {}
-    code, status = run_git(path, ["status", "--porcelain"])
-    if code != 0 or not status:
-        return {}
-    counts: Counter[str] = Counter()
-    for line in status.splitlines():
-        if not line.strip():
-            continue
-        counts[dirty_family_for_path(line[3:])] += 1
-    return dict(sorted(counts.items()))
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        if not (path / ".git").exists():
+            return {}
+        code, status = run_git(path, ["status", "--porcelain"])
+        if code != 0 or not status:
+            return {}
+        counts: Counter[str] = Counter()
+        for line in status.splitlines():
+            if not line.strip():
+                continue
+            counts[dirty_family_for_path(line[3:])] += 1
+        return dict(sorted(counts.items()))
 
 
+
+    except Exception:
+        return {}
 def builder_source_audit(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    git = git_board_status(path)
-    cli_path = path / "src" / "spark_intelligence" / "cli.py"
-    command_markers: dict[str, bool] = {name: False for name in BUILDER_AOC_COMMAND_MARKERS}
-    trace_ref_argument_present = False
-    if cli_path.exists():
-        try:
-            text = cli_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            text = ""
-        command_markers = {name: marker in text for name, marker in BUILDER_AOC_COMMAND_MARKERS.items()}
-        trace_ref_argument_present = "--trace-ref" in text
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        git = git_board_status(path)
+        cli_path = path / "src" / "spark_intelligence" / "cli.py"
+        command_markers: dict[str, bool] = {name: False for name in BUILDER_AOC_COMMAND_MARKERS}
+        trace_ref_argument_present = False
+        if cli_path.exists():
+            try:
+                text = cli_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            command_markers = {name: marker in text for name, marker in BUILDER_AOC_COMMAND_MARKERS.items()}
+            trace_ref_argument_present = "--trace-ref" in text
 
-    return {
-        "path": str(path),
-        "exists": path.exists(),
-        "git_available": bool(git.get("available")),
-        "branch": git.get("branch"),
-        "upstream": git.get("upstream"),
-        "ahead": git.get("ahead"),
-        "behind": git.get("behind"),
-        "dirty_tracked_count": git.get("dirty_tracked_count"),
-        "untracked_count": git.get("untracked_count"),
-        "dirty_family_counts": git_dirty_family_counts(path),
-        "last_commit": git.get("last_commit"),
-        "cli_path_exists": cli_path.exists(),
-        "aoc_command_markers": command_markers,
-        "aoc_command_marker_count": sum(1 for present in command_markers.values() if present),
-        "trace_ref_argument_present": trace_ref_argument_present,
-    }
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "git_available": bool(git.get("available")),
+            "branch": git.get("branch"),
+            "upstream": git.get("upstream"),
+            "ahead": git.get("ahead"),
+            "behind": git.get("behind"),
+            "dirty_tracked_count": git.get("dirty_tracked_count"),
+            "untracked_count": git.get("untracked_count"),
+            "dirty_family_counts": git_dirty_family_counts(path),
+            "last_commit": git.get("last_commit"),
+            "cli_path_exists": cli_path.exists(),
+            "aoc_command_markers": command_markers,
+            "aoc_command_marker_count": sum(1 for present in command_markers.values() if present),
+            "trace_ref_argument_present": trace_ref_argument_present,
+        }
 
 
+
+    except Exception:
+        return {}
 def spawner_state_source_audit(path: Path) -> dict[str, Any]:
     path = Path(path)
     reference_needles = (".spawner", "SPAWNER_STATE_DIR", "spawnerStateDir", "spawner-state")
