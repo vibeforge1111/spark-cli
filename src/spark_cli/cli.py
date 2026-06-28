@@ -9459,6 +9459,136 @@ def collect_r30_owner_action_packet(
     }
 
 
+def collect_r30_owner_handoff_patch_apply_status(
+    release_lane: dict[str, Any],
+    *,
+    owner_manifest_path: Path | None = None,
+    voice_manifest_path: Path | None = None,
+    temp_root: Path | None = None,
+) -> dict[str, Any]:
+    owner_manifest = load_json(owner_manifest_path or R30_OWNER_HANDOFF_MANIFEST_PATH, {})
+    voice_manifest = load_json(voice_manifest_path or R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH, {})
+    owner_rows = owner_manifest.get("direct_blockers") if isinstance(owner_manifest, dict) else []
+    owner_rows = owner_rows if isinstance(owner_rows, list) else []
+    owner_by_module = {
+        str(row.get("module") or ""): row
+        for row in owner_rows
+        if isinstance(row, dict)
+    }
+    release_rows = release_lane.get("rows") if isinstance(release_lane.get("rows"), list) else []
+    source_paths = {
+        str(row.get("module") or ""): Path(str(row.get("path") or ""))
+        for row in release_rows
+        if isinstance(row, dict) and row.get("module") and row.get("path")
+    }
+    direct_modules = [
+        str(row.get("module") or "")
+        for row in owner_rows
+        if isinstance(row, dict) and row.get("module")
+    ]
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    temp_context = tempfile.TemporaryDirectory(prefix="spark-r30-owner-patches-") if temp_root is None else None
+    root = Path(temp_context.name) if temp_context else temp_root
+    assert root is not None
+    try:
+        for module in direct_modules:
+            manifest_row = owner_by_module.get(module, {})
+            patch = (
+                voice_manifest.get("owner_handoff_patch")
+                if module == "spark-voice-comms" and isinstance(voice_manifest, dict)
+                else manifest_row.get("owner_handoff_patch")
+            )
+            patch = patch if isinstance(patch, dict) else {}
+            patch_ref = str(patch.get("path") or "")
+            patch_path = REPO_ROOT / patch_ref if patch_ref else None
+            base_commit = str(patch.get("base_commit") or "")
+            expected_tree = str(patch.get("expected_tree") or "")
+            source_path = source_paths.get(module)
+            check: dict[str, Any] = {
+                "module": module,
+                "ok": False,
+                "source_path": str(source_path) if source_path else None,
+                "patch": patch_ref,
+                "base_commit": base_commit,
+                "expected_tree": expected_tree,
+                "actual_tree": None,
+                "apply_mode": "git am" if module == "spark-voice-comms" else "git apply",
+                "issues": [],
+            }
+            row_issues: list[str] = []
+            if source_path is None or not source_path.exists():
+                row_issues.append("missing_source_path")
+            if patch_path is None or not patch_path.exists():
+                row_issues.append("missing_patch_file")
+            if not base_commit:
+                row_issues.append("missing_base_commit")
+            if not expected_tree:
+                row_issues.append("missing_expected_tree")
+            if row_issues:
+                check["issues"] = row_issues
+                issues.extend(f"{module}:{issue}" for issue in row_issues)
+                checks.append(check)
+                continue
+
+            worktree_path = root / module
+            commands = [
+                ("worktree_add", git_command("-C", str(source_path), "worktree", "add", "--detach", str(worktree_path), base_commit)),
+            ]
+            if module == "spark-voice-comms":
+                commands.append(("apply_patch", git_command("-C", str(worktree_path), "am", str(patch_path))))
+            else:
+                commands.append(("apply_patch", git_command("-C", str(worktree_path), "apply", str(patch_path))))
+            commands.extend(
+                [
+                    ("stage", git_command("-C", str(worktree_path), "add", "-A")),
+                    ("write_tree", git_command("-C", str(worktree_path), "write-tree")),
+                ]
+            )
+
+            for command_name, command in commands:
+                result = subprocess.run(command, check=False, capture_output=True, text=True)
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "").strip()
+                    row_issues.append(f"{command_name}_failed")
+                    check["failure_detail"] = detail[-1000:]
+                    break
+                if command_name == "write_tree":
+                    actual_tree = result.stdout.strip()
+                    check["actual_tree"] = actual_tree
+                    if actual_tree != expected_tree:
+                        row_issues.append("expected_tree_mismatch")
+            if worktree_path.exists():
+                subprocess.run(
+                    git_command("-C", str(source_path), "worktree", "remove", "--force", str(worktree_path)),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            check["issues"] = row_issues
+            check["ok"] = not row_issues
+            if row_issues:
+                issues.extend(f"{module}:{issue}" for issue in row_issues)
+            checks.append(check)
+    finally:
+        if temp_context is not None:
+            temp_context.cleanup()
+    return {
+        "ok": not issues,
+        "detail": (
+            "All R30 owner handoff patches apply to their recorded owner bases and produce the recorded trees."
+            if not issues
+            else f"R30 owner handoff patch apply proof has issues: {', '.join(issues)}."
+        ),
+        "checks": checks,
+        "issues": issues,
+        "publication_boundary": (
+            "Patch apply proof is read-only handoff verification. It does not authorize push, tag, deploy, "
+            "registry pin update, installer pin update, or hosted publication."
+        ),
+    }
+
+
 def collect_r30_local_runtime_git_range_status(source_path: Path, local_range: str) -> dict[str, Any]:
     if ".." not in local_range:
         return {"ok": False, "issues": ["invalid_local_range"]}
@@ -9768,6 +9898,7 @@ def collect_r30_release_gate_payload(
     local_runtime_handoff_docs = collect_r30_local_runtime_handoff_docs_status()
     voice_registry_decision = collect_r30_voice_registry_decision_status(release_lane_classification)
     owner_action_packet = collect_r30_owner_action_packet(release_lane_classification)
+    owner_handoff_patch_apply = collect_r30_owner_handoff_patch_apply_status(release_lane)
     builder_trace_lifecycle = collect_r30_builder_trace_lifecycle_status(publish_handoffs)
     publish_handoff_blockers = classify_r30_publish_handoff_blockers(
         publish_handoffs,
@@ -9797,6 +9928,7 @@ def collect_r30_release_gate_payload(
         and bool(cli_owner_handoff_docs.get("ok"))
         and bool(local_runtime_handoff_docs.get("ok"))
         and bool(owner_action_packet.get("ok"))
+        and bool(owner_handoff_patch_apply.get("ok"))
         and bool(release_lane.get("ok"))
         and bool(voice_registry_decision.get("ok"))
         and bool(builder_trace_lifecycle.get("ok"))
@@ -9815,6 +9947,8 @@ def collect_r30_release_gate_payload(
         source_truth_blockers.append("r30_local_runtime_handoff_docs")
     if not bool(owner_action_packet.get("ok")):
         source_truth_blockers.append("r30_owner_action_packet")
+    if not bool(owner_handoff_patch_apply.get("ok")):
+        source_truth_blockers.append("r30_owner_handoff_patch_apply")
     if not bool(release_lane.get("ok")):
         source_truth_blockers.append("release_lane")
     if not bool(voice_registry_decision.get("ok")):
@@ -9936,6 +10070,12 @@ def collect_r30_release_gate_payload(
             "ok": bool(owner_action_packet.get("ok")),
             "detail": owner_action_packet.get("detail", "R30 owner action packet"),
             "summary": owner_action_packet,
+        },
+        {
+            "name": "r30_owner_handoff_patch_apply",
+            "ok": bool(owner_handoff_patch_apply.get("ok")),
+            "detail": owner_handoff_patch_apply.get("detail", "R30 owner handoff patch apply proof"),
+            "summary": owner_handoff_patch_apply,
         },
         {
             "name": "r30_voice_runtime_truth",
@@ -10067,6 +10207,7 @@ def collect_r30_release_gate_payload(
         "local_runtime_handoff_docs": local_runtime_handoff_docs,
         "voice_registry_decision": voice_registry_decision,
         "owner_action_packet": owner_action_packet,
+        "owner_handoff_patch_apply": owner_handoff_patch_apply,
         "voice_runtime_truth": voice_runtime_truth,
         "builder_trace_lifecycle": builder_trace_lifecycle,
         "access_level5_codex_sandbox": access_level5_codex_sandbox,

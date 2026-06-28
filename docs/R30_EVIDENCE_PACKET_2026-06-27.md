@@ -70,6 +70,7 @@ Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --
 - `r30_local_runtime_artifacts_handoff`: pass; the structured Telegram/Spawner local runtime artifact manifest matches live release-lane owners, expected registry commits, local heads, installed registry commits, proof commands, required terminal subjects, exact patch inventory, and fresh owner refs from the 2026-06-28 remote audit. The handoff remains visible as carried publication-bound evidence while owner-source and registry truth converge.
 - `r30_local_runtime_handoff_docs`: pass; the R30 release, source-owner, owner-handoff, and evidence docs preserve the structured artifact module heads, ranges, commit counts, required terminal subjects, and proof commands from the local runtime artifact manifest.
 - `r30_owner_action_packet`: pass; the R30 gate exposes a read-only owner action packet for the five direct blockers with module issues, next action, proof commands, owner refs, handoff patch path, base commit, expected tree, SHA256, and `registry_movement_allowed=false`.
+- `r30_owner_handoff_patch_apply`: pass; the R30 gate now creates temporary Git worktrees from the recorded owner bases, applies every owner handoff patch, and requires `git write-tree` to match the recorded target tree before source truth can be considered ready.
 - `os_compile`: pass, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`
 - `r30_live_status`: pass, Spark live status is green
 - `publish_handoffs`: pass for R30 source-truth blocking, with open families carried as explicit evidence: `local_runtime_test_artifacts` and `builder_trace_health`. The gate now separates `blocking_families=[]` from `carried_families=["local_runtime_test_artifacts", "builder_trace_health"]` so documented historical/publication-bound handoffs do not look like fresh unresolved work.
@@ -115,16 +116,18 @@ Fresh voice owner-lane proof at `2026-06-28T03:29:13Z`; remote owner refs were r
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
 - Remote audit at `2026-06-28T03:29:13Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
-Fresh owner-handoff patch apply verification at `2026-06-28T02:43:50Z`:
+Executable owner-handoff patch apply verification at `2026-06-28T03:42:45Z`:
 
 - `domain-chip-memory`, `spark-intelligence-builder`, `spark-telegram-bot`,
-  `spark-voice-comms`, and `spawner-ui` handoff patches all apply to their
-  recorded owner bases and produce the recorded target trees.
+  `spark-voice-comms`, and `spawner-ui` handoff patches all apply inside
+  temporary Git worktrees from their recorded owner bases and produce the
+  recorded target trees.
 - The Telegram patch still emits the known one-line blank-EOF whitespace
   warning during `git apply`; the resulting tree still matches
   `4319346ef30c1c5a985b6eb62c01ad124f089230`.
-- This is handoff material verification only. It does not authorize registry,
-  tag, installer, hosted, or installed-metadata movement.
+- This proof is now part of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`.
+  It is handoff material verification only and does not authorize registry, tag,
+  installer, hosted, or installed-metadata movement.
 
 Required terminal subjects preserved in the local runtime artifact manifest:
 
@@ -182,7 +185,7 @@ Additional Telegram runtime-env hardening at `2026-06-27T23:05:41Z`:
 
 - Telegram local commit `464cce4` (`Harden Telegram Level 5 runtime env`) added a shared effective Level 5 env resolver for Telegram. If a Telegram process is still carrying stale `SPARK_CODEX_SANDBOX=read-only` but the persisted Telegram Level 5 env files carry the full guardrail bundle, Spark CLI checks, access setup/restart helpers, and local LLM/provider subprocesses inherit `SPARK_CODEX_SANDBOX=danger-full-access`.
 - Spark CLI local commit `34c0cce` makes that anti-read-only contract executable in the R30 Access 5 gate, including the stale read-only lower-to-Level-5 regression, Telegram effective runtime-env proof, and Recursive bridge subprocess env-inheritance proof.
-- Spark CLI local commit `79789df` adds the Telegram R30 owner handoff patch gate, and `d5a97c0` makes the direct owner handoff manifest require the Telegram and Spawner patch artifacts as publication-bound review/apply material.
+- Spark CLI local commit `79789df` adds the Telegram R30 owner handoff patch gate, `d5a97c0` makes the direct owner handoff manifest require the Telegram and Spawner patch artifacts as publication-bound review/apply material, and the current verifier lane executes every recorded owner handoff patch apply proof inside temporary worktrees.
 - Spark CLI local commit `3e8d607` makes the voice registry decision gate require the prepared local voice release lane to record both ported commits with full hashes and their source commit hashes.
 - Spark CLI local commit `5453347` refreshed the R30 owner handoff docs, manifests, and Telegram patch artifact around `ce4a234` so the final Telegram Level 5 full-permission proof became part of the publication-bound handoff. The current refresh extends that handoff to `81c5eee`, adding the Level 5 full-permission audit doc to the same publication-bound owner patch.
 - New regression: a stale read-only Telegram process env plus complete persisted Level 5 guardrails must promote to effective `danger-full-access`; a partial persisted bundle must not promote.

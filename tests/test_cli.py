@@ -49,6 +49,7 @@ from spark_cli.cli import (
     collect_r30_live_status_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
+    collect_r30_owner_handoff_patch_apply_status,
     collect_r30_owner_action_packet,
     collect_r30_release_gate_payload,
     collect_r30_unattended_identity_guard_status,
@@ -13146,6 +13147,7 @@ class SparkCliTests(unittest.TestCase):
                 "publish_handoffs",
                 "owner_handoff_manifest",
                 "local_runtime_artifacts_handoff",
+                "r30_owner_handoff_patch_apply",
                 "release_lane",
                 "registry_pins",
             ],
@@ -13211,6 +13213,7 @@ class SparkCliTests(unittest.TestCase):
                 "publish_handoffs",
                 "owner_handoff_manifest",
                 "local_runtime_artifacts_handoff",
+                "r30_owner_handoff_patch_apply",
                 "release_lane",
                 "registry_pins",
             ],
@@ -13324,6 +13327,7 @@ class SparkCliTests(unittest.TestCase):
              }), \
              patch("spark_cli.cli.collect_r30_handoff_manifest_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_local_runtime_artifacts_handoff_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_handoff_patch_apply_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": False}), \
              patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": False}), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
@@ -14913,6 +14917,58 @@ class SparkCliTests(unittest.TestCase):
 
         self.assertFalse(payload["ok"])
         self.assertIn("missing_owner_handoff_patch_proof", payload["actions"][0]["action_issues"])
+
+    def test_r30_owner_handoff_patch_apply_status_verifies_expected_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "spark@example.test"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Spark Test"], cwd=repo, check=True)
+            (repo / "base.txt").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
+            base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+            (repo / "base.txt").write_text("base\nchanged\n", encoding="utf-8")
+            patch_path = root / "handoff.patch"
+            patch_text = subprocess.run(["git", "diff", "--binary"], cwd=repo, check=True, capture_output=True, text=True).stdout
+            patch_path.write_text(patch_text, encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            expected_tree = subprocess.run(["git", "write-tree"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+            subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=repo, check=True, capture_output=True)
+
+            owner_manifest = root / "owner.json"
+            voice_manifest = root / "voice.json"
+            owner_manifest.write_text(
+                json.dumps(
+                    {
+                        "direct_blockers": [
+                            {
+                                "module": "domain-chip-memory",
+                                "owner_handoff_patch": {
+                                    "path": str(patch_path),
+                                    "base_commit": base,
+                                    "expected_tree": expected_tree,
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            voice_manifest.write_text(json.dumps({}), encoding="utf-8")
+            payload = collect_r30_owner_handoff_patch_apply_status(
+                {"rows": [{"module": "domain-chip-memory", "path": str(repo)}]},
+                owner_manifest_path=owner_manifest,
+                voice_manifest_path=voice_manifest,
+                temp_root=root / "worktrees",
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["checks"][0]["actual_tree"], expected_tree)
+        self.assertEqual(payload["checks"][0]["apply_mode"], "git apply")
 
     def test_r30_cli_owner_handoff_docs_status_requires_live_head_command(self) -> None:
         release_lane = {"rows": [{"module": "spark-cli", "actual_commit": "a" * 40}]}
