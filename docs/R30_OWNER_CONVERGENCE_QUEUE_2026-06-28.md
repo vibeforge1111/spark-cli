@@ -10,11 +10,11 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work. Rechecked at `2026-06-28T08:17:28Z` after the
-Telegram mixed Level 5 proof hardening and R30 handoff refresh; dirty release
-repo count remained `0`, OS compile stayed green, the owner handoff manifest
-stayed aligned, local runtime handoff docs stayed aligned, patch-apply proof
-stayed green, and the Access 5 anti-read-only gate stayed green.
+red only for release-truth work. Rechecked at `2026-06-28T09:38:46Z` after the
+R30 Domain Chip Labs creator-plan handoff refresh; dirty release repo count
+remained `0`, OS compile stayed green, the owner handoff manifest stayed
+aligned, local runtime handoff docs stayed aligned, patch-apply proof stayed
+green, and the Access 5 anti-read-only gate stayed green.
 
 The current top-level source-truth blocker set is exactly `release_lane`,
 `r30_voice_registry_decision`, and `registry_pins`.
@@ -38,7 +38,7 @@ Current `release_lane` mismatches from the same gate:
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `ca21e183c6c0` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
 
-Fresh remote-ref audit at `2026-06-28T08:41:06Z` confirmed the owner bases
+Fresh remote-ref audit at `2026-06-28T09:38:46Z` confirmed the owner bases
 listed below are still current. No remote `release/r30-voice-trace-governor`,
 `release/r30-telegram-control-reliability`,
 `release/r30-spawner-runtime-artifact`, `release/r30-memory-authority-proof`,

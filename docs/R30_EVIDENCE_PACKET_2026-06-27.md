@@ -17,6 +17,43 @@ Current local runtime proof is strong for Spark OS compile, live status, provena
 
 ## Local Gate Results
 
+Fresh R30 proof refresh at `2026-06-28T09:38:46Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`,
+  `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`,
+  `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, and
+  `voice_surface_blockers=1`.
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`;
+  primary Telegram is running, `sparkqa-bot` is stopped/unstartable, Spawner UI
+  is healthy, and repair hints are empty.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`:
+  `ok=false`; the only failing module remains `spark-voice-comms`, with
+  registry pin `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` lagging remote
+  `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`:
+  `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`:
+  `ok=true`; local installer truth remains the self-consistent R29 baseline.
+- Telegram `npm run build`: passed.
+- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`;
+  13 baselined god-files, 1 shrinking, 0 growing, 0 new over cap.
+- Telegram `npm run control:proof:reliability`: failed at
+  `control:proof:live-trace`. The trace audit is actionable/blocking/fresh-strict
+  clean and legacy gaps remain backed only, but live trace join reports
+  `2/4` minimum joined route rows, `2/4` minimum no-action rows, safe prompt
+  proof `0/4`, 23 gap rows, 21 stale live route evidence rows, and 2 route
+  mismatches. Required fresh SparkRecursive_bot prompts are:
+  `I am mentioning build and mission, but do not start anything. What is the current Spark risk profile?`;
+  `I am asking about a bug in mission routing. Do not launch a mission; just explain the likely failure class.`;
+  `Do not repair anything. Just tell me whether a repair is needed right now, using fresh state.`;
+  `If memory says Spawner is down but spark live status says it is up, which source wins?`.
+- Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`
+  remains red by design: `dirty_repo_count=0`, `5` direct R30 blockers, `0`
+  supporting hygiene rows, `source_truth_ready=false`, and
+  `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`.
+- No registry pin, installer pin, hosted metadata, source tag, deploy, publish,
+  or remote merge was changed during this sweep.
+
 Fresh post-DCL proof refresh at `2026-06-28T09:23:56Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, and `voice_surface_blockers=1`.

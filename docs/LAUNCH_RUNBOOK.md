@@ -34,6 +34,7 @@ For the R30 installer batch, start from:
 - [R30 owner handoff packet](./R30_OWNER_HANDOFF_PACKET_2026-06-27.md)
 - [R30 evidence packet](./R30_EVIDENCE_PACKET_2026-06-27.md)
 - [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
+- [R30 Domain Chip Labs Telegram creator plan](./R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md)
 - [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
 - [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 
