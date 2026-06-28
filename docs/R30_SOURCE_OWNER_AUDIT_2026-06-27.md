@@ -33,6 +33,10 @@ The current Spark stack is clean enough to keep preparing R30, but several R30-r
 | `domain-chip-memory` | `1fd272e519b5`; ahead 1 | owner branch `3116ccaa3977`; remote `main` and `spark-ship-2026-06-26` `72a660a69c0c`; registry baseline tag `spark-ship-2026-06-22` `f7f16a6ea8ee` | registry pin `f7f16a6ea8ee` | Owner can review/push the vNext memory authority proof against the current owner release base before R30 registry claims. |
 | `spark-intelligence-builder` | `f21522accf66`; ahead 43 | owner branch `c94eac853fed`; remote `main` and `spark-ship-2026-06-26` `9d7bdefaa9a0`; registry baseline tag `spark-ship-2026-06-22` `e7f80fbf03bd` | registry pin `e7f80fbf03bd` | Owner can review/push or port the merge/fix stack against the current owner release base. The Builder historical trace lifecycle is carried as explicit historical release debt, not hidden closure. |
 
+For `spark-cli`, verify the live source-owner prep head with `git rev-parse HEAD`
+in `~/.spark/tools/spark-cli` instead of copying a debugging-lane hash into
+release truth.
+
 ## Fresh Remote Ref Audit
 
 Fresh `git ls-remote` audit on 2026-06-27 confirmed newer public owner refs that are not yet registry truth for R30. Rechecked at `2026-06-28T02:37:21Z`; the direct-blocker owner refs below still matched the packet:
