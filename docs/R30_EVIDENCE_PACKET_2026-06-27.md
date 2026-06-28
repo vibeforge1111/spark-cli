@@ -63,7 +63,7 @@ Publish handoff families:
 
 ## R30 Release Gate Details
 
-Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` from `spark-cli` head `5453347d5e297ec913e8f6086d14551abcf0e044`:
+Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` from `spark-cli` head `34995930f74cd1c2796f49ea05de27252235612d`:
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
@@ -106,13 +106,14 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spawner-ui`: focused Codex sandbox lane tests passed, `20 passed` for the refreshed Level 5 worker-env slice; `npm run build` passed. Local head is `3042f8acbdde`, including direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, and Codex worker env propagation.
 - `spawner-ui`: owner handoff tree-diff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080`; applying it to owner base `fdb8fded4744` produces tree `126d215fcfd7`. Fresh proof at `2026-06-28T03:04:29Z`: the focused Spawner lane passed with `59 passed`, `npm run build` passed, and `npm run check` passed with 0 Svelte errors and 0 warnings. The known local relay stderr from stopped/unauthorized relay endpoints did not fail the focused tests. This is review/apply material only, not registry or publication authority; the tree-diff form is intentional because the local Spawner range contains a merge-shaped history.
 
-Fresh voice owner-lane proof at `2026-06-28T01:50:12Z`; remote owner refs were rechecked at `2026-06-28T02:08:33Z`:
+Fresh voice owner-lane proof at `2026-06-28T03:29:13Z`; remote owner refs were rechecked at `2026-06-28T03:29:13Z`:
 
 - `spark-voice-comms` prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T00:54:49Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T01:50:12Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
+- Rechecked at `2026-06-28T03:29:13Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`; applying `docs/r30/patches/r30-voice-trace-governor.patch` to public base `c74490d68ece65ffad21dc5b88f44602e1afa703` produced tree `e3e1f881497011917fd9baa4f56db811ebccff7e` and passed `132 passed`.
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
-- Remote audit at `2026-06-28T02:08:33Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
+- Remote audit at `2026-06-28T03:29:13Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
 Fresh owner-handoff patch apply verification at `2026-06-28T02:43:50Z`:
 
