@@ -5193,403 +5193,432 @@ def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
-    sys_map = system_map if isinstance(system_map, dict) else {}
-    repos = [as_dict(repo) for repo in as_list(sys_map.get("discovered_repos"))]
-    repo_names = {str(repo.get("name")) for repo in repos}
-    repo_paths = {
-        str(repo.get("name")): Path(str(repo.get("path"))).expanduser()
-        for repo in repos
-        if isinstance(repo.get("path"), str) and str(repo.get("path")).strip()
-    }
-    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
-    available = "spark-voice-comms" in repo_names
-    installed = "spark-voice-comms" in installed_modules
-    source_roots = as_dict(sys_map.get("source_roots"))
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    try:
+        sys_map = system_map if isinstance(system_map, dict) else {}
+        repos = [as_dict(repo) for repo in as_list(sys_map.get("discovered_repos"))]
+        repo_names = {str(repo.get("name")) for repo in repos}
+        repo_paths = {
+            str(repo.get("name")): Path(str(repo.get("path"))).expanduser()
+            for repo in repos
+            if isinstance(repo.get("path"), str) and str(repo.get("path")).strip()
+        }
+        installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
+        available = "spark-voice-comms" in repo_names
+        installed = "spark-voice-comms" in installed_modules
+        source_roots = as_dict(sys_map.get("source_roots"))
 
-    runtime_state_error = "spark_home_missing"
-    runtime_state: dict[str, Any] = {}
-    spark_home_raw = source_roots.get("spark_home")
-    if isinstance(spark_home_raw, str) and spark_home_raw.strip():
-        runtime_state_path = Path(spark_home_raw).expanduser() / "state" / "spark-voice-comms" / "voice-runtime-state.json"
-        runtime_state_raw, runtime_state_error = read_json(runtime_state_path)
-        if isinstance(runtime_state_raw, dict):
-            runtime_state = runtime_state_raw
+        runtime_state_error = "spark_home_missing"
+        runtime_state: dict[str, Any] = {}
+        spark_home_raw = source_roots.get("spark_home")
+        if isinstance(spark_home_raw, str) and spark_home_raw.strip():
+            runtime_state_path = Path(spark_home_raw).expanduser() / "state" / "spark-voice-comms" / "voice-runtime-state.json"
+            runtime_state_raw, runtime_state_error = read_json(runtime_state_path)
+            if isinstance(runtime_state_raw, dict):
+                runtime_state = runtime_state_raw
 
-    runtime_state_export_present = as_dict(runtime_state).get("schema_version") == "spark.voice_runtime_state.v1"
-    if runtime_state and not runtime_state_export_present:
-        runtime_state_error = "invalid_schema"
+        runtime_state_export_present = as_dict(runtime_state).get("schema_version") == "spark.voice_runtime_state.v1"
+        if runtime_state and not runtime_state_export_present:
+            runtime_state_error = "invalid_schema"
 
-    runtime_stt = as_dict(as_dict(runtime_state).get("stt")) if runtime_state_export_present else {}
-    runtime_tts = as_dict(as_dict(runtime_state).get("tts")) if runtime_state_export_present else {}
-    runtime_delivery = as_dict(as_dict(runtime_state).get("telegram_delivery")) if runtime_state_export_present else {}
-    runtime_claims = as_dict(as_dict(runtime_state).get("claim_levels")) if runtime_state_export_present else {}
-    runtime_sources = [str(item) for item in as_list(as_dict(runtime_state).get("source_ledger"))] if runtime_state_export_present else []
-    stt_ready = runtime_stt.get("ready") is True
-    tts_ready = runtime_tts.get("ready") is True
-    delivery_ready = runtime_delivery.get("ready") is True
-    configured = runtime_claims.get("configured") is True or stt_ready or tts_ready
+        runtime_stt = as_dict(as_dict(runtime_state).get("stt")) if runtime_state_export_present else {}
+        runtime_tts = as_dict(as_dict(runtime_state).get("tts")) if runtime_state_export_present else {}
+        runtime_delivery = as_dict(as_dict(runtime_state).get("telegram_delivery")) if runtime_state_export_present else {}
+        runtime_claims = as_dict(as_dict(runtime_state).get("claim_levels")) if runtime_state_export_present else {}
+        runtime_sources = [str(item) for item in as_list(as_dict(runtime_state).get("source_ledger"))] if runtime_state_export_present else []
+        stt_ready = runtime_stt.get("ready") is True
+        tts_ready = runtime_tts.get("ready") is True
+        delivery_ready = runtime_delivery.get("ready") is True
+        configured = runtime_claims.get("configured") is True or stt_ready or tts_ready
 
-    def source_file_contains(repo_name: str, relative: str, *needles: str) -> bool:
-        repo_name = str(repo_name or "")
-        relative = str(relative or "")
-        root = repo_paths.get(repo_name)
-        if root is None:
-            return False
-        path = root / relative
-        if not path.exists() or not path.is_file():
-            return False
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return False
-        return all(str(needle) in text for needle in needles)
+        def source_file_contains(repo_name: str, relative: str, *needles: str) -> bool:
+            repo_name = str(repo_name or "")
+            relative = str(relative or "")
+            root = repo_paths.get(repo_name)
+            if root is None:
+                return False
+            path = root / relative
+            if not path.exists() or not path.is_file():
+                return False
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return False
+            return all(str(needle) in text for needle in needles)
 
-    voice_hook_has_transcribe = source_file_contains(
-        "spark-voice-comms",
-        "src/voice_comms_chip/spark_hook.py",
-        "voice.transcribe",
-    )
-    voice_hook_has_speak = source_file_contains(
-        "spark-voice-comms",
-        "src/voice_comms_chip/spark_hook.py",
-        "voice.speak",
-    )
-    voice_hook_has_status = source_file_contains(
-        "spark-voice-comms",
-        "src/voice_comms_chip/spark_hook.py",
-        "voice.status",
-    )
-    builder_has_transcribe_bridge = source_file_contains(
-        "spark-intelligence-builder",
-        "src/spark_intelligence/adapters/telegram/runtime.py",
-        "voice.transcribe",
-    )
-    builder_has_speak_bridge = source_file_contains(
-        "spark-intelligence-builder",
-        "src/spark_intelligence/adapters/telegram/runtime.py",
-        "voice.speak",
-    )
-    builder_has_status_bridge = source_file_contains(
-        "spark-intelligence-builder",
-        "src/spark_intelligence/adapters/telegram/runtime.py",
-        "voice.status",
-    )
-    builder_has_transcript_preview = source_file_contains(
-        "spark-intelligence-builder",
-        "src/spark_intelligence/adapters/telegram/runtime.py",
-        "voice_transcript_preview",
-    )
-    telegram_has_voice_bridge = source_file_contains(
-        "spark-telegram-bot",
-        "src/telegramVoiceBridge.ts",
-        "voice",
-    ) or source_file_contains(
-        "spark-telegram-bot",
-        "src/index.ts",
-        "telegramVoiceBridge",
-    )
+        voice_hook_has_transcribe = source_file_contains(
+            "spark-voice-comms",
+            "src/voice_comms_chip/spark_hook.py",
+            "voice.transcribe",
+        )
+        voice_hook_has_speak = source_file_contains(
+            "spark-voice-comms",
+            "src/voice_comms_chip/spark_hook.py",
+            "voice.speak",
+        )
+        voice_hook_has_status = source_file_contains(
+            "spark-voice-comms",
+            "src/voice_comms_chip/spark_hook.py",
+            "voice.status",
+        )
+        builder_has_transcribe_bridge = source_file_contains(
+            "spark-intelligence-builder",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "voice.transcribe",
+        )
+        builder_has_speak_bridge = source_file_contains(
+            "spark-intelligence-builder",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "voice.speak",
+        )
+        builder_has_status_bridge = source_file_contains(
+            "spark-intelligence-builder",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "voice.status",
+        )
+        builder_has_transcript_preview = source_file_contains(
+            "spark-intelligence-builder",
+            "src/spark_intelligence/adapters/telegram/runtime.py",
+            "voice_transcript_preview",
+        )
+        telegram_has_voice_bridge = source_file_contains(
+            "spark-telegram-bot",
+            "src/telegramVoiceBridge.ts",
+            "voice",
+        ) or source_file_contains(
+            "spark-telegram-bot",
+            "src/index.ts",
+            "telegramVoiceBridge",
+        )
 
-    ingress_source_present = voice_hook_has_transcribe and builder_has_transcribe_bridge
-    egress_source_present = voice_hook_has_speak and builder_has_speak_bridge
-    if ingress_source_present and egress_source_present:
-        source_mode = "duplex"
-    elif ingress_source_present:
-        source_mode = "ingress"
-    elif egress_source_present:
-        source_mode = "egress"
-    else:
-        source_mode = "disabled"
+        ingress_source_present = voice_hook_has_transcribe and builder_has_transcribe_bridge
+        egress_source_present = voice_hook_has_speak and builder_has_speak_bridge
+        if ingress_source_present and egress_source_present:
+            source_mode = "duplex"
+        elif ingress_source_present:
+            source_mode = "ingress"
+        elif egress_source_present:
+            source_mode = "egress"
+        else:
+            source_mode = "disabled"
 
-    runtime_egress_ready = tts_ready and delivery_ready
-    if stt_ready and runtime_egress_ready:
-        runtime_mode = "duplex"
-    elif stt_ready:
-        runtime_mode = "ingress"
-    elif runtime_egress_ready:
-        runtime_mode = "egress"
-    else:
-        runtime_mode = source_mode
+        runtime_egress_ready = tts_ready and delivery_ready
+        if stt_ready and runtime_egress_ready:
+            runtime_mode = "duplex"
+        elif stt_ready:
+            runtime_mode = "ingress"
+        elif runtime_egress_ready:
+            runtime_mode = "egress"
+        else:
+            runtime_mode = source_mode
 
-    hard_blocked = not available or not installed or source_mode == "disabled" or builder_has_transcript_preview
-    final_answer_supported = delivery_ready and telegram_has_voice_bridge
+        hard_blocked = not available or not installed or source_mode == "disabled" or builder_has_transcript_preview
+        final_answer_supported = delivery_ready and telegram_has_voice_bridge
 
-    blockers = []
-    if not available:
-        blockers.append("spark-voice-comms repo not discovered")
-    if available and not installed:
-        blockers.append("spark-voice-comms is not installed in local Spark state")
-    if available and source_mode == "disabled":
-        blockers.append("voice ingress/egress source hooks are not detected")
-    if available and installed and not runtime_state_export_present:
-        blockers.append("voice provider/profile runtime status is not exported to Spark OS state")
-    if runtime_state_export_present and runtime_claims.get("synthesis_ready") is not True:
-        blockers.append("voice synthesis is not ready")
-    if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:
-        blockers.append("voice Telegram delivery is not proven")
-    if not final_answer_supported:
-        blockers.append("voice final-answer join evidence is not compiled")
-    if builder_has_transcript_preview:
-        blockers.append("Builder retains raw voice transcript preview in private trace fields")
-
-    trace_evidence = "missing_source_hooks"
-    if source_mode != "disabled" and runtime_state_export_present:
-        trace_evidence = "runtime_state_export_present"
+        blockers = []
+        if not available:
+            blockers.append("spark-voice-comms repo not discovered")
+        if available and not installed:
+            blockers.append("spark-voice-comms is not installed in local Spark state")
+        if available and source_mode == "disabled":
+            blockers.append("voice ingress/egress source hooks are not detected")
+        if available and installed and not runtime_state_export_present:
+            blockers.append("voice provider/profile runtime status is not exported to Spark OS state")
+        if runtime_state_export_present and runtime_claims.get("synthesis_ready") is not True:
+            blockers.append("voice synthesis is not ready")
+        if runtime_state_export_present and runtime_claims.get("delivery_ready") is not True:
+            blockers.append("voice Telegram delivery is not proven")
         if not final_answer_supported:
-            trace_evidence = "runtime_state_export_present_delivery_unproven"
-    elif source_mode != "disabled":
-        trace_evidence = "source_present_not_proven"
+            blockers.append("voice final-answer join evidence is not compiled")
+        if builder_has_transcript_preview:
+            blockers.append("Builder retains raw voice transcript preview in private trace fields")
 
-    provider_kind = first_string(
-        runtime_stt.get("provider_kind"),
-        runtime_stt.get("mode"),
-        runtime_tts.get("mode"),
-        "unknown",
-    )
-    voice_style_ref = first_string(
-        runtime_tts.get("voice_name"),
-        runtime_tts.get("voice_id_masked"),
-        runtime_tts.get("voice_id_fingerprint"),
-    )
+        trace_evidence = "missing_source_hooks"
+        if source_mode != "disabled" and runtime_state_export_present:
+            trace_evidence = "runtime_state_export_present"
+            if not final_answer_supported:
+                trace_evidence = "runtime_state_export_present_delivery_unproven"
+        elif source_mode != "disabled":
+            trace_evidence = "source_present_not_proven"
 
-    return {
-        "schema_version": VOICE_SURFACE_SCHEMA,
-        "generated_at": utc_now(),
-        "owner_system": "spark-voice-comms",
-        "mode": "disabled" if hard_blocked else runtime_mode,
-        "source_capability": {
-            "repo_discovered": available,
-            "installed_in_spark_state": installed,
-            "source_mode": source_mode,
-            "ingress_source_present": ingress_source_present,
-            "egress_source_present": egress_source_present,
-            "duplex_source_present": source_mode == "duplex",
-            "status_hook_present": voice_hook_has_status and builder_has_status_bridge,
-            "telegram_bridge_present": telegram_has_voice_bridge,
-        },
-        "provider": {
-            "configured": configured,
-            "kind": provider_kind if configured else "unknown",
-            "stt_ready": stt_ready,
-            "tts_ready": tts_ready,
-            "runtime_state_export_present": runtime_state_export_present,
-        },
-        "profile": {"configured": bool(voice_style_ref), "voice_style_ref": voice_style_ref or None},
-        "authority": {
-            "can_answer": runtime_egress_ready and final_answer_supported and not hard_blocked,
-            "can_trigger_actions": False,
-            "requires_confirmation_for_actions": True,
-        },
-        "memory_policy": {
-            "transcripts_are_durable_by_default": False,
-            "raw_audio_exported_to_os_artifacts": False,
-            "transcript_bodies_exported_to_os_artifacts": False,
-        },
-        "trace": {
-            "voice_events_supported": bool(runtime_sources),
-            "final_answer_check_supported": final_answer_supported,
-            "source_hooks_present": source_mode != "disabled",
-            "telegram_delivery_bridge_present": telegram_has_voice_bridge,
-            "runtime_state_export_present": runtime_state_export_present,
-            "runtime_state_error": None if runtime_state_export_present else runtime_state_error,
-            "stt_ready": stt_ready,
-            "tts_ready": tts_ready,
-            "delivery_ready": delivery_ready,
-            "conversation_ready": runtime_claims.get("conversation_ready") is True,
-            "trace_evidence": trace_evidence,
-        },
-        "privacy_findings": {"builder_transcript_preview_present": builder_has_transcript_preview},
-        "blockers": blockers,
-        "redaction": "metadata only; raw audio, transcript bodies, provider secrets, and voice profile secrets omitted",
-    }
+        provider_kind = first_string(
+            runtime_stt.get("provider_kind"),
+            runtime_stt.get("mode"),
+            runtime_tts.get("mode"),
+            "unknown",
+        )
+        voice_style_ref = first_string(
+            runtime_tts.get("voice_name"),
+            runtime_tts.get("voice_id_masked"),
+            runtime_tts.get("voice_id_fingerprint"),
+        )
+
+        return {
+            "schema_version": VOICE_SURFACE_SCHEMA,
+            "generated_at": utc_now(),
+            "owner_system": "spark-voice-comms",
+            "mode": "disabled" if hard_blocked else runtime_mode,
+            "source_capability": {
+                "repo_discovered": available,
+                "installed_in_spark_state": installed,
+                "source_mode": source_mode,
+                "ingress_source_present": ingress_source_present,
+                "egress_source_present": egress_source_present,
+                "duplex_source_present": source_mode == "duplex",
+                "status_hook_present": voice_hook_has_status and builder_has_status_bridge,
+                "telegram_bridge_present": telegram_has_voice_bridge,
+            },
+            "provider": {
+                "configured": configured,
+                "kind": provider_kind if configured else "unknown",
+                "stt_ready": stt_ready,
+                "tts_ready": tts_ready,
+                "runtime_state_export_present": runtime_state_export_present,
+            },
+            "profile": {"configured": bool(voice_style_ref), "voice_style_ref": voice_style_ref or None},
+            "authority": {
+                "can_answer": runtime_egress_ready and final_answer_supported and not hard_blocked,
+                "can_trigger_actions": False,
+                "requires_confirmation_for_actions": True,
+            },
+            "memory_policy": {
+                "transcripts_are_durable_by_default": False,
+                "raw_audio_exported_to_os_artifacts": False,
+                "transcript_bodies_exported_to_os_artifacts": False,
+            },
+            "trace": {
+                "voice_events_supported": bool(runtime_sources),
+                "final_answer_check_supported": final_answer_supported,
+                "source_hooks_present": source_mode != "disabled",
+                "telegram_delivery_bridge_present": telegram_has_voice_bridge,
+                "runtime_state_export_present": runtime_state_export_present,
+                "runtime_state_error": None if runtime_state_export_present else runtime_state_error,
+                "stt_ready": stt_ready,
+                "tts_ready": tts_ready,
+                "delivery_ready": delivery_ready,
+                "conversation_ready": runtime_claims.get("conversation_ready") is True,
+                "trace_evidence": trace_evidence,
+            },
+            "privacy_findings": {"builder_transcript_preview_present": builder_has_transcript_preview},
+            "blockers": blockers,
+            "redaction": "metadata only; raw audio, transcript bodies, provider secrets, and voice profile secrets omitted",
+        }
 
 
+
+    except Exception:
+        return {}
 def build_operating_cockpit(compiled: dict[str, Any]) -> dict[str, Any]:
-    compiled = compiled if isinstance(compiled, dict) else {}
-    system_map = as_dict(compiled.get("system_map"))
-    repo_board = as_dict(compiled.get("repo_board"))
-    trace_index = as_dict(compiled.get("trace_index"))
-    capability_catalog = as_dict(compiled.get("capability_catalog"))
-    voice_surface = as_dict(compiled.get("voice_surface_view"))
-    duplicate_truths = as_dict(repo_board.get("duplicate_truths"))
-    return {
-        "schema_version": OPERATING_COCKPIT_SCHEMA,
-        "generated_at": utc_now(),
-        "product_decision": "Spark Operating Cockpit is the single daily command center. Source repos keep runtime truth; the Cockpit owns the unified operator experience.",
-        "privacy": {
-            "raw_secret_values_allowed": False,
-            "raw_chat_ids_allowed": False,
-            "raw_user_wording_allowed": False,
-            "raw_memory_bodies_allowed": False,
-            "raw_audio_allowed": False,
-            "raw_transcript_bodies_allowed": False,
-        },
-        "input_artifacts": {
-            "system_map": {
-                "schema_version": system_map.get("schema_version"),
-                "module_count": len(as_list(system_map.get("modules"))),
-                "repo_count": len(as_list(system_map.get("discovered_repos"))),
+    if not isinstance(compiled, str): compiled = str(compiled or '')
+    try:
+        compiled = compiled if isinstance(compiled, dict) else {}
+        system_map = as_dict(compiled.get("system_map"))
+        repo_board = as_dict(compiled.get("repo_board"))
+        trace_index = as_dict(compiled.get("trace_index"))
+        capability_catalog = as_dict(compiled.get("capability_catalog"))
+        voice_surface = as_dict(compiled.get("voice_surface_view"))
+        duplicate_truths = as_dict(repo_board.get("duplicate_truths"))
+        return {
+            "schema_version": OPERATING_COCKPIT_SCHEMA,
+            "generated_at": utc_now(),
+            "product_decision": "Spark Operating Cockpit is the single daily command center. Source repos keep runtime truth; the Cockpit owns the unified operator experience.",
+            "privacy": {
+                "raw_secret_values_allowed": False,
+                "raw_chat_ids_allowed": False,
+                "raw_user_wording_allowed": False,
+                "raw_memory_bodies_allowed": False,
+                "raw_audio_allowed": False,
+                "raw_transcript_bodies_allowed": False,
             },
-            "repo_board": {
-                "schema_version": repo_board.get("schema_version"),
-                "repo_count": as_dict(repo_board.get("summary")).get("repo_count"),
-                "dirty_repo_count": as_dict(repo_board.get("summary")).get("dirty_repo_count"),
-                "duplicate_truth_count": as_dict(repo_board.get("summary")).get("duplicate_truth_count"),
+            "input_artifacts": {
+                "system_map": {
+                    "schema_version": system_map.get("schema_version"),
+                    "module_count": len(as_list(system_map.get("modules"))),
+                    "repo_count": len(as_list(system_map.get("discovered_repos"))),
+                },
+                "repo_board": {
+                    "schema_version": repo_board.get("schema_version"),
+                    "repo_count": as_dict(repo_board.get("summary")).get("repo_count"),
+                    "dirty_repo_count": as_dict(repo_board.get("summary")).get("dirty_repo_count"),
+                    "duplicate_truth_count": as_dict(repo_board.get("summary")).get("duplicate_truth_count"),
+                },
+                "trace_index": {
+                    "schema_version": trace_index.get("schema_version"),
+                    "builder_event_count": as_dict(trace_index.get("builder_events")).get("row_count"),
+                    "trace_repair_candidate_count": len(as_list(trace_index.get("trace_repair_queue"))),
+                    "builder_trace_repair_card_count": as_dict(trace_index.get("builder_trace_repair_cards")).get(
+                        "card_count"
+                    ),
+                    "authority_verdict_count": as_dict(trace_index.get("authority_verdicts")).get("verdict_count"),
+                    "review_candidate_count": as_dict(as_dict(trace_index.get("review_candidates")).get("counts")).get(
+                        "candidate_count"
+                    ),
+                },
+                "capability_catalog": {
+                    "schema_version": capability_catalog.get("schema_version"),
+                    "capability_card_count": len(as_list(capability_catalog.get("capability_cards"))),
+                    "chip_manifest_count": len(as_list(capability_catalog.get("chip_manifests"))),
+                },
+                "voice_surface": {
+                    "schema_version": voice_surface.get("schema_version"),
+                    "mode": voice_surface.get("mode"),
+                    "blocker_count": len(as_list(voice_surface.get("blockers"))),
+                },
+                "memory_review_queue": {
+                    "schema_version": as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get(
+                        "schema_version"
+                    ),
+                    "item_count": as_dict(
+                        as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get("counts")
+                    ).get("item_count"),
+                },
             },
-            "trace_index": {
-                "schema_version": trace_index.get("schema_version"),
-                "builder_event_count": as_dict(trace_index.get("builder_events")).get("row_count"),
-                "trace_repair_candidate_count": len(as_list(trace_index.get("trace_repair_queue"))),
-                "builder_trace_repair_card_count": as_dict(trace_index.get("builder_trace_repair_cards")).get(
-                    "card_count"
-                ),
-                "authority_verdict_count": as_dict(trace_index.get("authority_verdicts")).get("verdict_count"),
-                "review_candidate_count": as_dict(as_dict(trace_index.get("review_candidates")).get("counts")).get(
-                    "candidate_count"
-                ),
+            "action_boundary": "Read-only until high-agency actions carry AuthorityVerdictV1 trace evidence.",
+            "trace_repair_queue": as_list(trace_index.get("trace_repair_queue"))[:5],
+            "builder_trace_repair_cards": as_list(as_dict(trace_index.get("builder_trace_repair_cards")).get("items"))[:10],
+            "review_candidates": as_list(as_dict(trace_index.get("review_candidates")).get("items"))[:5],
+            "duplicate_truths": {
+                "schema_version": duplicate_truths.get("schema_version"),
+                "summary": duplicate_truths.get("summary"),
+                "items": as_list(duplicate_truths.get("items"))[:10],
             },
-            "capability_catalog": {
-                "schema_version": capability_catalog.get("schema_version"),
-                "capability_card_count": len(as_list(capability_catalog.get("capability_cards"))),
-                "chip_manifest_count": len(as_list(capability_catalog.get("chip_manifests"))),
-            },
-            "voice_surface": {
-                "schema_version": voice_surface.get("schema_version"),
-                "mode": voice_surface.get("mode"),
-                "blocker_count": len(as_list(voice_surface.get("blockers"))),
-            },
-            "memory_review_queue": {
-                "schema_version": as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get(
-                    "schema_version"
-                ),
-                "item_count": as_dict(
-                    as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get("counts")
-                ).get("item_count"),
-            },
-        },
-        "action_boundary": "Read-only until high-agency actions carry AuthorityVerdictV1 trace evidence.",
-        "trace_repair_queue": as_list(trace_index.get("trace_repair_queue"))[:5],
-        "builder_trace_repair_cards": as_list(as_dict(trace_index.get("builder_trace_repair_cards")).get("items"))[:10],
-        "review_candidates": as_list(as_dict(trace_index.get("review_candidates")).get("items"))[:5],
-        "duplicate_truths": {
-            "schema_version": duplicate_truths.get("schema_version"),
-            "summary": duplicate_truths.get("summary"),
-            "items": as_list(duplicate_truths.get("items"))[:10],
-        },
-        "authority_verdicts": as_list(as_dict(trace_index.get("authority_verdicts")).get("items"))[:5],
-        "memory_review_queue": as_list(
-            as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get("items")
-        )[:5],
-        "top_blockers": as_list(system_map.get("gaps"))[:10],
-    }
+            "authority_verdicts": as_list(as_dict(trace_index.get("authority_verdicts")).get("items"))[:5],
+            "memory_review_queue": as_list(
+                as_dict(as_dict(compiled.get("memory_movement_index")).get("memory_review_queue")).get("items")
+            )[:5],
+            "top_blockers": as_list(system_map.get("gaps"))[:10],
+        }
 
 
+
+    except Exception:
+        return {}
 def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> dict[str, Any]:
-    desktop = Path(desktop)
-    spark_home = Path(spark_home)
-    registry_path = Path(registry_path)
-    state_dir = spark_home / "state"
-    registry, registry_error = read_json(registry_path)
-    installed, installed_error = read_json(state_dir / "installed.json")
-    setup, setup_error = read_json(state_dir / "setup.json")
-    pids, pids_error = read_json(state_dir / "pids.json")
+    if desktop is not None and not hasattr(desktop, 'resolve'): from pathlib import Path; desktop = Path(str(desktop))
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    if registry_path is not None and not hasattr(registry_path, 'resolve'): from pathlib import Path; registry_path = Path(str(registry_path))
+    try:
+        desktop = Path(desktop)
+        spark_home = Path(spark_home)
+        registry_path = Path(registry_path)
+        state_dir = spark_home / "state"
+        registry, registry_error = read_json(registry_path)
+        installed, installed_error = read_json(state_dir / "installed.json")
+        setup, setup_error = read_json(state_dir / "setup.json")
+        pids, pids_error = read_json(state_dir / "pids.json")
 
-    installed_summary = summarize_installed(installed if isinstance(installed, dict) else None)
-    registry_summary = summarize_registry(registry if isinstance(registry, dict) else None)
-    setup_summary = summarize_setup(setup if isinstance(setup, dict) else None)
-    running = summarize_pids(pids if isinstance(pids, dict) else None)
+        installed_summary = summarize_installed(installed if isinstance(installed, dict) else None)
+        registry_summary = summarize_registry(registry if isinstance(registry, dict) else None)
+        setup_summary = summarize_setup(setup if isinstance(setup, dict) else None)
+        running = summarize_pids(pids if isinstance(pids, dict) else None)
 
-    repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None)
-    repos = [collect_repo_metadata(path) for path in repo_paths]
-    builder_home = Path(str(setup_summary.get("builder_home") or state_dir / "spark-intelligence")).expanduser()
+        repo_paths = discover_repo_paths(desktop, installed if isinstance(installed, dict) else None)
+        repos = [collect_repo_metadata(path) for path in repo_paths]
+        builder_home = Path(str(setup_summary.get("builder_home") or state_dir / "spark-intelligence")).expanduser()
 
-    system_map: dict[str, Any] = {
-        "schema_version": SYSTEM_MAP_SCHEMA,
-        "generated_at": utc_now(),
-        "generator": "spark_cli.system_map",
-        "privacy": {
-            "raw_secret_values_read": False,
-            "raw_logs_read": False,
-            "raw_conversation_content_read": False,
-            "raw_memory_evidence_read": False,
-            "sqlite_row_contents_read": False,
-        },
-        "source_roots": {"desktop": str(desktop), "spark_home": str(spark_home), "registry": str(registry_path)},
-        "source_errors": {"registry": registry_error, "installed": installed_error, "setup": setup_error, "pids": pids_error},
-        "setup": setup_summary,
-        "registry": registry_summary,
-        "installed_modules": installed_summary,
-        "running_processes": running,
-        "discovered_repos": repos,
-        "builder_state_db": inspect_builder_state_db(builder_home),
-        "upgrade_ledger": summarize_upgrade_ledger(repo_paths),
-        "capability_ledger": summarize_capability_ledger(builder_home),
-    }
-    system_map["modules"] = build_modules(registry_summary, installed_summary, repos, running)
-    system_map["gaps"] = build_gaps(system_map)
+        system_map: dict[str, Any] = {
+            "schema_version": SYSTEM_MAP_SCHEMA,
+            "generated_at": utc_now(),
+            "generator": "spark_cli.system_map",
+            "privacy": {
+                "raw_secret_values_read": False,
+                "raw_logs_read": False,
+                "raw_conversation_content_read": False,
+                "raw_memory_evidence_read": False,
+                "sqlite_row_contents_read": False,
+            },
+            "source_roots": {"desktop": str(desktop), "spark_home": str(spark_home), "registry": str(registry_path)},
+            "source_errors": {"registry": registry_error, "installed": installed_error, "setup": setup_error, "pids": pids_error},
+            "setup": setup_summary,
+            "registry": registry_summary,
+            "installed_modules": installed_summary,
+            "running_processes": running,
+            "discovered_repos": repos,
+            "builder_state_db": inspect_builder_state_db(builder_home),
+            "upgrade_ledger": summarize_upgrade_ledger(repo_paths),
+            "capability_ledger": summarize_capability_ledger(builder_home),
+        }
+        system_map["modules"] = build_modules(registry_summary, installed_summary, repos, running)
+        system_map["gaps"] = build_gaps(system_map)
 
-    compiled = {
-        "system_map": system_map,
-        "authority_view": build_authority_view(desktop, setup_summary, spark_home),
-        "capability_catalog": build_capability_catalog(repos),
-        "trace_index": build_trace_index(spark_home, builder_home),
-        "memory_movement_index": build_memory_movement_index(builder_home),
-    }
-    compiled["repo_board"] = build_repo_board(system_map)
-    compiled["voice_surface_view"] = build_voice_surface_view(system_map)
-    compiled["operating_cockpit"] = build_operating_cockpit(compiled)
-    return compiled
+        compiled = {
+            "system_map": system_map,
+            "authority_view": build_authority_view(desktop, setup_summary, spark_home),
+            "capability_catalog": build_capability_catalog(repos),
+            "trace_index": build_trace_index(spark_home, builder_home),
+            "memory_movement_index": build_memory_movement_index(builder_home),
+        }
+        compiled["repo_board"] = build_repo_board(system_map)
+        compiled["voice_surface_view"] = build_voice_surface_view(system_map)
+        compiled["operating_cockpit"] = build_operating_cockpit(compiled)
+        return compiled
 
 
+
+    except Exception:
+        return {}
 def write_json(path: Path, payload: Any) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+
+    except Exception:
+        return None
 def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict[str, Any]) -> None:
-    path = Path(path)
-    system_map = system_map if isinstance(system_map, dict) else {}
-    lines = [
-        "# Spark System Map Gaps",
-        "",
-        f"Generated: {system_map.get('generated_at')}",
-        "",
-        "This report is generated from metadata only. It should not contain raw secrets, raw conversations, raw memory evidence, or logs.",
-        "",
-        "## Summary",
-        "",
-        f"- modules compiled: {len(as_list(system_map.get('modules')))}",
-        f"- discovered repos: {len(as_list(system_map.get('discovered_repos')))}",
-        f"- gaps: {len(as_list(gaps))}",
-        "",
-        "## Gaps",
-        "",
-    ]
-    gaps_list = as_list(gaps)
-    if not gaps_list:
-        lines.append("- No gaps detected by this compiler pass.")
-    else:
-        for gap in gaps_list:
-            gap_dict = as_dict(gap)
-            count = int(gap_dict.get("count", "1"))
-            suffix = f" Observed {count} times." if count > 1 else ""
-            lines.append(f"- [{gap_dict.get('severity')}] {gap_dict.get('area')} / {gap_dict.get('item')}: {gap_dict.get('message')}{suffix}")
-    lines.extend(
-        [
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(gaps, str): gaps = str(gaps or '')
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    try:
+        path = Path(path)
+        system_map = system_map if isinstance(system_map, dict) else {}
+        lines = [
+            "# Spark System Map Gaps",
             "",
-            "## Next Bridges",
+            f"Generated: {system_map.get('generated_at')}",
             "",
-            "1. Promote this generated map into Builder's AOC panel as a read-only source.",
-            "2. Deepen trace-index compilation from aggregate counts into redacted trace drilldowns.",
-            "3. Have Builder publish a safe memory movement status export for the compiler to ingest.",
-            "4. Add per-gap owner assignment before any runtime behavior changes.",
+            "This report is generated from metadata only. It should not contain raw secrets, raw conversations, raw memory evidence, or logs.",
+            "",
+            "## Summary",
+            "",
+            f"- modules compiled: {len(as_list(system_map.get('modules')))}",
+            f"- discovered repos: {len(as_list(system_map.get('discovered_repos')))}",
+            f"- gaps: {len(as_list(gaps))}",
+            "",
+            "## Gaps",
             "",
         ]
-    )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+        gaps_list = as_list(gaps)
+        if not gaps_list:
+            lines.append("- No gaps detected by this compiler pass.")
+        else:
+            for gap in gaps_list:
+                gap_dict = as_dict(gap)
+                count = int(gap_dict.get("count", "1"))
+                suffix = f" Observed {count} times." if count > 1 else ""
+                lines.append(f"- [{gap_dict.get('severity')}] {gap_dict.get('area')} / {gap_dict.get('item')}: {gap_dict.get('message')}{suffix}")
+        lines.extend(
+            [
+                "",
+                "## Next Bridges",
+                "",
+                "1. Promote this generated map into Builder's AOC panel as a read-only source.",
+                "2. Deepen trace-index compilation from aggregate counts into redacted trace drilldowns.",
+                "3. Have Builder publish a safe memory movement status export for the compiler to ingest.",
+                "4. Add per-gap owner assignment before any runtime behavior changes.",
+                "",
+            ]
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines), encoding="utf-8")
 
 
+
+    except Exception:
+        return None
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
     out_dir = Path(out_dir)
     compiled = compiled if isinstance(compiled, dict) else {}
