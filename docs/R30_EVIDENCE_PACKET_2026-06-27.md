@@ -336,12 +336,11 @@ Key results:
 - Capability evidence: clean.
 - Surface eval: clean, `26` cases checked, `0` issues.
 
-Fresh proof refresh at `2026-06-28T04:37:39Z`:
+Fresh proof refresh at `2026-06-28T08:25:16Z`:
 
 - Telegram `npm run build`: passed.
-- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap. `src/index.ts` shrank `10804 -> 10801`; `src/recursive.ts` shrank `3198 -> 3197`.
-- Telegram `npm run control:proof:live-trace`: passed with `Status: clean`, 16 structurally joined rows, 4 joined live rows, 0 gap rows, live route proof 4/4, no-action route proof 4/4, and safe prompt proof 4/4.
-- Telegram `npm run control:proof:reliability`: passed. Fresh-strict trace audit remains clean for actionable/blocking/latest gaps; legacy proof gaps remain backed and non-release-blocking in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`; render firewall, proof capsules, eval coverage, legacy prompt surface, capability evidence, and surface eval are all clean.
+- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap. `src/index.ts` shrank `10804 -> 10802`; `src/recursive.ts` shrank `3198 -> 3197`.
+- Telegram `npm run control:proof:reliability`: passed. Fresh-strict trace audit remains clean for actionable/blocking/latest gaps; legacy proof gaps remain backed and non-release-blocking in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`; live trace join is clean with 21 structurally joined rows, 5 joined live rows, 0 gap rows, live route proof 5/4, no-action route proof 5/4, and safe prompt proof 4/4; render firewall, proof capsules, eval coverage, legacy prompt surface, capability evidence, and surface eval are all clean.
 
 ## Registry Pin Blocker
 
