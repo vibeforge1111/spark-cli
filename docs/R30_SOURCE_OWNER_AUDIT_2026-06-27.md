@@ -71,6 +71,7 @@ Evidence:
 - The same prepared local owner-lane was rechecked at `2026-06-28T01:50:12Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - The same prepared local owner-lane was rechecked at `2026-06-28T03:29:13Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`; applying the voice handoff patch to public base `c74490d68ece65ffad21dc5b88f44602e1afa703` produced tree `e3e1f881497011917fd9baa4f56db811ebccff7e` and passed `132 passed`.
 - The same prepared local owner-lane was rechecked at `2026-06-28T04:41:25Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`; remote refs still showed no owner `release/r30-voice-trace-governor` branch.
+- The same prepared local owner-lane was rechecked at `2026-06-28T07:12:13Z`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`; remote refs still showed no owner `release/r30-voice-trace-governor` branch.
 - The local branch adds the current Spark OS voice proof pieces over the owner branch:
   - `8a246af Join voice runtime state traces`
   - `7555a36 Accept media transcription governor authority`
