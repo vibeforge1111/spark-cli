@@ -7,14 +7,27 @@ Status: local proof packet; R30 blocked before registry/installer publication
 
 R30 is not ready for installer pin changes or hosted publication.
 
-Local runtime proof is strong: Spark OS compile, live status, provenance, local installer integrity, and Telegram reliability gates are green. The remaining blockers are release-truth blockers:
+Current local runtime proof is strong for Spark OS compile, live status, provenance, local installer integrity, Telegram build, and Telegram line-count. The Telegram reliability ladder is not currently green because the live trace-join recapture is stale and needs fresh SparkRecursive_bot safe-prompt rows. The remaining blockers are:
 
 - `spark-voice-comms` registry pin drift is still real.
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder still has one historical high-severity lifecycle family.
 - Source-owner handoffs have not yet landed remotely.
+- Telegram live trace recapture needs four fresh SparkRecursive_bot safe prompts before the reliability gate can be called green again.
 
 ## Local Gate Results
+
+Fresh post-DCL proof refresh at `2026-06-28T09:23:56Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`, `dirty_repo_count=0`, `blocked_release_count=0`, `critical_duplicate_truth_count=0`, `voice_surface_mode=egress`, and `voice_surface_blockers=1`.
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; primary Telegram profile is running, `sparkqa-bot` remains visible but stopped/unstartable, Spawner UI is healthy, and repair hints are empty.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: `ok=false`; the only failing module remains `spark-voice-comms`, with registry pin `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` lagging remote `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`; local installer truth is still the self-consistent R29 baseline.
+- Telegram `npm run build`: passed.
+- Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 1 shrinking, 0 growing, 0 new over cap.
+- Telegram `npm run control:proof:reliability`: failed at `control:proof:live-trace`. The trace audit itself is actionable/blocking/fresh-strict clean and legacy gaps remain backed only, but live trace join reports 8 gap rows, 6 stale live route evidence rows, 2 old `conversation.ideation` route mismatches, and safe prompt proof `3/4` because `memory_vs_fresh_state` is stale. Required recapture prompts are emitted by `npm run control:proof:live-trace:prompts`.
+- No registry pin, installer pin, hosted metadata, source tag, deploy, publish, or remote merge was changed during this sweep.
 
 Fresh access/reliability refresh at `2026-06-28T05:33:54Z`:
 
@@ -105,9 +118,9 @@ Fresh hosted baseline refresh at `2026-06-28T08:57:48Z`:
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` | FAIL | Only failing module is `spark-voice-comms`: registry pin `21a9467e9bd4...` diverges from remote `refs/heads/main` at `c74490d68ece...`. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json` | PASS | `ok=true`; commit pins and attestation metadata present; signed commit enforcement remains report-only. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json` | PASS | Local installer manifest/scripts are internally consistent for R29. This does not claim R30 readiness. |
-| Telegram `npm run control:proof:reliability` | PASS | Fresh-strict audit clean for actionable/latest gaps; live trace clean; render firewall, capsules, evals, legacy prompt surface, capability evidence, and surface eval all clean. |
-| Telegram `npm run build` | PASS | TypeScript compile passed. |
-| Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap. `src/index.ts` shrank `10804 -> 10801`; `src/recursive.ts` shrank `3198 -> 3197`. |
+| Telegram `npm run control:proof:reliability` | FAIL | Latest run failed at `control:proof:live-trace`: trace audit is clean, but live proof is stale, safe prompt proof is `3/4`, and two old `conversation.ideation` mismatches remain sampled. Recapture the four SparkRecursive_bot safe prompts before calling Telegram reliability green. |
+| Telegram `npm run build` | PASS | TypeScript compile passed on the latest Telegram head. |
+| Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 1 shrinking, 0 growing, 0 new over cap. `src/recursive.ts` shrank `3198 -> 3197`. |
 | Level 5 named-profile service proof | PASS | `PYTHONPATH=src python3 -m pytest -q tests/test_access.py -k "level5"` passed with regressions proving startable Telegram profiles must restart after Level 5 guardrail setup. If one startable profile is stale or missing, Level 5 reports `partial`, `service_enabled=false`, and effective access stays at Level 4. A stale no-token profile file is reported as `skipped_unstartable_telegram_profiles` instead of downgrading the whole install. |
 | R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | PASS | Hosted `agent.sparkswarm.ai` and local committed installer truth agree on R29. Hosted script bytes match hosted checksum metadata; hosted command metadata and release manifest match R29. This does not claim R30 readiness. |
