@@ -414,6 +414,87 @@ class AccessSetupTests(unittest.TestCase):
             self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
             self.assertFalse(status_payload["state_machine"]["current_process_can_operate_whole_computer"])
 
+    def test_access_level5_transition_from_lower_levels_repairs_profile_env_despite_stale_read_only_process(self) -> None:
+        for starting_level in (1, 3, 4):
+            with self.subTest(starting_level=starting_level), tempfile.TemporaryDirectory() as tmpdir:
+                spark_home = Path(tmpdir) / "spark-home"
+                module_env = spark_home / "config" / "modules"
+                module_env.mkdir(parents=True)
+                (module_env / "spark-telegram-bot.primary.env").write_text(
+                    "BOT_NAME=primary\n"
+                    "BOT_TOKEN=fake-primary\n"
+                    "SPARK_ALLOW_HIGH_AGENCY_WORKERS=0\n"
+                    "SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=0\n"
+                    "SPARK_CODEX_SANDBOX=read-only\n",
+                    encoding="utf-8",
+                )
+                (module_env / "spark-telegram-bot.recursive.env").write_text(
+                    "BOT_NAME=recursive\n"
+                    "BOT_TOKEN=fake-recursive\n"
+                    "SPARK_CODEX_SANDBOX=read-only\n",
+                    encoding="utf-8",
+                )
+                _, lower_payload = self.run_access(
+                    "status",
+                    "--level",
+                    str(starting_level),
+                    spark_home=spark_home,
+                    env_overrides={"SPARK_CODEX_SANDBOX": "read-only"},
+                )
+                setup_exit, setup_payload = self.run_access(
+                    "setup",
+                    "--level",
+                    "5",
+                    "--enable-high-agency",
+                    spark_home=spark_home,
+                    env_overrides={"SPARK_CODEX_SANDBOX": "read-only"},
+                )
+                state_dir = spark_home / "state"
+                state_dir.mkdir(parents=True)
+                (state_dir / "pids.json").write_text(
+                    json.dumps(
+                        {
+                            "spawner-ui": {
+                                "pid": 111,
+                                "module": "spawner-ui",
+                                "started_at": "2999-01-01T00:00:00Z",
+                            },
+                            "spark-telegram-bot:primary": {
+                                "pid": 222,
+                                "module": "spark-telegram-bot",
+                                "profile": "primary",
+                                "started_at": "2999-01-01T00:00:00Z",
+                            },
+                            "spark-telegram-bot:recursive": {
+                                "pid": 333,
+                                "module": "spark-telegram-bot",
+                                "profile": "recursive",
+                                "started_at": "2999-01-01T00:00:00Z",
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                status_exit, status_payload = self.run_access(
+                    "status",
+                    "--level",
+                    "5",
+                    spark_home=spark_home,
+                    env_overrides={"SPARK_CODEX_SANDBOX": "read-only"},
+                )
+
+            self.assertEqual(lower_payload["effective_access_level"], starting_level)
+            self.assertEqual(setup_exit, 0)
+            self.assertEqual(status_exit, 0)
+            self.assertEqual(setup_payload["level5"]["env_file_state"]["telegram_profile:primary"]["missing_or_stale"], [])
+            self.assertEqual(setup_payload["level5"]["env_file_state"]["telegram_profile:recursive"]["missing_or_stale"], [])
+            self.assertEqual(status_payload["effective_access_level"], 5)
+            self.assertEqual(status_payload["level5"]["current_process_codex_sandbox"], "read-only")
+            self.assertEqual(status_payload["level5"]["service_codex_sandbox"], "danger-full-access")
+            self.assertEqual(status_payload["level5"]["effective_codex_sandbox"], "danger-full-access")
+            self.assertEqual(status_payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
+            self.assertTrue(status_payload["state_machine"]["service_can_operate_whole_computer"])
+
     def test_access_level5_service_proof_requires_each_named_telegram_profile_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             spark_home = Path(tmpdir) / "spark-home"
