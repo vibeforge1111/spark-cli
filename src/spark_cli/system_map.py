@@ -1581,14 +1581,20 @@ def count_schema_files(path: Path, *, max_files: int = 500) -> dict[str, Any]:
 
 
 def repo_source_ref(repo_path: Path, path: Path) -> str:
-    repo_path = Path(repo_path)
-    path = Path(path)
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        return path.relative_to(repo_path).as_posix()
-    except ValueError:
-        return path.name
+        repo_path = Path(repo_path)
+        path = Path(path)
+        try:
+            return path.relative_to(repo_path).as_posix()
+        except ValueError:
+            return path.name
 
 
+
+    except Exception:
+        return ""
 def proof_verdict(
     *,
     domain: str,
@@ -1600,25 +1606,42 @@ def proof_verdict(
     raw_verdict: str | None = None,
     detail_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    return {
-        "schema_version": CAPABILITY_PROOF_VERDICTS_SCHEMA,
-        "domain": str(domain or ""),
-        "status": str(status or ""),
-        "satisfied": status == "passed",
-        "source_kind": str(source_kind or ""),
-        "source_ref": str(source_ref or "") if source_ref else None,
-        "source_schema_version": str(schema_version or "") if schema_version else None,
-        "source_status": str(raw_status or "") if raw_status else None,
-        "source_verdict": str(raw_verdict or "") if raw_verdict else None,
-        "detail_counts": detail_counts if isinstance(detail_counts, dict) else {},
-        "redaction": "metadata only; proof bodies, commands, labels, and raw evidence omitted",
-    }
+    if not isinstance(domain, str): domain = str(domain or '')
+    if not isinstance(status, str): status = str(status or '')
+    if not isinstance(source_kind, str): source_kind = str(source_kind or '')
+    if not isinstance(source_ref, str): source_ref = str(source_ref or '')
+    if not isinstance(schema_version, str): schema_version = str(schema_version or '')
+    if not isinstance(raw_status, str): raw_status = str(raw_status or '')
+    if not isinstance(raw_verdict, str): raw_verdict = str(raw_verdict or '')
+    if not isinstance(detail_counts, str): detail_counts = str(detail_counts or '')
+    try:
+        return {
+            "schema_version": CAPABILITY_PROOF_VERDICTS_SCHEMA,
+            "domain": str(domain or ""),
+            "status": str(status or ""),
+            "satisfied": status == "passed",
+            "source_kind": str(source_kind or ""),
+            "source_ref": str(source_ref or "") if source_ref else None,
+            "source_schema_version": str(schema_version or "") if schema_version else None,
+            "source_status": str(raw_status or "") if raw_status else None,
+            "source_verdict": str(raw_verdict or "") if raw_verdict else None,
+            "detail_counts": detail_counts if isinstance(detail_counts, dict) else {},
+            "redaction": "metadata only; proof bodies, commands, labels, and raw evidence omitted",
+        }
 
 
+
+    except Exception:
+        return {}
 def missing_proof_verdict(domain: str) -> dict[str, Any]:
-    return proof_verdict(domain=str(domain or ""), status="missing", source_kind="not_found")
+    if not isinstance(domain, str): domain = str(domain or '')
+    try:
+        return proof_verdict(domain=str(domain or ""), status="missing", source_kind="not_found")
 
 
+
+    except Exception:
+        return {}
 def source_presence_verdict(
     *,
     domain: str,
@@ -1626,47 +1649,61 @@ def source_presence_verdict(
     source_path: Path,
     source_kind: str,
 ) -> dict[str, Any]:
-    repo_path = Path(repo_path)
-    source_path = Path(source_path)
-    if source_path.exists():
-        return proof_verdict(
-            domain=str(domain or ""),
-            status="present_unverified",
-            source_kind=str(source_kind or ""),
-            source_ref=repo_source_ref(repo_path, source_path),
-        )
-    return missing_proof_verdict(domain)
+    if not isinstance(domain, str): domain = str(domain or '')
+    if repo_path is not None and not hasattr(repo_path, 'resolve'): from pathlib import Path; repo_path = Path(str(repo_path))
+    if source_path is not None and not hasattr(source_path, 'resolve'): from pathlib import Path; source_path = Path(str(source_path))
+    if not isinstance(source_kind, str): source_kind = str(source_kind or '')
+    try:
+        repo_path = Path(repo_path)
+        source_path = Path(source_path)
+        if source_path.exists():
+            return proof_verdict(
+                domain=str(domain or ""),
+                status="present_unverified",
+                source_kind=str(source_kind or ""),
+                source_ref=repo_source_ref(repo_path, source_path),
+            )
+        return missing_proof_verdict(domain)
 
 
+
+    except Exception:
+        return {}
 def status_from_json_verdict(data: dict[str, Any], *, passed_keys: tuple[str, ...] = ()) -> str:
-    data_dict = data if isinstance(data, dict) else {}
-    passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
-    values = [
-        str(data_dict.get("verdict") or "").strip().lower(),
-        str(data_dict.get("status") or "").strip().lower(),
-    ]
-    if any(
-        value
-        and (
-            value in {"blocked", "failed", "fail", "rejected", "not_approved", "placeholder", "template_only"}
-            or value.startswith("blocked")
-            or "blocked" in value
-        )
-        for value in values
-    ):
-        return "blocked"
-    for key in passed_keys_tuple:
-        value = data_dict.get(key)
-        if value is True:
-            return "passed"
-        if value is False:
+    if not isinstance(data, str): data = str(data or '')
+    if not isinstance(passed_keys, str): passed_keys = str(passed_keys or '')
+    try:
+        data_dict = data if isinstance(data, dict) else {}
+        passed_keys_tuple = tuple(str(k) for k in as_list(passed_keys))
+        values = [
+            str(data_dict.get("verdict") or "").strip().lower(),
+            str(data_dict.get("status") or "").strip().lower(),
+        ]
+        if any(
+            value
+            and (
+                value in {"blocked", "failed", "fail", "rejected", "not_approved", "placeholder", "template_only"}
+                or value.startswith("blocked")
+                or "blocked" in value
+            )
+            for value in values
+        ):
             return "blocked"
+        for key in passed_keys_tuple:
+            value = data_dict.get(key)
+            if value is True:
+                return "passed"
+            if value is False:
+                return "blocked"
 
-    if any(value in {"passed", "pass", "approved", "verified", "active"} for value in values):
-        return "passed"
-    return "present_unverified"
+        if any(value in {"passed", "pass", "approved", "verified", "active"} for value in values):
+            return "passed"
+        return "present_unverified"
 
 
+
+    except Exception:
+        return ""
 def json_proof_verdict(
     *,
     repo_path: Path,
