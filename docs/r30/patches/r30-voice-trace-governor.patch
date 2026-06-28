@@ -1,0 +1,954 @@
+From 4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Wed, 24 Jun 2026 14:00:54 +0400
+Subject: [PATCH 1/2] Join voice runtime state traces
+
+---
+ src/voice_comms_chip/runtime_state.py |  81 ++++++++++++-
+ src/voice_comms_chip/spark_hook.py    | 168 +++++++++++++++++++++++++-
+ tests/test_runtime_state.py           |  34 ++++++
+ tests/test_spark_hook.py              | 135 +++++++++++++++++++++
+ 4 files changed, 413 insertions(+), 5 deletions(-)
+
+diff --git a/src/voice_comms_chip/runtime_state.py b/src/voice_comms_chip/runtime_state.py
+index 8e915eb..b3e7ff7 100644
+--- a/src/voice_comms_chip/runtime_state.py
++++ b/src/voice_comms_chip/runtime_state.py
+@@ -17,6 +17,10 @@ def build_voice_runtime_state(
+     telegram_delivery: dict[str, Any] | None = None,
+     latency: dict[str, Any] | None = None,
+     source_ledger: list[str] | None = None,
++    request_ref: str | None = None,
++    trace_ref: str | None = None,
++    harness_proof_ref: str | None = None,
++    trace_context_scope: str | None = None,
+     generated_at: str | None = None,
+     legacy_alias_visible: bool = False,
+ ) -> dict[str, Any]:
+@@ -25,7 +29,16 @@ def build_voice_runtime_state(
+     delivery_state = _normalize_telegram_delivery(telegram_delivery or {})
+     latency_state = _normalize_latency(latency or {})
+     claim_levels = _claim_levels(stt=stt_state, tts=tts_state, delivery=delivery_state)
+-    return {
++    safe_request_ref = _redacted_ref("request", request_ref)
++    safe_trace_ref = _redacted_ref("trace", trace_ref)
++    safe_proof_ref = _redacted_ref("proof", harness_proof_ref)
++    trace_continuity = _trace_continuity(
++        request_ref=safe_request_ref,
++        trace_ref=safe_trace_ref,
++        harness_proof_ref=safe_proof_ref,
++        trace_context_scope=trace_context_scope,
++    )
++    state = {
+         "schema_version": SCHEMA_VERSION,
+         "generated_at": generated_at or _now_iso(),
+         "surface": str(surface or "unknown"),
+@@ -38,7 +51,15 @@ def build_voice_runtime_state(
+         "latency": latency_state,
+         "claim_levels": claim_levels,
+         "source_ledger": list(source_ledger or []),
++        "trace_continuity": trace_continuity,
+     }
++    if safe_request_ref:
++        state["request_ref"] = safe_request_ref
++    if safe_trace_ref:
++        state["trace_ref"] = safe_trace_ref
++    if safe_proof_ref:
++        state["harness_proof_ref"] = safe_proof_ref
++    return state
+ 
+ 
+ def state_from_status(
+@@ -79,6 +100,10 @@ def state_from_status(
+         telegram_delivery=delivery,
+         latency=latency,
+         source_ledger=["voice.status", "voice_profile"] + _optional_sources(payload),
++        request_ref=_payload_trace_value(payload, "request_ref", "request_id", "requestId"),
++        trace_ref=_payload_trace_value(payload, "trace_ref", "trace_id", "traceId"),
++        harness_proof_ref=_payload_trace_value(payload, "harness_proof_ref", "harnessProofRef", "proof_ref"),
++        trace_context_scope=_payload_trace_value(payload, "trace_context_scope") or "voice.status",
+         legacy_alias_visible=bool(payload.get("legacy_alias_visible")),
+     )
+ 
+@@ -119,6 +144,10 @@ def state_from_speak(
+         telegram_delivery=delivery,
+         latency=latency,
+         source_ledger=["voice.speak", "voice_profile"] + _optional_sources(payload),
++        request_ref=_payload_trace_value(payload, "request_ref", "request_id", "requestId"),
++        trace_ref=_payload_trace_value(payload, "trace_ref", "trace_id", "traceId"),
++        harness_proof_ref=_payload_trace_value(payload, "harness_proof_ref", "harnessProofRef", "proof_ref"),
++        trace_context_scope=_payload_trace_value(payload, "trace_context_scope") or "voice.speak",
+         legacy_alias_visible=bool(payload.get("legacy_alias_visible")),
+     )
+ 
+@@ -155,6 +184,10 @@ def state_from_transcribe(
+         telegram_delivery={},
+         latency={"transcribe_ms": transcribe_ms},
+         source_ledger=["voice.transcribe"] + _optional_sources(payload),
++        request_ref=_payload_trace_value(payload, "request_ref", "request_id", "requestId"),
++        trace_ref=_payload_trace_value(payload, "trace_ref", "trace_id", "traceId"),
++        harness_proof_ref=_payload_trace_value(payload, "harness_proof_ref", "harnessProofRef", "proof_ref"),
++        trace_context_scope=_payload_trace_value(payload, "trace_context_scope") or "voice.transcribe",
+         legacy_alias_visible=bool(payload.get("legacy_alias_visible")),
+     ) | {
+         "transcript": {
+@@ -258,6 +291,38 @@ def mask_identifier(value: str | None) -> str:
+     return f"{text[:4]}...{text[-4:]}"
+ 
+ 
++def _redacted_ref(kind: str, value: Any) -> str:
++    text = str(value or "").strip()
++    if not text:
++        return ""
++    prefix = f"{kind}:sha256:"
++    if text.startswith(prefix):
++        suffix = text[len(prefix):]
++        if suffix and all(char in "0123456789abcdefABCDEF" for char in suffix):
++            return f"{prefix}{suffix.lower()}"
++    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
++    return f"{prefix}{digest}"
++
++
++def _trace_continuity(
++    *,
++    request_ref: str,
++    trace_ref: str,
++    harness_proof_ref: str,
++    trace_context_scope: str | None,
++) -> dict[str, Any]:
++    return {
++        "request_joined": bool(request_ref),
++        "trace_joined": bool(trace_ref),
++        "proof_joined": bool(harness_proof_ref),
++        "proof_storage": "redacted_ref_only" if harness_proof_ref else "missing",
++        "trace_context_scope": str(trace_context_scope or "missing").strip() or "missing",
++        "proof_status": "ref_only" if harness_proof_ref else "not_execution_proof",
++        "raw_audio_exported": False,
++        "transcript_bodies_exported": False,
++    }
++
++
+ def json_safe(value: Any) -> str:
+     if isinstance(value, dict):
+         parts = [f"{key}:{json_safe(value[key])}" for key in sorted(value)]
+@@ -292,5 +357,19 @@ def _optional_sources(payload: dict[str, Any]) -> list[str]:
+     return [str(source) for source in sources if str(source or "").strip()]
+ 
+ 
++def _payload_trace_value(payload: dict[str, Any], *keys: str) -> str:
++    for key in keys:
++        value = payload.get(key)
++        if str(value or "").strip():
++            return str(value).strip()
++    trace_context = payload.get("trace_context")
++    if isinstance(trace_context, dict):
++        for key in keys:
++            value = trace_context.get(key)
++            if str(value or "").strip():
++                return str(value).strip()
++    return ""
++
++
+ def _now_iso() -> str:
+     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+diff --git a/src/voice_comms_chip/spark_hook.py b/src/voice_comms_chip/spark_hook.py
+index 319e43b..b9a1abd 100644
+--- a/src/voice_comms_chip/spark_hook.py
++++ b/src/voice_comms_chip/spark_hook.py
+@@ -2456,7 +2456,7 @@ def _public_runtime_state(runtime_state: dict[str, Any]) -> dict[str, Any]:
+     stt = runtime_state.get("stt") if isinstance(runtime_state.get("stt"), dict) else {}
+     tts = runtime_state.get("tts") if isinstance(runtime_state.get("tts"), dict) else {}
+     delivery = runtime_state.get("telegram_delivery") if isinstance(runtime_state.get("telegram_delivery"), dict) else {}
+-    return {
++    public_state = {
+         "schema_version": runtime_state.get("schema_version"),
+         "generated_at": runtime_state.get("generated_at"),
+         "surface": runtime_state.get("surface"),
+@@ -2500,17 +2500,177 @@ def _public_runtime_state(runtime_state: dict[str, Any]) -> dict[str, Any]:
+         "source_ledger": runtime_state.get("source_ledger") if isinstance(runtime_state.get("source_ledger"), list) else [],
+         "redaction": "metadata only; raw audio, transcript bodies, provider secrets, and unmasked voice ids omitted",
+     }
++    for key in ("request_ref", "trace_ref", "harness_proof_ref"):
++        value = runtime_state.get(key)
++        if isinstance(value, str) and value.strip():
++            public_state[key] = value.strip()
++    trace_continuity = runtime_state.get("trace_continuity")
++    if isinstance(trace_continuity, dict):
++        public_state["trace_continuity"] = {
++            "request_joined": bool(trace_continuity.get("request_joined")),
++            "trace_joined": bool(trace_continuity.get("trace_joined")),
++            "proof_joined": bool(trace_continuity.get("proof_joined")),
++            "proof_storage": trace_continuity.get("proof_storage") or "missing",
++            "trace_context_scope": trace_continuity.get("trace_context_scope") or "missing",
++            "proof_status": trace_continuity.get("proof_status") or "not_execution_proof",
++            "raw_audio_exported": False,
++            "transcript_bodies_exported": False,
++        }
++    return public_state
+ 
+ 
+-def _export_runtime_state_if_configured(result: dict[str, Any]) -> None:
++
++def default_voice_runtime_state_path() -> Path:
++    spark_home = Path(os.environ.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
++    return spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json"
++
++
++def _configured_runtime_state_path() -> Path | None:
+     path_text = str(os.environ.get(ENV_RUNTIME_STATE_PATH) or "").strip()
+     if not path_text:
+-        return
++        return None
++    return Path(path_text).expanduser()
++
++
++def _runtime_state_from_hook_result(result: dict[str, Any]) -> dict[str, Any] | None:
+     result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+     runtime_state = result_payload.get("runtime_state") if isinstance(result_payload.get("runtime_state"), dict) else None
++    return runtime_state
++
++
++def _runtime_state_with_preserved_delivery(public_state: dict[str, Any], target: Path) -> dict[str, Any]:
++    delivery = public_state.get("telegram_delivery") if isinstance(public_state.get("telegram_delivery"), dict) else {}
++    if delivery.get("ready"):
++        return public_state
++    try:
++        existing = json.loads(target.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError):
++        return public_state
++    if existing.get("schema_version") != "spark.voice_runtime_state.v1":
++        return public_state
++    existing_delivery = existing.get("telegram_delivery") if isinstance(existing.get("telegram_delivery"), dict) else {}
++    existing_status = str(existing_delivery.get("last_send_voice_status") or existing_delivery.get("status") or "")
++    if not (existing_delivery.get("ready") is True or existing_status in {"success", "document_fallback"}):
++        return public_state
++
++    merged = json.loads(json.dumps(public_state))
++    merged["telegram_delivery"] = {
++        "ready": True,
++        "last_send_voice_at": existing_delivery.get("last_send_voice_at"),
++        "last_send_voice_at_present": bool(
++            existing_delivery.get("last_send_voice_at") or existing_delivery.get("last_send_voice_at_present")
++        ),
++        "last_send_voice_status": existing_status or "success",
++        "last_failure_reason_present": bool(
++            existing_delivery.get("last_failure_reason") or existing_delivery.get("last_failure_reason_present")
++        ),
++        "telegram_message_id_present": bool(
++            existing_delivery.get("telegram_message_id_present") or existing_delivery.get("telegram_message_id")
++        ),
++        "send_method": existing_delivery.get("send_method"),
++        "native_voice_message_ready": bool(existing_delivery.get("native_voice_message_ready")),
++    }
++    latency = merged.get("latency") if isinstance(merged.get("latency"), dict) else {}
++    existing_latency = existing.get("latency") if isinstance(existing.get("latency"), dict) else {}
++    for key in ("send_voice_ms", "total_ms"):
++        if not latency.get(key) and existing_latency.get(key):
++            latency[key] = existing_latency[key]
++    merged["latency"] = latency
++    claims = merged.get("claim_levels") if isinstance(merged.get("claim_levels"), dict) else {}
++    claims["delivery_ready"] = True
++    claims["conversation_ready"] = bool(
++        (merged.get("stt") if isinstance(merged.get("stt"), dict) else {}).get("ready")
++        and (merged.get("tts") if isinstance(merged.get("tts"), dict) else {}).get("ready")
++    )
++    merged["claim_levels"] = claims
++    existing_sources = existing.get("source_ledger") if isinstance(existing.get("source_ledger"), list) else []
++    merged_sources = merged.get("source_ledger") if isinstance(merged.get("source_ledger"), list) else []
++    merged["source_ledger"] = list(dict.fromkeys([*merged_sources, *existing_sources]))
++    return merged
++
++
++def _runtime_state_with_export_trace_context(public_state: dict[str, Any], scope: str) -> dict[str, Any]:
++    merged = json.loads(json.dumps(public_state))
++    seed = {
++        "schema_version": merged.get("schema_version"),
++        "generated_at": merged.get("generated_at"),
++        "surface": merged.get("surface"),
++        "scope": scope,
++        "stt_ready": bool((merged.get("stt") if isinstance(merged.get("stt"), dict) else {}).get("ready")),
++        "tts_ready": bool((merged.get("tts") if isinstance(merged.get("tts"), dict) else {}).get("ready")),
++        "delivery_ready": bool(
++            (merged.get("telegram_delivery") if isinstance(merged.get("telegram_delivery"), dict) else {}).get("ready")
++        ),
++        "source_ledger": merged.get("source_ledger") if isinstance(merged.get("source_ledger"), list) else [],
++    }
++    encoded_seed = json.dumps(seed, sort_keys=True, separators=(",", ":"))
++    request_ref = str(merged.get("request_ref") or "").strip()
++    trace_ref = str(merged.get("trace_ref") or "").strip()
++    if not request_ref:
++        request_ref = f"request:sha256:{hashlib.sha256(('request:' + encoded_seed).encode('utf-8')).hexdigest()[:16]}"
++        merged["request_ref"] = request_ref
++    if not trace_ref:
++        trace_ref = f"trace:sha256:{hashlib.sha256(('trace:' + encoded_seed).encode('utf-8')).hexdigest()[:16]}"
++        merged["trace_ref"] = trace_ref
++    proof_ref = str(merged.get("harness_proof_ref") or "").strip()
++    trace_continuity = merged.get("trace_continuity") if isinstance(merged.get("trace_continuity"), dict) else {}
++    trace_continuity.update(
++        {
++            "request_joined": bool(request_ref),
++            "trace_joined": bool(trace_ref),
++            "proof_joined": bool(proof_ref),
++            "proof_storage": "redacted_ref_only" if proof_ref else "missing",
++            "trace_context_scope": scope,
++            "proof_status": "ref_only" if proof_ref else "not_execution_proof",
++            "raw_audio_exported": False,
++            "transcript_bodies_exported": False,
++        }
++    )
++    merged["trace_continuity"] = trace_continuity
++    sources = merged.get("source_ledger") if isinstance(merged.get("source_ledger"), list) else []
++    merged["source_ledger"] = list(dict.fromkeys([*sources, f"{scope}:trace_context"]))
++    return merged
++
++
++def export_voice_runtime_state_for_spark_os(
++    payload: dict[str, Any] | None = None,
++    *,
++    output_path: Path | str | None = None,
++) -> dict[str, Any]:
++    status_payload = {"surface": "spark_os_healthcheck"}
++    if payload:
++        status_payload.update(payload)
++    result = handle_voice_status_hook(status_payload)
++    runtime_state = _runtime_state_from_hook_result(result)
++    if runtime_state is None:
++        raise RuntimeError("voice.status did not produce runtime_state")
++    target = (
++        Path(output_path).expanduser()
++        if output_path is not None
++        else (_configured_runtime_state_path() or default_voice_runtime_state_path())
++    )
++    public_state = _runtime_state_with_preserved_delivery(
++        _runtime_state_with_export_trace_context(_public_runtime_state(runtime_state), "spark_os_healthcheck_export"),
++        target,
++    )
++    _write_output(target, public_state)
++    return {"path": str(target), "runtime_state": public_state}
++
++
++def _export_runtime_state_if_configured(result: dict[str, Any]) -> None:
++    path = _configured_runtime_state_path()
++    if path is None:
++        return
++    runtime_state = _runtime_state_from_hook_result(result)
+     if runtime_state is None:
+         return
+-    _write_output(Path(path_text).expanduser(), _public_runtime_state(runtime_state))
++    _write_output(
++        path,
++        _runtime_state_with_preserved_delivery(
++            _runtime_state_with_export_trace_context(_public_runtime_state(runtime_state), "configured_runtime_state_export"),
++            path,
++        ),
++    )
+ 
+ 
+ def main() -> int:
+diff --git a/tests/test_runtime_state.py b/tests/test_runtime_state.py
+index c726e18..80fd28d 100644
+--- a/tests/test_runtime_state.py
++++ b/tests/test_runtime_state.py
+@@ -61,6 +61,40 @@ def test_status_state_does_not_claim_delivery_from_transcription_readiness():
+     assert state["claim_levels"]["conversation_ready"] is False
+ 
+ 
++def test_status_state_redacts_trace_context_and_marks_proof_boundary():
++    state = state_from_status(
++        status={
++            "ready": True,
++            "local_ready": False,
++            "provider_id": "openai",
++            "provider_kind": "openai",
++            "model": "whisper-1",
++        },
++        profile_summary={"profile_name": "spark_core"},
++        payload={
++            "surface": "telegram",
++            "request_id": "raw-telegram-request-123",
++            "trace_ref": "trace:sha256:ABCDEF1234567890",
++            "trace_context_scope": "telegram_voice_turn",
++        },
++    )
++    encoded = str(state)
++
++    assert state["request_ref"].startswith("request:sha256:")
++    assert state["trace_ref"] == "trace:sha256:abcdef1234567890"
++    assert state["trace_continuity"] == {
++        "request_joined": True,
++        "trace_joined": True,
++        "proof_joined": False,
++        "proof_storage": "missing",
++        "trace_context_scope": "telegram_voice_turn",
++        "proof_status": "not_execution_proof",
++        "raw_audio_exported": False,
++        "transcript_bodies_exported": False,
++    }
++    assert "raw-telegram-request-123" not in encoded
++
++
+ def test_speak_state_marks_synthesis_ready_without_stt_claim():
+     state = state_from_speak(
+         request={
+diff --git a/tests/test_spark_hook.py b/tests/test_spark_hook.py
+index 9084c84..3af5be6 100644
+--- a/tests/test_spark_hook.py
++++ b/tests/test_spark_hook.py
+@@ -17,6 +17,7 @@ from voice_comms_chip.spark_hook import (
+     _join_url,
+     _write_output,
+     assertNativeGovernorHarnessAuthority,
++    export_voice_runtime_state_for_spark_os,
+     handle_voice_install_hook,
+     handle_voice_onboard_hook,
+     handle_voice_plan_hook,
+@@ -748,11 +749,145 @@ def test_cli_main_exports_sanitized_runtime_state(tmp_path):
+     assert exported["schema_version"] == "spark.voice_runtime_state.v1"
+     assert exported["stt"]["ready"] is True
+     assert exported["telegram_delivery"]["ready"] is False
++    assert exported["request_ref"].startswith("request:sha256:")
++    assert exported["trace_ref"].startswith("trace:sha256:")
++    assert exported["trace_continuity"] == {
++        "request_joined": True,
++        "trace_joined": True,
++        "proof_joined": False,
++        "proof_storage": "missing",
++        "trace_context_scope": "configured_runtime_state_export",
++        "proof_status": "not_execution_proof",
++        "raw_audio_exported": False,
++        "transcript_bodies_exported": False,
++    }
+     assert "transcript_text" not in encoded
+     assert "audio_base64" not in encoded
+     assert FAKE_OPENAI_KEY not in encoded
+ 
+ 
++def test_export_voice_runtime_state_for_spark_os_uses_spark_home(tmp_path):
++    spark_home = tmp_path / "spark-home"
++
++    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=True), patch.dict(
++        "os.environ",
++        {
++            "SPARK_HOME": str(spark_home),
++            "VOICE_TTS_ELEVENLABS_VOICE_ID": FAKE_ELEVENLABS_VOICE_ID,
++            "OPENAI_API_KEY": FAKE_OPENAI_KEY,
++        },
++        clear=True,
++    ):
++        result = export_voice_runtime_state_for_spark_os()
++
++    runtime_state_path = spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json"
++    exported = json.loads(runtime_state_path.read_text(encoding="utf-8"))
++    encoded = json.dumps(exported)
++    assert result["path"] == str(runtime_state_path)
++    assert exported["schema_version"] == "spark.voice_runtime_state.v1"
++    assert exported["surface"] == "spark_os_healthcheck"
++    assert exported["stt"]["ready"] is True
++    assert exported["telegram_delivery"]["ready"] is False
++    assert exported["request_ref"].startswith("request:sha256:")
++    assert exported["trace_ref"].startswith("trace:sha256:")
++    assert exported["trace_continuity"] == {
++        "request_joined": True,
++        "trace_joined": True,
++        "proof_joined": False,
++        "proof_storage": "missing",
++        "trace_context_scope": "spark_os_healthcheck_export",
++        "proof_status": "not_execution_proof",
++        "raw_audio_exported": False,
++        "transcript_bodies_exported": False,
++    }
++    assert "spark_os_healthcheck_export:trace_context" in exported["source_ledger"]
++    assert "metadata only" in exported["redaction"]
++    assert FAKE_ELEVENLABS_VOICE_ID not in encoded
++    assert FAKE_OPENAI_KEY not in encoded
++
++
++def test_export_voice_runtime_state_for_spark_os_preserves_delivery_proof(tmp_path):
++    spark_home = tmp_path / "spark-home"
++    runtime_state_path = spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json"
++    runtime_state_path.parent.mkdir(parents=True, exist_ok=True)
++    runtime_state_path.write_text(
++        json.dumps(
++            {
++                "schema_version": "spark.voice_runtime_state.v1",
++                "telegram_delivery": {
++                    "ready": True,
++                    "last_send_voice_at": "2026-06-02T08:47:00Z",
++                    "last_send_voice_status": "success",
++                    "telegram_message_id_present": True,
++                },
++                "latency": {"send_voice_ms": 42, "total_ms": 99},
++                "source_ledger": ["voice.speak", "telegram-sendVoice-trace"],
++            }
++        ),
++        encoding="utf-8",
++    )
++
++    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=True), patch(
++        "voice_comms_chip.spark_hook._local_tts_status",
++        return_value={"ready": True, "provider": "macos-say", "status": "ready via macOS say local system TTS"},
++    ), patch.dict("os.environ", {"SPARK_HOME": str(spark_home)}, clear=True):
++        result = export_voice_runtime_state_for_spark_os()
++
++    exported = json.loads(runtime_state_path.read_text(encoding="utf-8"))
++    assert result["runtime_state"]["telegram_delivery"]["ready"] is True
++    assert exported["stt"]["ready"] is True
++    assert exported["tts"]["ready"] is True
++    assert exported["telegram_delivery"]["ready"] is True
++    assert exported["telegram_delivery"]["last_send_voice_status"] == "success"
++    assert exported["telegram_delivery"]["telegram_message_id_present"] is True
++    assert exported["latency"]["send_voice_ms"] == 42
++    assert exported["claim_levels"]["delivery_ready"] is True
++    assert exported["claim_levels"]["conversation_ready"] is True
++    assert "telegram-sendVoice-trace" in exported["source_ledger"]
++
++
++def test_export_voice_runtime_state_for_spark_os_preserves_audio_fallback_delivery_proof(tmp_path):
++    spark_home = tmp_path / "spark-home"
++    runtime_state_path = spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json"
++    runtime_state_path.parent.mkdir(parents=True, exist_ok=True)
++    runtime_state_path.write_text(
++        json.dumps(
++            {
++                "schema_version": "spark.voice_runtime_state.v1",
++                "telegram_delivery": {
++                    "ready": True,
++                    "last_send_voice_at": "2026-06-02T09:17:38Z",
++                    "last_send_voice_status": "document_fallback",
++                    "telegram_message_id_present": True,
++                    "send_method": "sendAudio",
++                    "native_voice_message_ready": False,
++                },
++                "latency": {"send_voice_ms": 64, "total_ms": 121},
++                "source_ledger": ["voice.speak", "telegram-bot-voice-bridge"],
++            }
++        ),
++        encoding="utf-8",
++    )
++
++    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=True), patch(
++        "voice_comms_chip.spark_hook._local_tts_status",
++        return_value={"ready": True, "provider": "macos-say", "status": "ready via macOS say local system TTS"},
++    ), patch.dict("os.environ", {"SPARK_HOME": str(spark_home)}, clear=True):
++        result = export_voice_runtime_state_for_spark_os()
++
++    exported = json.loads(runtime_state_path.read_text(encoding="utf-8"))
++    assert result["runtime_state"]["telegram_delivery"]["ready"] is True
++    assert exported["telegram_delivery"]["ready"] is True
++    assert exported["telegram_delivery"]["last_send_voice_status"] == "document_fallback"
++    assert exported["telegram_delivery"]["send_method"] == "sendAudio"
++    assert exported["telegram_delivery"]["native_voice_message_ready"] is False
++    assert exported["telegram_delivery"]["telegram_message_id_present"] is True
++    assert exported["latency"]["send_voice_ms"] == 64
++    assert exported["claim_levels"]["delivery_ready"] is True
++    assert exported["claim_levels"]["conversation_ready"] is True
++    assert "telegram-bot-voice-bridge" in exported["source_ledger"]
++
++
+ def test_join_url_accepts_http_urls_and_trims_edges():
+     assert _join_url(" https://voice.example.test/api/ ", " /v1/speak ") == "https://voice.example.test/api/v1/speak"
+ 
+-- 
+2.39.2 (Apple Git-143)
+
+
+From c502ec096cefb48839e3279d3392343231884415 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Wed, 24 Jun 2026 22:32:58 +0400
+Subject: [PATCH 2/2] Accept media transcription governor authority
+
+---
+ src/voice_comms_chip/spark_hook.py |  30 ++-
+ tests/test_spark_hook.py           | 291 +++++++++++++++++++++++++++++
+ 2 files changed, 318 insertions(+), 3 deletions(-)
+
+diff --git a/src/voice_comms_chip/spark_hook.py b/src/voice_comms_chip/spark_hook.py
+index b9a1abd..b7a03bb 100644
+--- a/src/voice_comms_chip/spark_hook.py
++++ b/src/voice_comms_chip/spark_hook.py
+@@ -119,13 +119,28 @@ class _PublicHookInputError(ValueError):
+         self.error_code = error_code
+ 
+ 
++def _voice_authority_tool_specs(tool_name: str) -> tuple[tuple[str, str], ...]:
++    specs = ((tool_name, f"capability:spark-voice-comms:{tool_name}"),)
++    if tool_name == "voice.transcribe":
++        return specs + (
++            ("media.voice.transcribe", "capability:spark-intelligence-builder:media.voice.transcribe"),
++            ("media.audio.transcribe", "capability:spark-intelligence-builder:media.audio.transcribe"),
++        )
++    return specs
++
++
+ def assertNativeGovernorHarnessAuthority(payload: dict[str, Any], *, hook: str) -> dict[str, Any]:
+     """Verify a native voice hook is bound to a Governor decision and tool ledger."""
+     authority = (
+         payload.get("governor_decision")
+         or payload.get("governorDecision")
++        or payload.get("harness_core_governor_decision")
++        or payload.get("harnessCoreGovernorDecision")
++        or payload.get("spark_governor_decision")
++        or payload.get("sparkGovernorDecision")
+         or payload.get("execution_authority")
+         or payload.get("executionAuthority")
++        or payload.get("authority")
+     )
+     if not isinstance(authority, dict):
+         raise ValueError(f"{hook} requires Harness Core Governor authority.")
+@@ -138,11 +153,16 @@ def assertNativeGovernorHarnessAuthority(payload: dict[str, Any], *, hook: str)
+     actions = envelope.get("proposed_actions") if isinstance(envelope.get("proposed_actions"), list) else []
+     ledgers = authority.get("tool_ledgers") if isinstance(authority.get("tool_ledgers"), list) else []
+     authorizations = authority.get("authorizations") if isinstance(authority.get("authorizations"), list) else []
++    specs = _voice_authority_tool_specs(hook)
++    accepted_tool_names = {hook, *(name for name, _ in specs)}
++    accepted_capability_ids = {hook, *(capability_id for _, capability_id in specs)}
+ 
+     for action in actions:
+         if not isinstance(action, dict):
+             continue
+-        if str(action.get("tool_name") or action.get("capability_id") or "").strip() != hook:
++        action_tool = str(action.get("tool_name") or "").strip()
++        action_capability = str(action.get("capability_id") or "").strip()
++        if action_tool not in accepted_tool_names and action_capability not in accepted_capability_ids:
+             continue
+         action_id = str(action.get("action_id") or "").strip()
+         if not action_id:
+@@ -151,11 +171,13 @@ def assertNativeGovernorHarnessAuthority(payload: dict[str, Any], *, hook: str)
+             isinstance(item, dict)
+             and item.get("verdict") == "allow"
+             and str(item.get("action_id") or "").strip() == action_id
++            and str(item.get("capability_id") or action_capability).strip() in accepted_capability_ids
+             for item in authorizations
+         )
+         ledger_ok = any(
+             isinstance(item, dict)
+-            and str(item.get("tool_name") or "").strip() == hook
++            and str(item.get("tool_name") or "").strip() in accepted_tool_names
++            and str(item.get("capability_id") or action_capability).strip() in accepted_capability_ids
+             and str(item.get("action_id") or "").strip() == action_id
+             and (
+                 (isinstance(item.get("authorization"), dict) and item["authorization"].get("verdict") == "allow")
+@@ -338,8 +360,10 @@ def handle_voice_onboard_hook(payload: dict[str, Any]) -> dict[str, Any]:
+ 
+ 
+ def handle_voice_install_hook(payload: dict[str, Any]) -> dict[str, Any]:
++    if not (str(payload.get("target") or payload.get("provider") or "").strip()):
++        raise ValueError("voice.install requires an explicit `target`.")
+     assertNativeGovernorHarnessAuthority(payload, hook="voice.install")
+-    raw_target = str(payload.get("target") or payload.get("provider") or "kokoro").strip()
++    raw_target = str(payload.get("target") or payload.get("provider") or "").strip()
+     target = raw_target.lower().replace("_", "-")
+     if target in {"local", "local-voice", "local-stack", "local-voice-stack"}:
+         return _install_local_voice_stack(payload)
+diff --git a/tests/test_spark_hook.py b/tests/test_spark_hook.py
+index 3af5be6..4e82f46 100644
+--- a/tests/test_spark_hook.py
++++ b/tests/test_spark_hook.py
+@@ -73,6 +73,205 @@ def _payload(tmp_path, **overrides):
+     return payload
+ 
+ 
++def _voice_authority_payload():
++    envelope = _voice_policy()
++    return {
++        "turn_intent_envelope_vnext": envelope,
++        "governor_decision": _voice_governor_decision_from_envelope(envelope),
++    }
++
++
++def _media_transcribe_authority_payload(*, media_kind: str = "audio"):
++    envelope = _voice_policy()
++    for action in envelope["proposed_actions"]:
++        if action["action_id"] != "action:voice-transcribe":
++            continue
++        action["action_id"] = f"action:media-{media_kind}-transcribe"
++        action["capability_id"] = f"capability:spark-intelligence-builder:media.{media_kind}.transcribe"
++        action["summary"] = f"Transcribe Telegram {media_kind} media."
++        action["args_ref"]["id"] = f"artifact:media-{media_kind}-transcribe"
++        action["args_ref"]["path_or_uri"] = f"test://media/{media_kind}/transcribe"
++    return {
++        "turn_intent_envelope_vnext": envelope,
++        "governor_decision": _voice_governor_decision_from_envelope(envelope),
++    }
++
++
++def _voice_policy():
++    return {
++        "schema_version": "turn-intent-envelope-vnext",
++        "turn_id": "turn:voice-test",
++        "raw_turn_ref": {
++            "id": "trace:voice-test",
++            "redaction_class": "metadata_only",
++            "summary": "Voice test turn.",
++        },
++        "selected_move": "execute_action",
++        "freshness": {
++            "fresh_user_intent_present": True,
++            "stale_state_used_as_authority": False,
++            "memory_used_as_instruction": False,
++            "pending_state_used_as_authority": False,
++        },
++        "action_authority": {
++            "state": "executable",
++            "risk_tier": "medium",
++            "confidence": 0.95,
++            "requires_human_confirmation": False,
++            "reason": "Focused voice hook regression.",
++        },
++        "proposed_actions": [
++            {
++                "action_id": "action:voice-install",
++                "capability_id": "capability:spark-voice-comms:voice.install",
++                "action_type": "edit_file",
++                "risk_tier": "medium",
++                "summary": "Install local voice package.",
++                "args_ref": {
++                    "id": "artifact:voice-install",
++                    "kind": "tool_args",
++                    "path_or_uri": "test://voice/install",
++                    "redaction_class": "metadata_only",
++                    "summary": "Install args.",
++                },
++                "requires_confirmation": False,
++            },
++            {
++                "action_id": "action:voice-transcribe",
++                "capability_id": "capability:spark-voice-comms:voice.transcribe",
++                "action_type": "external_api_call",
++                "risk_tier": "medium",
++                "summary": "Transcribe voice media.",
++                "args_ref": {
++                    "id": "artifact:voice-transcribe",
++                    "kind": "tool_args",
++                    "path_or_uri": "test://voice/transcribe",
++                    "redaction_class": "metadata_only",
++                    "summary": "Transcribe args.",
++                },
++                "requires_confirmation": False,
++            },
++            {
++                "action_id": "action:voice-speak",
++                "capability_id": "capability:spark-voice-comms:voice.speak",
++                "action_type": "external_api_call",
++                "risk_tier": "medium",
++                "summary": "Synthesize voice reply.",
++                "args_ref": {
++                    "id": "artifact:voice-speak",
++                    "kind": "tool_args",
++                    "path_or_uri": "test://voice/speak",
++                    "redaction_class": "metadata_only",
++                    "summary": "Speak args.",
++                },
++                "requires_confirmation": False,
++            },
++        ],
++    }
++
++
++def _voice_governor_decision_from_envelope(envelope):
++    authorizations = []
++    ledgers = []
++    now = "2026-06-02T00:00:00Z"
++    for action in envelope["proposed_actions"]:
++        decision_id = f"decision:{action['action_id'].split(':', 1)[1]}"
++        authorization = {
++            "schema_version": "authorization-decision-v1",
++            "decision_id": decision_id,
++            "created_at": now,
++            "turn_id": envelope["turn_id"],
++            "action_id": action["action_id"],
++            "capability_id": action["capability_id"],
++            "verdict": "allow",
++            "risk_tier": action["risk_tier"],
++            "reasons": ["harness_core_authorized", "voice_governor_fixture"],
++            "evidence": [
++                {
++                    "id": "evidence:voice-test",
++                    "kind": "test_fixture",
++                    "summary": "Voice Governor fixture.",
++                    "redaction_class": "metadata_only",
++                }
++            ],
++            "approval": {"required": False, "status": "not_required"},
++            "restrictions": {
++                "network_allowed": action["action_type"] == "external_api_call",
++                "write_allowed": action["action_type"] != "read",
++                "publish_allowed": False,
++            },
++            "trace": {
++                "id": f"trace:{action['action_id'].split(':', 1)[1]}",
++                "summary": "Voice authorization trace.",
++                "redaction_class": "metadata_only",
++            },
++        }
++        authorizations.append(authorization)
++        ledgers.append(
++            {
++                "schema_version": "tool-call-ledger-v1",
++                "ledger_id": f"ledger:{action['action_id'].split(':', 1)[1]}",
++                "created_at": now,
++                "turn_id": envelope["turn_id"],
++                "action_id": action["action_id"],
++                "capability_id": action["capability_id"],
++                "tool_name": action["capability_id"].rsplit(":", 1)[-1],
++                "lifecycle": [
++                    {"stage": "propose", "at": now, "verdict": "passed", "summary": "Action proposed."},
++                    {"stage": "validate", "at": now, "verdict": "passed", "summary": "Arguments validated."},
++                    {"stage": "authorize", "at": now, "verdict": "passed", "summary": "Governor authorized."},
++                    {"stage": "execute", "at": now, "verdict": "pending", "summary": "Execution pending."},
++                ],
++                "authorization": authorization,
++                "arguments": {
++                    "schema_valid": True,
++                    "raw_ref": action["args_ref"],
++                    "sanitized_ref": action["args_ref"],
++                },
++                "result": {
++                    "status": "not_started",
++                    "summary": "Voice execution has not started.",
++                    "sanitized_output_ref": action["args_ref"],
++                },
++                "trace": authorization["trace"],
++            }
++        )
++    return {
++        "schema_version": "governor-decision-v1",
++        "decision_id": "governor-decision:voice-test",
++        "created_at": now,
++        "surface": "telegram",
++        "turn_id": envelope["turn_id"],
++        "selected_move": "execute_action",
++        "authority_state": "executable",
++        "risk_tier": "medium",
++        "outcome": "execute",
++        "envelope": envelope,
++        "authorizations": authorizations,
++        "tool_ledgers": ledgers,
++        "execution_boundary": {
++            "action_authorized": True,
++            "action_count": len(envelope["proposed_actions"]),
++            "authorized_action_count": len(authorizations),
++            "requires_human_confirmation": False,
++            "legacy_authority_demoted": True,
++            "reasons": ["harness_core_authorized"],
++        },
++        "reply_contract": {
++            "style": "human_conversational",
++            "instruction": "Execute the authorized voice action.",
++            "inspect_link_allowed": True,
++            "should_interrupt": False,
++        },
++        "evidence": authorizations[0]["evidence"],
++        "trace": {
++            "id": "trace:voice-governor-test",
++            "summary": "Voice Governor decision trace.",
++            "redaction_class": "metadata_only",
++        },
++    }
++
++
+ def test_read_env_map_strips_matching_outer_quotes(tmp_path):
+     env_file = tmp_path / ".env"
+     env_file.write_text(
+@@ -428,6 +627,98 @@ def test_voice_install_kokoro_runs_local_pip_when_missing():
+     assert "Python:" not in result["result"]["reply_text"]
+ 
+ 
++def test_voice_install_requires_explicit_target():
++    with patch("voice_comms_chip.spark_hook.subprocess.run") as run:
++        try:
++            handle_voice_install_hook({})
++        except ValueError as exc:
++            assert "requires an explicit `target`" in str(exc)
++        else:  # pragma: no cover - defensive assertion
++            raise AssertionError("voice.install should require an explicit target")
++
++    run.assert_not_called()
++
++
++def test_voice_install_requires_governor_authority():
++    with patch("voice_comms_chip.spark_hook.subprocess.run") as run:
++        with pytest.raises(ValueError, match="Harness Core Governor"):
++            handle_voice_install_hook({"target": "kokoro"})
++
++    run.assert_not_called()
++
++
++def test_voice_install_rejects_vnext_without_governor_authority():
++    with patch("voice_comms_chip.spark_hook.subprocess.run") as run:
++        with pytest.raises(ValueError, match="Harness Core Governor"):
++            handle_voice_install_hook({"target": "kokoro", "turn_intent_envelope_vnext": _voice_policy()})
++
++    run.assert_not_called()
++
++
++def test_voice_transcribe_requires_governor_authority(tmp_path):
++    payload = {
++        "audio_base64": base64.b64encode(b"fake-ogg-bytes").decode("ascii"),
++        "filename": "telegram-voice.ogg",
++        "mime_type": "audio/ogg",
++        "builder_env_file_path": str(tmp_path / ".env"),
++    }
++    with patch(
++        "voice_comms_chip.spark_hook._local_faster_whisper_available",
++        side_effect=AssertionError("transcription should not run without Governor authority"),
++    ):
++        with pytest.raises(ValueError, match="Harness Core Governor"):
++            handle_voice_transcribe_hook(payload)
++
++
++def test_voice_transcribe_accepts_media_audio_governor_authority(tmp_path):
++    env_file = tmp_path / ".env"
++    env_file.write_text("", encoding="utf-8")
++    with patch("voice_comms_chip.spark_hook._local_faster_whisper_available", return_value=True), patch(
++        "voice_comms_chip.spark_hook._transcribe_with_local_faster_whisper",
++        return_value="Media audio transcript",
++    ):
++        result = handle_voice_transcribe_hook(
++            {
++                "audio_base64": base64.b64encode(b"fake-m4a-bytes").decode("ascii"),
++                "filename": "telegram-audio.m4a",
++                "mime_type": "audio/mp4",
++                "builder_env_file_path": str(env_file),
++                **_media_transcribe_authority_payload(media_kind="audio"),
++            }
++        )
++
++    assert result["returncode"] == 0
++    assert result["result"]["transcript_text"] == "Media audio transcript"
++    assert result["result"]["mode"] == "local_faster_whisper"
++
++
++def test_voice_transcribe_rejects_unrelated_media_governor_authority(tmp_path):
++    payload = {
++        "audio_base64": base64.b64encode(b"fake-ogg-bytes").decode("ascii"),
++        "filename": "telegram-voice.ogg",
++        "mime_type": "audio/ogg",
++        "builder_env_file_path": str(tmp_path / ".env"),
++        **_media_transcribe_authority_payload(media_kind="image"),
++    }
++    with patch(
++        "voice_comms_chip.spark_hook._local_faster_whisper_available",
++        side_effect=AssertionError("transcription should not run with unrelated media authority"),
++    ):
++        with pytest.raises(ValueError, match="matching Harness Core authorization and tool ledger"):
++            handle_voice_transcribe_hook(payload)
++
++
++def test_voice_speak_requires_governor_authority():
++    with patch.dict(sys.modules, {"pyttsx3": SimpleNamespace(init=AssertionError("tts should not run without Governor authority"))}):
++        with pytest.raises(ValueError, match="Harness Core Governor"):
++            handle_voice_speak_hook(
++                {
++                    "text": "Local free voice.",
++                    "tts": {"provider_id": "pyttsx3"},
++                }
++            )
++
++
+ def test_voice_install_kokoro_skips_pip_when_already_installed():
+     with patch("voice_comms_chip.spark_hook._kokoro_python_unsupported_message", return_value=None), patch(
+         "voice_comms_chip.spark_hook._local_kokoro_package_available",
+-- 
+2.39.2 (Apple Git-143)
+

@@ -8143,6 +8143,7 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     owner_lane_recipe = handoff_manifest.get("owner_lane_recipe") if isinstance(handoff_manifest, dict) else None
     changed_files = handoff_manifest.get("changed_files") if isinstance(handoff_manifest, dict) else None
     diffstat = handoff_manifest.get("diffstat") if isinstance(handoff_manifest, dict) else None
+    owner_handoff_patch = handoff_manifest.get("owner_handoff_patch") if isinstance(handoff_manifest, dict) else None
     iso_utc_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
     if not handoff_manifest_present:
         manifest_issues.append("missing_voice_owner_handoff_manifest")
@@ -8240,6 +8241,43 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
             for key, expected in expected_diffstat.items():
                 if diffstat.get(key) != expected:
                     manifest_issues.append(f"voice_diffstat_{key}_mismatch")
+        if not isinstance(owner_handoff_patch, dict):
+            manifest_issues.append("missing_voice_owner_handoff_patch")
+        else:
+            patch_ref = str(owner_handoff_patch.get("path") or "")
+            patch_path = (REPO_ROOT / patch_ref).resolve() if patch_ref else None
+            expected_patch = {
+                "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+                "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+                "line_count": 954,
+                "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+                "apply_result": "132 passed",
+                "publication_authority": False,
+            }
+            for key, expected in expected_patch.items():
+                if owner_handoff_patch.get(key) != expected:
+                    manifest_issues.append(f"voice_owner_handoff_patch_{key}_mismatch")
+            apply_check = str(owner_handoff_patch.get("apply_check") or "")
+            for term in [
+                "git am docs/r30/patches/r30-voice-trace-governor.patch",
+                "PYTHONPATH=src python3 -m pytest -q",
+            ]:
+                if term not in apply_check:
+                    manifest_issues.append(f"voice_owner_handoff_patch_apply_check_missing:{term}")
+            if patch_path is None or not patch_path.exists() or not patch_path.is_file():
+                manifest_issues.append("voice_owner_handoff_patch_missing_file")
+            else:
+                try:
+                    actual_sha = sha256_file(patch_path)
+                    actual_lines = len(patch_path.read_text(encoding="utf-8", errors="replace").splitlines())
+                except OSError:
+                    actual_sha = ""
+                    actual_lines = -1
+                if actual_sha != expected_patch["sha256"]:
+                    manifest_issues.append("voice_owner_handoff_patch_sha256_mismatch")
+                if actual_lines != expected_patch["line_count"]:
+                    manifest_issues.append("voice_owner_handoff_patch_line_count_mismatch")
         prepared_lane = handoff_manifest.get("prepared_local_release_lane")
         if not isinstance(prepared_lane, dict):
             manifest_issues.append("missing_prepared_local_release_lane")

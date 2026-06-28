@@ -13543,6 +13543,20 @@ class SparkCliTests(unittest.TestCase):
                             "insertions": 731,
                             "deletions": 8,
                         },
+                        "owner_handoff_patch": {
+                            "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+                            "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+                            "line_count": 954,
+                            "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                            "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+                            "apply_check": (
+                                "git checkout c74490d68ece65ffad21dc5b88f44602e1afa703 && "
+                                "git am docs/r30/patches/r30-voice-trace-governor.patch && "
+                                "PYTHONPATH=src python3 -m pytest -q"
+                            ),
+                            "apply_result": "132 passed",
+                            "publication_authority": False,
+                        },
                         "prepared_local_release_lane": {
                             "proof_checked_at": "2026-06-27T22:58:58Z",
                             "proof_result": "132 passed",
@@ -13676,6 +13690,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_required_voice_commits", payload["handoff_manifest_issues"])
         self.assertIn("voice_changed_files_mismatch", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_diffstat", payload["handoff_manifest_issues"])
+        self.assertIn("missing_voice_owner_handoff_patch", payload["handoff_manifest_issues"])
         self.assertIn("missing_prepared_local_release_lane", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_owner_lane_recipe", payload["handoff_manifest_issues"])
         self.assertIn("missing_voice_pytest_proof_command", payload["handoff_manifest_issues"])

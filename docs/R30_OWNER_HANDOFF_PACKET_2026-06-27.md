@@ -96,6 +96,7 @@ Fresh local proof status for direct blockers, refreshed at `2026-06-27T21:33:59Z
 - `spark-intelligence-builder`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
 - `spark-telegram-bot`: reliability, build, and line-count gates passed.
 - `spark-voice-comms`: pytest passed.
+- `spark-voice-comms`: owner handoff patch `docs/r30/patches/r30-voice-trace-governor.patch` applies to public base `c74490d68ece`, produces tree `e3e1f8814970`, and passes `132 passed`; this remains review/apply material only, not registry or publication authority.
 - `spawner-ui`: focused Codex sandbox lane tests and Svelte check passed.
 - `spark-cli`: local commits `30e9b6f` and `11bea74` make the R30 Access 5 gate fail unless Telegram effective Level 5 runtime-env promotion and Recursive bridge env inheritance remain proven.
 
