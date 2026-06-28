@@ -14505,6 +14505,59 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["commit_mismatches"], [])
         self.assertEqual(payload["instruction_mismatches"], [])
         self.assertEqual(payload["owner_ref_mismatches"], [])
+        self.assertEqual(payload["patch_mismatches"], [])
+
+    def test_r30_handoff_manifest_status_requires_memory_patch(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "domain-chip-memory",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "next_action": "port memory",
+                    "proof_commands": ["PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"],
+                }
+            ],
+            "supporting_hygiene": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
+                        "direct_blockers": [
+                            {
+                                "module": "domain-chip-memory",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "owner_refs": {
+                                    "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+                                    "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+                                    "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+                                    "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+                                },
+                                "next_action": "port memory",
+                                "proof_commands": ["PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"],
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("owner_handoff_patch_mismatch", payload["issues"])
+        self.assertEqual(payload["patch_mismatches"][0]["module"], "domain-chip-memory")
+        self.assertIn("missing_owner_handoff_patch", payload["patch_mismatches"][0]["issues"])
 
     def test_r30_handoff_manifest_status_requires_publication_boundary(self) -> None:
         classification = {

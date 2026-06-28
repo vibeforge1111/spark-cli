@@ -21,6 +21,18 @@
       "proof_commands": [
         "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
       ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+        "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+        "line_count": 34,
+        "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+        "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+        "apply_check": "git checkout 3116ccaa3977279581cb09d6e02353485de8a9b3 && git apply docs/r30/patches/r30-memory-authority-proof.patch && git add -A && test \"$(git write-tree)\" = \"ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0\"",
+        "proof_command": "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts",
+        "proof_result": "5 normalized contracts; 4 official adapters; 1 shadow adapter",
+        "publication_authority": false
+      },
       "local_proof": "passed"
     },
     {

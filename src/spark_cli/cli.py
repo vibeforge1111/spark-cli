@@ -8958,9 +8958,22 @@ def collect_r30_handoff_manifest_status(
             "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
         },
     }
+    expected_owner_handoff_patches = {
+        "domain-chip-memory": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+            "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+            "line_count": 34,
+            "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+            "publication_authority": False,
+            "proof_result_terms": ["5 normalized contracts", "4 official adapters", "1 shadow adapter"],
+        },
+    }
     commit_mismatches: list[dict[str, Any]] = []
     instruction_mismatches: list[dict[str, Any]] = []
     owner_ref_mismatches: list[dict[str, Any]] = []
+    patch_mismatches: list[dict[str, Any]] = []
     for module, live_row in sorted(live_rows.items()):
         manifest_row = manifest_rows.get(module)
         if not manifest_row:
@@ -9000,6 +9013,45 @@ def collect_r30_handoff_manifest_status(
                         "expected_owner_refs": owner_ref_expected,
                     }
                 )
+        expected_patch = expected_owner_handoff_patches.get(module)
+        if expected_patch is not None:
+            patch = manifest_row.get("owner_handoff_patch") if isinstance(manifest_row.get("owner_handoff_patch"), dict) else None
+            patch_issues: list[str] = []
+            if patch is None:
+                patch_issues.append("missing_owner_handoff_patch")
+            else:
+                for key in ("patch_type", "path", "sha256", "line_count", "base_commit", "expected_tree", "publication_authority"):
+                    if patch.get(key) != expected_patch[key]:
+                        patch_issues.append(f"owner_handoff_patch_{key}_mismatch")
+                patch_ref = str(patch.get("path") or "")
+                patch_path = REPO_ROOT / patch_ref
+                if not patch_ref or not patch_path.exists() or not patch_path.is_file():
+                    patch_issues.append("owner_handoff_patch_missing_file")
+                else:
+                    try:
+                        actual_sha = sha256_file(patch_path)
+                        actual_lines = len(patch_path.read_text(encoding="utf-8", errors="replace").splitlines())
+                    except OSError:
+                        actual_sha = ""
+                        actual_lines = -1
+                    if actual_sha != expected_patch["sha256"]:
+                        patch_issues.append("owner_handoff_patch_sha256_mismatch")
+                    if actual_lines != expected_patch["line_count"]:
+                        patch_issues.append("owner_handoff_patch_line_count_mismatch")
+                apply_check = str(patch.get("apply_check") or "")
+                apply_terms = [
+                    f"git apply {expected_patch['path']}",
+                    str(expected_patch["base_commit"]),
+                    str(expected_patch["expected_tree"]),
+                    "git write-tree",
+                ]
+                if not all(term in apply_check for term in apply_terms):
+                    patch_issues.append("owner_handoff_patch_apply_check_incomplete")
+                proof_result = str(patch.get("proof_result") or "").lower()
+                if not all(str(term).lower() in proof_result for term in expected_patch["proof_result_terms"]):
+                    patch_issues.append("owner_handoff_patch_proof_result_incomplete")
+            if patch_issues:
+                patch_mismatches.append({"module": module, "issues": patch_issues})
         if row_mismatches:
             commit_mismatches.append(
                 {
@@ -9047,6 +9099,8 @@ def collect_r30_handoff_manifest_status(
         issues.append("handoff_instruction_mismatch")
     if owner_ref_mismatches:
         issues.append("owner_ref_mismatch")
+    if patch_mismatches:
+        issues.append("owner_handoff_patch_mismatch")
     if not all(item.get("local_proof") == "passed" for item in manifest.get("direct_blockers", []) if isinstance(item, dict)):
         issues.append("direct_local_proof_not_passed")
     return {
@@ -9059,6 +9113,7 @@ def collect_r30_handoff_manifest_status(
         "commit_mismatches": commit_mismatches,
         "instruction_mismatches": instruction_mismatches,
         "owner_ref_mismatches": owner_ref_mismatches,
+        "patch_mismatches": patch_mismatches,
         "direct_blockers": direct_manifest,
         "supporting_hygiene": supporting_manifest,
     }
