@@ -16,7 +16,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
-Fresh CLI proof refresh at `2026-06-28T02:54:34Z`:
+Fresh CLI proof refresh at `2026-06-28T03:37:09Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
 - `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; all listed Spark modules healthy, including Telegram relay runtime
@@ -34,14 +34,14 @@ Fresh CLI proof refresh at `2026-06-28T02:54:34Z`:
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json` | PASS | Local installer manifest/scripts are internally consistent for R29. This does not claim R30 readiness. |
 | Telegram `npm run control:proof:reliability` | PASS | Fresh-strict audit clean for actionable/latest gaps; live trace clean; render firewall, capsules, evals, legacy prompt surface, capability evidence, and surface eval all clean. |
 | Telegram `npm run build` | PASS | TypeScript compile passed. |
-| Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 0 growing, 0 new over cap. |
+| Telegram `npm run check:line-count` | PASS | `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap. |
 | Level 5 named-profile service proof | PASS | `PYTHONPATH=src python3 -m pytest -q tests/test_access.py -k "level5"` passed with regressions proving startable Telegram profiles must restart after Level 5 guardrail setup. If one startable profile is stale or missing, Level 5 reports `partial`, `service_enabled=false`, and effective access stays at Level 4. A stale no-token profile file is reported as `skipped_unstartable_telegram_profiles` instead of downgrading the whole install. |
 | R30 unattended identity setup smoke | PASS as guarded refusal | `SPARK_HOME=/tmp/spark-r30-smoke-3umCTp spark setup --non-interactive --bot-token fake-token --admin-telegram-ids 12345 ...` exited `2` before writes. Output classified the command as `identity_access_mutation` and told the operator to rerun in an interactive terminal. The temp home remained empty; secret/dashboard scan found no matches. |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json` | PASS | Hosted `agent.sparkswarm.ai` and local committed installer truth agree on R29. Hosted script bytes match hosted checksum metadata; hosted command metadata and release manifest match R29. This does not claim R30 readiness. |
 
 ## Spark OS Compile Details
 
-Latest CLI proof refresh: `2026-06-28T02:54:34Z`.
+Latest CLI proof refresh: `2026-06-28T03:37:09Z`; Spark OS compile generated at `2026-06-28T03:36:23Z`.
 
 Important fields:
 
@@ -63,7 +63,7 @@ Publish handoff families:
 
 ## R30 Release Gate Details
 
-Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` from `spark-cli` head `34995930f74cd1c2796f49ea05de27252235612d`:
+Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` before this evidence refresh, from `spark-cli` head `47f0dc85876593461f171fe0ca896a1a50f15d25`:
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
