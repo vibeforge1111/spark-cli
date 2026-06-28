@@ -22,6 +22,7 @@ Use this index as the entry point for R30 release prep.
 13. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
 14. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 15. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
+16. [R30 Domain Chip Labs Telegram creator plan](./R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md)
 
 ## Current Verdict
 
@@ -46,6 +47,10 @@ Current green proof:
 - The Access 5 Codex sandbox evidence is checked by the R30 gate across CLI transition proof, direct Spawner, PRD, and Telegram activation paths.
 - The Access Level 5 read-only elimination audit records the live invariant: lower-level Telegram chats may become operator only after effective `danger-full-access` service proof, Telegram runner writability proof, and default Codex launcher stale-env promotion proof.
 - R30 unattended identity setup smoke fails closed before writes.
+- The R30 Domain Chip Labs Telegram creator plan records the current
+  conversation failure audit, universal creator UX standard, artifact contract,
+  loop-engineering contract, and under-4000-character implementation goal
+  prompt.
 
 Current blockers:
 
@@ -54,6 +59,8 @@ Current blockers:
 - `spark-telegram-bot` and `spawner-ui` are still local runtime test artifacts.
 - Builder has one historical high-severity lifecycle family carried as explicit release debt; it must remain visible until closed with owner evidence.
 - Hosted `agent.sparkswarm.ai` and local installer files now agree on R29; R30 is not hosted.
+- Domain Chip Labs Telegram creation is documented as a planned R30 UX/readiness
+  lane, not yet a complete installer-ready capability.
 - The R30 installer baseline drift audit confirms no current R30 prep doc claims
   the local installer baseline is still R28; remaining R28 references are
   historical context or patch history.

@@ -29,6 +29,20 @@ Fresh post-DCL proof refresh at `2026-06-28T09:23:56Z`:
 - Telegram `npm run control:proof:reliability`: failed at `control:proof:live-trace`. The trace audit itself is actionable/blocking/fresh-strict clean and legacy gaps remain backed only, but live trace join reports 8 gap rows, 6 stale live route evidence rows, 2 old `conversation.ideation` route mismatches, and safe prompt proof `3/4` because `memory_vs_fresh_state` is stale. Required recapture prompts are emitted by `npm run control:proof:live-trace:prompts`.
 - No registry pin, installer pin, hosted metadata, source tag, deploy, publish, or remote merge was changed during this sweep.
 
+Fresh voice owner-lane recheck at `2026-06-28T09:31:26Z`:
+
+- `spark-voice-comms` prepared release lane
+  `release/r30-voice-trace-governor` at
+  `c502ec096cefb48839e3279d3392343231884415` still passes
+  `PYTHONPATH=src python3 -m pytest -q` with `132 passed`.
+- Remote refs still show no owner
+  `refs/heads/release/r30-voice-trace-governor` branch; `main` and
+  `spark-ship-2026-06-26` remain at
+  `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- The R30 voice decision remains unchanged: this is fresh local proof and
+  handoff evidence only, not registry, installed-metadata, installer, hosted, or
+  publication authority.
+
 Fresh access/reliability refresh at `2026-06-28T05:33:54Z`:
 
 - Telegram `npm run control:proof:live-trace`: `Status: clean`; live route proof `ready (5/4)`, no-action route proof `ready (5/4)`, safe prompt proof `ready (4/4)`, and stale live route evidence `0`.
@@ -196,7 +210,7 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spawner-ui`: focused access-lane/Codex sandbox tests passed, `22 passed` for the refreshed Level 5 execution-lane slice; `npm run build` passed. Fresh 2026-06-28 access-action hardening proof passed with `44 passed` across access execution actions, high-agency worker env, Codex CLI client, Spark agent bridge, and access-lane API integration. Local head is `d7737038`, including the stale read-only default Codex launch proof plus direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, Codex worker env propagation, active Level 5 full-access lane classification, and Spawner access-action runner promotion from persisted Level 5 env.
 - `spawner-ui`: owner handoff tree-diff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010`; applying it to owner base `fdb8fded4744` produces tree `b5c43beb7035`. Fresh proof at `2026-06-28`: the refreshed Spawner access-action and Level 5 lane proof passed with `44 passed` and `npm run build` passed; the earlier broader Spawner check lane remains recorded as passing before the active Level 5 lane classification refresh. The known local relay stderr from stopped/unauthorized relay endpoints did not fail the focused tests. This is review/apply material only, not registry or publication authority; the tree-diff form is intentional because the local Spawner range contains a merge-shaped history.
 
-Fresh voice owner-lane proof at `2026-06-28T08:19:52Z`; remote owner refs were rechecked at `2026-06-28T08:41:06Z`:
+Fresh voice owner-lane proof at `2026-06-28T09:31:26Z`; remote owner refs were rechecked at `2026-06-28T09:31:26Z`:
 
 - `spark-voice-comms` prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T00:54:49Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
@@ -205,8 +219,9 @@ Fresh voice owner-lane proof at `2026-06-28T08:19:52Z`; remote owner refs were r
 - Rechecked at `2026-06-28T04:41:25Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T07:12:13Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Rechecked at `2026-06-28T08:19:52Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
+- Rechecked at `2026-06-28T09:31:26Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
-- Remote audit at `2026-06-28T08:41:06Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. The same audit found no remote R30 handoff refs for Telegram, Spawner, memory, Builder, or the Spark CLI R30 installer tag. This is fresh local proof only, not registry or source-owner truth.
+- Remote audit at `2026-06-28T09:31:26Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 - Executable remote-ref audit at `2026-06-28T03:50:55Z` passed inside `verify --r30`: `refs/heads/main` and `refs/tags/spark-ship-2026-06-26` still resolve to `c74490d68ece65ffad21dc5b88f44602e1afa703`, `refs/heads/codex/turnintent-voice-policy-20260531` still resolves to `12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4`, and `refs/heads/release/r30-voice-trace-governor` is still absent.
 
 Fresh Builder/Spawner handoff verifier result at `2026-06-28T05:06:40Z`:

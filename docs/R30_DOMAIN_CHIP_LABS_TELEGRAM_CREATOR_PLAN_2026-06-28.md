@@ -27,6 +27,36 @@ The failed conversation showed these gaps:
 - `/run` did not close the loop with a mission id or exact failure
 - the user had to understand Spark internals to know what happened
 
+This is not a Higgsfield/Seedance-only problem. That conversation is the
+example that exposed the broader product gap: Telegram does not yet provide a
+reliable, warm, low-friction creator lane for any user who wants to turn a
+domain need into a private Spark Domain Chip Labs artifact.
+
+## Conversation Failure Audit
+
+The conversation should have produced one of two outcomes:
+
+- a private `domain-chip-video-skit-crafter` mission with a mission id and
+  reviewable artifact contract
+- one exact blocked-here reply with a writable-lane prompt
+
+Instead, Spark drifted through generic naming prompts, stale caution, read-only
+confusion, Telegram poller error text, Access Level 5 uncertainty, and finally a
+missing `/run` reply. The relevant failures are:
+
+- intent lock failed: explicit "build/create a domain chip" did not persist as
+  `domain_chip.create`
+- scope memory failed: "go", "doesn't matter", and the repeated mission prompt
+  did not continue the same pending chip
+- capability truth failed: allowed access, writable runner, current process
+  sandbox, service sandbox, and mission proof were blurred together
+- action closure failed: `/run` returned no mission id, no staged artifact, and
+  no exact failure
+- surface quality failed: the user had to debug Spark instead of shaping the
+  chip
+
+R30 should treat those as measured release-readiness gaps, not copy polish.
+
 ## Telegram UX Standard
 
 A great Telegram domain-chip creation flow should feel like this:
@@ -48,6 +78,30 @@ Default preview copy should be DCL-shaped:
 - evals, watchtower, evidence ladder
 - no external API calls, posting, secrets, or network publication unless explicitly approved
 
+## Universal Creator Onboarding
+
+The lane should ask itself the same product questions before it asks the user
+anything:
+
+- Can the user's first message already define a useful v1 chip?
+- Is this a new chip, a refinement to an existing chip, or a benchmark loop for
+  a chip already in use?
+- What is the smallest private artifact that would improve the user's next
+  workflow?
+- Which capability is actually available right now: chat-only shaping, staged
+  artifact, writable mission, or live activation?
+- What proof will let the user trust that something happened?
+- What should the chip never do, even if the domain gets tempting?
+
+Telegram should usually ask at most one question:
+
+- scope: ideation, packets, full workflow, evaluator, or watchtower
+- audience/domain: who or what the chip is optimizing for
+- boundary: private review only, local files, or activation-ready scaffold
+
+If a user says "doesn't matter", "go", or repeats the goal, Spark should choose
+the safest useful default and proceed instead of reopening the whole decision.
+
 ## Domain Chip Labs Artifact Contract
 
 Every created chip should have:
@@ -68,6 +122,17 @@ Every created chip should have:
 
 The chip should not be called “live” until router invocation, fallthrough, and artifact evidence pass.
 
+Different domains may need different modules, but the contract should stay
+stable. Examples:
+
+- creative chip: trend signals, prompt packets, taste rubric, safety boundary
+- research chip: source policy, freshness checks, claim ledger, uncertainty
+  handling
+- operations chip: triggers, runbook, escalation rules, rollback, audit packet
+- coding chip: repository triggers, test matrix, patch rules, review rubric
+- coaching chip: tone boundary, progression loop, reflection criteria, privacy
+  guard
+
 ## Loop Engineering Contract
 
 Self-improving loops must be verifiable, bounded, and reviewable.
@@ -82,16 +147,53 @@ Self-improving loops must be verifiable, bounded, and reviewable.
 
 For user-facing Telegram, Spark should summarize the loop in human terms and keep raw ledgers behind inspect/status surfaces.
 
+The self-improvement loop must never be a vague "make it better" promise. It
+needs a baseline artifact, candidate change, scoring rubric, held-out examples,
+promotion rule, rollback path, and a plain-language review summary the user can
+understand in Telegram.
+
 ## Implementation Task List
 
-1. Inventory current DCL creation routes, pending state, Spawner creator mission bridge, chip scaffolding, recursive loop sync, and Domain Chip Labs artifact expectations.
-2. Build a shared `domainChipCreatorLane` contract for parse -> preview -> confirm -> stage/create -> prove -> follow-up.
-3. Replace generic domain-chip preview/fallback copy with DCL-specific UX across Telegram natural chat, pending confirmations, `/run`, and creator-mission paths.
-4. Add capability-truth replies for DCL creation: allowed, writable, staged, created, blocked-here, missing-proof, or failed-with-reason.
-5. Add a DCL review packet schema and ensure generated PRDs require the full artifact and loop-engineering contract.
-6. Add tests for explicit creation, scope follow-ups, stale memory conflicts, read-only runner, Level 5 writable runner, failed Spawner bridge, missing reply after `/run`, router fallthrough, loop benchmark, and watchtower proof.
-7. Update R30 docs and release gates so DCL Telegram creator quality is a measured installer-readiness criterion, not polish.
-8. Keep registry/installer pins blocked until source-owner refs and local runtime artifacts converge.
+1. Preserve R30 handoff truth: keep installer pins, registry pins, hosted
+   metadata, tags, deploys, and source-owner claims blocked until the existing
+   R30 gates are green.
+2. Inventory current DCL creation routes, pending state, Spawner creator
+   mission bridge, chip scaffolding, recursive loop sync, Domain Chip Labs
+   standards, and artifact expectations.
+3. Define a shared `domainChipCreatorLane` contract for parse -> preview ->
+   confirm -> stage/create -> prove -> follow-up.
+4. Add intent lock and pending-state continuity for explicit creation,
+   repeated goal text, "go", "doesn't matter", and scope follow-ups.
+5. Replace generic domain-chip preview/fallback copy with DCL-specific UX across
+   Telegram natural chat, pending confirmations, `/run`, and creator-mission
+   paths.
+6. Add capability-truth replies for DCL creation: chat-only, allowed, writable,
+   staged, created, blocked-here, missing-proof, or failed-with-reason.
+7. Add a DCL review packet schema and ensure generated PRDs require the full
+   artifact and loop-engineering contract.
+8. Add proof capsules that join user intent -> route -> action/no-action ->
+   artifact/eval/reply.
+9. Add tests for explicit DCL creation, generic-domain examples, scope
+   follow-ups, stale-memory conflict, read-only runner, Level 5 writable runner,
+   failed Spawner bridge, missing `/run` reply, router fallthrough, benchmark
+   loop proof, watchtower regression, and conversational surface quality.
+10. Update R30 docs and release gates so DCL Telegram creator quality is a
+    measured installer-readiness criterion, not polish.
+11. Commit after each proven slice and keep historical debt visible.
+
+## Handoff Shape
+
+This lane should hand off in three layers:
+
+- product handoff: Telegram UX standard, onboarding questions, artifact
+  contract, loop-engineering contract, and conversation failure audit
+- engineering handoff: route contract, pending-state contract, capability-truth
+  states, Spawner bridge behavior, proof capsules, and tests
+- release handoff: source-owner refs, local runtime artifact status, registry
+  pins, installer pins, hosted metadata, and exact remaining blockers
+
+The handoff should make it easy for the next lane to continue without
+rediscovering why R30 is still blocked.
 
 ## Goal Prompt
 
@@ -100,13 +202,13 @@ Use this in a writable Codex lane:
 ```text
 Goal: Make Spark R30’s Telegram Domain Chip Labs creator lane genuinely usable and evidence-backed.
 
-Start from current R30 handoff truth. Do not publish, push, tag, deploy, move registry pins, or claim installer readiness. First reduce measured proof, trace-join, handoff, and DCL creator UX gaps.
+Start from current R30 handoff truth. Do not publish, push, tag, deploy, move registry pins, or claim installer readiness. First reduce measured proof, trace-join, handoff, and DCL creator UX gaps. Do not expand UI, media support, or new features unless they directly close a measured control-proof or DCL creator-readiness gap.
 
-Audit Telegram, Spawner creator missions, Domain Chip Labs standards, chip manifests/hooks, recursive/self-improving loops, pending-state UX, Access Level 5 capability truth, and R30 release docs. Preserve the current reliability ladder and source-owner gates.
+Audit Telegram, Spawner creator missions, Domain Chip Labs standards, chip manifests/hooks, recursive/self-improving loops, pending-state UX, Access Level 5 capability truth, and R30 release docs. Use the Higgsfield/Seedance conversation as evidence of a general DCL creator-lane failure, not as the only target. Preserve the current reliability ladder and source-owner gates.
 
-Implement a durable DCL Telegram creator lane: natural “build/create a domain chip” intent must lock to domain_chip.create, ask at most one relevant scope question, keep stale memory/caution from hijacking current intent, stage/create only when authorized and writable, and always return either chip/mission proof or one exact failure. Default scope should support ideation only, shot/prompt packets, or full workflow. Generated artifacts must include purpose, triggers, non-triggers, playbook, examples, manifest/hook contract, evals, benchmark pack, score dimensions, allowed mutations, evidence ladder, privacy boundary, watchtower, rollback, review packet, and activation notes.
+Implement a durable DCL Telegram creator lane: natural “build/create a domain chip” intent must lock to domain_chip.create, ask at most one relevant scope question, keep stale memory/caution from hijacking current intent, preserve pending chip state across “go”, “doesn’t matter”, and repeated goals, stage/create only when authorized and writable, and always return either chip/mission proof or one exact failure. Default scope should support ideation only, prompt/shot packets, full workflow, evaluator, or watchtower. Generated artifacts must include purpose, triggers, non-triggers, playbook, examples, manifest/hook contract, evals, benchmark pack, score dimensions, allowed mutations, evidence ladder, privacy boundary, watchtower, rollback, review packet, and activation notes.
 
 Add verifiable loop engineering: baseline, candidate, score, compare, promote only on proof, held-out checks, watchtower signals, and proof capsules joining user intent -> route -> action/no-action -> artifact/eval/reply. Telegram surface should be warm and concise; raw ledgers stay behind inspect/status.
 
-Add regression tests for explicit DCL creation, scope follow-ups, stale-memory conflict, read-only runner, Level 5 writable runner, failed Spawner bridge, missing /run reply, router fallthrough, benchmark loop proof, and watchtower regression. Run focused tests, build, line-count, and R30 verifier. Commit after each proven slice. Update R30 docs with what is green, what remains blocked, and why.
+Add regression tests for explicit DCL creation, non-video domain examples, scope follow-ups, stale-memory conflict, read-only runner, Level 5 writable runner, failed Spawner bridge, missing /run reply, router fallthrough, benchmark loop proof, watchtower regression, and conversational surface quality. Run focused tests, build, line-count, and R30 verifier. Commit after each proven slice. Update R30 docs with what is green, what remains blocked, and why.
 ```

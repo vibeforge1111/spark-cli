@@ -7,7 +7,7 @@
   "decision": "owner_source_required_before_registry_pin",
   "publication_boundary": "No voice registry pin, installed metadata, installer pin, tag, deploy, or hosted publication is authorized by this manifest.",
   "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
-  "remote_audit_at": "2026-06-28T08:41:06Z",
+  "remote_audit_at": "2026-06-28T09:31:26Z",
   "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
   "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
   "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
@@ -27,7 +27,7 @@
     "pushed_or_tagged": false,
     "registry_truth": false,
     "installed_metadata_truth": false,
-    "proof_checked_at": "2026-06-28T08:19:52Z",
+    "proof_checked_at": "2026-06-28T09:31:26Z",
     "proof_command": "PYTHONPATH=src python3 -m pytest -q",
     "proof_result": "132 passed",
     "ported_commits": [
