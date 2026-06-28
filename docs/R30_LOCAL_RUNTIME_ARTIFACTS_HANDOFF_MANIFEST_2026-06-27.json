@@ -87,6 +87,18 @@
         "npm run build",
         "npm run check"
       ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+        "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
+        "line_count": 2275,
+        "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"126d215fcfd798256cbafb2dbf35899c85f6bea2\"",
+        "proof_command": "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts && npm run build",
+        "proof_result": "59 passed; build passed",
+        "publication_authority": false
+      },
       "local_proof": "passed"
     }
   ],

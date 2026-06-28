@@ -14855,6 +14855,22 @@ class SparkCliTests(unittest.TestCase):
                                     "Carry Level 5 env into Codex workers",
                                 ],
                                 "proof_commands": ["npm run check"],
+                                "owner_handoff_patch": {
+                                    "patch_type": "tree_diff",
+                                    "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+                                    "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
+                                    "line_count": 2275,
+                                    "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+                                    "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+                                    "apply_check": (
+                                        "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && "
+                                        "git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && "
+                                        "git add -A && test \"$(git write-tree)\" = "
+                                        "\"126d215fcfd798256cbafb2dbf35899c85f6bea2\""
+                                    ),
+                                    "proof_result": "59 passed; build passed",
+                                    "publication_authority": False,
+                                },
                                 "owner_action": "Port onto the current owner release base before registry movement.",
                                 "local_proof": "passed",
                             },
@@ -14989,6 +15005,75 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("missing_changed_file_count", payload["mismatches"][0]["issues"])
         self.assertIn("missing_first_local_commit", payload["mismatches"][0]["issues"])
         self.assertIn("missing_last_local_commit", payload["mismatches"][0]["issues"])
+
+    def test_r30_local_runtime_artifacts_handoff_requires_spawner_patch(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spawner-ui",
+                    "expected_commit": "c" * 40,
+                    "actual_commit": "d" * 40,
+                    "installed_registry_commit": "c" * 40,
+                }
+            ],
+        }
+        publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spawner-ui"]}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No Telegram or Spawner registry pin, installed metadata, installer pin, "
+                            "tag, deploy, or hosted publication is authorized by this manifest."
+                        ),
+                        "artifacts": [
+                            {
+                                "module": "spawner-ui",
+                                "expected_registry_commit": "c" * 40,
+                                "local_head": "d" * 40,
+                                "installed_registry_commit": "c" * 40,
+                                "commit_count": 3,
+                                "changed_file_count": 2,
+                                "first_local_commit": "f" * 40,
+                                "last_local_commit": "d" * 40,
+                                "owner_refs": {
+                                    "main": "451d009aad84142092e9a21bda7788cf07910975",
+                                    "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+                                    "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+                                    "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+                                },
+                                "required_terminal_subjects": [
+                                    "Carry Harness proof refs in PRD traces",
+                                    "Add Spawner PRD proof continuity repair",
+                                    "Honor Level 5 Codex sandbox in direct client",
+                                    "Honor Level 5 sandbox in PRD Codex lanes",
+                                    "Honor persisted Level 5 sandbox in Spawner",
+                                    "Honor persisted Level 5 worker access",
+                                    "Carry Level 5 env into Codex workers",
+                                ],
+                                "proof_commands": ["npm run check"],
+                                "owner_action": "Port onto the current owner release base before registry movement.",
+                                "local_proof": "passed",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = collect_r30_local_runtime_artifacts_handoff_status(
+                classification,
+                publish_handoffs,
+                manifest_path=manifest_path,
+            )
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("artifact_metadata_mismatch", payload["issues"])
+        self.assertEqual(payload["mismatches"][0]["module"], "spawner-ui")
+        self.assertIn("missing_owner_handoff_patch", payload["mismatches"][0]["issues"])
 
     def test_r30_local_runtime_handoff_docs_match_structured_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

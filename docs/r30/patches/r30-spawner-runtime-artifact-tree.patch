@@ -1,0 +1,2275 @@
+diff --git a/docs/SPARK_MISSION_CONTROL_TRACE.md b/docs/SPARK_MISSION_CONTROL_TRACE.md
+index 8ca11ac5..51a06b80 100644
+--- a/docs/SPARK_MISSION_CONTROL_TRACE.md
++++ b/docs/SPARK_MISSION_CONTROL_TRACE.md
+@@ -51,11 +51,22 @@ sequenceDiagram
+ | `GET /api/pipeline-loader` | Canvas | Consumes pending Canvas pipeline loads | `pending-load.json` | clears pending load |
+ | `POST /api/dispatch` | Canvas execution | Starts provider runtime from the execution pack | execution pack, env provider config | Mission Control events, provider runtime session state |
+ | `GET /api/dispatch?missionId=...` | Canvas/trace | Provider execution status | provider runtime snapshots/results | none |
+-| `POST /api/events` | Providers/Codex/Claude/ZAI bridge | Receives task and mission lifecycle events | event body, `last-canvas-load.json` for relay enrichment | Mission Control relay state, provider terminal reconciliation |
++| `POST /api/events` | Providers/Codex/Claude/ZAI bridge | Receives task, mission lifecycle, and PRD analysis completion events | event body, `pending-request.json` for PRD trace proof, `last-canvas-load.json` for relay enrichment | Mission Control relay state, provider terminal reconciliation, `prd-auto-trace.jsonl` for PRD completion/error events |
+ | `GET /api/mission-control/board` | Kanban | Bucketed board view | Mission Control relay state, provider results | none |
+ | `GET /api/mission-control/status?missionId=...` | Status/debug | Raw relay snapshot for a mission | Mission Control relay state, provider results | none |
+ | `GET /api/mission-control/trace?missionId=...&requestId=...` | Telegram/Canvas/Kanban tracer | One stitched answer for where a mission is right now | pending request, analysis result, last Canvas load, board, dispatch, provider results | none |
+ 
++## PRD Trace Proof Continuity
++
++Every `prd-auto-trace.jsonl` row written by `/api/prd-bridge/write` or PRD completion/error handling in `/api/events` must carry request, trace, and proof-continuity metadata.
++
++- When Telegram supplies a valid `harnessProofRef`, Spawner preserves that ref on every row for the request.
++- PRD completion/error events join proof from the incoming event first, then the matching `pending-request.json` record, so provider callbacks do not create fresh source proof gaps after the initial Telegram build request has been authorized.
++- When no fresh Harness proof is available, Spawner writes a compact `spark.harness_proof.v1` gap capsule with `proofStatus: missing_harness_authority`, `proofStorage: source_gap_capsule`, `authority.contract: none`, and `governor.verified: false`.
++- Historical rows can be repaired with `npm run trace:repair:prd-proof -- --json`. The repair writes `proofStorage: legacy_gap_capsule`, keeps raw paths redacted, and creates a `.proof-backup` before changing the trace file.
++
++Gap capsules are not authorization. They make old or under-proven execution-plane rows inspectable while keeping the missing-authority gap visible to the control-proof audit.
++
+ ## Persistent State Files
+ 
+ All paths below are relative to `SPAWNER_STATE_DIR` when set, otherwise `.spawner` in the Spawner working directory.
+diff --git a/package.json b/package.json
+index 8fd5e7f1..c76c7e81 100644
+--- a/package.json
++++ b/package.json
+@@ -23,6 +23,8 @@
+ 		"smoke:spark-skill-tiers": "node scripts/smoke-spark-skill-tiers.mjs",
+ 		"smoke:routes": "node scripts/smoke-routes.mjs",
+ 		"smoke:mission-surfaces": "node scripts/smoke-mission-surfaces.mjs",
++		"trace:redact:prd": "tsx scripts/redact-prd-trace.ts",
++		"trace:repair:prd-proof": "tsx scripts/repair-prd-trace-proof.ts",
+ 		"sync:runtime": "node scripts/sync-runtime.cjs",
+ 		"sync:watch": "node scripts/sync-runtime.cjs --watch",
+ 		"sync:check": "node scripts/sync-runtime.cjs --check",
+diff --git a/scripts/redact-prd-trace.ts b/scripts/redact-prd-trace.ts
+new file mode 100644
+index 00000000..92b1a4e3
+--- /dev/null
++++ b/scripts/redact-prd-trace.ts
+@@ -0,0 +1,42 @@
++import os from 'node:os';
++import path from 'node:path';
++import { redactPrdAutoTraceLog } from '../src/lib/server/prd-trace-redaction';
++
++function argValue(args: string[], name: string): string | null {
++	const index = args.indexOf(`--${name}`);
++	return index === -1 ? null : args[index + 1] || null;
++}
++
++function hasFlag(args: string[], name: string): boolean {
++	return args.includes(`--${name}`);
++}
++
++function defaultStateDir(): string {
++	const explicit = process.env.SPAWNER_STATE_DIR?.trim();
++	if (explicit) return explicit;
++	const sparkHome = process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
++	return path.join(sparkHome, 'state', 'spawner-ui');
++}
++
++async function main(): Promise<void> {
++	const args = process.argv.slice(2);
++	const tracePath = path.resolve(
++		argValue(args, 'trace') || path.join(argValue(args, 'state-dir') || defaultStateDir(), 'prd-auto-trace.jsonl')
++	);
++	const result = await redactPrdAutoTraceLog(tracePath, { backup: !hasFlag(args, 'no-backup') });
++	if (hasFlag(args, 'json')) {
++		console.log(JSON.stringify(result, null, 2));
++	} else if (result.ok) {
++		console.log(
++			`Redacted ${result.rowsWritten} PRD trace row(s).${result.backupPath ? ` Backup: ${result.backupPath}` : ''}`
++		);
++	} else {
++		console.log(JSON.stringify(result, null, 2));
++	}
++	process.exitCode = result.ok || result.error === 'trace_log_missing' ? 0 : 1;
++}
++
++void main().catch((error) => {
++	console.error(error instanceof Error ? error.message : String(error));
++	process.exitCode = 1;
++});
+diff --git a/scripts/repair-prd-trace-proof.ts b/scripts/repair-prd-trace-proof.ts
+new file mode 100644
+index 00000000..81230ffb
+--- /dev/null
++++ b/scripts/repair-prd-trace-proof.ts
+@@ -0,0 +1,71 @@
++import os from 'node:os';
++import path from 'node:path';
++import { repairPrdTraceProofContinuity } from '../src/lib/server/prd-trace-proof-continuity';
++
++function argValue(args: string[], name: string): string | null {
++	const index = args.indexOf(`--${name}`);
++	return index === -1 ? null : args[index + 1] || null;
++}
++
++function hasFlag(args: string[], name: string): boolean {
++	return args.includes(`--${name}`);
++}
++
++function defaultStateDir(): string {
++	const explicit = process.env.SPAWNER_STATE_DIR?.trim();
++	if (explicit) return explicit;
++	const sparkHome = process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
++	return path.join(sparkHome, 'state', 'spawner-ui');
++}
++
++function usage(): string {
++	return [
++		'Repair Spawner PRD trace proof continuity',
++		'',
++		'Usage:',
++		'  npm run trace:repair:prd-proof -- --dry-run --json',
++		'  npm run trace:repair:prd-proof',
++		'  npm run trace:repair:prd-proof -- --state-dir /path/to/spawner-state',
++		'  npm run trace:repair:prd-proof -- --trace /path/prd-auto-trace.jsonl',
++		'',
++		'Adds missing-authority proof capsules to PRD trace rows that have request/trace continuity but no Harness proof metadata.'
++	].join('\n');
++}
++
++function main(): void {
++	const args = process.argv.slice(2);
++	if (hasFlag(args, 'help')) {
++		console.log(usage());
++		return;
++	}
++	const tracePath = path.resolve(
++		argValue(args, 'trace') || path.join(argValue(args, 'state-dir') || defaultStateDir(), 'prd-auto-trace.jsonl')
++	);
++	const result = repairPrdTraceProofContinuity({
++		tracePath,
++		dryRun: hasFlag(args, 'dry-run'),
++		backup: !hasFlag(args, 'no-backup')
++	});
++	if (hasFlag(args, 'json')) {
++		console.log(JSON.stringify(result, null, 2));
++		return;
++	}
++	console.log([
++		'Spawner PRD trace proof repair',
++		`Rows read: ${result.rowsRead}`,
++		`Rows written: ${result.rowsWritten}`,
++		`Parse errors: ${result.parseErrors}`,
++		`Gap capsules added: ${result.gapCapsulesAdded}`,
++		`Already had proof: ${result.alreadyHadProof}`,
++		`Changed rows: ${result.changedRows}`,
++		`Backup: ${result.backupPath || (result.dryRun ? 'dry-run' : 'none')}`
++	].join('\n'));
++	process.exitCode = result.ok || result.error === 'trace_log_missing' ? 0 : 1;
++}
++
++try {
++	main();
++} catch (error) {
++	console.error(error instanceof Error ? error.message : String(error));
++	process.exitCode = 1;
++}
+diff --git a/src/lib/server/command-runner.ts b/src/lib/server/command-runner.ts
+index 479c2f39..242fa007 100644
+--- a/src/lib/server/command-runner.ts
++++ b/src/lib/server/command-runner.ts
+@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
+ import { basename, dirname, join, isAbsolute, resolve } from 'node:path';
+ import { existsSync } from 'node:fs';
+ import { commandTimeoutMs } from './timeout-config';
++import { effectiveLevel5Env } from './high-agency-workers';
+ import { externalProjectPathsAllowed, resolveContainedPath, sparkWorkspaceRoot } from './spark-run-workspace';
+ 
+ export const MAX_OUTPUT_LENGTH = 5000;
+@@ -40,9 +41,10 @@ export function validateProjectPath(projectPath: string): { valid: boolean; erro
+ 	if (!existsSync(projectPath)) {
+ 		return { valid: false, error: `Project directory does not exist: ${projectPath}` };
+ 	}
+-	if (!externalProjectPathsAllowed()) {
++	const effectiveEnv = effectiveLevel5Env();
++	if (!externalProjectPathsAllowed(effectiveEnv)) {
+ 		try {
+-			resolveContainedPath(sparkWorkspaceRoot(), projectPath, 'Project path');
++			resolveContainedPath(sparkWorkspaceRoot(effectiveEnv), projectPath, 'Project path');
+ 		} catch (error) {
+ 			const message = error instanceof Error ? error.message : String(error);
+ 			return { valid: false, error: message };
+diff --git a/src/lib/server/high-agency-workers.test.ts b/src/lib/server/high-agency-workers.test.ts
+index 9cbf40a1..63297003 100644
+--- a/src/lib/server/high-agency-workers.test.ts
++++ b/src/lib/server/high-agency-workers.test.ts
+@@ -1,7 +1,7 @@
+-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
++import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+-import { afterEach, describe, expect, it } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+ import {
+ 	assertHighAgencyWorkerAllowed,
+ 	highAgencyWorkersAllowed,
+@@ -31,6 +31,13 @@ function restoreEnv(name: string, value: string | undefined): void {
+ 	process.env[name] = value;
+ }
+ 
++beforeEach(() => {
++	process.env.SPARK_HOME = tempDir('spark-high-agency-test-home-');
++	delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++	delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++	delete process.env.SPARK_CODEX_SANDBOX;
++});
++
+ afterEach(() => {
+ 	restoreEnv('SPARK_WORKSPACE_ROOT', originalSparkWorkspaceRoot);
+ 	restoreEnv('SPAWNER_WORKSPACE_ROOT', originalSpawnerWorkspaceRoot);
+@@ -45,6 +52,11 @@ afterEach(() => {
+ 
+ describe('high-agency worker policy', () => {
+ 	it('requires explicit opt-in', () => {
++		process.env.SPARK_HOME = tempDir('spark-no-level5-home-');
++		delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++		delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++		delete process.env.SPARK_CODEX_SANDBOX;
++
+ 		expect(highAgencyWorkersAllowed({})).toBe(false);
+ 		expect(highAgencyWorkersAllowed({ SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1' })).toBe(true);
+ 		expect(() => assertHighAgencyWorkerAllowed()).toThrow('High-agency worker mode is disabled');
+@@ -114,6 +126,54 @@ describe('high-agency worker policy', () => {
+ 		).toBe('danger-full-access');
+ 	});
+ 
++	it('uses persisted Spawner Level 5 env when the service process env is stale', () => {
++		const sparkHome = tempDir('spark-level5-env-');
++		const moduleEnv = join(sparkHome, 'config', 'modules');
++		mkdirSync(moduleEnv, { recursive: true });
++		writeFileSync(
++			join(moduleEnv, 'spawner-ui.env'),
++			[
++				'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++				'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++				'SPARK_CODEX_SANDBOX=danger-full-access',
++				''
++			].join('\n'),
++			'utf8'
++		);
++
++		expect(
++			level5RuntimeGuardrailsActive({
++				SPARK_HOME: sparkHome,
++				SPARK_CODEX_SANDBOX: 'workspace-write'
++			})
++		).toBe(true);
++		expect(
++			resolveCodexSandbox({
++				SPARK_HOME: sparkHome,
++				SPARK_CODEX_SANDBOX: 'workspace-write'
++			})
++		).toBe('danger-full-access');
++	});
++
++	it('does not use a partial persisted Spawner Level 5 env for full access', () => {
++		const sparkHome = tempDir('spark-partial-level5-env-');
++		const moduleEnv = join(sparkHome, 'config', 'modules');
++		mkdirSync(moduleEnv, { recursive: true });
++		writeFileSync(
++			join(moduleEnv, 'spawner-ui.env'),
++			[
++				'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++				'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++				'SPARK_CODEX_SANDBOX=workspace-write',
++				''
++			].join('\n'),
++			'utf8'
++		);
++
++		expect(level5RuntimeGuardrailsActive({ SPARK_HOME: sparkHome })).toBe(false);
++		expect(resolveCodexSandbox({ SPARK_HOME: sparkHome })).toBe('workspace-write');
++	});
++
+ 	it('requires the full Level 5 guardrail bundle for whole-computer operator mode', () => {
+ 		expect(level5RuntimeGuardrailsActive({})).toBe(false);
+ 		expect(level5RuntimeGuardrailsActive({ SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1' })).toBe(false);
+diff --git a/src/lib/server/high-agency-workers.ts b/src/lib/server/high-agency-workers.ts
+index 903046db..ded54cd5 100644
+--- a/src/lib/server/high-agency-workers.ts
++++ b/src/lib/server/high-agency-workers.ts
+@@ -1,8 +1,16 @@
+-import { realpathSync } from 'node:fs';
+-import { basename, resolve } from 'node:path';
++import { existsSync, realpathSync, readFileSync } from 'node:fs';
++import { homedir } from 'node:os';
++import { basename, join, resolve } from 'node:path';
+ import { externalProjectPathsAllowed, resolveWorkspaceContainedPath, sparkWorkspaceRoot } from './spark-run-workspace';
+ 
+ export const HIGH_AGENCY_WORKERS_ENV = 'SPARK_ALLOW_HIGH_AGENCY_WORKERS';
++const EXTERNAL_PROJECT_PATHS_ENV = 'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS';
++const CODEX_SANDBOX_ENV = 'SPARK_CODEX_SANDBOX';
++const LEVEL5_ENV = {
++	[HIGH_AGENCY_WORKERS_ENV]: '1',
++	[EXTERNAL_PROJECT_PATHS_ENV]: '1',
++	[CODEX_SANDBOX_ENV]: 'danger-full-access'
++};
+ 
+ export interface HighAgencyWorkerApproval {
+ 	workingDirectory: string;
+@@ -19,7 +27,7 @@ function resolveExistingPath(path: string): string {
+ }
+ 
+ export function highAgencyWorkersAllowed(envRecord: Record<string, string | undefined> = process.env): boolean {
+-	const value = envRecord[HIGH_AGENCY_WORKERS_ENV]?.trim().toLowerCase();
++	const value = effectiveLevel5Env(envRecord)[HIGH_AGENCY_WORKERS_ENV]?.trim().toLowerCase();
+ 	return value === '1' || value === 'true' || value === 'yes';
+ }
+ 
+@@ -29,27 +37,74 @@ function flagEnabled(value: string | undefined): boolean {
+ }
+ 
+ export function level5RuntimeGuardrailsActive(envRecord: Record<string, string | undefined> = process.env): boolean {
++	const effectiveEnv = effectiveLevel5Env(envRecord);
+ 	return (
+-		flagEnabled(envRecord.SPARK_ALLOW_HIGH_AGENCY_WORKERS) &&
+-		flagEnabled(envRecord.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS) &&
+-		String(envRecord.SPARK_CODEX_SANDBOX || '').trim() === 'danger-full-access'
++		flagEnabled(effectiveEnv[HIGH_AGENCY_WORKERS_ENV]) &&
++		flagEnabled(effectiveEnv[EXTERNAL_PROJECT_PATHS_ENV]) &&
++		String(effectiveEnv[CODEX_SANDBOX_ENV] || '').trim() === 'danger-full-access'
+ 	);
+ }
+ 
++function readEnvFile(path: string): Record<string, string> {
++	if (!existsSync(path)) return {};
++	const values: Record<string, string> = {};
++	for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
++		const trimmed = line.trim();
++		if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
++		const [rawKey, ...rawValue] = trimmed.split('=');
++		const key = rawKey.trim().replace(/^\uFEFF/, '');
++		const value = rawValue.join('=').trim().replace(/^['"]|['"]$/g, '');
++		values[key] = value;
++	}
++	return values;
++}
++
++function spawnerEnvFilePath(envRecord: Record<string, string | undefined>): string {
++	const sparkHome = envRecord.SPARK_HOME?.trim() || join(homedir(), '.spark');
++	return join(sparkHome, 'config', 'modules', 'spawner-ui.env');
++}
++
++function persistedSpawnerLevel5Env(envRecord: Record<string, string | undefined>): Record<string, string> {
++	if (!envRecord.SPARK_HOME && envRecord !== process.env) return {};
++	const values = readEnvFile(spawnerEnvFilePath(envRecord));
++	const hasFullBundle = Object.entries(LEVEL5_ENV).every(([key, expected]) => values[key] === expected);
++	return hasFullBundle ? values : {};
++}
++
++export function effectiveLevel5Env(envRecord: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
++	if (
++		flagEnabled(envRecord[HIGH_AGENCY_WORKERS_ENV]) &&
++		flagEnabled(envRecord[EXTERNAL_PROJECT_PATHS_ENV]) &&
++		String(envRecord[CODEX_SANDBOX_ENV] || '').trim() === 'danger-full-access'
++	) {
++		return envRecord;
++	}
++
++	const persisted = persistedSpawnerLevel5Env(envRecord);
++	if (!persisted[CODEX_SANDBOX_ENV]) return envRecord;
++	return {
++		...envRecord,
++		[HIGH_AGENCY_WORKERS_ENV]: persisted[HIGH_AGENCY_WORKERS_ENV],
++		[EXTERNAL_PROJECT_PATHS_ENV]: persisted[EXTERNAL_PROJECT_PATHS_ENV],
++		[CODEX_SANDBOX_ENV]: persisted[CODEX_SANDBOX_ENV]
++	};
++}
++
+ export function assertHighAgencyWorkerAllowed(workingDirectory?: string): HighAgencyWorkerApproval {
+-	if (!highAgencyWorkersAllowed()) {
++	const effectiveEnv = effectiveLevel5Env();
++	if (!highAgencyWorkersAllowed(effectiveEnv)) {
+ 		throw new Error(
+ 			`High-agency worker mode is disabled. Set ${HIGH_AGENCY_WORKERS_ENV}=1 only on trusted local installs.`
+ 		);
+ 	}
+ 
+-	const workspaceRoot = resolveExistingPath(sparkWorkspaceRoot());
++	const workspaceRoot = resolveExistingPath(sparkWorkspaceRoot(effectiveEnv));
+ 	const cwd = resolve(workingDirectory?.trim() || process.cwd());
+-	const externalAllowed = externalProjectPathsAllowed();
++	const externalAllowed = externalProjectPathsAllowed(effectiveEnv);
+ 	let workingDirectoryResolved = cwd;
+ 	if (!externalAllowed) {
+ 		try {
+-			workingDirectoryResolved = resolveWorkspaceContainedPath(cwd, 'High-agency worker path');
++			workingDirectoryResolved = resolveWorkspaceContainedPath(cwd, 'High-agency worker path', effectiveEnv);
+ 		} catch {
+ 			throw new Error(
+ 				`High-agency workers must run inside Spark workspace root (${workspaceRoot}). ` +
+@@ -67,11 +122,12 @@ export function assertHighAgencyWorkerAllowed(workingDirectory?: string): HighAg
+ }
+ 
+ export function resolveCodexSandbox(envRecord: Record<string, string | undefined> = process.env): string {
+-	const sandbox = envRecord.SPARK_CODEX_SANDBOX?.trim() || 'workspace-write';
++	const effectiveEnv = effectiveLevel5Env(envRecord);
++	const sandbox = effectiveEnv[CODEX_SANDBOX_ENV]?.trim() || 'workspace-write';
+ 	if (!['read-only', 'workspace-write', 'danger-full-access'].includes(sandbox)) {
+ 		throw new Error(`Unsupported SPARK_CODEX_SANDBOX value: ${sandbox}`);
+ 	}
+-	if (sandbox === 'danger-full-access' && !highAgencyWorkersAllowed(envRecord)) {
++	if (sandbox === 'danger-full-access' && !highAgencyWorkersAllowed(effectiveEnv)) {
+ 		throw new Error(`SPARK_CODEX_SANDBOX=danger-full-access requires ${HIGH_AGENCY_WORKERS_ENV}=1`);
+ 	}
+ 	return sandbox;
+diff --git a/src/lib/server/prd-auto-dispatch.test.ts b/src/lib/server/prd-auto-dispatch.test.ts
+index 314df9c8..3aa32572 100644
+--- a/src/lib/server/prd-auto-dispatch.test.ts
++++ b/src/lib/server/prd-auto-dispatch.test.ts
+@@ -200,7 +200,9 @@ describe('PRD auto-dispatch helpers', () => {
+ 			{ SPAWNER_STATE_DIR: 'C:\\tmp\\spawner-state' }
+ 		);
+ 
+-		expect(projectPath).toBe('C:\\tmp\\spawner-state\\generated-projects\\mission-1-spark-test');
++		expect(projectPath.replace(/\//g, '\\')).toBe(
++			'C:\\tmp\\spawner-state\\generated-projects\\mission-1-spark-test'
++		);
+ 	});
+ 
+ 	it('allows auto-dispatch only when the PRD load is runnable', () => {
+@@ -277,7 +279,7 @@ describe('PRD auto-dispatch helpers', () => {
+ 		expect(result.authority?.source).toBe('governor_decision');
+ 	});
+ 
+-	it('keeps direct mission Codex auto-dispatch workspace scoped despite legacy global sandbox env', async () => {
++	it('uses Level 5 Codex sandbox for direct mission auto-dispatch', async () => {
+ 		process.env.SPARK_CODEX_SANDBOX = 'danger-full-access';
+ 		process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS = '1';
+ 		process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS = '1';
+@@ -296,7 +298,7 @@ describe('PRD auto-dispatch helpers', () => {
+ 		});
+ 
+ 		expect(result.started).toBe(true);
+-		expect(observedCommandTemplate).toBe('codex exec --model gpt-5.5 --profile speed --sandbox workspace-write');
++		expect(observedCommandTemplate).toBe('codex exec --model gpt-5.5 --profile speed --sandbox danger-full-access');
+ 	});
+ 
+ 	it('passes configured provider API keys into auto-dispatch runtime', () => {
+diff --git a/src/lib/server/prd-auto-dispatch.ts b/src/lib/server/prd-auto-dispatch.ts
+index 3e06d01d..e718659a 100644
+--- a/src/lib/server/prd-auto-dispatch.ts
++++ b/src/lib/server/prd-auto-dispatch.ts
+@@ -29,6 +29,7 @@ import {
+ 	type HarnessAuthorityVerdict
+ } from '$lib/server/harness-authority';
+ import { spawnerStateDir } from '$lib/server/spawner-state';
++import { resolveCodexSandbox } from '$lib/server/high-agency-workers';
+ 
+ interface PrdAutoSkill {
+ 	id?: string;
+@@ -119,9 +120,10 @@ function safeCodexCliToken(value: string | undefined, fallback: string): string
+ }
+ 
+ function missionCodexSandbox(envRecord: Record<string, string | undefined>): string {
+-	const requested = envRecord.SPARK_MISSION_CODEX_SANDBOX?.trim() || 'workspace-write';
++	const requested = envRecord.SPARK_MISSION_CODEX_SANDBOX?.trim();
++	if (!requested) return resolveCodexSandbox(envRecord);
+ 	return ['read-only', 'workspace-write', 'danger-full-access'].includes(requested)
+-		? requested
++		? resolveCodexSandbox({ ...envRecord, SPARK_CODEX_SANDBOX: requested })
+ 		: 'workspace-write';
+ }
+ 
+diff --git a/src/lib/server/prd-trace-proof-continuity.test.ts b/src/lib/server/prd-trace-proof-continuity.test.ts
+new file mode 100644
+index 00000000..d4089483
+--- /dev/null
++++ b/src/lib/server/prd-trace-proof-continuity.test.ts
+@@ -0,0 +1,192 @@
++import { existsSync } from 'node:fs';
++import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
++import {
++	prdTraceProofContinuityFields,
++	repairPrdTraceProofContinuity
++} from './prd-trace-proof-continuity';
++
++let testDir = '';
++const harnessProofCapsule = {
++	schema: 'spark.harness_proof.v1',
++	turnRef: 'turn:sha256:0123456789abcdef',
++	route: 'spawner.build',
++	owner: 'spawner-ui',
++	intent: { kind: 'spawner.build', confidence: 'high', noExecution: false },
++	authority: {
++		decision: 'allowed',
++		contract: 'spark.turn_intent.v1',
++		riskTier: 'execute',
++		reasonSummary: 'Telegram build dispatch was authorized by fresh Harness authority.'
++	},
++	governor: { decision: 'allow', verified: true },
++	execution: { status: 'started', tool: 'spawner.run', mutationClass: 'launches_mission' },
++	reply: { delivered: true, shape: 'natural', rawReasonsHidden: true },
++	joins: {
++		telegram: 'joined',
++		builder: 'not_applicable',
++		spawner: 'joined',
++		provider: 'not_applicable',
++		memory: 'not_applicable',
++		voice: 'not_applicable'
++	}
++};
++
++describe('PRD trace proof continuity', () => {
++	beforeEach(async () => {
++		testDir = await mkdtemp(path.join(tmpdir(), 'spawner-prd-trace-proof-'));
++	});
++
++	afterEach(async () => {
++		if (testDir && existsSync(testDir)) {
++			await rm(testDir, { recursive: true, force: true });
++		}
++	});
++
++	it('preserves real Harness proof refs without adding a gap capsule', () => {
++		const fields = prdTraceProofContinuityFields({
++			requestId: 'tg-build-proof-real',
++			event: 'request_written',
++			harnessProofRef: 'turn:sha256:0123456789abcdef'
++		});
++
++		expect(fields).toEqual({ harnessProofRef: 'turn:sha256:0123456789abcdef' });
++	});
++
++	it('preserves matching redacted Harness proof capsules as real proof', () => {
++		const fields = prdTraceProofContinuityFields({
++			requestId: 'tg-build-proof-real',
++			event: 'request_written',
++			harnessProofRef: 'turn:sha256:0123456789abcdef',
++			proofCapsule: {
++				...harnessProofCapsule,
++				authority: {
++					...harnessProofCapsule.authority,
++					reasonSummary: 'Authorized from /Users/example/private before redaction.'
++				}
++			}
++		});
++
++		expect(fields.harnessProofRef).toBe('turn:sha256:0123456789abcdef');
++		expect((fields.proofCapsule as Record<string, any>).schema).toBe('spark.harness_proof.v1');
++		expect((fields.proofCapsule as Record<string, any>).turnRef).toBe('turn:sha256:0123456789abcdef');
++		expect(JSON.stringify(fields)).not.toContain('/Users/example/private');
++		expect(fields).not.toHaveProperty('proofStatus');
++		expect(fields).not.toHaveProperty('proofStorage');
++	});
++
++	it('does not store mismatched capsules for a different proof ref', () => {
++		const fields = prdTraceProofContinuityFields({
++			requestId: 'tg-build-proof-real',
++			event: 'request_written',
++			harnessProofRef: 'turn:sha256:fedcba9876543210',
++			proofCapsule: harnessProofCapsule
++		});
++
++		expect(fields).toEqual({ harnessProofRef: 'turn:sha256:fedcba9876543210' });
++	});
++
++	it('builds source gap capsules for new PRD trace rows without leaking raw refs', () => {
++		const fields = prdTraceProofContinuityFields({
++			requestId: 'tg-build-proof-gap',
++			event: 'auto_worker_dispatch',
++			details: {
++				traceRef: 'trace:spawner-prd:mission-proof-gap',
++				provider: 'codex',
++				workingDirectory: '/Users/example/private/project'
++			}
++		});
++		const capsule = fields.proofCapsule as Record<string, any>;
++
++		expect(fields.harnessProofRef).toMatch(/^turn:sha256:[a-f0-9]{16}$/);
++		expect(fields.proofStatus).toBe('missing_harness_authority');
++		expect(fields.proofStorage).toBe('source_gap_capsule');
++		expect(capsule.schema).toBe('spark.harness_proof.v1');
++		expect(capsule.authority).toMatchObject({
++			decision: 'downgraded',
++			contract: 'none',
++			riskTier: 'execute'
++		});
++		expect(capsule.governor.verified).toBe(false);
++		expect(capsule.execution).toMatchObject({
++			status: 'started',
++			tool: 'spawner.prd_auto_analysis',
++			mutationClass: 'writes_files'
++		});
++		expect(capsule.joins).toMatchObject({
++			telegram: 'missing',
++			spawner: 'joined',
++			provider: 'missing'
++		});
++		expect(JSON.stringify(fields)).not.toMatch(/\/Users\/example|private\/project/);
++	});
++
++	it('repairs historical PRD rows with legacy gap capsules and a backup', async () => {
++		const tracePath = path.join(testDir, 'prd-auto-trace.jsonl');
++		await writeFile(
++			tracePath,
++			[
++				JSON.stringify({
++					ts: '2026-06-24T00:00:00.000Z',
++					requestId: 'tg-build-proof-gap',
++					traceRef: 'trace:spawner-prd:mission-proof-gap',
++					event: 'request_written',
++					workingDirectory: '/Users/example/private/project'
++				}),
++				JSON.stringify({
++					ts: '2026-06-24T00:00:01.000Z',
++					requestId: 'tg-build-proof-real',
++					traceRef: 'trace:spawner-prd:mission-proof-real',
++					event: 'request_written',
++					harnessProofRef: 'turn:sha256:0123456789abcdef'
++				})
++			].join('\n') + '\n',
++			'utf-8'
++		);
++
++		const result = repairPrdTraceProofContinuity({ tracePath });
++		const rows = (await readFile(tracePath, 'utf-8')).trim().split('\n').map((line) => JSON.parse(line));
++		const repaired = rows[0] as Record<string, any>;
++
++		expect(result).toMatchObject({
++			ok: true,
++			rowsRead: 2,
++			rowsWritten: 2,
++			parseErrors: 0,
++			gapCapsulesAdded: 1,
++			alreadyHadProof: 1,
++			changedRows: 2
++		});
++		expect(result.backupPath).toBeTruthy();
++		expect(repaired.harnessProofRef).toBe(repaired.proofCapsule.turnRef);
++		expect(repaired.proofStatus).toBe('missing_harness_authority');
++		expect(repaired.proofStorage).toBe('legacy_gap_capsule');
++		expect(repaired.proofJoinSource).toBe('spawner_prd_trace_legacy_repair');
++		expect(repaired.privacy).toBe('metadata_only');
++		expect(JSON.stringify(rows)).not.toContain('/Users/example');
++		expect(await readFile(String(result.backupPath), 'utf-8')).toContain('/Users/example');
++	});
++
++	it('dry-run reports historical repairs without rewriting the trace file', async () => {
++		const tracePath = path.join(testDir, 'prd-auto-trace.jsonl');
++		await writeFile(
++			tracePath,
++			`${JSON.stringify({
++				requestId: 'tg-build-proof-gap',
++				traceRef: 'trace:spawner-prd:mission-proof-gap',
++				event: 'request_written'
++			})}\n`,
++			'utf-8'
++		);
++		const before = await readFile(tracePath, 'utf-8');
++		const result = repairPrdTraceProofContinuity({ tracePath, dryRun: true, backup: false });
++		const after = await readFile(tracePath, 'utf-8');
++
++		expect(result.dryRun).toBe(true);
++		expect(result.gapCapsulesAdded).toBe(1);
++		expect(result.changedRows).toBe(1);
++		expect(after).toBe(before);
++	});
++});
+diff --git a/src/lib/server/prd-trace-proof-continuity.ts b/src/lib/server/prd-trace-proof-continuity.ts
+new file mode 100644
+index 00000000..ad319399
+--- /dev/null
++++ b/src/lib/server/prd-trace-proof-continuity.ts
+@@ -0,0 +1,383 @@
++import { createHash } from 'node:crypto';
++import * as fs from 'node:fs';
++import * as os from 'node:os';
++import * as path from 'node:path';
++import { sanitizePrdTraceValue } from './prd-trace-redaction';
++
++export const HARNESS_PROOF_CAPSULE_SCHEMA = 'spark.harness_proof.v1' as const;
++
++export type HarnessProofAuthorityDecision = 'allowed' | 'blocked' | 'downgraded';
++export type HarnessProofGovernorDecision = 'allow' | 'deny' | 'read_only' | 'not_applicable';
++export type HarnessProofRiskTier = 'none' | 'read' | 'write' | 'execute' | 'publish' | 'external';
++export type HarnessProofExecutionStatus = 'not_started' | 'started' | 'completed' | 'failed' | 'blocked';
++export type HarnessProofReplyShape = 'natural' | 'card' | 'queue' | 'raw_detail' | 'none';
++export type HarnessProofJoinStatus = 'joined' | 'missing' | 'not_applicable';
++export type HarnessProofMutationClass =
++	| 'none'
++	| 'read_only'
++	| 'writes_memory'
++	| 'writes_files'
++	| 'launches_mission'
++	| 'controls_mission'
++	| 'creates_schedule'
++	| 'deletes_schedule'
++	| 'creates_chip'
++	| 'publishes'
++	| 'external_network'
++	| 'unknown';
++
++export interface HarnessProofCapsuleV1 {
++	schema: typeof HARNESS_PROOF_CAPSULE_SCHEMA;
++	turnRef: string;
++	route: string;
++	owner: string;
++	intent: {
++		kind: string;
++		confidence: 'explicit' | 'high' | 'medium' | 'low' | 'blocked';
++		noExecution: boolean;
++	};
++	authority: {
++		decision: HarnessProofAuthorityDecision;
++		contract: 'spark.turn_intent.v1' | 'machine_origin_policy' | 'none';
++		riskTier: HarnessProofRiskTier;
++		reasonSummary: string;
++	};
++	governor: {
++		decision: HarnessProofGovernorDecision;
++		verified: boolean;
++	};
++	execution: {
++		status: HarnessProofExecutionStatus;
++		tool: string;
++		mutationClass: HarnessProofMutationClass;
++	};
++	reply: {
++		delivered: boolean;
++		shape: HarnessProofReplyShape;
++		rawReasonsHidden: boolean;
++	};
++	joins: {
++		telegram: HarnessProofJoinStatus;
++		builder: HarnessProofJoinStatus;
++		spawner: HarnessProofJoinStatus;
++		provider: HarnessProofJoinStatus;
++		memory: HarnessProofJoinStatus;
++		voice: HarnessProofJoinStatus;
++	};
++}
++
++export interface PrdTraceProofContinuityInput {
++	requestId: string;
++	event: string;
++	details?: Record<string, unknown>;
++	harnessProofRef?: string | null;
++	proofCapsule?: unknown;
++	storage?: 'source_gap_capsule' | 'legacy_gap_capsule';
++	joinSource?: 'spawner_prd_trace_writer' | 'spawner_prd_trace_legacy_repair';
++}
++
++export interface PrdTraceProofRepairOptions {
++	tracePath?: string;
++	sparkHome?: string;
++	dryRun?: boolean;
++	backup?: boolean;
++}
++
++export interface PrdTraceProofRepairResult {
++	ok: boolean;
++	tracePath: string;
++	backupPath: string | null;
++	dryRun: boolean;
++	rowsRead: number;
++	rowsWritten: number;
++	parseErrors: number;
++	gapCapsulesAdded: number;
++	alreadyHadProof: number;
++	changedRows: number;
++	error?: 'trace_log_missing';
++}
++
++interface ParsedLine {
++	line: string;
++	record: Record<string, unknown> | null;
++}
++
++export function prdTraceProofContinuityFields(input: PrdTraceProofContinuityInput): Record<string, unknown> {
++	const proofCapsule = normalizeHarnessProofCapsule(input.proofCapsule);
++	const proofRef = validHarnessProofRef(input.harnessProofRef) ? input.harnessProofRef.trim() : null;
++	if (proofCapsule && (!proofRef || proofCapsule.turnRef === proofRef)) {
++		return {
++			harnessProofRef: proofCapsule.turnRef,
++			proofCapsule
++		};
++	}
++	if (validHarnessProofRef(input.harnessProofRef)) {
++		return { harnessProofRef: input.harnessProofRef.trim() };
++	}
++	const gapCapsule = buildPrdTraceMissingAuthorityCapsule({
++		requestId: input.requestId,
++		event: input.event,
++		...(input.details || {})
++	});
++	return {
++		harnessProofRef: gapCapsule.turnRef,
++		proofCapsule: gapCapsule,
++		proofStatus: 'missing_harness_authority',
++		proofStorage: input.storage || 'source_gap_capsule',
++		proofJoinSource: input.joinSource || 'spawner_prd_trace_writer'
++	};
++}
++
++export function buildPrdTraceMissingAuthorityCapsule(record: Record<string, unknown>): HarnessProofCapsuleV1 {
++	const event = stringField(record, 'event') || 'prd_trace';
++	const requestId = stringField(record, 'requestId') || stringField(record, 'request_id');
++	const traceRef = stringField(record, 'traceRef') || stringField(record, 'trace_ref');
++	const missionId = stringField(record, 'missionId') || stringField(record, 'mission_id');
++	const seed = [traceRef, requestId, missionId, stringField(record, 'ts'), event]
++		.filter(Boolean)
++		.join(':') || stableJson(record);
++	const executionStatus = executionStatusForRecord(record, event);
++	const provider = stringField(record, 'provider');
++	return {
++		schema: HARNESS_PROOF_CAPSULE_SCHEMA,
++		turnRef: redactedProofRef('turn', seed),
++		route: 'spawner.prd_bridge',
++		owner: 'spawner-ui',
++		intent: {
++			kind: 'spawner.prd_bridge',
++			confidence: executionStatus === 'blocked' ? 'blocked' : 'medium',
++			noExecution: executionStatus === 'blocked'
++		},
++		authority: {
++			decision: 'downgraded',
++			contract: 'none',
++			riskTier: 'execute',
++			reasonSummary:
++				'Spawner PRD trace row has request and trace continuity, but no fresh Harness proof metadata. Treat this as an inspectable proof gap, not authorization.'
++		},
++		governor: {
++			decision: 'not_applicable',
++			verified: false
++		},
++		execution: {
++			status: executionStatus,
++			tool: toolForEvent(event),
++			mutationClass: 'writes_files'
++		},
++		reply: {
++			delivered: false,
++			shape: 'none',
++			rawReasonsHidden: true
++		},
++		joins: {
++			telegram: requestId.startsWith('tg-') ? 'missing' : 'not_applicable',
++			builder: 'not_applicable',
++			spawner: 'joined',
++			provider: provider || event.includes('auto_worker') ? 'missing' : 'not_applicable',
++			memory: 'not_applicable',
++			voice: 'not_applicable'
++		}
++	};
++}
++
++export function repairPrdTraceRecord(record: Record<string, unknown>): {
++	record: Record<string, unknown>;
++	gapCapsuleAdded: boolean;
++	alreadyHadProof: boolean;
++} {
++	const repaired = sanitizePrdTraceValue(record) as Record<string, unknown>;
++	if (hasProof(repaired)) {
++		if (!stringField(repaired, 'privacy')) repaired.privacy = 'metadata_only';
++		return { record: repaired, gapCapsuleAdded: false, alreadyHadProof: true };
++	}
++	const requestId = stringField(repaired, 'requestId') || stringField(repaired, 'request_id');
++	const event = stringField(repaired, 'event') || 'prd_trace';
++	Object.assign(
++		repaired,
++		prdTraceProofContinuityFields({
++			requestId,
++			event,
++			details: repaired,
++			storage: 'legacy_gap_capsule',
++			joinSource: 'spawner_prd_trace_legacy_repair'
++		})
++	);
++	if (!stringField(repaired, 'privacy')) repaired.privacy = 'metadata_only';
++	return { record: repaired, gapCapsuleAdded: true, alreadyHadProof: false };
++}
++
++export function defaultPrdTraceProofRepairPath(sparkHome = defaultSparkHome()): string {
++	return path.join(sparkHome, 'state', 'spawner-ui', 'prd-auto-trace.jsonl');
++}
++
++export function repairPrdTraceProofContinuity(
++	options: PrdTraceProofRepairOptions = {}
++): PrdTraceProofRepairResult {
++	const sparkHome = path.resolve(options.sparkHome || defaultSparkHome());
++	const tracePath = path.resolve(options.tracePath || defaultPrdTraceProofRepairPath(sparkHome));
++	const dryRun = Boolean(options.dryRun);
++	const backup = options.backup !== false;
++	if (!fs.existsSync(tracePath)) {
++		return {
++			ok: false,
++			tracePath,
++			backupPath: null,
++			dryRun,
++			rowsRead: 0,
++			rowsWritten: 0,
++			parseErrors: 0,
++			gapCapsulesAdded: 0,
++			alreadyHadProof: 0,
++			changedRows: 0,
++			error: 'trace_log_missing'
++		};
++	}
++
++	const original = fs.readFileSync(tracePath, 'utf8');
++	const parsedLines = original.split(/\r?\n/).filter((line) => line.trim()).map(parseLine);
++	let parseErrors = 0;
++	let gapCapsulesAdded = 0;
++	let alreadyHadProof = 0;
++	let changedRows = 0;
++	const repairedLines = parsedLines.map((entry) => {
++		if (!entry.record) {
++			parseErrors += 1;
++			return entry.line;
++		}
++		const before = stableJson(entry.record);
++		const outcome = repairPrdTraceRecord(entry.record);
++		if (outcome.gapCapsuleAdded) gapCapsulesAdded += 1;
++		if (outcome.alreadyHadProof) alreadyHadProof += 1;
++		if (stableJson(outcome.record) !== before) changedRows += 1;
++		return JSON.stringify(outcome.record);
++	});
++
++	let backupPath: string | null = null;
++	if (!dryRun) {
++		fs.mkdirSync(path.dirname(tracePath), { recursive: true });
++		if (backup) {
++			backupPath = nextBackupPath(tracePath);
++			fs.copyFileSync(tracePath, backupPath);
++		}
++		fs.writeFileSync(tracePath, repairedLines.length ? `${repairedLines.join('\n')}\n` : '', 'utf8');
++	}
++
++	return {
++		ok: parseErrors === 0,
++		tracePath,
++		backupPath,
++		dryRun,
++		rowsRead: parsedLines.length,
++		rowsWritten: repairedLines.length,
++		parseErrors,
++		gapCapsulesAdded,
++		alreadyHadProof,
++		changedRows
++	};
++}
++
++function executionStatusForRecord(record: Record<string, unknown>, event: string): HarnessProofExecutionStatus {
++	const success = record.success;
++	if (event === 'clarification_requested') return 'blocked';
++	if (success === false || stringField(record, 'error')) return 'failed';
++	if (event.includes('dispatch') || event.includes('provisional')) return 'started';
++	if (event.includes('worker_finished') || event.includes('written') || event.includes('found')) return 'completed';
++	return 'completed';
++}
++
++function toolForEvent(event: string): string {
++	if (event.includes('auto_worker')) return 'spawner.prd_auto_analysis';
++	if (event.includes('fallback')) return 'spawner.prd_fallback_analysis';
++	if (event.includes('clarification')) return 'spawner.prd_clarification_gate';
++	return 'spawner.prd_bridge.write';
++}
++
++function parseLine(line: string): ParsedLine {
++	try {
++		const parsed = JSON.parse(line);
++		return {
++			line,
++			record: parsed && typeof parsed === 'object' && !Array.isArray(parsed)
++				? parsed as Record<string, unknown>
++				: null
++		};
++	} catch {
++		return { line, record: null };
++	}
++}
++
++function hasProof(record: Record<string, unknown>): boolean {
++	return Boolean(
++		validHarnessProofRef(record.harnessProofRef) ||
++		validHarnessProofRef(record.harness_proof_ref) ||
++		proofCapsuleLike(record.proofCapsule) ||
++		proofCapsuleLike(record.proof_capsule)
++	);
++}
++
++function proofCapsuleLike(value: unknown): boolean {
++	return Boolean(
++		value &&
++		typeof value === 'object' &&
++		!Array.isArray(value) &&
++		(value as Record<string, unknown>).schema === HARNESS_PROOF_CAPSULE_SCHEMA
++	);
++}
++
++function normalizeHarnessProofCapsule(value: unknown): HarnessProofCapsuleV1 | null {
++	if (!proofCapsuleLike(value)) return null;
++	const sanitized = sanitizePrdTraceValue(value);
++	if (!sanitized || typeof sanitized !== 'object' || Array.isArray(sanitized)) return null;
++	const capsule = sanitized as Record<string, unknown>;
++	if (!validHarnessProofRef(capsule.turnRef)) return null;
++	for (const key of ['route', 'owner', 'intent', 'authority', 'governor', 'execution', 'reply', 'joins']) {
++		if (!(key in capsule)) return null;
++	}
++	return capsule as unknown as HarnessProofCapsuleV1;
++}
++
++function validHarnessProofRef(value: unknown): value is string {
++	return typeof value === 'string' && /^turn:sha256:[a-f0-9]{16}$/.test(value.trim());
++}
++
++function stringField(record: Record<string, unknown>, key: string): string {
++	const value = record[key];
++	return typeof value === 'string' ? value.trim() : '';
++}
++
++function redactedProofRef(label: string, value: string): string {
++	const safeLabel = safeToken(label, 'ref');
++	const digest = createHash('sha256').update(String(value || 'unknown')).digest('hex').slice(0, 16);
++	return `${safeLabel}:sha256:${digest}`;
++}
++
++function safeToken(value: string, fallback: string): string {
++	const token = String(value || '').trim();
++	if (!token) return fallback;
++	return token.replace(/[^A-Za-z0-9_.:-]+/g, '_').slice(0, 120) || fallback;
++}
++
++function stableJson(value: unknown): string {
++	return JSON.stringify(sortKeys(value));
++}
++
++function sortKeys(value: unknown): unknown {
++	if (Array.isArray(value)) return value.map(sortKeys);
++	if (!value || typeof value !== 'object') return value;
++	return Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((record, key) => {
++		record[key] = sortKeys((value as Record<string, unknown>)[key]);
++		return record;
++	}, {});
++}
++
++function defaultSparkHome(): string {
++	return process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
++}
++
++function nextBackupPath(filePath: string): string {
++	const base = `${filePath}.proof-backup`;
++	if (!fs.existsSync(base)) return base;
++	const stamp = new Date().toISOString().replace(/[:.]/g, '-');
++	const digest = createHash('sha256').update(`${filePath}:${stamp}`).digest('hex').slice(0, 8);
++	return `${base}-${stamp}-${digest}`;
++}
+diff --git a/src/lib/server/prd-trace-redaction.test.ts b/src/lib/server/prd-trace-redaction.test.ts
+new file mode 100644
+index 00000000..cea2b521
+--- /dev/null
++++ b/src/lib/server/prd-trace-redaction.test.ts
+@@ -0,0 +1,82 @@
++import { existsSync } from 'node:fs';
++import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
++import { redactPrdAutoTraceLog, sanitizePrdTraceDetails } from './prd-trace-redaction';
++
++let testDir = '';
++
++describe('PRD trace redaction', () => {
++	beforeEach(async () => {
++		testDir = await mkdtemp(path.join(tmpdir(), 'spawner-prd-trace-redaction-'));
++	});
++
++	afterEach(async () => {
++		if (testDir && existsSync(testDir)) {
++			await rm(testDir, { recursive: true, force: true });
++		}
++	});
++
++	it('redacts local paths while preserving proof and trace refs', () => {
++		const details = sanitizePrdTraceDetails({
++			traceRef: 'trace:spawner-prd:mission-test',
++			harnessProofRef: 'turn:sha256:0123456789abcdef',
++			stateDirectory: 'C:\\Users\\USER\\Desktop\\spark\\state',
++			resultFile: '/Users/example/.spark/state/spawner-ui/results/request.json',
++			nested: {
++				artifact: 'file:///Users/example/private/artifact.json'
++			}
++		});
++
++		expect(details.traceRef).toBe('trace:spawner-prd:mission-test');
++		expect(details.harnessProofRef).toBe('turn:sha256:0123456789abcdef');
++		expect(details.stateDirectory).toMatch(/^path:sha256:[a-f0-9]{16}$/);
++		expect(details.resultFile).toMatch(/^path:sha256:[a-f0-9]{16}$/);
++		expect((details.nested as Record<string, unknown>).artifact).toMatch(/^path:sha256:[a-f0-9]{16}$/);
++		expect(JSON.stringify(details)).not.toMatch(/C:\\\\Users|\/Users\/example|file:\/\//);
++	});
++
++	it('repairs historical PRD trace rows with a raw backup', async () => {
++		const tracePath = path.join(testDir, 'prd-auto-trace.jsonl');
++		await writeFile(
++			tracePath,
++			[
++				JSON.stringify({
++					ts: '2026-06-24T00:00:00.000Z',
++					requestId: 'tg-build-test',
++					traceRef: 'trace:spawner-prd:mission-test',
++					harnessProofRef: 'turn:sha256:0123456789abcdef',
++					event: 'fallback_analysis_written',
++					stateDirectory: '/Users/example/.spark/state/spawner-ui',
++					resultFile: '/Users/example/.spark/state/spawner-ui/results/tg-build-test.json'
++				}),
++				JSON.stringify({
++					ts: '2026-06-24T00:00:01.000Z',
++					requestId: 'tg-build-test',
++					event: 'analysis_complete',
++					proofStatus: 'missing_harness_proof'
++				})
++			].join('\n') + '\n',
++			'utf-8'
++		);
++
++		const result = await redactPrdAutoTraceLog(tracePath);
++		const repaired = await readFile(tracePath, 'utf-8');
++		const rows = repaired.trim().split('\n').map((line) => JSON.parse(line));
++
++		expect(result).toMatchObject({
++			ok: true,
++			rowsRead: 2,
++			rowsWritten: 2,
++			parseErrors: 0
++		});
++		expect(result.backupPath).toBeTruthy();
++		expect(rows[0].harnessProofRef).toBe('turn:sha256:0123456789abcdef');
++		expect(rows[0].stateDirectory).toMatch(/^path:sha256:[a-f0-9]{16}$/);
++		expect(rows[0].resultFile).toMatch(/^path:sha256:[a-f0-9]{16}$/);
++		expect(rows[1].proofStatus).toBe('missing_harness_proof');
++		expect(repaired).not.toContain('/Users/example');
++		expect(await readFile(String(result.backupPath), 'utf-8')).toContain('/Users/example');
++	});
++});
+diff --git a/src/lib/server/prd-trace-redaction.ts b/src/lib/server/prd-trace-redaction.ts
+new file mode 100644
+index 00000000..bf426388
+--- /dev/null
++++ b/src/lib/server/prd-trace-redaction.ts
+@@ -0,0 +1,88 @@
++import { createHash } from 'node:crypto';
++import { readFile, writeFile } from 'node:fs/promises';
++import path from 'node:path';
++
++const TRACE_PATH_PATTERN = /(?:\/Users\/[^\s"',)]+|\/var\/folders\/[^\s"',)]+|file:\/\/[^\s"',)]+|[A-Za-z]:[\\/][^\s"',)]+)/g;
++
++export interface PrdTraceRedactionRepairResult {
++	ok: boolean;
++	path: string;
++	backupPath: string | null;
++	rowsRead: number;
++	rowsWritten: number;
++	parseErrors: number;
++	error?: 'trace_log_missing';
++}
++
++function redactedTracePathRef(value: string): string {
++	return `path:sha256:${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
++}
++
++export function sanitizePrdTraceValue(value: unknown): unknown {
++	if (typeof value === 'string') {
++		return value.replace(TRACE_PATH_PATTERN, (match) => redactedTracePathRef(match));
++	}
++	if (Array.isArray(value)) {
++		return value.map((item) => sanitizePrdTraceValue(item));
++	}
++	if (value && typeof value === 'object') {
++		return Object.fromEntries(
++			Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, sanitizePrdTraceValue(child)])
++		);
++	}
++	return value;
++}
++
++export function sanitizePrdTraceDetails(details: Record<string, unknown>): Record<string, unknown> {
++	return sanitizePrdTraceValue(details) as Record<string, unknown>;
++}
++
++export async function redactPrdAutoTraceLog(
++	traceFilePath: string,
++	options: { backup?: boolean } = {}
++): Promise<PrdTraceRedactionRepairResult> {
++	const backup = options.backup ?? true;
++	const result: PrdTraceRedactionRepairResult = {
++		ok: true,
++		path: traceFilePath,
++		backupPath: null,
++		rowsRead: 0,
++		rowsWritten: 0,
++		parseErrors: 0
++	};
++	let original = '';
++	try {
++		original = await readFile(traceFilePath, 'utf-8');
++	} catch {
++		return {
++			...result,
++			ok: false,
++			error: 'trace_log_missing'
++		};
++	}
++
++	const redactedLines: string[] = [];
++	for (const line of original.split(/\r?\n/)) {
++		if (!line.trim()) continue;
++		result.rowsRead += 1;
++		try {
++			redactedLines.push(JSON.stringify(sanitizePrdTraceValue(JSON.parse(line))));
++		} catch {
++			result.parseErrors += 1;
++		}
++	}
++
++	if (backup) {
++		const backupPath = `${traceFilePath}.raw-backup`;
++		await writeFile(backupPath, original, 'utf-8');
++		result.backupPath = backupPath;
++	}
++	await writeFile(traceFilePath, redactedLines.length ? `${redactedLines.join('\n')}\n` : '', 'utf-8');
++	result.rowsWritten = redactedLines.length;
++	result.ok = result.parseErrors === 0;
++	return {
++		...result,
++		path: path.resolve(traceFilePath),
++		backupPath: result.backupPath ? path.resolve(result.backupPath) : null
++	};
++}
+diff --git a/src/lib/server/provider-clients/codex-cli-client.test.ts b/src/lib/server/provider-clients/codex-cli-client.test.ts
+index 2b785018..892fdf6f 100644
+--- a/src/lib/server/provider-clients/codex-cli-client.test.ts
++++ b/src/lib/server/provider-clients/codex-cli-client.test.ts
+@@ -1,11 +1,45 @@
+ import { describe, expect, it } from 'vitest';
+-import { parseCodexCliCommand } from './codex-cli-client';
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { codexWorkerEnvForCommand, parseCodexCliCommand } from './codex-cli-client';
+ 
+ describe('parseCodexCliCommand', () => {
+ 	it('adds skip-git-repo-check for model-based Codex exec commands', () => {
+-		expect(parseCodexCliCommand('codex exec --model gpt-5.5')).toEqual({
++		expect(parseCodexCliCommand('codex exec --model gpt-5.5', { env: {} })).toEqual({
+ 			binary: 'codex',
+-			args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5']
++			args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'workspace-write']
++		});
++	});
++
++	it('uses danger-full-access for model-based Codex exec commands when Level 5 guardrails are active', () => {
++		expect(
++			parseCodexCliCommand('codex exec --model gpt-5.5', {
++				env: {
++					SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1',
++					SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '1',
++					SPARK_CODEX_SANDBOX: 'danger-full-access'
++				}
++			})
++		).toEqual({
++			binary: 'codex',
++			args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'danger-full-access']
++		});
++	});
++
++	it('preserves explicit profile selection while adding sandbox enforcement', () => {
++		expect(parseCodexCliCommand('codex exec --model gpt-5.5 --profile speed', { env: {} })).toEqual({
++			binary: 'codex',
++			args: [
++				'exec',
++				'--skip-git-repo-check',
++				'--model',
++				'gpt-5.5',
++				'--profile',
++				'speed',
++				'--sandbox',
++				'workspace-write'
++			]
+ 		});
+ 	});
+ 
+@@ -15,4 +49,35 @@ describe('parseCodexCliCommand', () => {
+ 			args: ['exec', '--skip-git-repo-check', '--yolo']
+ 		});
+ 	});
++
++	it('carries persisted Level 5 guardrails into danger-full-access worker env', () => {
++		const sparkHome = mkdtempSync(join(tmpdir(), 'spark-codex-worker-level5-'));
++		try {
++			mkdirSync(join(sparkHome, 'config', 'modules'), { recursive: true });
++			writeFileSync(
++				join(sparkHome, 'config', 'modules', 'spawner-ui.env'),
++				[
++					'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++					'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++					'SPARK_CODEX_SANDBOX=danger-full-access',
++					''
++				].join('\n')
++			);
++			const env = codexWorkerEnvForCommand(
++				{ binary: 'codex', args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'danger-full-access'] },
++				{
++					SPARK_HOME: sparkHome,
++					SPARK_ALLOW_HIGH_AGENCY_WORKERS: '0',
++					SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '0',
++					SPARK_CODEX_SANDBOX: 'workspace-write'
++				}
++			);
++
++			expect(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS).toBe('1');
++			expect(env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS).toBe('1');
++			expect(env.SPARK_CODEX_SANDBOX).toBe('danger-full-access');
++		} finally {
++			rmSync(sparkHome, { recursive: true, force: true });
++		}
++	});
+ });
+diff --git a/src/lib/server/provider-clients/codex-cli-client.ts b/src/lib/server/provider-clients/codex-cli-client.ts
+index 8773dbb8..99827a34 100644
+--- a/src/lib/server/provider-clients/codex-cli-client.ts
++++ b/src/lib/server/provider-clients/codex-cli-client.ts
+@@ -13,8 +13,10 @@ import { resolveCliBinary } from '../cli-resolver';
+ import { spawnHidden } from '../hidden-process';
+ import {
+ 	assertHighAgencyWorkerAllowed,
++	effectiveLevel5Env,
+ 	highAgencyWorkersAllowed,
+-	HIGH_AGENCY_WORKERS_ENV
++	HIGH_AGENCY_WORKERS_ENV,
++	resolveCodexSandbox
+ } from '../high-agency-workers';
+ import { spawnerStateDir } from '../spawner-state';
+ import { prepareProviderWorkingDirectory } from '$lib/services/spark-agent-bridge';
+@@ -30,6 +32,7 @@ export interface CodexCliCommand {
+ 
+ export interface ParseCodexCliCommandOptions {
+ 	allowHighAgency?: boolean;
++	env?: Record<string, string | undefined>;
+ }
+ 
+ function isSafeCommandToken(value: string): boolean {
+@@ -54,10 +57,45 @@ export function parseCodexCliCommand(
+ 		}
+ 		return { binary: 'codex', args: ['exec', '--skip-git-repo-check', '--yolo'] };
+ 	}
+-	if (tokens.length === 4 && tokens[2] === '--model') {
+-		return { binary: 'codex', args: ['exec', '--skip-git-repo-check', '--model', tokens[3]] };
++	if (tokens[2] === '--model' && tokens[3]) {
++		const args = ['exec', '--skip-git-repo-check', '--model', tokens[3]];
++		let sandboxSpecified = false;
++		for (let i = 4; i < tokens.length; i += 2) {
++			const flag = tokens[i];
++			const value = tokens[i + 1];
++			if (!value) {
++				throw new Error(
++					'Codex command template must be: codex exec --model <model> [--profile <profile>] [--sandbox read-only|workspace-write|danger-full-access]'
++				);
++			}
++			if (flag === '--profile' || flag === '-p') {
++				args.push(flag, value);
++				continue;
++			}
++			if (flag === '--sandbox') {
++				args.push('--sandbox', resolveCodexSandbox({ ...(options.env || process.env), SPARK_CODEX_SANDBOX: value }));
++				sandboxSpecified = true;
++				continue;
++			}
++			throw new Error(
++				'Codex command template must be: codex exec --model <model> [--profile <profile>] [--sandbox read-only|workspace-write|danger-full-access]'
++			);
++		}
++		if (!sandboxSpecified) {
++			args.push('--sandbox', resolveCodexSandbox(options.env));
++		}
++		return { binary: 'codex', args };
+ 	}
+-	throw new Error('Codex command template must be: codex exec --model <model>');
++	throw new Error('Codex command template must be: codex exec --model <model> [--profile <profile>] [--sandbox read-only|workspace-write|danger-full-access]');
++}
++
++export function codexWorkerEnvForCommand(
++	command: CodexCliCommand,
++	envRecord: Record<string, string | undefined> = process.env
++): Record<string, string | undefined> {
++	return command.args.includes('--yolo') || command.args.includes('danger-full-access')
++		? effectiveLevel5Env(envRecord)
++		: envRecord;
+ }
+ 
+ export async function isCliBinaryAvailable(binaryName: 'codex'): Promise<boolean> {
+@@ -143,8 +181,10 @@ export async function executeCodexCliRequest(
+ 
+ 	return new Promise<ProviderResult>((resolve) => {
+ 		let cwd: string;
++		let workerEnv: Record<string, string | undefined>;
+ 		try {
+-			cwd = prepareProviderWorkingDirectory(workingDirectory);
++			workerEnv = codexWorkerEnvForCommand(command);
++			cwd = prepareProviderWorkingDirectory(workingDirectory, workerEnv);
+ 		} catch (error) {
+ 			const message = error instanceof Error ? error.message : String(error);
+ 			resolve({ success: false, error: message, durationMs: Date.now() - startTime });
+@@ -159,7 +199,7 @@ export async function executeCodexCliRequest(
+ 		const child = spawnHidden(resolvedBinary, command.args, {
+ 			cwd,
+ 			stdio: ['pipe', 'pipe', 'pipe'],
+-			env: { ...process.env }
++			env: { ...process.env, ...workerEnv }
+ 		});
+ 
+ 		// Send prompt via stdin
+diff --git a/src/lib/server/provider-clients/spark-harness-client.test.ts b/src/lib/server/provider-clients/spark-harness-client.test.ts
+index e50cd002..c2acf4a2 100644
+--- a/src/lib/server/provider-clients/spark-harness-client.test.ts
++++ b/src/lib/server/provider-clients/spark-harness-client.test.ts
+@@ -1,5 +1,5 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { mkdtempSync, rmSync } from 'node:fs';
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ import { executeSparkHarnessRequest } from './spark-harness-client';
+@@ -22,6 +22,7 @@ const provider: MultiLLMProviderConfig = {
+ 
+ const originalCodexSandbox = process.env.SPARK_CODEX_SANDBOX;
+ const originalAllowHighAgencyWorkers = process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++const originalSparkHome = process.env.SPARK_HOME;
+ const originalSparkWorkspaceRoot = process.env.SPARK_WORKSPACE_ROOT;
+ const originalAllowExternalProjectPaths = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
+ const cleanupPaths: string[] = [];
+@@ -35,6 +36,8 @@ function restoreEnv(name: string, value: string | undefined): void {
+ }
+ 
+ beforeEach(() => {
++	process.env.SPARK_HOME = mkdtempSync(join(tmpdir(), 'spark-harness-test-home-'));
++	cleanupPaths.push(process.env.SPARK_HOME);
+ 	delete process.env.SPARK_CODEX_SANDBOX;
+ 	delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
+ 	delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
+@@ -44,6 +47,7 @@ afterEach(() => {
+ 	vi.restoreAllMocks();
+ 	restoreEnv('SPARK_CODEX_SANDBOX', originalCodexSandbox);
+ 	restoreEnv('SPARK_ALLOW_HIGH_AGENCY_WORKERS', originalAllowHighAgencyWorkers);
++	restoreEnv('SPARK_HOME', originalSparkHome);
+ 	restoreEnv('SPARK_WORKSPACE_ROOT', originalSparkWorkspaceRoot);
+ 	restoreEnv('SPARK_ALLOW_EXTERNAL_PROJECT_PATHS', originalAllowExternalProjectPaths);
+ 	for (const path of cleanupPaths.splice(0)) {
+@@ -285,6 +289,58 @@ describe('spark-harness-client', () => {
+ 		expect(events.some((event) => event.type === 'worker_high_agency_approved')).toBe(true);
+ 	});
+ 
++	it('uses persisted Spawner Level 5 guardrails when the worker process env is stale', async () => {
++		const sparkHome = process.env.SPARK_HOME as string;
++		const moduleEnv = join(sparkHome, 'config', 'modules');
++		mkdirSync(moduleEnv, { recursive: true });
++		writeFileSync(
++			join(moduleEnv, 'spawner-ui.env'),
++			[
++				'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++				'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++				'SPARK_CODEX_SANDBOX=danger-full-access',
++				''
++			].join('\n'),
++			'utf8'
++		);
++		process.env.SPARK_CODEX_SANDBOX = 'workspace-write';
++		let submittedSandbox = '';
++		const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
++			const value = String(url);
++			if (value.endsWith('/v1/tasks')) {
++				const submittedBody = JSON.parse(String(init?.body || '{}')) as {
++					context?: { _codex_sandbox?: string };
++				};
++				submittedSandbox = submittedBody.context?._codex_sandbox || '';
++				return new Response(JSON.stringify({ task_id: 'spark-task-persisted-level5' }), { status: 200 });
++			}
++			if (value.endsWith('/v1/tasks/spark-task-persisted-level5')) {
++				return new Response(
++					JSON.stringify({
++						status: 'completed',
++						result: {
++							output: JSON.stringify({ status: 'completed', changed_files: ['operator-check.txt'] }),
++							metadata: { changed_files: ['operator-check.txt'] }
++						}
++					}),
++					{ status: 200 }
++				);
++			}
++			return new Response('not found', { status: 404 });
++		});
++		vi.stubGlobal('fetch', fetchMock);
++
++		const result = await executeSparkHarnessRequest({
++			provider,
++			missionId: 'mission-spark-persisted-level5',
++			prompt: 'Build a tiny local operator check.',
++			onEvent: () => {}
++		});
++
++		expect(result.success).toBe(true);
++		expect(submittedSandbox).toBe('danger-full-access');
++	});
++
+ 	it('rejects prompt-extracted workspaces outside the Spark workspace root by default', async () => {
+ 		const workspaceRoot = mkdtempSync(join(tmpdir(), 'spark-harness-root-'));
+ 		const external = mkdtempSync(join(tmpdir(), 'spark-harness-external-'));
+diff --git a/src/lib/server/provider-clients/spark-harness-client.ts b/src/lib/server/provider-clients/spark-harness-client.ts
+index 90beceff..40031e21 100644
+--- a/src/lib/server/provider-clients/spark-harness-client.ts
++++ b/src/lib/server/provider-clients/spark-harness-client.ts
+@@ -1,6 +1,6 @@
+ import type { BridgeEvent } from '$lib/services/event-bridge';
+ import type { MultiLLMProviderConfig } from '$lib/services/multi-llm-orchestrator';
+-import { assertHighAgencyWorkerAllowed, resolveCodexSandbox } from '$lib/server/high-agency-workers';
++import { assertHighAgencyWorkerAllowed, effectiveLevel5Env, resolveCodexSandbox } from '$lib/server/high-agency-workers';
+ import { resolveSparkRunProjectPath } from '$lib/server/spark-run-workspace';
+ import { sparkHarnessTimeoutMs } from '$lib/server/timeout-config';
+ import type { ProviderResult } from './types';
+@@ -66,7 +66,8 @@ export async function executeSparkHarnessRequest(options: SparkHarnessOptions):
+ 	try {
+ 		const executorModel = resolveCodexExecutorModel();
+ 		const codexSandbox = resolveCodexSandbox();
+-		const resolvedWorkspace = requestedWorkspace ? resolveSparkRunProjectPath(requestedWorkspace) : undefined;
++		const workerEnv = codexSandbox === 'danger-full-access' ? effectiveLevel5Env() : process.env;
++		const resolvedWorkspace = requestedWorkspace ? resolveSparkRunProjectPath(requestedWorkspace, workerEnv) : undefined;
+ 		if (codexSandbox === 'danger-full-access') {
+ 			const approval = assertHighAgencyWorkerAllowed(resolvedWorkspace);
+ 			onEvent(
+diff --git a/src/lib/server/spark-run-workspace.ts b/src/lib/server/spark-run-workspace.ts
+index 9de931e2..6087c505 100644
+--- a/src/lib/server/spark-run-workspace.ts
++++ b/src/lib/server/spark-run-workspace.ts
+@@ -11,18 +11,18 @@ export class SparkRunWorkspaceError extends Error {
+ 	}
+ }
+ 
+-export function sparkWorkspaceRoot(): string {
++export function sparkWorkspaceRoot(envRecord: Record<string, string | undefined> = process.env): string {
+ 	return resolve(
+-		process.env.SPARK_WORKSPACE_ROOT?.trim() ||
+-			process.env.SPAWNER_WORKSPACE_ROOT?.trim() ||
+-			(process.env.SPARK_HOME?.trim()
+-			? join(process.env.SPARK_HOME.trim(), 'workspaces')
++		envRecord.SPARK_WORKSPACE_ROOT?.trim() ||
++			envRecord.SPAWNER_WORKSPACE_ROOT?.trim() ||
++			(envRecord.SPARK_HOME?.trim()
++			? join(envRecord.SPARK_HOME.trim(), 'workspaces')
+ 			: join(homedir(), '.spark', 'workspaces'))
+ 	);
+ }
+ 
+-export function externalProjectPathsAllowed(): boolean {
+-	const value = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS?.trim().toLowerCase();
++export function externalProjectPathsAllowed(envRecord: Record<string, string | undefined> = process.env): boolean {
++	const value = envRecord.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS?.trim().toLowerCase();
+ 	return value === '1' || value === 'true' || value === 'yes';
+ }
+ 
+@@ -68,17 +68,24 @@ export function resolveContainedPath(baseDir: string, targetPath: string, label
+ 	return targetResolved;
+ }
+ 
+-export function resolveWorkspaceContainedPath(targetPath: string, label = 'Project path'): string {
+-	return resolveContainedPath(sparkWorkspaceRoot(), targetPath, label);
++export function resolveWorkspaceContainedPath(
++	targetPath: string,
++	label = 'Project path',
++	envRecord: Record<string, string | undefined> = process.env
++): string {
++	return resolveContainedPath(sparkWorkspaceRoot(envRecord), targetPath, label);
+ }
+ 
+-export function resolveSparkRunProjectPath(projectPath?: string): string {
++export function resolveSparkRunProjectPath(
++	projectPath?: string,
++	envRecord: Record<string, string | undefined> = process.env
++): string {
+ 	const requested = projectPath?.trim();
+-	const defaultRoot = sparkWorkspaceRoot();
++	const defaultRoot = sparkWorkspaceRoot(envRecord);
+ 	const rawPath = requested || join(defaultRoot, 'default');
+ 	const absolutePath = isAbsolute(rawPath) ? resolve(rawPath) : resolve(defaultRoot, rawPath);
+ 
+-	const containedPath = externalProjectPathsAllowed()
++	const containedPath = externalProjectPathsAllowed(envRecord)
+ 		? absolutePath
+ 		: resolveContainedPath(defaultRoot, absolutePath, 'Project path');
+ 
+diff --git a/src/lib/services/spark-agent-bridge.test.ts b/src/lib/services/spark-agent-bridge.test.ts
+index f1a9aab4..fa76f635 100644
+--- a/src/lib/services/spark-agent-bridge.test.ts
++++ b/src/lib/services/spark-agent-bridge.test.ts
+@@ -1,4 +1,4 @@
+-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
++import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ import { afterEach, describe, expect, it } from 'vitest';
+@@ -7,6 +7,7 @@ import { buildServerGovernorDecisionAuthority } from '$lib/server/harness-author
+ import {
+ 	parseProviderCommand,
+ 	prepareProviderWorkingDirectory,
++	providerWorkerEnvForCommand,
+ 	providerProcessFailureMessage,
+ 	providerProcessTimeoutMessage,
+ 	providerProcessTimeoutMs,
+@@ -147,24 +148,42 @@ describe('prepareProviderWorkingDirectory', () => {
+ 
+ describe('parseProviderCommand', () => {
+ 	it('allows codex profile selection while preserving sandbox enforcement', () => {
+-		const command = parseProviderCommand(
+-			'codex',
+-			'codex exec --model gpt-5.5 --profile speed --sandbox workspace-write'
+-		);
++		const originalSparkHome = process.env.SPARK_HOME;
++		const originalHighAgencyWorkers = process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++		const originalExternalPaths = process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++		const originalCodexSandbox = process.env.SPARK_CODEX_SANDBOX;
++		const sparkHome = mkdtempSync(join(tmpdir(), 'spark-provider-no-level5-'));
++		createdDirs.push(sparkHome);
++		process.env.SPARK_HOME = sparkHome;
++		delete process.env.SPARK_ALLOW_HIGH_AGENCY_WORKERS;
++		delete process.env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS;
++		delete process.env.SPARK_CODEX_SANDBOX;
+ 
+-		expect(command).toMatchObject({
+-			binary: 'codex',
+-			args: [
+-				'exec',
+-				'--skip-git-repo-check',
+-				'--model',
+-				'gpt-5.5',
+-				'--profile',
+-				'speed',
+-				'--sandbox',
+-				'workspace-write'
+-			]
+-		});
++		try {
++			const command = parseProviderCommand(
++				'codex',
++				'codex exec --model gpt-5.5 --profile speed --sandbox workspace-write'
++			);
++
++			expect(command).toMatchObject({
++				binary: 'codex',
++				args: [
++					'exec',
++					'--skip-git-repo-check',
++					'--model',
++					'gpt-5.5',
++					'--profile',
++					'speed',
++					'--sandbox',
++					'workspace-write'
++				]
++			});
++		} finally {
++			restoreEnv('SPARK_HOME', originalSparkHome);
++			restoreEnv('SPARK_ALLOW_HIGH_AGENCY_WORKERS', originalHighAgencyWorkers);
++			restoreEnv('SPARK_ALLOW_EXTERNAL_PROJECT_PATHS', originalExternalPaths);
++			restoreEnv('SPARK_CODEX_SANDBOX', originalCodexSandbox);
++		}
+ 	});
+ 
+ 	it('rejects unsupported codex command flags', () => {
+@@ -172,6 +191,39 @@ describe('parseProviderCommand', () => {
+ 			parseProviderCommand('codex', 'codex exec --model gpt-5.5 --profile speed --output json')
+ 		).toThrow('Codex provider command must be');
+ 	});
++
++	it('carries persisted Level 5 guardrails into high-agency provider worker env', () => {
++		const sparkHome = mkdtempSync(join(tmpdir(), 'spark-agent-worker-level5-'));
++		createdDirs.push(sparkHome);
++		mkdirSync(join(sparkHome, 'config', 'modules'), { recursive: true });
++		writeFileSync(
++			join(sparkHome, 'config', 'modules', 'spawner-ui.env'),
++			[
++				'SPARK_ALLOW_HIGH_AGENCY_WORKERS=1',
++				'SPARK_ALLOW_EXTERNAL_PROJECT_PATHS=1',
++				'SPARK_CODEX_SANDBOX=danger-full-access',
++				''
++			].join('\n')
++		);
++
++		const env = providerWorkerEnvForCommand(
++			{
++				binary: 'codex',
++				resolvedBinary: 'codex',
++				args: ['exec', '--skip-git-repo-check', '--model', 'gpt-5.5', '--sandbox', 'danger-full-access']
++			},
++			{
++				SPARK_HOME: sparkHome,
++				SPARK_ALLOW_HIGH_AGENCY_WORKERS: '0',
++				SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '0',
++				SPARK_CODEX_SANDBOX: 'workspace-write'
++			}
++		);
++
++		expect(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS).toBe('1');
++		expect(env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS).toBe('1');
++		expect(env.SPARK_CODEX_SANDBOX).toBe('danger-full-access');
++	});
+ });
+ 
+ describe('providerProcessFailureMessage', () => {
+diff --git a/src/lib/services/spark-agent-bridge.ts b/src/lib/services/spark-agent-bridge.ts
+index f457188c..62d4f0c0 100644
+--- a/src/lib/services/spark-agent-bridge.ts
++++ b/src/lib/services/spark-agent-bridge.ts
+@@ -7,6 +7,7 @@ import { eventBridge } from '$lib/services/event-bridge';
+ import { resolveCliBinary } from '$lib/server/cli-resolver';
+ import {
+ 	assertHighAgencyWorkerAllowed,
++	effectiveLevel5Env,
+ 	highAgencyWorkersAllowed,
+ 	HIGH_AGENCY_WORKERS_ENV,
+ 	resolveCodexSandbox
+@@ -351,9 +352,12 @@ function isBinaryAvailable(binaryName: ProviderCommand['binary']): boolean {
+ 	return resolveCliBinary(binaryName) !== null;
+ }
+ 
+-export function prepareProviderWorkingDirectory(workingDirectory?: string): string {
++export function prepareProviderWorkingDirectory(
++	workingDirectory?: string,
++	envRecord: Record<string, string | undefined> = process.env
++): string {
+ 	if (workingDirectory && workingDirectory.trim()) {
+-		const cwd = resolveSparkRunProjectPath(workingDirectory);
++		const cwd = resolveSparkRunProjectPath(workingDirectory, envRecord);
+ 		mkdirSync(cwd, { recursive: true });
+ 		return cwd;
+ 	}
+@@ -443,6 +447,13 @@ function commandUsesHighAgencyMode(command: ProviderCommand): boolean {
+ 	return command.binary === 'codex' && (command.args.includes('--yolo') || command.args.includes('danger-full-access'));
+ }
+ 
++export function providerWorkerEnvForCommand(
++	command: ProviderCommand,
++	envRecord: Record<string, string | undefined> = process.env
++): Record<string, string | undefined> {
++	return commandUsesHighAgencyMode(command) ? effectiveLevel5Env(envRecord) : envRecord;
++}
++
+ function blockedProviderResponse(response: string | undefined): string | null {
+ 	const text = (response || '').trim();
+ 	if (!text) return null;
+@@ -1488,8 +1499,10 @@ class SparkAgentBridgeService {
+ 			let timeout: ReturnType<typeof setTimeout> | null = null;
+ 			let killTimeout: ReturnType<typeof setTimeout> | null = null;
+ 			let cwd: string;
++			let workerEnv: Record<string, string | undefined>;
+ 			try {
+-				cwd = prepareProviderWorkingDirectory(context.workingDirectory);
++				workerEnv = providerWorkerEnvForCommand(command);
++				cwd = prepareProviderWorkingDirectory(context.workingDirectory, workerEnv);
+ 			} catch (error) {
+ 				resolve({
+ 					success: false,
+@@ -1500,7 +1513,7 @@ class SparkAgentBridgeService {
+ 			const child = spawnHidden(command.resolvedBinary, command.args, {
+ 				cwd,
+ 				stdio: ['pipe', 'pipe', 'pipe'],
+-				env: { ...process.env }
++				env: { ...process.env, ...workerEnv }
+ 			});
+ 
+ 			const workerState = this.workerSessions.get(context.sessionId);
+diff --git a/src/routes/api/events/+server.ts b/src/routes/api/events/+server.ts
+index 88042ac0..110b33ce 100644
+--- a/src/routes/api/events/+server.ts
++++ b/src/routes/api/events/+server.ts
+@@ -13,6 +13,8 @@ import { controlQueryApiKeysAllowed, enforceRateLimit, requireControlAuth } from
+ import { relayMissionControlEvent } from '$lib/server/mission-control-relay';
+ import { providerRuntime } from '$lib/server/provider-runtime';
+ import { projectStoredPrdAnalysisResultForTier } from '$lib/server/prd-analysis-result-schema';
++import { prdTraceProofContinuityFields } from '$lib/server/prd-trace-proof-continuity';
++import { sanitizePrdTraceDetails } from '$lib/server/prd-trace-redaction';
+ import { spawnerStateDir } from '$lib/server/spawner-state';
+ import { extractTraceRef } from '$lib/server/trace-ref';
+ import { logger } from '$lib/utils/logger';
+@@ -93,14 +95,32 @@ function createAuthCookieHeader(request: Request): string | null {
+ async function appendPrdTrace(requestId: string, event: string, details: Record<string, unknown> = {}): Promise<void> {
+ 	try {
+ 		const traceRef = await traceRefForRequest(requestId, details);
++		const harnessProofRef = await harnessProofRefForRequest(requestId, details);
++		const proofCapsule = await harnessProofCapsuleForRequest(requestId, details);
++		const safeDetails = sanitizePrdTraceDetails({ ...details });
++		delete safeDetails.harnessProofRef;
++		delete safeDetails.harness_proof_ref;
++		delete safeDetails.harnessProofCapsule;
++		delete safeDetails.proofCapsule;
++		delete safeDetails.proof_capsule;
+ 		await appendFile(
+ 			getPrdAutoTraceFile(),
+ 			`${JSON.stringify({
+ 				ts: new Date().toISOString(),
+ 				requestId,
+ 				event,
+-				...details,
+-				...(traceRef ? { traceRef, trace_ref: traceRef } : {})
++				...safeDetails,
++				...(traceRef ? { traceRef, trace_ref: traceRef } : {}),
++				...prdTraceProofContinuityFields({
++					requestId,
++					event,
++					details: {
++						...safeDetails,
++						...(traceRef ? { traceRef } : {})
++					},
++					harnessProofRef,
++					proofCapsule
++				})
+ 			})}\n`,
+ 			'utf-8'
+ 		);
+@@ -109,6 +129,28 @@ async function appendPrdTrace(requestId: string, event: string, details: Record<
+ 	}
+ }
+ 
++function proofCapsuleFromRecord(record: Record<string, unknown>): unknown {
++	return record.harnessProofCapsule ?? record.proofCapsule ?? record.proof_capsule;
++}
++
++function normalizeHarnessProofRef(value: unknown): string | null {
++	return typeof value === 'string' && /^turn:sha256:[a-f0-9]{16}$/.test(value.trim()) ? value.trim() : null;
++}
++
++async function harnessProofRefForRequest(requestId: string, details: Record<string, unknown>): Promise<string | null> {
++	const explicit = normalizeHarnessProofRef(details.harnessProofRef ?? details.harness_proof_ref);
++	if (explicit) return explicit;
++	const pending = await pendingRequestForRequest(requestId);
++	return pending ? normalizeHarnessProofRef(pending.harnessProofRef ?? pending.harness_proof_ref) : null;
++}
++
++async function harnessProofCapsuleForRequest(requestId: string, details: Record<string, unknown>): Promise<unknown> {
++	const explicit = proofCapsuleFromRecord(details);
++	if (explicit) return explicit;
++	const pending = await pendingRequestForRequest(requestId);
++	return pending ? proofCapsuleFromRecord(pending) : null;
++}
++
+ async function traceRefForRequest(requestId: string, details: Record<string, unknown>): Promise<string | null> {
+ 	const explicit = extractTraceRef(details);
+ 	if (explicit) return explicit;
+diff --git a/src/routes/api/events/events.auth.test.ts b/src/routes/api/events/events.auth.test.ts
+index d1fe9740..2ae172c2 100644
+--- a/src/routes/api/events/events.auth.test.ts
++++ b/src/routes/api/events/events.auth.test.ts
+@@ -29,6 +29,31 @@ import { GET, OPTIONS, POST } from './+server';
+ import { relayMissionControlEvent } from '$lib/server/mission-control-relay';
+ 
+ let testSpawnerDir: string | null = null;
++const harnessProofRef = 'turn:sha256:0123456789abcdef';
++const harnessProofCapsule = {
++	schema: 'spark.harness_proof.v1',
++	turnRef: harnessProofRef,
++	route: 'spawner.build',
++	owner: 'spawner-ui',
++	intent: { kind: 'spawner.build', confidence: 'high', noExecution: false },
++	authority: {
++		decision: 'allowed',
++		contract: 'spark.turn_intent.v1',
++		riskTier: 'execute',
++		reasonSummary: 'Telegram build dispatch was authorized by fresh Harness authority.'
++	},
++	governor: { decision: 'allow', verified: true },
++	execution: { status: 'started', tool: 'spawner.run', mutationClass: 'launches_mission' },
++	reply: { delivered: true, shape: 'natural', rawReasonsHidden: true },
++	joins: {
++		telegram: 'joined',
++		builder: 'not_applicable',
++		spawner: 'joined',
++		provider: 'not_applicable',
++		memory: 'not_applicable',
++		voice: 'not_applicable'
++	}
++};
+ 
+ afterEach(async () => {
+ 	delete process.env.SPAWNER_STATE_DIR;
+@@ -177,7 +202,11 @@ describe('/api/events auth', () => {
+ 		process.env.SPAWNER_STATE_DIR = testSpawnerDir;
+ 		const requestId = 'events-state-dir-test';
+ 		const traceRef = 'trace:spawner-prd:events-state-dir-test';
+-		await writeFile(path.join(testSpawnerDir, 'pending-request.json'), JSON.stringify({ requestId, traceRef }), 'utf-8');
++		await writeFile(
++			path.join(testSpawnerDir, 'pending-request.json'),
++			JSON.stringify({ requestId, traceRef, harnessProofRef, proofCapsule: harnessProofCapsule }),
++			'utf-8'
++		);
+ 
+ 		const response = await POST(
+ 			createEvent('https://example.com/api/events', {
+@@ -215,6 +244,20 @@ describe('/api/events auth', () => {
+ 		expect(storedJson.metadata.traceRef).toBe(traceRef);
+ 		expect(stored).not.toContain('executionPrompt');
+ 		expect(stored).not.toContain('Store result consistently.');
++		const traceRows = (await readFile(path.join(testSpawnerDir, 'prd-auto-trace.jsonl'), 'utf-8'))
++			.trim()
++			.split('\n')
++			.map((line) => JSON.parse(line));
++		expect(traceRows).toHaveLength(1);
++		expect(traceRows[0]).toMatchObject({
++			requestId,
++			event: 'events_received_complete',
++			traceRef,
++			harnessProofRef,
++			proofCapsule: { schema: 'spark.harness_proof.v1', turnRef: harnessProofRef }
++		});
++		expect(traceRows[0]).not.toHaveProperty('proofStorage');
++		expect(traceRows[0]).not.toHaveProperty('proofStatus');
+ 	});
+ 
+ 	it('applies base tier skill gating when PRD results arrive through events', async () => {
+diff --git a/src/routes/api/prd-bridge/write/+server.ts b/src/routes/api/prd-bridge/write/+server.ts
+index 781b6138..c9237a25 100644
+--- a/src/routes/api/prd-bridge/write/+server.ts
++++ b/src/routes/api/prd-bridge/write/+server.ts
+@@ -24,6 +24,7 @@ import { formatTaskQualityGuidance } from '$lib/server/task-quality-rubric';
+ import { formatVerificationPlanGuidance, generateVerificationPlan } from '$lib/server/verification-plan-generator';
+ import { enrichBrief, isSparseUnderstandingClarification } from '$lib/server/brief-enricher';
+ import { spawnerStateDir } from '$lib/server/spawner-state';
++import { resolveCodexSandbox } from '$lib/server/high-agency-workers';
+ import {
+ 	projectStoredPrdAnalysisResultForTier,
+ 	type StoredPrdAnalysisResult
+@@ -34,6 +35,8 @@ import {
+ 	normalizeCapabilityProposalPacket
+ } from '$lib/server/capability-proposal-packet';
+ import { extractTraceRef, normalizeTraceRef, traceRefFromMissionId } from '$lib/server/trace-ref';
++import { sanitizePrdTraceDetails } from '$lib/server/prd-trace-redaction';
++import { prdTraceProofContinuityFields } from '$lib/server/prd-trace-proof-continuity';
+ import { parseJsonOrFallback } from '$lib/utils/safe-json';
+ import {
+ 	HarnessAuthorityError,
+@@ -79,11 +82,27 @@ function missionIdFromRequestId(requestId: string): string {
+ async function appendPrdTrace(requestId: string, event: string, details: Record<string, unknown> = {}): Promise<void> {
+ 	try {
+ 		const { prdAutoTraceFile } = getPrdBridgePaths();
++		const harnessProofRef = await harnessProofRefForRequest(requestId, details);
++		const proofCapsule = await harnessProofCapsuleForRequest(requestId, details);
++		const safeDetails = sanitizePrdTraceDetails(details);
++		delete safeDetails.harnessProofRef;
++		delete safeDetails.harness_proof_ref;
++		delete safeDetails.harnessProofCapsule;
++		delete safeDetails.proofCapsule;
++		delete safeDetails.proof_capsule;
++		const proofContinuity = prdTraceProofContinuityFields({
++			requestId,
++			event,
++			details: safeDetails,
++			harnessProofRef,
++			proofCapsule
++		});
+ 		const row = {
+ 			ts: new Date().toISOString(),
+ 			requestId,
+ 			event,
+-			...details
++			...safeDetails,
++			...proofContinuity
+ 		};
+ 		await appendFile(prdAutoTraceFile, `${JSON.stringify(row)}\n`, 'utf-8');
+ 	} catch {
+@@ -95,6 +114,55 @@ function traceRefDetails(traceRef: string | null | undefined): Record<string, st
+ 	return traceRef ? { traceRef } : {};
+ }
+ 
++function normalizeHarnessProofRef(value: unknown): string | null {
++	const proofRef = typeof value === 'string' ? value.trim() : '';
++	return /^turn:sha256:[a-f0-9]{16}$/.test(proofRef) ? proofRef : null;
++}
++
++function proofRefDetails(harnessProofRef: string | null | undefined): Record<string, string> {
++	return harnessProofRef ? { harnessProofRef } : {};
++}
++
++function proofCapsuleDetails(proofCapsule: unknown): Record<string, unknown> {
++	return proofCapsule && typeof proofCapsule === 'object' && !Array.isArray(proofCapsule)
++		? { proofCapsule }
++		: {};
++}
++
++function proofCapsuleFromRecord(record: Record<string, unknown>): unknown {
++	return record.harnessProofCapsule ?? record.proofCapsule ?? record.proof_capsule;
++}
++
++async function harnessProofRefForRequest(requestId: string, details: Record<string, unknown>): Promise<string | null> {
++	const explicit = normalizeHarnessProofRef(details.harnessProofRef ?? details.harness_proof_ref);
++	if (explicit) return explicit;
++	try {
++		const { pendingRequestFile } = getPrdBridgePaths();
++		if (!existsSync(pendingRequestFile)) return null;
++		const pendingRaw = await readFile(pendingRequestFile, 'utf-8');
++		const pending = JSON.parse(pendingRaw) as Record<string, unknown>;
++		if (pending.requestId !== requestId) return null;
++		return normalizeHarnessProofRef(pending.harnessProofRef ?? pending.harness_proof_ref);
++	} catch {
++		return null;
++	}
++}
++
++async function harnessProofCapsuleForRequest(requestId: string, details: Record<string, unknown>): Promise<unknown> {
++	const explicit = proofCapsuleFromRecord(details);
++	if (explicit) return explicit;
++	try {
++		const { pendingRequestFile } = getPrdBridgePaths();
++		if (!existsSync(pendingRequestFile)) return null;
++		const pendingRaw = await readFile(pendingRequestFile, 'utf-8');
++		const pending = JSON.parse(pendingRaw) as Record<string, unknown>;
++		if (pending.requestId !== requestId) return null;
++		return proofCapsuleFromRecord(pending);
++	} catch {
++		return null;
++	}
++}
++
+ async function traceRefForRequest(requestId: string, details: Record<string, unknown>): Promise<string | null> {
+ 	const explicit = extractTraceRef(details);
+ 	if (explicit) return explicit;
+@@ -1493,7 +1561,7 @@ export function _resolvePrdCodexCommandTemplate(
+ 	if (explicit) return explicit.includes('{model}') ? explicit.replace('{model}', model) : explicit;
+ 	const profile = (env.SPAWNER_PRD_CODEX_PROFILE || 'speed').trim();
+ 	const profileArg = profile ? ` --profile ${profile}` : '';
+-	return `codex exec --model ${model}${profileArg} --sandbox workspace-write`;
++	return `codex exec --model ${model}${profileArg} --sandbox ${resolveCodexSandbox(env)}`;
+ }
+ 
+ async function startAutoAnalysis(
+@@ -1647,7 +1715,7 @@ export const POST: RequestHandler = async (event) => {
+ 		if (!body || typeof body !== 'object' || Array.isArray(body)) {
+ 			return json({ error: 'Malformed JSON body' }, { status: 400 });
+ 		}
+-		const { content, requestId, projectName, options, chatId, userId, buildMode, buildModeReason, buildLane, build_lane, buildLaneReason, build_lane_reason, telegramRelay, tier, forceDispatch, runnerCapability, runner_capability, projectPathEvidence, project_path_evidence, capabilityProposalPacket, capability_proposal_packet, traceRef, trace_ref, executionAuthority, execution_authority } =
++		const { content, requestId, projectName, options, chatId, userId, buildMode, buildModeReason, buildLane, build_lane, buildLaneReason, build_lane_reason, telegramRelay, tier, forceDispatch, runnerCapability, runner_capability, projectPathEvidence, project_path_evidence, capabilityProposalPacket, capability_proposal_packet, traceRef, trace_ref, harnessProofRef, harness_proof_ref, harnessProofCapsule, proofCapsule, proof_capsule, executionAuthority, execution_authority } =
+ 			body as Record<string, any>;
+ 		const normalizedBuildMode = normalizeBuildMode(buildMode);
+ 		const normalizedBuildLane = normalizeBuildLane(buildLane ?? build_lane, normalizedBuildMode, options);
+@@ -1667,6 +1735,8 @@ export const POST: RequestHandler = async (event) => {
+ 		}
+ 		const missionId = missionIdFromRequestId(requestId);
+ 		const normalizedTraceRef = normalizeTraceRef(traceRef ?? trace_ref) || traceRefFromMissionId(missionId);
++		const normalizedHarnessProofRef = normalizeHarnessProofRef(harnessProofRef ?? harness_proof_ref);
++		const normalizedHarnessProofCapsule = harnessProofCapsule ?? proofCapsule ?? proof_capsule ?? null;
+ 		const resolvedExecutionAuthority = resolveExecutionAuthority(executionAuthority, execution_authority);
+ 		const authority = assertNativeGovernorHarnessAuthority({
+ 			authority: resolvedExecutionAuthority,
+@@ -1707,6 +1777,8 @@ export const POST: RequestHandler = async (event) => {
+ 		if (enrichmentBypass.bypass) {
+ 			await appendPrdTrace(requestId, 'brief_enrichment_bypassed', {
+ 				...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++				...proofRefDetails(normalizedHarnessProofRef),
++				...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 				reason: enrichmentBypass.reason,
+ 				buildMode: normalizedBuildMode,
+ 				buildLane: normalizedBuildLane
+@@ -1715,6 +1787,8 @@ export const POST: RequestHandler = async (event) => {
+ 		if (enrichment.wasEnriched) {
+ 			await appendPrdTrace(requestId, 'brief_enriched', {
+ 				...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++				...proofRefDetails(normalizedHarnessProofRef),
++				...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 				originalLength: content.length,
+ 				enrichedLength: finalContent.length,
+ 				addedAssumptions: enrichment.addedAssumptions,
+@@ -1735,6 +1809,8 @@ export const POST: RequestHandler = async (event) => {
+ 		})) {
+ 			await appendPrdTrace(requestId, 'clarification_requested', {
+ 				...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++				...proofRefDetails(normalizedHarnessProofRef),
++				...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 				questionCount: enrichment.openQuestions.length,
+ 				briefLength: content.length
+ 			});
+@@ -1755,6 +1831,8 @@ export const POST: RequestHandler = async (event) => {
+ 					buildMode: normalizedBuildMode,
+ 					buildLane: normalizedBuildLane,
+ 					...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++					...proofRefDetails(normalizedHarnessProofRef),
++					...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 					...(normalizedRunnerCapability ? { runnerCapability: normalizedRunnerCapability } : {}),
+ 					...(normalizedCapabilityProposalPacket ? { capabilityProposalPacket: normalizedCapabilityProposalPacket } : {}),
+ 					...(normalizedCapabilityProposalSummary ? { capabilityProposalSummary: normalizedCapabilityProposalSummary } : {}),
+@@ -1802,6 +1880,8 @@ export const POST: RequestHandler = async (event) => {
+ 			prdPath: paths.pendingPrdFile,
+ 			status: 'pending',
+ 			...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++			...proofRefDetails(normalizedHarnessProofRef),
++			...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 			options: {
+ 				includeSkills: options?.includeSkills !== false,
+ 				includeMCPs: options?.includeMCPs !== false
+@@ -1820,6 +1900,8 @@ export const POST: RequestHandler = async (event) => {
+ 							requestId,
+ 							tier: normalizedTier,
+ 							...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++							...proofRefDetails(normalizedHarnessProofRef),
++							...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 							goal: content.slice(0, 500),
+ 							...(projectLineage ? { projectLineage } : {}),
+ 							...(normalizedRunnerCapability ? { runnerCapability: normalizedRunnerCapability } : {}),
+@@ -1831,6 +1913,8 @@ export const POST: RequestHandler = async (event) => {
+ 		await writeFile(paths.pendingRequestFile, JSON.stringify(requestMeta, null, 2), 'utf-8');
+ 		await appendPrdTrace(requestId, 'request_written', {
+ 			...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++			...proofRefDetails(normalizedHarnessProofRef),
++			...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 			projectName: requestMeta.projectName,
+ 			buildMode: requestMeta.buildMode,
+ 			buildLane: requestMeta.buildLane,
+@@ -1860,6 +1944,7 @@ export const POST: RequestHandler = async (event) => {
+ 			data: {
+ 				requestId,
+ 				...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++				...proofRefDetails(normalizedHarnessProofRef),
+ 				buildMode: requestMeta.buildMode,
+ 				buildLane: requestMeta.buildLane,
+ 				buildLaneReason: requestMeta.buildLaneReason,
+@@ -1890,6 +1975,8 @@ export const POST: RequestHandler = async (event) => {
+ 				);
+ 		await appendPrdTrace(requestId, 'authority_verdict_evaluated', {
+ 			...(normalizedTraceRef ? { traceRef: normalizedTraceRef } : {}),
++			...proofRefDetails(normalizedHarnessProofRef),
++			...proofCapsuleDetails(normalizedHarnessProofCapsule),
+ 			authorityVerdict: _buildAuthorityVerdict({
+ 				traceRef: normalizedTraceRef,
+ 				autoStarted: auto.started,
+diff --git a/src/routes/api/prd-bridge/write/clarification-policy.test.ts b/src/routes/api/prd-bridge/write/clarification-policy.test.ts
+index 3beea1b9..ed0c9827 100644
+--- a/src/routes/api/prd-bridge/write/clarification-policy.test.ts
++++ b/src/routes/api/prd-bridge/write/clarification-policy.test.ts
+@@ -77,6 +77,12 @@ describe('PRD bridge clarification policy', () => {
+ 		expect(_resolvePrdCodexCommandTemplate('gpt-5.5', {})).toBe(
+ 			'codex exec --model gpt-5.5 --profile speed --sandbox workspace-write'
+ 		);
++		expect(
++			_resolvePrdCodexCommandTemplate('gpt-5.5', {
++				SPARK_CODEX_SANDBOX: 'danger-full-access',
++				SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1'
++			})
++		).toBe('codex exec --model gpt-5.5 --profile speed --sandbox danger-full-access');
+ 		expect(
+ 			_resolvePrdCodexCommandTemplate('gpt-5.5', {
+ 				SPAWNER_PRD_CODEX_COMMAND_TEMPLATE: 'codex exec --model {model} --sandbox workspace-write'
+diff --git a/src/routes/api/prd-bridge/write/write.integration.test.ts b/src/routes/api/prd-bridge/write/write.integration.test.ts
+index fd7abeb4..b966f57c 100644
+--- a/src/routes/api/prd-bridge/write/write.integration.test.ts
++++ b/src/routes/api/prd-bridge/write/write.integration.test.ts
+@@ -156,6 +156,31 @@ describe('/api/prd-bridge/write integration', () => {
+ 		process.env.SPARK_MISSION_LLM_PROVIDER = 'zai';
+ 		const requestId = 'tg-build-smoke-fallback-test';
+ 		const traceRef = 'trace:spawner-prd:mission-tg-build-smoke-fallback-test';
++		const harnessProofRef = 'turn:sha256:0123456789abcdef';
++		const harnessProofCapsule = {
++			schema: 'spark.harness_proof.v1',
++			turnRef: harnessProofRef,
++			route: 'spawner.build',
++			owner: 'spawner-ui',
++			intent: { kind: 'spawner.build', confidence: 'high', noExecution: false },
++			authority: {
++				decision: 'allowed',
++				contract: 'spark.turn_intent.v1',
++				riskTier: 'execute',
++				reasonSummary: 'Telegram build dispatch was authorized by fresh Harness authority.'
++			},
++			governor: { decision: 'allow', verified: true },
++			execution: { status: 'started', tool: 'spawner.run', mutationClass: 'launches_mission' },
++			reply: { delivered: true, shape: 'natural', rawReasonsHidden: true },
++			joins: {
++				telegram: 'joined',
++				builder: 'not_applicable',
++				spawner: 'joined',
++				provider: 'not_applicable',
++				memory: 'not_applicable',
++				voice: 'not_applicable'
++			}
++		};
+ 		const capabilityProposalPacket = {
+ 			schema_version: 'spark.capability_proposal.v1',
+ 			status: 'proposal_plan_only',
+@@ -183,6 +208,8 @@ describe('/api/prd-bridge/write integration', () => {
+ 					chatId: 'telegram-chat-1',
+ 					userId: 'telegram-user-1',
+ 					traceRef,
++					harnessProofRef,
++					harnessProofCapsule,
+ 					runnerCapability,
+ 					capabilityProposalPacket,
+ 					executionAuthority: writeAuthority(requestId)
+@@ -203,7 +230,11 @@ describe('/api/prd-bridge/write integration', () => {
+ 		expect(storedResult.executionPrompt).toBeUndefined();
+ 		const pendingMeta = JSON.parse(await readFile(path.join(testSpawnerDir, 'pending-request.json'), 'utf-8'));
+ 		expect(pendingMeta.traceRef).toBe(traceRef);
++		expect(pendingMeta.harnessProofRef).toBe(harnessProofRef);
++		expect(pendingMeta.proofCapsule).toMatchObject({ schema: 'spark.harness_proof.v1', turnRef: harnessProofRef });
+ 		expect(pendingMeta.relay.traceRef).toBe(traceRef);
++		expect(pendingMeta.relay.harnessProofRef).toBe(harnessProofRef);
++		expect(pendingMeta.relay.proofCapsule).toMatchObject({ schema: 'spark.harness_proof.v1', turnRef: harnessProofRef });
+ 		expect(pendingMeta.runnerCapability).toMatchObject(runnerCapability);
+ 		expect(pendingMeta.relay.runnerCapability).toMatchObject(runnerCapability);
+ 		expect(pendingMeta.capabilityProposalPacket).toMatchObject(capabilityProposalPacket);
+@@ -214,6 +245,22 @@ describe('/api/prd-bridge/write integration', () => {
+ 			ledgerKey: 'domain_chip:cafe-memory-reporter',
+ 			ownerSystem: 'Spark domain chip runtime'
+ 		});
++		const traceRows = (await readFile(path.join(testSpawnerDir, 'prd-auto-trace.jsonl'), 'utf-8'))
++			.trim()
++			.split('\n')
++			.map((line) => JSON.parse(line));
++		expect(traceRows.length).toBeGreaterThan(0);
++		expect(traceRows.every((row) => row.harnessProofRef === harnessProofRef)).toBe(true);
++		expect(traceRows.every((row) => row.proofCapsule?.schema === 'spark.harness_proof.v1')).toBe(true);
++		expect(traceRows.every((row) => row.proofCapsule?.turnRef === harnessProofRef)).toBe(true);
++		expect(traceRows.every((row) => row.proofStatus === undefined)).toBe(true);
++		const serializedTraceRows = JSON.stringify(traceRows);
++		expect(serializedTraceRows).not.toContain(testSpawnerDir);
++		expect(serializedTraceRows).not.toMatch(/\/Users\/|\/var\/folders\/|file:\/\//);
++		expect(serializedTraceRows).toMatch(/path:sha256:[a-f0-9]{16}/);
++		expect(traceRows.find((row) => row.event === 'fallback_analysis_written')?.resultFile).toMatch(
++			/^path:sha256:[a-f0-9]{16}$/
++		);
+ 	});
+ 
+ 	it('persists rejected target path intent as evidence without project lineage authority', async () => {
+@@ -323,6 +370,14 @@ describe('/api/prd-bridge/write integration', () => {
+ 			.trim()
+ 			.split('\n')
+ 			.map((line) => JSON.parse(line));
++		expect(JSON.stringify(traceRows)).not.toContain(testSpawnerDir);
++		expect(JSON.stringify(traceRows)).not.toContain(targetFolder);
++		expect(traceRows.every((row) => row.proofStatus === 'missing_harness_authority')).toBe(true);
++		expect(traceRows.every((row) => row.proofStorage === 'source_gap_capsule')).toBe(true);
++		expect(traceRows.every((row) => row.proofCapsule?.schema === 'spark.harness_proof.v1')).toBe(true);
++		expect(traceRows.every((row) => row.proofCapsule?.authority?.contract === 'none')).toBe(true);
++		expect(traceRows.every((row) => row.proofCapsule?.governor?.verified === false)).toBe(true);
++		expect(traceRows.every((row) => /^turn:sha256:[a-f0-9]{16}$/.test(row.harnessProofRef))).toBe(true);
+ 		expect(traceRows.find((row) => row.event === 'authority_verdict_evaluated')).toMatchObject({
+ 			traceRef,
+ 			authorityVerdict: {
+diff --git a/src/routes/api/spark/run/+server.ts b/src/routes/api/spark/run/+server.ts
+index 2125b6b2..ea1de50f 100644
+--- a/src/routes/api/spark/run/+server.ts
++++ b/src/routes/api/spark/run/+server.ts
+@@ -9,6 +9,7 @@ import { enforceRateLimit, requireControlAuth } from '$lib/server/mcp-auth';
+ import { providerRuntime } from '$lib/server/provider-runtime';
+ import { applyProviderEnvOverrides } from '$lib/server/provider-config';
+ import { resolveSparkRunProjectPath, SparkRunWorkspaceError } from '$lib/server/spark-run-workspace';
++import { effectiveLevel5Env } from '$lib/server/high-agency-workers';
+ import { normalizeTier, type SkillTier } from '$lib/server/skill-tiers';
+ import {
+ 	missionControlPathForMission,
+@@ -137,7 +138,7 @@ function createSparkMission(
+ 	const chatId = body.chatId?.trim() || null;
+ 	const userId = body.userId?.trim() || 'spark-telegram';
+ 	const telegramRelay = normalizeTelegramRelay(body.telegramRelay);
+-	const projectPath = resolveSparkRunProjectPath(body.projectPath);
++	const projectPath = resolveSparkRunProjectPath(body.projectPath, effectiveLevel5Env());
+ 	const sparkProjectPath = body.promptMode === 'simple' && !body.projectPath?.trim() ? null : projectPath;
+ 	const traceRef = normalizeTraceRef(body.traceRef ?? body.trace_ref) || `trace:spawner-run:${missionId}`;
+ 	const missionName = body.missionName?.trim();

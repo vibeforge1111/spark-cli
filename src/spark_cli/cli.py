@@ -9092,6 +9092,17 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
         },
     }
+    expected_owner_handoff_patches = {
+        "spawner-ui": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+            "sha256": "16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080",
+            "line_count": 2275,
+            "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "expected_tree": "126d215fcfd798256cbafb2dbf35899c85f6bea2",
+            "publication_authority": False,
+        },
+    }
     issues: list[str] = []
     mismatches: list[dict[str, Any]] = []
     if not isinstance(manifest, dict) or not manifest:
@@ -9149,6 +9160,37 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             row_issues.append("missing_proof_commands")
         if item.get("owner_refs") != expected_owner_refs.get(module):
             row_issues.append("owner_refs_mismatch")
+        expected_patch = expected_owner_handoff_patches.get(module)
+        if expected_patch is not None:
+            patch = item.get("owner_handoff_patch") if isinstance(item.get("owner_handoff_patch"), dict) else None
+            if patch is None:
+                row_issues.append("missing_owner_handoff_patch")
+            else:
+                for key, expected_value in expected_patch.items():
+                    if patch.get(key) != expected_value:
+                        row_issues.append(f"owner_handoff_patch_{key}_mismatch")
+                patch_ref = str(patch.get("path") or "")
+                patch_path = REPO_ROOT / patch_ref
+                if not patch_ref or not patch_path.exists():
+                    row_issues.append("owner_handoff_patch_missing_file")
+                else:
+                    if sha256_file(patch_path) != expected_patch["sha256"]:
+                        row_issues.append("owner_handoff_patch_sha256_mismatch")
+                    line_count = len(patch_path.read_text(encoding="utf-8").splitlines())
+                    if line_count != expected_patch["line_count"]:
+                        row_issues.append("owner_handoff_patch_line_count_mismatch")
+                apply_check = str(patch.get("apply_check") or "")
+                apply_terms = [
+                    f"git apply {expected_patch['path']}",
+                    str(expected_patch["base_commit"]),
+                    str(expected_patch["expected_tree"]),
+                    "git write-tree",
+                ]
+                if not all(term in apply_check for term in apply_terms):
+                    row_issues.append("owner_handoff_patch_apply_check_incomplete")
+                proof_result = str(patch.get("proof_result") or "").lower()
+                if "59 passed" not in proof_result or "build passed" not in proof_result:
+                    row_issues.append("owner_handoff_patch_proof_result_incomplete")
         required_subjects = item.get("required_terminal_subjects") if isinstance(item.get("required_terminal_subjects"), list) else []
         for subject in R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS.get(module, []):
             if subject not in required_subjects:

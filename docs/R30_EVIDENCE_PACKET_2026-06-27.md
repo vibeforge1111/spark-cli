@@ -102,6 +102,7 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 - `spark-voice-comms`: original local proof branch `PYTHONPATH=src python3 -m pytest -q` passed, `80 passed`; prepared local owner-lane branch `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415` passed, `132 passed`.
 - `spark-voice-comms`: owner handoff patch `docs/r30/patches/r30-voice-trace-governor.patch` has SHA256 `f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff`; applying it to public base `c74490d68ece` produces tree `e3e1f8814970` and `PYTHONPATH=src python3 -m pytest -q` passes with `132 passed`.
 - `spawner-ui`: focused Codex sandbox lane tests passed, `20 passed` for the refreshed Level 5 worker-env slice; `npm run build` passed. Local head is `3042f8acbdde`, including direct-client, PRD auto-dispatch, PRD bridge, persisted Spawner-env Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, and Codex worker env propagation.
+- `spawner-ui`: owner handoff tree-diff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `16c131110c295fc76828986c38351fcc72ec79538c99111ac212d8b742c26080`; applying it to owner base `fdb8fded4744` produces tree `126d215fcfd7`. The refreshed full focused lane proof passed with `59 passed`, and `npm run build` passed. This is review/apply material only, not registry or publication authority; the tree-diff form is intentional because the local Spawner range contains a merge-shaped history.
 
 Fresh voice owner-lane proof at `2026-06-27T23:38:48Z`:
 
