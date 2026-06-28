@@ -32,6 +32,16 @@ Fresh CLI proof refresh at `2026-06-28T04:37:39Z`:
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`
 
+Fresh access/full-permission refresh at `2026-06-28T05:46:02Z`:
+
+- Telegram access/read-only focused suite passed: `npm test -- --run tests/accessPolicy.test.ts tests/accessActions.test.ts tests/accessLevel5Natural.test.ts tests/level5RuntimeEnv.test.ts tests/profileEnv.test.ts tests/recursiveLevel5RuntimeEnv.test.ts tests/runnerPreflight.test.ts tests/accessRepairE2E.test.ts`.
+- Spawner access/provider focused suite passed: `44 passed` across access execution lanes, API integration, Codex CLI client, Spark agent bridge, and Spark harness client tests.
+- CLI access Level 5 suite passed: `18 passed, 12 deselected, 6 subtests passed`.
+- Live `spark access status --level 5 --json` still proves `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `service_codex_sandbox=danger-full-access`, `effective_codex_sandbox=danger-full-access`, `service_can_operate_whole_computer=true`, and `missing_or_stale_services=[]`.
+- Live Spawner access API reports active Level 5 as `level5_operator`, `setupMode=automatic`, `available=true`, and `runPolicy=auto_safe`.
+- Telegram `npm run build` passed; Spawner `npm run build` passed.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` remains honestly red only for `release_lane`, `r30_voice_registry_decision`, `registry_pins`, and pre-R30 installer pins.
+
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, publish-handoff classification, owner/local handoff docs, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Source-truth blockers are exactly `release_lane`, `r30_voice_registry_decision`, and `registry_pins`; installer pins intentionally remain pre-R30. |
@@ -131,7 +141,7 @@ Fresh Builder/Spawner handoff verifier result at `2026-06-28T05:06:40Z`:
 
 - `spark-intelligence-builder` local proof head is now `ca21e183c6c04a658260b218e22fad7b67e02cc7`; regenerated `docs/r30/patches/r30-builder-trace-proof-stack.patch` has SHA256 `48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d` and applies to owner base `c94eac853fed935ac09bed1c56912968f3365c14`, producing tree `a9aedb619481ffc9fa22d6289e82df47400948cf`. Builder proof passed: `208 passed, 26 subtests passed`.
 - `spawner-ui` local proof head is now `029c2086efcf48444865696333ccc6c756290d83`; regenerated `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `20ceb275a6f691d0c482f4947bf92dfc1890cf97cec0f992978a308c4b17c223` and applies to owner base `fdb8fded47447417dbf146130bddd0967e1f6bc0`, producing tree `4e685e6206f788d28d40bc13a86b87285c1982da`. Spawner access-lane focused proof passed: `22 passed`; build passed.
-- Clean `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after commit `caabb4a` still reports `ok=false`, by design, with `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`. `owner_handoff_manifest`, `r30_owner_handoff_patch_apply`, `r30_access_level5_codex_sandbox`, and `publication_order` are green; `release_lane` reports `0` dirty release repos and `5` direct R30 blockers.
+- Clean `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after commit `58cccd2` still reports `ok=false`, by design, with `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`. `owner_handoff_manifest`, `r30_owner_handoff_patch_apply`, `r30_access_level5_codex_sandbox`, and `publication_order` are green; `release_lane` reports `0` dirty release repos and `5` direct R30 blockers.
 
 Executable owner-handoff patch apply verification at `2026-06-28T03:42:45Z`:
 
@@ -213,7 +223,7 @@ Additional Telegram runtime-env hardening at `2026-06-27T23:05:41Z`:
 - Spark CLI local commit `34c0cce` makes that anti-read-only contract executable in the R30 Access 5 gate, including the stale read-only lower-to-Level-5 regression, Telegram effective runtime-env proof, and Recursive bridge subprocess env-inheritance proof.
 - Spark CLI local commit `79789df` adds the Telegram R30 owner handoff patch gate, `d5a97c0` makes the direct owner handoff manifest require the Telegram and Spawner patch artifacts as publication-bound review/apply material, and the current verifier lane executes every recorded owner handoff patch apply proof inside temporary worktrees.
 - Spark CLI local commit `3e8d607` makes the voice registry decision gate require the prepared local voice release lane to record both ported commits with full hashes and their source commit hashes.
-- Spark CLI local checkpoint `112affc` refreshes the R30 owner handoff docs, manifests, and Telegram patch artifact around `7cb3ce1` so the final Telegram Level 5 full-permission audit plus natural confirmed Level 1/3/4 to Level 5 proof preservation are part of the publication-bound handoff.
+- Spark CLI local checkpoint `58cccd2` refreshes the R30 owner handoff docs, manifests, Telegram patch artifact, and Spawner proof command list so the final Telegram Level 5 full-permission audit, natural confirmed Level 1/3/4 to Level 5 proof preservation, and active Spawner Level 5 full-access lane classification are part of the publication-bound handoff.
 - New regression: a stale read-only Telegram process env plus complete persisted Level 5 guardrails must promote to effective `danger-full-access`; a partial persisted bundle must not promote.
 - Telegram `npm test -- --run tests/level5RuntimeEnv.test.ts tests/accessPolicy.test.ts tests/accessActions.test.ts tests/runnerPreflight.test.ts tests/buildE2E.test.ts`: passed.
 - Telegram `npm run build`: passed.
