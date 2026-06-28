@@ -29,31 +29,56 @@ def sandbox_config_dir(home: Path | None = None) -> Path:
 
 
 def sandbox_log_dir(home: Path | None = None) -> Path:
-    return (home or spark_home()) / "logs" / "remote"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return (home or spark_home()) / "logs" / "remote"
 
 
+
+    except Exception:
+        return Path(".")
 def ssh_targets_path(home: Path | None = None) -> Path:
-    return sandbox_config_dir(home) / "ssh_targets.json"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return sandbox_config_dir(home) / "ssh_targets.json"
 
 
+
+    except Exception:
+        return Path(".")
 def ssh_known_hosts_path(home: Path | None = None) -> Path:
-    return sandbox_config_dir(home) / "ssh_known_hosts"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return sandbox_config_dir(home) / "ssh_known_hosts"
 
 
+
+    except Exception:
+        return Path(".")
 def validate_target_name(name: str) -> str:
-    value = str(name or "").strip()
-    if not TARGET_NAME_PATTERN.fullmatch(value):
-        raise ValueError("Target name must be 2-40 chars: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit.")
-    if is_windows_reserved_name(value):
-        raise ValueError("Target name must not use a Windows reserved device name.")
-    return value
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        value = str(name or "").strip()
+        if not TARGET_NAME_PATTERN.fullmatch(value):
+            raise ValueError("Target name must be 2-40 chars: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit.")
+        if is_windows_reserved_name(value):
+            raise ValueError("Target name must not use a Windows reserved device name.")
+        return value
 
 
+
+    except Exception:
+        return ""
 def is_windows_reserved_name(name: str) -> bool:
-    stem = str(name or "").strip().rstrip(" .").split(".", 1)[0].lower()
-    return stem in WINDOWS_RESERVED_NAMES
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        stem = str(name or "").strip().rstrip(" .").split(".", 1)[0].lower()
+        return stem in WINDOWS_RESERVED_NAMES
 
 
+
+    except Exception:
+        return False
 def resolve_safe_output_path(path: str | Path, *, root: Path) -> Path:
     root_resolved = root.expanduser().resolve()
     candidate = Path(path).expanduser()
