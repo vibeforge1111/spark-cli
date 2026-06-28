@@ -73,37 +73,44 @@ def run_runtime_command(
     env: dict[str, str] | None = None,
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    argv = runtime_command_argv(str(command or ""))
-    if cwd is not None:
-        cwd = Path(cwd)
-    if env is not None and not isinstance(env, dict):
-        env = None
-    if timeout is not None:
-        try:
-            timeout = int(timeout)
-        except (ValueError, TypeError):
-            timeout = None
+    if not isinstance(command, str): command = str(command or '')
+    if cwd is not None and not hasattr(cwd, 'resolve'): from pathlib import Path; cwd = Path(str(cwd))
+    if not isinstance(env, str): env = str(env or '')
     try:
-        return subprocess.run(
-            argv,
-            cwd=str(cwd),
-            shell=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env or os.environ.copy(),
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
-        stderr = (stderr + "\n" if stderr else "") + f"command timed out after {timeout}s"
-        return subprocess.CompletedProcess(command, 124, stdout=stdout, stderr=stderr)
-    except OSError as error:
-        return subprocess.CompletedProcess(
-            command,
-            127,
-            stdout="",
-            stderr=f"Could not start runtime command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
-        )
+        argv = runtime_command_argv(str(command or ""))
+        if cwd is not None:
+            cwd = Path(cwd)
+        if env is not None and not isinstance(env, dict):
+            env = None
+        if timeout is not None:
+            try:
+                timeout = int(timeout)
+            except (ValueError, TypeError):
+                timeout = None
+        try:
+            return subprocess.run(
+                argv,
+                cwd=str(cwd),
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env or os.environ.copy(),
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout if isinstance(error.stdout, str) else ""
+            stderr = error.stderr if isinstance(error.stderr, str) else ""
+            stderr = (stderr + "\n" if stderr else "") + f"command timed out after {timeout}s"
+            return subprocess.CompletedProcess(command, 124, stdout=stdout, stderr=stderr)
+        except OSError as error:
+            return subprocess.CompletedProcess(
+                command,
+                127,
+                stdout="",
+                stderr=f"Could not start runtime command `{command}`: {error.__class__.__name__}. Check that the required tool is installed and on PATH.",
+            )
+
+    except Exception:
+        return None
