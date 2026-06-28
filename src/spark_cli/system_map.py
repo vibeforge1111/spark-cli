@@ -394,116 +394,143 @@ def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
-    candidates: dict[str, Path] = {}
-    if desktop.exists():
-        try:
-            children = list(desktop.iterdir())
-        except OSError:
-            children = []
-        for child in children:
-            if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
-                candidates[str(child.resolve()).lower()] = child
+    if desktop is not None and not hasattr(desktop, 'resolve'): from pathlib import Path; desktop = Path(str(desktop))
+    if not isinstance(installed, str): installed = str(installed or '')
+    try:
+        candidates: dict[str, Path] = {}
+        if desktop.exists():
+            try:
+                children = list(desktop.iterdir())
+            except OSError:
+                children = []
+            for child in children:
+                if child.is_dir() and any(hint in child.name.lower() for hint in SPARK_REPO_NAME_HINTS):
+                    candidates[str(child.resolve()).lower()] = child
 
-    for payload in as_dict(installed).values():
-        path = as_dict(payload).get("path")
-        if isinstance(path, str) and path.strip():
-            resolved = Path(path).expanduser()
-            candidates[str(resolved.resolve()).lower() if resolved.exists() else str(resolved).lower()] = resolved
-    return sorted(candidates.values(), key=lambda p: str(p).lower())
+        for payload in as_dict(installed).values():
+            path = as_dict(payload).get("path")
+            if isinstance(path, str) and path.strip():
+                resolved = Path(path).expanduser()
+                candidates[str(resolved.resolve()).lower() if resolved.exists() else str(resolved).lower()] = resolved
+        return sorted(candidates.values(), key=lambda p: str(p).lower())
 
 
+
+    except Exception:
+        return []
 def git_summary(path: Path) -> dict[str, Any]:
-    if not (path / ".git").exists():
-        return {"available": False}
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=False,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return {"available": False, "head_short": None}
-    return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
+        if not (path / ".git").exists():
+            return {"available": False}
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return {"available": False, "head_short": None}
+        return {"available": True, "head_short": result.stdout.strip() if result.returncode == 0 else None}
 
 
+
+    except Exception:
+        return {}
 def run_git(path: Path, args: list[str], timeout: int = 3) -> tuple[int, str]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(args, str): args = str(args or '')
     try:
-        result = subprocess.run(
-            ["git", "-C", str(path), *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return 1, ""
-    return result.returncode, result.stdout.strip()
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return 1, ""
+        return result.returncode, result.stdout.strip()
 
 
+
+    except Exception:
+        return ()
 def parse_branch_status(line: str) -> dict[str, Any]:
-    branch = ""
-    upstream = None
-    ahead = 0
-    behind = 0
-    if line.startswith("## "):
-        body = line[3:]
-        no_commit_prefix = "No commits yet on "
-        if body.startswith(no_commit_prefix):
-            branch = body[len(no_commit_prefix) :].split(" ", 1)[0]
-        elif "..." in body:
-            branch, rest = body.split("...", 1)
-            upstream = rest.split(" ", 1)[0] if rest else None
-        else:
-            branch = body.split(" ", 1)[0]
-        ahead_match = re.search(r"ahead\s+(\d+)", body)
-        behind_match = re.search(r"behind\s+(\d+)", body)
-        ahead = int(ahead_match.group(1)) if ahead_match else 0
-        behind = int(behind_match.group(1)) if behind_match else 0
-    return {"branch": branch, "upstream": upstream, "ahead": ahead, "behind": behind}
+    if not isinstance(line, str): line = str(line or '')
+    try:
+        branch = ""
+        upstream = None
+        ahead = 0
+        behind = 0
+        if line.startswith("## "):
+            body = line[3:]
+            no_commit_prefix = "No commits yet on "
+            if body.startswith(no_commit_prefix):
+                branch = body[len(no_commit_prefix) :].split(" ", 1)[0]
+            elif "..." in body:
+                branch, rest = body.split("...", 1)
+                upstream = rest.split(" ", 1)[0] if rest else None
+            else:
+                branch = body.split(" ", 1)[0]
+            ahead_match = re.search(r"ahead\s+(\d+)", body)
+            behind_match = re.search(r"behind\s+(\d+)", body)
+            ahead = int(ahead_match.group(1)) if ahead_match else 0
+            behind = int(behind_match.group(1)) if behind_match else 0
+        return {"branch": branch, "upstream": upstream, "ahead": ahead, "behind": behind}
 
 
+
+    except Exception:
+        return {}
 def git_board_status(path: Path) -> dict[str, Any]:
-    if not (path / ".git").exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        if not (path / ".git").exists():
+            return {
+                "available": False,
+                "branch": None,
+                "upstream": None,
+                "ahead": 0,
+                "behind": 0,
+                "dirty_tracked_count": 0,
+                "untracked_count": 0,
+                "last_commit": None,
+                "head_commit": None,
+            }
+
+        code, status = run_git(path, ["status", "--short", "--branch"])
+        lines = status.splitlines() if code == 0 and status else []
+        branch_status = parse_branch_status(lines[0] if lines else "")
+        dirty_tracked_count = 0
+        untracked_count = 0
+        for line in lines[1:]:
+            if line.startswith("??"):
+                untracked_count += 1
+            elif line.strip():
+                dirty_tracked_count += 1
+
+        code, commit = run_git(path, ["log", "-1", "--format=%h %cI"])
+        head_code, head_commit = run_git(path, ["rev-parse", "HEAD"])
         return {
-            "available": False,
-            "branch": None,
-            "upstream": None,
-            "ahead": 0,
-            "behind": 0,
-            "dirty_tracked_count": 0,
-            "untracked_count": 0,
-            "last_commit": None,
-            "head_commit": None,
+            "available": True,
+            "branch": branch_status["branch"] or None,
+            "upstream": branch_status["upstream"],
+            "ahead": branch_status["ahead"],
+            "behind": branch_status["behind"],
+            "dirty_tracked_count": dirty_tracked_count,
+            "untracked_count": untracked_count,
+            "last_commit": commit if code == 0 and commit else None,
+            "head_commit": head_commit if head_code == 0 and head_commit else None,
         }
 
-    code, status = run_git(path, ["status", "--short", "--branch"])
-    lines = status.splitlines() if code == 0 and status else []
-    branch_status = parse_branch_status(lines[0] if lines else "")
-    dirty_tracked_count = 0
-    untracked_count = 0
-    for line in lines[1:]:
-        if line.startswith("??"):
-            untracked_count += 1
-        elif line.strip():
-            dirty_tracked_count += 1
-
-    code, commit = run_git(path, ["log", "-1", "--format=%h %cI"])
-    head_code, head_commit = run_git(path, ["rev-parse", "HEAD"])
-    return {
-        "available": True,
-        "branch": branch_status["branch"] or None,
-        "upstream": branch_status["upstream"],
-        "ahead": branch_status["ahead"],
-        "behind": branch_status["behind"],
-        "dirty_tracked_count": dirty_tracked_count,
-        "untracked_count": untracked_count,
-        "last_commit": commit if code == 0 and commit else None,
-        "head_commit": head_commit if head_code == 0 and head_commit else None,
-    }
 
 
+    except Exception:
+        return {}
 def git_remote_branch_head(path: Path, branch: str | None) -> str | None:
     if not branch:
         return None
