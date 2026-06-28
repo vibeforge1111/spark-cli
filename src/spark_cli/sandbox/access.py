@@ -308,61 +308,85 @@ def probe_workspace_writable(path: Path) -> dict[str, Any]:
 
 
 def docker_available() -> bool:
-    return bool(shutil.which("docker"))
+    try:
+        return bool(shutil.which("docker"))
 
 
+
+    except Exception:
+        return False
 def docker_doctor_readiness() -> dict[str, Any]:
     try:
-        payload = collect_docker_doctor_payload(timeout=3)
-    except Exception as error:  # pragma: no cover - defensive boundary around optional host tooling.
+        try:
+            payload = collect_docker_doctor_payload(timeout=3)
+        except Exception as error:  # pragma: no cover - defensive boundary around optional host tooling.
+            return {
+                "ok": False,
+                "configured": docker_available(),
+                "detail": f"Docker doctor failed: {error.__class__.__name__}.",
+            }
+        checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+        cli_configured = any(
+            isinstance(check, dict) and check.get("name") == "docker_cli" and bool(check.get("ok"))
+            for check in checks
+        )
         return {
-            "ok": False,
-            "configured": docker_available(),
-            "detail": f"Docker doctor failed: {error.__class__.__name__}.",
+            "ok": bool(payload.get("ok")),
+            "configured": cli_configured,
+            "detail": str(payload.get("next") or ""),
         }
-    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
-    cli_configured = any(
-        isinstance(check, dict) and check.get("name") == "docker_cli" and bool(check.get("ok"))
-        for check in checks
-    )
-    return {
-        "ok": bool(payload.get("ok")),
-        "configured": cli_configured,
-        "detail": str(payload.get("next") or ""),
-    }
 
 
+
+    except Exception:
+        return {}
 def docker_os_hint(family: str) -> str:
-    if family == "macos":
-        return "Spark can guide Docker Desktop for macOS when a task needs stronger isolation."
-    if family == "windows":
-        return "Spark can guide Docker Desktop with WSL on Windows when a task needs stronger isolation."
-    if family == "linux":
-        return "Spark can guide Docker Engine or Docker Desktop on Linux with distro-aware checks."
-    return "Spark can guide Docker setup when this OS supports it."
+    if not isinstance(family, str): family = str(family or '')
+    try:
+        if family == "macos":
+            return "Spark can guide Docker Desktop for macOS when a task needs stronger isolation."
+        if family == "windows":
+            return "Spark can guide Docker Desktop with WSL on Windows when a task needs stronger isolation."
+        if family == "linux":
+            return "Spark can guide Docker Engine or Docker Desktop on Linux with distro-aware checks."
+        return "Spark can guide Docker setup when this OS supports it."
 
 
+
+    except Exception:
+        return ""
 def workspace_os_hint(family: str) -> str:
-    if family == "macos":
-        return "macOS default: Spark uses a workspace sandbox first, then adds Docker only when useful."
-    if family == "windows":
-        return "Windows default: Spark uses a workspace sandbox first, then guides Docker/WSL only when useful."
-    if family == "linux":
-        return "Linux default: Spark uses a workspace sandbox first, then guides Docker only when useful."
-    return "Default: Spark uses a workspace sandbox first, then guides heavier sandboxes only when useful."
+    if not isinstance(family, str): family = str(family or '')
+    try:
+        if family == "macos":
+            return "macOS default: Spark uses a workspace sandbox first, then adds Docker only when useful."
+        if family == "windows":
+            return "Windows default: Spark uses a workspace sandbox first, then guides Docker/WSL only when useful."
+        if family == "linux":
+            return "Linux default: Spark uses a workspace sandbox first, then guides Docker only when useful."
+        return "Default: Spark uses a workspace sandbox first, then guides heavier sandboxes only when useful."
 
 
+
+    except Exception:
+        return ""
 def goal_needs(goal: str, lane: str) -> bool:
-    text = goal.lower()
-    if lane == "docker":
-        return any(word in text for word in ("docker", "container", "containerized", "isolated", "reproducible"))
-    if lane == "ssh":
-        return any(word in text for word in ("ssh", "remote machine", "remote server", "remote box", "vps"))
-    if lane == "modal":
-        return any(word in text for word in ("modal", "gpu", "cloud sandbox", "remote compute", "large job"))
-    return False
+    if not isinstance(goal, str): goal = str(goal or '')
+    if not isinstance(lane, str): lane = str(lane or '')
+    try:
+        text = goal.lower()
+        if lane == "docker":
+            return any(word in text for word in ("docker", "container", "containerized", "isolated", "reproducible"))
+        if lane == "ssh":
+            return any(word in text for word in ("ssh", "remote machine", "remote server", "remote box", "vps"))
+        if lane == "modal":
+            return any(word in text for word in ("modal", "gpu", "cloud sandbox", "remote compute", "large job"))
+        return False
 
 
+
+    except Exception:
+        return False
 def safe_workspace_setup_state(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     workspace_root = spark_workspace_root(home=home, env=env)
     workspace_path = ensure_level4_workspace(home=home, env=env)
