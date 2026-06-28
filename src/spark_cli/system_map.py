@@ -2026,13 +2026,18 @@ def capability_card_status_from_specialization(surface: dict[str, Any]) -> str:
 
 
 def capability_proof_state(status: str) -> str:
-    if status == "schema-shaped":
-        return "schema_only"
-    if status == "local-artifacts":
-        return "artifact_present_unverified"
-    return "proof_incomplete"
+    if not isinstance(status, str): status = str(status or '')
+    try:
+        if status == "schema-shaped":
+            return "schema_only"
+        if status == "local-artifacts":
+            return "artifact_present_unverified"
+        return "proof_incomplete"
 
 
+
+    except Exception:
+        return ""
 def capability_trust_fields(
     *,
     status: str,
@@ -2041,251 +2046,276 @@ def capability_trust_fields(
     proof_verdicts: dict[str, Any],
     required_proofs: dict[str, str],
 ) -> dict[str, Any]:
-    proof_summary = capability_proof_summary(proof_verdicts, required_proofs)
-    proof_status = proof_summary["overall_status"]
-    trust_status = "trusted" if proof_status == "passed" else "untrusted"
-    return {
-        "trust_status": trust_status,
-        "proof_state": capability_proof_state(status),
-        "trust_scope": "local" if trust_status == "trusted" else "none",
-        "trust_basis": trust_basis,
-        "compiled_proofs": compiled_proofs,
-        "proof_verdicts": proof_verdicts,
-        "proof_summary": proof_summary,
-        "proof_blockers": proof_summary["blocked_proofs"],
-        "missing_proofs": proof_summary["unsatisfied_proofs"],
-        "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
-    }
+    if not isinstance(status, str): status = str(status or '')
+    if not isinstance(compiled_proofs, str): compiled_proofs = str(compiled_proofs or '')
+    if not isinstance(trust_basis, str): trust_basis = str(trust_basis or '')
+    if not isinstance(proof_verdicts, str): proof_verdicts = str(proof_verdicts or '')
+    if not isinstance(required_proofs, str): required_proofs = str(required_proofs or '')
+    try:
+        proof_summary = capability_proof_summary(proof_verdicts, required_proofs)
+        proof_status = proof_summary["overall_status"]
+        trust_status = "trusted" if proof_status == "passed" else "untrusted"
+        return {
+            "trust_status": trust_status,
+            "proof_state": capability_proof_state(status),
+            "trust_scope": "local" if trust_status == "trusted" else "none",
+            "trust_basis": trust_basis,
+            "compiled_proofs": compiled_proofs,
+            "proof_verdicts": proof_verdicts,
+            "proof_summary": proof_summary,
+            "proof_blockers": proof_summary["blocked_proofs"],
+            "missing_proofs": proof_summary["unsatisfied_proofs"],
+            "trust_rule": "Schema, manifest, conformance, or local artifact presence never makes a capability trusted.",
+        }
 
 
+
+    except Exception:
+        return {}
 def build_capability_cards(
     creator_system_surfaces: list[dict[str, Any]],
     specialization_path_surfaces: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    cards: list[dict[str, Any]] = []
+    if not isinstance(creator_system_surfaces, str): creator_system_surfaces = str(creator_system_surfaces or '')
+    if not isinstance(specialization_path_surfaces, str): specialization_path_surfaces = str(specialization_path_surfaces or '')
+    try:
+        cards: list[dict[str, Any]] = []
 
-    for surface in creator_system_surfaces:
-        repo = str(surface.get("repo") or "unknown")
-        schema_inventory = as_dict(surface.get("schema_inventory"))
-        artifacts = as_dict(surface.get("creator_run_artifacts"))
-        review_sources = as_dict(surface.get("review_and_release_sources"))
-        artifact_counts = as_dict(artifacts.get("artifact_presence_counts"))
-        status = capability_card_status_from_labs(surface)
-        creator_run_count = int(artifacts.get("run_count") or 0)
-        schema_count = int(schema_inventory.get("schema_count") or 0)
-        benchmark_manifest_count = int(artifact_counts.get("benchmark_manifest") or 0)
-        review_source_count = bool_count(review_sources)
-        proof_verdicts = as_dict(surface.get("proof_sources"))
-        trust = capability_trust_fields(
-            status=status,
-            compiled_proofs={
-                "schema_present": schema_count > 0,
-                "local_artifacts_present": creator_run_count > 0,
-                "benchmark_manifest_present": benchmark_manifest_count > 0,
-                "review_sources_present": review_source_count > 0,
-                "trace_refs_present": False,
-                "rollback_refs_present": as_dict(proof_verdicts.get("rollback")).get("status") != "missing",
-                "privacy_review_verdict_present": as_dict(proof_verdicts.get("privacy")).get("status")
-                not in {None, "missing"},
-                "publication_approval_present": as_dict(proof_verdicts.get("publication")).get("status")
-                == "passed",
-            },
-            trust_basis=[
-                basis
-                for basis, present in (
-                    ("schema_present", schema_count > 0),
-                    ("local_artifacts_present", creator_run_count > 0),
-                    ("benchmark_manifest_present", benchmark_manifest_count > 0),
-                    ("review_source_present", review_source_count > 0),
-                )
-                if present
-            ],
-            proof_verdicts=proof_verdicts,
-            required_proofs=CREATOR_REQUIRED_PROOF_LABELS,
-        )
-        cards.append(
-            {
-                "schema_version": CAPABILITY_CARD_SCHEMA,
-                "id": f"creator-system:{repo}",
-                "name": f"{repo} creator system",
-                "owner_repo": repo,
-                "surface_type": "creator-system",
-                "status": status,
-                **trust,
-                "requested_authority": ["local_files_read", "review_only"],
-                "memory_policy": "non_authoritative_evidence_only",
-                "evidence_summary": {
-                    "schema_count": schema_count,
-                    "creator_run_count": creator_run_count,
-                    "artifact_presence_counts": artifact_counts,
+        for surface in creator_system_surfaces:
+            repo = str(surface.get("repo") or "unknown")
+            schema_inventory = as_dict(surface.get("schema_inventory"))
+            artifacts = as_dict(surface.get("creator_run_artifacts"))
+            review_sources = as_dict(surface.get("review_and_release_sources"))
+            artifact_counts = as_dict(artifacts.get("artifact_presence_counts"))
+            status = capability_card_status_from_labs(surface)
+            creator_run_count = int(artifacts.get("run_count") or 0)
+            schema_count = int(schema_inventory.get("schema_count") or 0)
+            benchmark_manifest_count = int(artifact_counts.get("benchmark_manifest") or 0)
+            review_source_count = bool_count(review_sources)
+            proof_verdicts = as_dict(surface.get("proof_sources"))
+            trust = capability_trust_fields(
+                status=status,
+                compiled_proofs={
+                    "schema_present": schema_count > 0,
+                    "local_artifacts_present": creator_run_count > 0,
+                    "benchmark_manifest_present": benchmark_manifest_count > 0,
+                    "review_sources_present": review_source_count > 0,
+                    "trace_refs_present": False,
+                    "rollback_refs_present": as_dict(proof_verdicts.get("rollback")).get("status") != "missing",
+                    "privacy_review_verdict_present": as_dict(proof_verdicts.get("privacy")).get("status")
+                    not in {None, "missing"},
+                    "publication_approval_present": as_dict(proof_verdicts.get("publication")).get("status")
+                    == "passed",
                 },
-                "benchmark_summary": {
-                    "benchmark_manifest_count": benchmark_manifest_count,
-                },
-                "review_summary": {
-                    "review_source_count": review_source_count,
-                    "review_sources": {
-                        key: bool(as_dict(value).get("exists")) for key, value in sorted(review_sources.items())
-                    },
-                },
-                "trace_refs": [],
-                "rollback_refs": [],
-                "privacy_boundary": "Local creator artifacts are evidence references only; raw packet bodies are not exported.",
-                "public_boundary": "Network publication is blocked unless explicit approval and proof gates pass.",
-                "blockers": [
-                    "Capability remains untrusted until every required proof domain passes.",
-                    "Present benchmark, gate, or rollback metadata is still unverified unless a pass/fail verdict exists.",
-                    "Network publication approval is blocked or missing unless the publication proof verdict passes.",
+                trust_basis=[
+                    basis
+                    for basis, present in (
+                        ("schema_present", schema_count > 0),
+                        ("local_artifacts_present", creator_run_count > 0),
+                        ("benchmark_manifest_present", benchmark_manifest_count > 0),
+                        ("review_source_present", review_source_count > 0),
+                    )
+                    if present
                 ],
-                "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
-            }
-        )
-
-    for surface in specialization_path_surfaces:
-        repo = str(surface.get("repo") or "unknown")
-        config = as_dict(surface.get("config"))
-        schema_inventory = as_dict(surface.get("schema_inventory"))
-        artifacts = as_dict(surface.get("collective_artifacts"))
-        governance_sources = as_dict(surface.get("publication_governance_sources"))
-        status = capability_card_status_from_specialization(surface)
-        configured_path_count = int(config.get("path_count") or 0)
-        schema_count = int(schema_inventory.get("schema_count") or 0)
-        promotion_packet_count = int(artifacts.get("promotion_packet_count") or 0)
-        evidence_ledger_count = int(artifacts.get("evidence_ledger_count") or 0)
-        benchmark_adapter_counts = as_dict(config.get("benchmark_adapter_counts"))
-        rollback_policy_counts = as_dict(config.get("rollback_policy_counts"))
-        governance_source_count = bool_count(governance_sources)
-        proof_verdicts = as_dict(surface.get("proof_sources"))
-        trust = capability_trust_fields(
-            status=status,
-            compiled_proofs={
-                "schema_present": schema_count > 0,
-                "configured_paths_present": configured_path_count > 0,
-                "promotion_packets_present": promotion_packet_count > 0,
-                "evidence_ledgers_present": evidence_ledger_count > 0,
-                "benchmark_adapter_config_present": bool(benchmark_adapter_counts),
-                "rollback_policy_config_present": bool(rollback_policy_counts),
-                "publication_governance_sources_present": governance_source_count > 0,
-                "trace_refs_present": False,
-                "rollback_refs_present": as_dict(proof_verdicts.get("rollback")).get("status") != "missing",
-                "publication_approval_present": as_dict(proof_verdicts.get("publication")).get("status")
-                == "passed",
-            },
-            trust_basis=[
-                basis
-                for basis, present in (
-                    ("schema_present", schema_count > 0),
-                    ("configured_paths_present", configured_path_count > 0),
-                    ("promotion_packets_present", promotion_packet_count > 0),
-                    ("evidence_ledgers_present", evidence_ledger_count > 0),
-                    ("benchmark_adapter_config_present", bool(benchmark_adapter_counts)),
-                    ("rollback_policy_config_present", bool(rollback_policy_counts)),
-                    ("publication_governance_source_present", governance_source_count > 0),
-                )
-                if present
-            ],
-            proof_verdicts=proof_verdicts,
-            required_proofs=SPECIALIZATION_REQUIRED_PROOF_LABELS,
-        )
-        cards.append(
-            {
-                "schema_version": CAPABILITY_CARD_SCHEMA,
-                "id": f"specialization-path:{repo}",
-                "name": f"{repo} specialization path",
-                "owner_repo": repo,
-                "surface_type": "specialization-path",
-                "status": status,
-                **trust,
-                "requested_authority": ["local_files_read", "review_only"],
-                "memory_policy": "selective_or_surface_defined",
-                "evidence_summary": {
-                    "configured_path_count": configured_path_count,
-                    "schema_count": schema_count,
-                    "promotion_packet_count": promotion_packet_count,
-                    "evidence_ledger_count": evidence_ledger_count,
-                },
-                "benchmark_summary": {
-                    "loop_kind_counts": as_dict(config.get("loop_kind_counts")),
-                    "benchmark_adapter_counts": benchmark_adapter_counts,
-                    "evolution_mode_counts": as_dict(config.get("evolution_mode_counts")),
-                    "rollback_policy_counts": rollback_policy_counts,
-                },
-                "review_summary": {
-                    "publication_governance_source_count": governance_source_count,
-                    "publication_governance_sources": {
-                        key: bool(as_dict(value).get("exists")) for key, value in sorted(governance_sources.items())
+                proof_verdicts=proof_verdicts,
+                required_proofs=CREATOR_REQUIRED_PROOF_LABELS,
+            )
+            cards.append(
+                {
+                    "schema_version": CAPABILITY_CARD_SCHEMA,
+                    "id": f"creator-system:{repo}",
+                    "name": f"{repo} creator system",
+                    "owner_repo": repo,
+                    "surface_type": "creator-system",
+                    "status": status,
+                    **trust,
+                    "requested_authority": ["local_files_read", "review_only"],
+                    "memory_policy": "non_authoritative_evidence_only",
+                    "evidence_summary": {
+                        "schema_count": schema_count,
+                        "creator_run_count": creator_run_count,
+                        "artifact_presence_counts": artifact_counts,
                     },
+                    "benchmark_summary": {
+                        "benchmark_manifest_count": benchmark_manifest_count,
+                    },
+                    "review_summary": {
+                        "review_source_count": review_source_count,
+                        "review_sources": {
+                            key: bool(as_dict(value).get("exists")) for key, value in sorted(review_sources.items())
+                        },
+                    },
+                    "trace_refs": [],
+                    "rollback_refs": [],
+                    "privacy_boundary": "Local creator artifacts are evidence references only; raw packet bodies are not exported.",
+                    "public_boundary": "Network publication is blocked unless explicit approval and proof gates pass.",
+                    "blockers": [
+                        "Capability remains untrusted until every required proof domain passes.",
+                        "Present benchmark, gate, or rollback metadata is still unverified unless a pass/fail verdict exists.",
+                        "Network publication approval is blocked or missing unless the publication proof verdict passes.",
+                    ],
+                    "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
+                }
+            )
+
+        for surface in specialization_path_surfaces:
+            repo = str(surface.get("repo") or "unknown")
+            config = as_dict(surface.get("config"))
+            schema_inventory = as_dict(surface.get("schema_inventory"))
+            artifacts = as_dict(surface.get("collective_artifacts"))
+            governance_sources = as_dict(surface.get("publication_governance_sources"))
+            status = capability_card_status_from_specialization(surface)
+            configured_path_count = int(config.get("path_count") or 0)
+            schema_count = int(schema_inventory.get("schema_count") or 0)
+            promotion_packet_count = int(artifacts.get("promotion_packet_count") or 0)
+            evidence_ledger_count = int(artifacts.get("evidence_ledger_count") or 0)
+            benchmark_adapter_counts = as_dict(config.get("benchmark_adapter_counts"))
+            rollback_policy_counts = as_dict(config.get("rollback_policy_counts"))
+            governance_source_count = bool_count(governance_sources)
+            proof_verdicts = as_dict(surface.get("proof_sources"))
+            trust = capability_trust_fields(
+                status=status,
+                compiled_proofs={
+                    "schema_present": schema_count > 0,
+                    "configured_paths_present": configured_path_count > 0,
+                    "promotion_packets_present": promotion_packet_count > 0,
+                    "evidence_ledgers_present": evidence_ledger_count > 0,
+                    "benchmark_adapter_config_present": bool(benchmark_adapter_counts),
+                    "rollback_policy_config_present": bool(rollback_policy_counts),
+                    "publication_governance_sources_present": governance_source_count > 0,
+                    "trace_refs_present": False,
+                    "rollback_refs_present": as_dict(proof_verdicts.get("rollback")).get("status") != "missing",
+                    "publication_approval_present": as_dict(proof_verdicts.get("publication")).get("status")
+                    == "passed",
                 },
-                "trace_refs": [],
-                "rollback_refs": [],
-                "privacy_boundary": "Specialization metadata is exported without commands, labels, descriptions, or packet bodies.",
-                "public_boundary": "Collective publication requires verified proof, approval gates, and rollback review.",
-                "blockers": [
-                    "Capability remains untrusted until every required proof domain passes.",
-                    "Configured benchmark or rollback metadata is still unverified unless a pass/fail verdict exists.",
-                    "Collective publication is blocked or missing unless publication and authority verdicts pass.",
+                trust_basis=[
+                    basis
+                    for basis, present in (
+                        ("schema_present", schema_count > 0),
+                        ("configured_paths_present", configured_path_count > 0),
+                        ("promotion_packets_present", promotion_packet_count > 0),
+                        ("evidence_ledgers_present", evidence_ledger_count > 0),
+                        ("benchmark_adapter_config_present", bool(benchmark_adapter_counts)),
+                        ("rollback_policy_config_present", bool(rollback_policy_counts)),
+                        ("publication_governance_source_present", governance_source_count > 0),
+                    )
+                    if present
                 ],
-                "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
-            }
-        )
+                proof_verdicts=proof_verdicts,
+                required_proofs=SPECIALIZATION_REQUIRED_PROOF_LABELS,
+            )
+            cards.append(
+                {
+                    "schema_version": CAPABILITY_CARD_SCHEMA,
+                    "id": f"specialization-path:{repo}",
+                    "name": f"{repo} specialization path",
+                    "owner_repo": repo,
+                    "surface_type": "specialization-path",
+                    "status": status,
+                    **trust,
+                    "requested_authority": ["local_files_read", "review_only"],
+                    "memory_policy": "selective_or_surface_defined",
+                    "evidence_summary": {
+                        "configured_path_count": configured_path_count,
+                        "schema_count": schema_count,
+                        "promotion_packet_count": promotion_packet_count,
+                        "evidence_ledger_count": evidence_ledger_count,
+                    },
+                    "benchmark_summary": {
+                        "loop_kind_counts": as_dict(config.get("loop_kind_counts")),
+                        "benchmark_adapter_counts": benchmark_adapter_counts,
+                        "evolution_mode_counts": as_dict(config.get("evolution_mode_counts")),
+                        "rollback_policy_counts": rollback_policy_counts,
+                    },
+                    "review_summary": {
+                        "publication_governance_source_count": governance_source_count,
+                        "publication_governance_sources": {
+                            key: bool(as_dict(value).get("exists")) for key, value in sorted(governance_sources.items())
+                        },
+                    },
+                    "trace_refs": [],
+                    "rollback_refs": [],
+                    "privacy_boundary": "Specialization metadata is exported without commands, labels, descriptions, or packet bodies.",
+                    "public_boundary": "Collective publication requires verified proof, approval gates, and rollback review.",
+                    "blockers": [
+                        "Capability remains untrusted until every required proof domain passes.",
+                        "Configured benchmark or rollback metadata is still unverified unless a pass/fail verdict exists.",
+                        "Collective publication is blocked or missing unless publication and authority verdicts pass.",
+                    ],
+                    "next_action": "Resolve the first unsatisfied proof in proof_summary.unsatisfied_proofs.",
+                }
+            )
 
-    return cards
+        return cards
 
 
+
+    except Exception:
+        return []
 def summarize_memory_kb_artifacts(builder_home: Path) -> dict[str, Any]:
-    root = builder_home / "artifacts" / "spark-memory-kb"
-    summary = count_files_under(root)
-    if not root.exists():
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        root = builder_home / "artifacts" / "spark-memory-kb"
+        summary = count_files_under(root)
+        if not root.exists():
+            return summary
+
+        lanes = {
+            "current_state": root / "wiki" / "current-state",
+            "events": root / "wiki" / "events",
+            "sources": root / "wiki" / "sources",
+            "syntheses": root / "wiki" / "syntheses",
+        }
+        summary["lane_counts"] = {name: count_files_under(path) for name, path in lanes.items()}
+        summary["compile_latest_metadata"] = inspect_file_metadata(builder_home / "artifacts" / "spark-memory-kb-compile-latest.json")
+        summary["sdk_state_metadata"] = inspect_file_metadata(builder_home / "artifacts" / "domain_chip_memory_sdk_state.json")
         return summary
 
-    lanes = {
-        "current_state": root / "wiki" / "current-state",
-        "events": root / "wiki" / "events",
-        "sources": root / "wiki" / "sources",
-        "syntheses": root / "wiki" / "syntheses",
-    }
-    summary["lane_counts"] = {name: count_files_under(path) for name, path in lanes.items()}
-    summary["compile_latest_metadata"] = inspect_file_metadata(builder_home / "artifacts" / "spark-memory-kb-compile-latest.json")
-    summary["sdk_state_metadata"] = inspect_file_metadata(builder_home / "artifacts" / "domain_chip_memory_sdk_state.json")
-    return summary
 
 
+    except Exception:
+        return {}
 def summarize_memory_run_artifacts(builder_home: Path) -> dict[str, Any]:
-    artifacts = builder_home / "artifacts"
-    prefixes = (
-        "supervised-memory-qa",
-        "telegram-memory-gauntlet",
-        "telegram-memory-acceptance",
-    )
-    out: dict[str, Any] = {
-        "path": str(artifacts),
-        "exists": artifacts.exists(),
-        "redaction": "run directory counts and timestamps only; run names and payloads omitted",
-        "prefixes": {},
-    }
-    if not artifacts.exists():
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        artifacts = builder_home / "artifacts"
+        prefixes = (
+            "supervised-memory-qa",
+            "telegram-memory-gauntlet",
+            "telegram-memory-acceptance",
+        )
+        out: dict[str, Any] = {
+            "path": str(artifacts),
+            "exists": artifacts.exists(),
+            "redaction": "run directory counts and timestamps only; run names and payloads omitted",
+            "prefixes": {},
+        }
+        if not artifacts.exists():
+            return out
+
+        try:
+            for prefix in prefixes:
+                runs = [child for child in artifacts.iterdir() if child.is_dir() and child.name.startswith(prefix)]
+                latest_mtime = max((child.stat().st_mtime for child in runs), default=None)
+                out["prefixes"][prefix] = {
+                    "run_count": len(runs),
+                    "latest_modified_at": (
+                        datetime.fromtimestamp(latest_mtime, timezone.utc)
+                        .replace(microsecond=0)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                        if latest_mtime is not None
+                        else None
+                    ),
+                }
+        except OSError as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
-    try:
-        for prefix in prefixes:
-            runs = [child for child in artifacts.iterdir() if child.is_dir() and child.name.startswith(prefix)]
-            latest_mtime = max((child.stat().st_mtime for child in runs), default=None)
-            out["prefixes"][prefix] = {
-                "run_count": len(runs),
-                "latest_modified_at": (
-                    datetime.fromtimestamp(latest_mtime, timezone.utc)
-                    .replace(microsecond=0)
-                    .isoformat()
-                    .replace("+00:00", "Z")
-                    if latest_mtime is not None
-                    else None
-                ),
-            }
-    except OSError as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
 
 
+    except Exception:
+        return {}
 def memory_review_item(
     *,
     item_id: str,
