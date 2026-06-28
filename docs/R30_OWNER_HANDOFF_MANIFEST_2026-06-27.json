@@ -68,8 +68,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "0cd7914e0c66d84416554399d57837556dff55d5",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cd7914e0c66d84416554399d57837556dff55d5",
+      "local_head": "dec4b0161482e9dd12df2480f348dcf7e4edacae",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..dec4b0161482e9dd12df2480f348dcf7e4edacae",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -77,7 +77,7 @@
         "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
       },
       "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and health-token preservation fix onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, and active Telegram profile stale read-only env proof onto the current owner release base, then rerun Telegram gates before registry pin movement.",
       "proof_commands": [
         "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
         "npm run build",
@@ -89,11 +89,11 @@
       "owner_handoff_patch": {
         "patch_type": "tree_diff",
         "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-        "sha256": "7bc405d733b68ce0f67f4c69028a9691f61d1a6c5f896f89c3e7ad4e9bb99fb9",
-        "line_count": 87391,
+        "sha256": "a1abe7e2ce57ae9d9ee5174b2511d97de83d94d71846936722a0150ea90ff72d",
+        "line_count": 87456,
         "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-        "expected_tree": "c8775e75635967da666f16ae9d09268a1d299b85",
-        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"c8775e75635967da666f16ae9d09268a1d299b85\"",
+        "expected_tree": "7e6a23e6b476cbea861dfede7373a8c631150952",
+        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"7e6a23e6b476cbea861dfede7373a8c631150952\"",
         "proof_command": "npm run control:proof:reliability && npm run build && npm run check:line-count",
         "proof_result": "reliability passed; build passed; line-count passed",
         "publication_authority": false
