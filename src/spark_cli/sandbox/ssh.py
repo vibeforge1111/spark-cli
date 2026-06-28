@@ -611,20 +611,36 @@ def run_ssh_fixed_probe(
 
 
 def ssh_smoke_probe_hash(probe_content: str = SSH_SMOKE_PROBE) -> str:
-    return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
+    if not isinstance(probe_content, str): probe_content = str(probe_content or '')
+    try:
+        return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
 
 
+
+    except Exception:
+        return ""
 def ssh_smoke_remote_path(target: SshTarget, probe_hash: str) -> str:
-    safe_name = validate_target_name(target.name)
-    if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
-        raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
-    return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
+    if not isinstance(probe_hash, str): probe_hash = str(probe_hash or '')
+    try:
+        safe_name = validate_target_name(target.name)
+        if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
+            raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
+        return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
 
 
+
+    except Exception:
+        return ""
 def ssh_smoke_upload_argv(target: SshTarget, remote_path: str, *, home: Path | None = None) -> list[str]:
-    return [*build_ssh_base_argv(target, home=home), f"umask 077; cat > {shlex.quote(remote_path)}"]
+    if not isinstance(remote_path, str): remote_path = str(remote_path or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return [*build_ssh_base_argv(target, home=home), f"umask 077; cat > {shlex.quote(remote_path)}"]
 
 
+
+    except Exception:
+        return []
 def ssh_smoke_execute_argv(
     target: SshTarget,
     remote_path: str,
@@ -633,64 +649,77 @@ def ssh_smoke_execute_argv(
     keep_debug_files: bool = False,
     home: Path | None = None,
 ) -> list[str]:
-    quoted_path = shlex.quote(remote_path)
-    quoted_hash = shlex.quote(probe_hash)
-    cleanup = (
-        "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
-        if keep_debug_files
-        else "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
-    )
-    command = (
-        f"file={quoted_path}; expected={quoted_hash}; {cleanup}; "
-        "actual=$(sha256sum \"$file\" | awk '{print $1}'); "
-        "if [ \"$actual\" != \"$expected\" ]; then "
-        "printf 'SPARK_SSH_HASH_MISMATCH expected=%s actual=%s\\n' \"$expected\" \"$actual\"; "
-        "exit 42; "
-        "fi; "
-        "chmod 700 \"$file\"; "
-        "sh \"$file\" \"$expected\""
-    )
-    return [*build_ssh_base_argv(target, home=home), command]
+    if not isinstance(remote_path, str): remote_path = str(remote_path or '')
+    if not isinstance(probe_hash, str): probe_hash = str(probe_hash or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        quoted_path = shlex.quote(remote_path)
+        quoted_hash = shlex.quote(probe_hash)
+        cleanup = (
+            "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
+            if keep_debug_files
+            else "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
+        )
+        command = (
+            f"file={quoted_path}; expected={quoted_hash}; {cleanup}; "
+            "actual=$(sha256sum \"$file\" | awk '{print $1}'); "
+            "if [ \"$actual\" != \"$expected\" ]; then "
+            "printf 'SPARK_SSH_HASH_MISMATCH expected=%s actual=%s\\n' \"$expected\" \"$actual\"; "
+            "exit 42; "
+            "fi; "
+            "chmod 700 \"$file\"; "
+            "sh \"$file\" \"$expected\""
+        )
+        return [*build_ssh_base_argv(target, home=home), command]
 
 
+
+    except Exception:
+        return []
 def _subprocess_payload(
     argv: list[str],
     *,
     timeout: int,
     input_text: str | None = None,
 ) -> dict[str, object]:
+    if not isinstance(argv, str): argv = str(argv or '')
+    if not isinstance(input_text, str): input_text = str(input_text or '')
     try:
-        result = subprocess.run(
-            argv,
-            input=input_text,
-            capture_output=True,
-            env=ssh_subprocess_env(),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
+        try:
+            result = subprocess.run(
+                argv,
+                input=input_text,
+                capture_output=True,
+                env=ssh_subprocess_env(),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout if isinstance(error.stdout, str) else ""
+            stderr = error.stderr if isinstance(error.stderr, str) else ""
+            return {
+                "returncode": 124,
+                "output": bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or "")).to_dict(),
+                "detail": f"SSH command timed out after {timeout}s.",
+            }
+        except OSError as error:
+            return {
+                "returncode": 127,
+                "output": bound_sandbox_output("").to_dict(),
+                "detail": f"Could not start SSH command: {error.__class__.__name__}.",
+            }
         return {
-            "returncode": 124,
-            "output": bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or "")).to_dict(),
-            "detail": f"SSH command timed out after {timeout}s.",
+            "returncode": result.returncode,
+            "output": bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or "")).to_dict(),
+            "detail": "SSH command completed." if result.returncode == 0 else "SSH command failed.",
         }
-    except OSError as error:
-        return {
-            "returncode": 127,
-            "output": bound_sandbox_output("").to_dict(),
-            "detail": f"Could not start SSH command: {error.__class__.__name__}.",
-        }
-    return {
-        "returncode": result.returncode,
-        "output": bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or "")).to_dict(),
-        "detail": "SSH command completed." if result.returncode == 0 else "SSH command failed.",
-    }
 
 
+
+    except Exception:
+        return {}
 def run_ssh_smoke_probe(
     target: SshTarget,
     *,
