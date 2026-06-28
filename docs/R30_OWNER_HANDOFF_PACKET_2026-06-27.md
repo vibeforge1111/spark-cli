@@ -158,13 +158,14 @@ cd ~/.spark/modules/spawner-ui/source
 git fetch origin --tags
 git status --short --branch
 git log --oneline origin/release/stability-2026-06-02-spawner-authority..029c2086efcf48444865696333ccc6c756290d83
+npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts
 npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
 npm run build
 npm run check
 ```
 
 Owner action after review: push or port the Spawner PRD proof-continuity stack
-and the direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes into the owner release lane, then update
+and the direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, and active Level 5 full-access lane classification into the owner release lane, then update
 registry truth only after `npm run check` passes on that owner ref.
 
 ### `spark-voice-comms`
