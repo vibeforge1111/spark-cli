@@ -700,255 +700,136 @@ def run_ssh_smoke_probe(
     probe_content: str = SSH_SMOKE_PROBE,
     expected_hash: str | None = None,
 ) -> dict[str, object]:
-    probe_hash = ssh_smoke_probe_hash(probe_content)
-    if expected_hash is not None and expected_hash != probe_hash:
-        return {
-            "ok": False,
-            "blocked": True,
-            "stage": "local_hash_check",
-            "probe_hash": probe_hash,
-            "expected_hash": expected_hash,
-            "returncode": 42,
-            "output": bound_sandbox_output("").to_dict(),
-            "cleanup_requested": False,
-            "debug_files_kept": False,
-            "detail": "Local SSH smoke probe hash mismatch; refusing to upload.",
-        }
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(probe_content, str): probe_content = str(probe_content or '')
+    if not isinstance(expected_hash, str): expected_hash = str(expected_hash or '')
+    try:
+        probe_hash = ssh_smoke_probe_hash(probe_content)
+        if expected_hash is not None and expected_hash != probe_hash:
+            return {
+                "ok": False,
+                "blocked": True,
+                "stage": "local_hash_check",
+                "probe_hash": probe_hash,
+                "expected_hash": expected_hash,
+                "returncode": 42,
+                "output": bound_sandbox_output("").to_dict(),
+                "cleanup_requested": False,
+                "debug_files_kept": False,
+                "detail": "Local SSH smoke probe hash mismatch; refusing to upload.",
+            }
 
-    remote_path = ssh_smoke_remote_path(target, probe_hash)
-    upload = _subprocess_payload(
-        ssh_smoke_upload_argv(target, remote_path, home=home),
-        input_text=probe_content,
-        timeout=timeout,
-    )
-    if upload["returncode"] != 0:
+        remote_path = ssh_smoke_remote_path(target, probe_hash)
+        upload = _subprocess_payload(
+            ssh_smoke_upload_argv(target, remote_path, home=home),
+            input_text=probe_content,
+            timeout=timeout,
+        )
+        if upload["returncode"] != 0:
+            return {
+                "ok": False,
+                "stage": "upload",
+                "probe_hash": probe_hash,
+                "remote_path": remote_path,
+                "returncode": upload["returncode"],
+                "output": upload["output"],
+                "cleanup_requested": not keep_debug_files,
+                "debug_files_kept": keep_debug_files,
+                "detail": upload["detail"],
+            }
+
+        execute = _subprocess_payload(
+            ssh_smoke_execute_argv(target, remote_path, probe_hash, keep_debug_files=keep_debug_files, home=home),
+            timeout=timeout,
+        )
+        output = execute["output"]
+        output_text = str(output.get("text") if isinstance(output, dict) else "")
+        ok = execute["returncode"] == 0 and "SPARK_SSH_SMOKE_OK" in output_text and f"probe_sha256={probe_hash}" in output_text
         return {
-            "ok": False,
-            "stage": "upload",
+            "ok": ok,
+            "stage": "execute",
             "probe_hash": probe_hash,
-            "remote_path": remote_path,
-            "returncode": upload["returncode"],
-            "output": upload["output"],
+            "remote_path": remote_path if keep_debug_files else "",
+            "returncode": execute["returncode"],
+            "output": output,
             "cleanup_requested": not keep_debug_files,
             "debug_files_kept": keep_debug_files,
-            "detail": upload["detail"],
+            "detail": "SSH smoke probe completed." if ok else "SSH smoke probe failed.",
         }
 
-    execute = _subprocess_payload(
-        ssh_smoke_execute_argv(target, remote_path, probe_hash, keep_debug_files=keep_debug_files, home=home),
-        timeout=timeout,
-    )
-    output = execute["output"]
-    output_text = str(output.get("text") if isinstance(output, dict) else "")
-    ok = execute["returncode"] == 0 and "SPARK_SSH_SMOKE_OK" in output_text and f"probe_sha256={probe_hash}" in output_text
-    return {
-        "ok": ok,
-        "stage": "execute",
-        "probe_hash": probe_hash,
-        "remote_path": remote_path if keep_debug_files else "",
-        "returncode": execute["returncode"],
-        "output": output,
-        "cleanup_requested": not keep_debug_files,
-        "debug_files_kept": keep_debug_files,
-        "detail": "SSH smoke probe completed." if ok else "SSH smoke probe failed.",
-    }
 
 
+    except Exception:
+        return {}
 def _check(name: str, ok: bool, detail: str, *, repair: str = "", level: str | None = None) -> SshDoctorCheck:
-    return SshDoctorCheck(name=name, ok=ok, detail=detail, repair=repair, level=level or ("info" if ok else "error"))
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(repair, str): repair = str(repair or '')
+    if not isinstance(level, str): level = str(level or '')
+    try:
+        return SshDoctorCheck(name=name, ok=ok, detail=detail, repair=repair, level=level or ("info" if ok else "error"))
 
 
+
+    except Exception:
+        return None
 def collect_ssh_doctor_payload(
     name: str,
     *,
     home: Path | None = None,
     remote_probe: bool = False,
 ) -> dict[str, object]:
-    capabilities = ssh_management_capabilities()
-    safe_name = validate_target_name(name)
-    checks: list[SshDoctorCheck] = []
-
-    ssh_path = shutil.which("ssh")
-    checks.append(_check(
-        "local_ssh_client",
-        bool(ssh_path),
-        f"SSH client found at {ssh_path}." if ssh_path else "SSH client not found on PATH.",
-        repair="Install OpenSSH client, reopen the terminal, then rerun this command.",
-    ))
-
+    if not isinstance(name, str): name = str(name or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
     try:
-        targets = load_ssh_targets(home=home)
-        target = targets.get(safe_name)
-    except ValueError as error:
-        return {
-            "ok": False,
-            "backend": "ssh",
-            "command": "doctor",
-            "target": safe_name,
-            "mode": "read_only",
-            "capabilities": capabilities.to_dict(),
-            "checks": [_check("target_store", False, str(error), repair="Review <spark-home>/config/ssh_targets.json.").to_dict()],
-            "next": "Fix the SSH target store, then rerun doctor.",
-        }
+        capabilities = ssh_management_capabilities()
+        safe_name = validate_target_name(name)
+        checks: list[SshDoctorCheck] = []
 
-    if target is None:
+        ssh_path = shutil.which("ssh")
         checks.append(_check(
-            "target_record",
-            False,
-            f"SSH target `{safe_name}` is not configured.",
-            repair=f"Run spark sandbox ssh add {safe_name} --host <host> --user <user> --identity-file <path>.",
+            "local_ssh_client",
+            bool(ssh_path),
+            f"SSH client found at {ssh_path}." if ssh_path else "SSH client not found on PATH.",
+            repair="Install OpenSSH client, reopen the terminal, then rerun this command.",
         ))
-        return {
-            "ok": False,
-            "backend": "ssh",
-            "command": "doctor",
-            "target": safe_name,
-            "mode": "read_only",
-            "capabilities": capabilities.to_dict(),
-            "checks": [check.to_dict() for check in checks],
-            "next": "Add the target before running SSH doctor.",
-        }
 
-    checks.append(_check("target_record", True, f"Target `{target.name}` is configured."))
-    checks.append(_check("remote_user_non_root", target.user != "root", f"Remote user is `{target.user}`.", repair="Use a dedicated non-root user such as `spark`."))
+        try:
+            targets = load_ssh_targets(home=home)
+            target = targets.get(safe_name)
+        except ValueError as error:
+            return {
+                "ok": False,
+                "backend": "ssh",
+                "command": "doctor",
+                "target": safe_name,
+                "mode": "read_only",
+                "capabilities": capabilities.to_dict(),
+                "checks": [_check("target_store", False, str(error), repair="Review <spark-home>/config/ssh_targets.json.").to_dict()],
+                "next": "Fix the SSH target store, then rerun doctor.",
+            }
 
-    identity = Path(target.identity_file).expanduser()
-    identity_ok = identity.exists() and identity.is_file()
-    checks.append(_check(
-        "identity_file",
-        identity_ok,
-        "Identity file is configured and exists." if identity_ok else "Configured identity file is missing or not a file.",
-        repair="Update the target with a valid identity file path.",
-    ))
-
-    known_hosts = ssh_known_hosts_path(home)
-    known_hosts_exists = known_hosts.exists()
-    trusted = target.host_key_status == "trusted" and bool(target.host_key_fingerprint)
-    if trusted:
-        host_detail = f"Host key fingerprint is pinned for {ssh_host_alias(target)}."
-    elif known_hosts_exists:
-        host_detail = f"Spark known-hosts exists, but target `{target.name}` is not trusted yet."
-    else:
-        host_detail = "Spark known-hosts file does not exist yet; no host key is trusted."
-    checks.append(_check(
-        "host_key_trust",
-        trusted,
-        host_detail,
-        repair=f"Run spark sandbox ssh trust {target.name}; do not use StrictHostKeyChecking=no.",
-        level="info" if trusted else "warning",
-    ))
-
-    argv = build_ssh_base_argv(target, home=home)
-    insecure = {"StrictHostKeyChecking=no", "ForwardAgent=yes"}
-    secure_options_ok = not any(item in insecure for item in argv)
-    checks.append(_check(
-        "secure_ssh_options",
-        secure_options_ok,
-        "SSH argv uses BatchMode, IdentitiesOnly, ForwardAgent=no, RequestTTY=no, and StrictHostKeyChecking=yes.",
-        repair="Keep SSH options strict before remote execution is enabled.",
-    ))
-
-    probe_payload: dict[str, object] | None = None
-    if remote_probe:
-        if not trusted:
+        if target is None:
             checks.append(_check(
-                "remote_connection_probe",
+                "target_record",
                 False,
-                "Skipped remote probe because the host key is not trusted yet.",
-                repair=f"Run spark sandbox ssh trust {target.name} first.",
+                f"SSH target `{safe_name}` is not configured.",
+                repair=f"Run spark sandbox ssh add {safe_name} --host <host> --user <user> --identity-file <path>.",
             ))
-        elif not identity_ok:
-            checks.append(_check(
-                "remote_connection_probe",
-                False,
-                "Skipped remote probe because the identity file is missing.",
-                repair="Update the target with a valid identity file path.",
-            ))
-        else:
-            probe_payload = run_ssh_fixed_probe(target, "connection", home=home)
-            checks.append(_check(
-                "remote_connection_probe",
-                bool(probe_payload.get("ok")),
-                str(probe_payload.get("detail") or "SSH probe completed."),
-                repair="Check SSH network reachability, key authorization, and the trusted host key.",
-            ))
+            return {
+                "ok": False,
+                "backend": "ssh",
+                "command": "doctor",
+                "target": safe_name,
+                "mode": "read_only",
+                "capabilities": capabilities.to_dict(),
+                "checks": [check.to_dict() for check in checks],
+                "next": "Add the target before running SSH doctor.",
+            }
 
-    ok = all(check.ok for check in checks if check.level != "warning")
-    payload = {
-        "ok": ok,
-        "backend": "ssh",
-        "command": "doctor",
-        "target": target.to_public_dict(),
-        "mode": "read_only",
-        "capabilities": capabilities.to_dict(),
-        "checks": [check.to_dict() for check in checks],
-        "ssh_argv_preview": public_ssh_argv_preview(argv),
-        "next": "Run `spark sandbox ssh doctor <name> --remote-probe` after trust to verify login reachability." if not remote_probe else "SSH doctor remote probe completed; run `spark sandbox ssh smoke <name>` for the hashed remote smoke.",
-    }
-    if probe_payload is not None:
-        payload["remote_probe"] = probe_payload
-    if remote_probe:
-        write_audit_event(
-            "ssh",
-            safe_name,
-            {
-                "action_id": "ssh_remote_probe",
-                "ok": ok,
-                "probe_ran": probe_payload is not None,
-                "probe_id": probe_payload.get("probe_id") if probe_payload else "connection",
-                "returncode": probe_payload.get("returncode") if probe_payload else None,
-            },
-            home=home,
-        )
-        payload["audit"] = sandbox_audit_ref("ssh", safe_name)
-    return payload
-
-
-def collect_ssh_smoke_payload(
-    name: str,
-    *,
-    home: Path | None = None,
-    keep_debug_files: bool = False,
-) -> dict[str, object]:
-    capabilities = ssh_smoke_capabilities()
-    safe_name = validate_target_name(name)
-    checks: list[SshDoctorCheck] = []
-    smoke_payload: dict[str, object] | None = None
-
-    try:
-        targets = load_ssh_targets(home=home)
-        target = targets.get(safe_name)
-    except ValueError as error:
-        payload = {
-            "ok": False,
-            "backend": "ssh",
-            "command": "smoke",
-            "target": safe_name,
-            "mode": "remote_temp_probe",
-            "capabilities": capabilities.to_dict(),
-            "checks": [_check("target_store", False, str(error), repair="Review <spark-home>/config/ssh_targets.json.").to_dict()],
-            "next": "Fix the SSH target store, then rerun smoke.",
-        }
-        write_audit_event("ssh", safe_name, {"action_id": "ssh_smoke", "ok": False, "detail": str(error)}, home=home)
-        payload["audit"] = sandbox_audit_ref("ssh", safe_name)
-        return payload
-
-    if target is None:
-        checks.append(_check(
-            "target_record",
-            False,
-            f"SSH target `{safe_name}` is not configured.",
-            repair=f"Run spark sandbox ssh add {safe_name} --host <host> --user <user> --identity-file <path>.",
-        ))
-    else:
         checks.append(_check("target_record", True, f"Target `{target.name}` is configured."))
-        trusted = target.host_key_status == "trusted" and bool(target.host_key_fingerprint)
-        checks.append(_check(
-            "host_key_trust",
-            trusted,
-            f"Host key fingerprint is pinned for {ssh_host_alias(target)}." if trusted else "Host key is not trusted yet.",
-            repair=f"Run spark sandbox ssh trust {target.name} first.",
-        ))
+        checks.append(_check("remote_user_non_root", target.user != "root", f"Remote user is `{target.user}`.", repair="Use a dedicated non-root user such as `spark`."))
+
         identity = Path(target.identity_file).expanduser()
         identity_ok = identity.exists() and identity.is_file()
         checks.append(_check(
@@ -957,36 +838,182 @@ def collect_ssh_smoke_payload(
             "Identity file is configured and exists." if identity_ok else "Configured identity file is missing or not a file.",
             repair="Update the target with a valid identity file path.",
         ))
-        if trusted and identity_ok:
-            smoke_payload = run_ssh_smoke_probe(target, home=home, keep_debug_files=keep_debug_files)
-            checks.append(_check(
-                "hashed_smoke_probe",
-                bool(smoke_payload.get("ok")),
-                str(smoke_payload.get("detail") or "SSH smoke probe failed."),
-                repair="Check SSH reachability, remote /tmp write access, sha256sum, and non-root shell availability.",
-            ))
 
-    ok = all(check.ok for check in checks if check.level != "warning")
-    audit_event = {
-        "action_id": "ssh_smoke",
-        "ok": ok,
-        "keep_debug_files": keep_debug_files,
-        "probe_hash": smoke_payload.get("probe_hash") if smoke_payload else "",
-        "returncode": smoke_payload.get("returncode") if smoke_payload else None,
-        "cleanup_requested": smoke_payload.get("cleanup_requested") if smoke_payload else False,
-    }
-    write_audit_event("ssh", safe_name, audit_event, home=home)
-    payload = {
-        "ok": ok,
-        "backend": "ssh",
-        "command": "smoke",
-        "target": target.to_public_dict() if target is not None else safe_name,
-        "mode": "remote_temp_probe",
-        "capabilities": capabilities.to_dict(),
-        "checks": [check.to_dict() for check in checks],
-        "audit": sandbox_audit_ref("ssh", safe_name),
-        "next": "SSH smoke passed; prepare/deploy remain intentionally unimplemented." if ok else "Fix failed smoke checks, then rerun `spark sandbox ssh smoke <name>`.",
-    }
-    if smoke_payload is not None:
-        payload["probe"] = smoke_payload
-    return payload
+        known_hosts = ssh_known_hosts_path(home)
+        known_hosts_exists = known_hosts.exists()
+        trusted = target.host_key_status == "trusted" and bool(target.host_key_fingerprint)
+        if trusted:
+            host_detail = f"Host key fingerprint is pinned for {ssh_host_alias(target)}."
+        elif known_hosts_exists:
+            host_detail = f"Spark known-hosts exists, but target `{target.name}` is not trusted yet."
+        else:
+            host_detail = "Spark known-hosts file does not exist yet; no host key is trusted."
+        checks.append(_check(
+            "host_key_trust",
+            trusted,
+            host_detail,
+            repair=f"Run spark sandbox ssh trust {target.name}; do not use StrictHostKeyChecking=no.",
+            level="info" if trusted else "warning",
+        ))
+
+        argv = build_ssh_base_argv(target, home=home)
+        insecure = {"StrictHostKeyChecking=no", "ForwardAgent=yes"}
+        secure_options_ok = not any(item in insecure for item in argv)
+        checks.append(_check(
+            "secure_ssh_options",
+            secure_options_ok,
+            "SSH argv uses BatchMode, IdentitiesOnly, ForwardAgent=no, RequestTTY=no, and StrictHostKeyChecking=yes.",
+            repair="Keep SSH options strict before remote execution is enabled.",
+        ))
+
+        probe_payload: dict[str, object] | None = None
+        if remote_probe:
+            if not trusted:
+                checks.append(_check(
+                    "remote_connection_probe",
+                    False,
+                    "Skipped remote probe because the host key is not trusted yet.",
+                    repair=f"Run spark sandbox ssh trust {target.name} first.",
+                ))
+            elif not identity_ok:
+                checks.append(_check(
+                    "remote_connection_probe",
+                    False,
+                    "Skipped remote probe because the identity file is missing.",
+                    repair="Update the target with a valid identity file path.",
+                ))
+            else:
+                probe_payload = run_ssh_fixed_probe(target, "connection", home=home)
+                checks.append(_check(
+                    "remote_connection_probe",
+                    bool(probe_payload.get("ok")),
+                    str(probe_payload.get("detail") or "SSH probe completed."),
+                    repair="Check SSH network reachability, key authorization, and the trusted host key.",
+                ))
+
+        ok = all(check.ok for check in checks if check.level != "warning")
+        payload = {
+            "ok": ok,
+            "backend": "ssh",
+            "command": "doctor",
+            "target": target.to_public_dict(),
+            "mode": "read_only",
+            "capabilities": capabilities.to_dict(),
+            "checks": [check.to_dict() for check in checks],
+            "ssh_argv_preview": public_ssh_argv_preview(argv),
+            "next": "Run `spark sandbox ssh doctor <name> --remote-probe` after trust to verify login reachability." if not remote_probe else "SSH doctor remote probe completed; run `spark sandbox ssh smoke <name>` for the hashed remote smoke.",
+        }
+        if probe_payload is not None:
+            payload["remote_probe"] = probe_payload
+        if remote_probe:
+            write_audit_event(
+                "ssh",
+                safe_name,
+                {
+                    "action_id": "ssh_remote_probe",
+                    "ok": ok,
+                    "probe_ran": probe_payload is not None,
+                    "probe_id": probe_payload.get("probe_id") if probe_payload else "connection",
+                    "returncode": probe_payload.get("returncode") if probe_payload else None,
+                },
+                home=home,
+            )
+            payload["audit"] = sandbox_audit_ref("ssh", safe_name)
+        return payload
+
+
+
+    except Exception:
+        return {}
+def collect_ssh_smoke_payload(
+    name: str,
+    *,
+    home: Path | None = None,
+    keep_debug_files: bool = False,
+) -> dict[str, object]:
+    if not isinstance(name, str): name = str(name or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        capabilities = ssh_smoke_capabilities()
+        safe_name = validate_target_name(name)
+        checks: list[SshDoctorCheck] = []
+        smoke_payload: dict[str, object] | None = None
+
+        try:
+            targets = load_ssh_targets(home=home)
+            target = targets.get(safe_name)
+        except ValueError as error:
+            payload = {
+                "ok": False,
+                "backend": "ssh",
+                "command": "smoke",
+                "target": safe_name,
+                "mode": "remote_temp_probe",
+                "capabilities": capabilities.to_dict(),
+                "checks": [_check("target_store", False, str(error), repair="Review <spark-home>/config/ssh_targets.json.").to_dict()],
+                "next": "Fix the SSH target store, then rerun smoke.",
+            }
+            write_audit_event("ssh", safe_name, {"action_id": "ssh_smoke", "ok": False, "detail": str(error)}, home=home)
+            payload["audit"] = sandbox_audit_ref("ssh", safe_name)
+            return payload
+
+        if target is None:
+            checks.append(_check(
+                "target_record",
+                False,
+                f"SSH target `{safe_name}` is not configured.",
+                repair=f"Run spark sandbox ssh add {safe_name} --host <host> --user <user> --identity-file <path>.",
+            ))
+        else:
+            checks.append(_check("target_record", True, f"Target `{target.name}` is configured."))
+            trusted = target.host_key_status == "trusted" and bool(target.host_key_fingerprint)
+            checks.append(_check(
+                "host_key_trust",
+                trusted,
+                f"Host key fingerprint is pinned for {ssh_host_alias(target)}." if trusted else "Host key is not trusted yet.",
+                repair=f"Run spark sandbox ssh trust {target.name} first.",
+            ))
+            identity = Path(target.identity_file).expanduser()
+            identity_ok = identity.exists() and identity.is_file()
+            checks.append(_check(
+                "identity_file",
+                identity_ok,
+                "Identity file is configured and exists." if identity_ok else "Configured identity file is missing or not a file.",
+                repair="Update the target with a valid identity file path.",
+            ))
+            if trusted and identity_ok:
+                smoke_payload = run_ssh_smoke_probe(target, home=home, keep_debug_files=keep_debug_files)
+                checks.append(_check(
+                    "hashed_smoke_probe",
+                    bool(smoke_payload.get("ok")),
+                    str(smoke_payload.get("detail") or "SSH smoke probe failed."),
+                    repair="Check SSH reachability, remote /tmp write access, sha256sum, and non-root shell availability.",
+                ))
+
+        ok = all(check.ok for check in checks if check.level != "warning")
+        audit_event = {
+            "action_id": "ssh_smoke",
+            "ok": ok,
+            "keep_debug_files": keep_debug_files,
+            "probe_hash": smoke_payload.get("probe_hash") if smoke_payload else "",
+            "returncode": smoke_payload.get("returncode") if smoke_payload else None,
+            "cleanup_requested": smoke_payload.get("cleanup_requested") if smoke_payload else False,
+        }
+        write_audit_event("ssh", safe_name, audit_event, home=home)
+        payload = {
+            "ok": ok,
+            "backend": "ssh",
+            "command": "smoke",
+            "target": target.to_public_dict() if target is not None else safe_name,
+            "mode": "remote_temp_probe",
+            "capabilities": capabilities.to_dict(),
+            "checks": [check.to_dict() for check in checks],
+            "audit": sandbox_audit_ref("ssh", safe_name),
+            "next": "SSH smoke passed; prepare/deploy remain intentionally unimplemented." if ok else "Fix failed smoke checks, then rerun `spark sandbox ssh smoke <name>`.",
+        }
+        if smoke_payload is not None:
+            payload["probe"] = smoke_payload
+        return payload
+
+    except Exception:
+        return {}

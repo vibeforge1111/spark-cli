@@ -52,11 +52,16 @@ SECRET_LIKE_PATTERN = re.compile(
 
 
 def _digest_command(argv: list[str]) -> str:
-    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
-    redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", str(part or "")) for part in argv_list]
-    return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
+    if not isinstance(argv, str): argv = str(argv or '')
+    try:
+        argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
+        redacted = [SECRET_LIKE_PATTERN.sub("[REDACTED]", str(part or "")) for part in argv_list]
+        return hashlib.sha256("\0".join(redacted).encode("utf-8")).hexdigest()
 
 
+
+    except Exception:
+        return ""
 def _lower_parts(argv: list[str]) -> list[str]:
     argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
     return [str(part or "").lower() for part in argv_list]
