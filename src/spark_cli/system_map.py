@@ -3569,84 +3569,113 @@ def read_text_or_none(path: Path) -> str | None:
 
 
 def literal_assignment(text: str | None, name: str) -> Any:
-    text_str = str(text or "")
-    if not text_str:
-        return None
-    name_str = str(name or "")
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(name, str): name = str(name or '')
     try:
-        tree = ast.parse(text_str)
-    except SyntaxError:
-        return None
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name_str:
+        text_str = str(text or "")
+        if not text_str:
+            return None
+        name_str = str(name or "")
+        try:
+            tree = ast.parse(text_str)
+        except SyntaxError:
+            return None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name_str:
+                    try:
+                        return ast.literal_eval(node.value)
+                    except Exception:
+                        return None
+                continue
+            if any(isinstance(target, ast.Name) and target.id == name_str for target in node.targets):
                 try:
                     return ast.literal_eval(node.value)
                 except Exception:
                     return None
-            continue
-        if any(isinstance(target, ast.Name) and target.id == name_str for target in node.targets):
-            try:
-                return ast.literal_eval(node.value)
-            except Exception:
-                return None
-    return None
+        return None
 
 
+
+    except Exception:
+        return None
 def regex_int(text: str | None, pattern: str) -> int | None:
-    text_str = str(text or "")
-    pattern_str = str(pattern or "")
-    if not text_str or not pattern_str:
-        return None
-    match = re.search(pattern_str, text_str)
-    if not match:
-        return None
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(pattern, str): pattern = str(pattern or '')
     try:
-        return int(match.group(1))
-    except (ValueError, IndexError):
-        return None
+        text_str = str(text or "")
+        pattern_str = str(pattern or "")
+        if not text_str or not pattern_str:
+            return None
+        match = re.search(pattern_str, text_str)
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except (ValueError, IndexError):
+            return None
 
 
+
+    except Exception:
+        return 0
 def regex_string(text: str | None, pattern: str) -> str | None:
-    text_str = str(text or "")
-    pattern_str = str(pattern or "")
-    if not text_str or not pattern_str:
-        return None
-    match = re.search(pattern_str, text_str)
-    if not match:
-        return None
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(pattern, str): pattern = str(pattern or '')
     try:
-        value = match.group(1).strip()
-        return value or None
-    except IndexError:
-        return None
+        text_str = str(text or "")
+        pattern_str = str(pattern or "")
+        if not text_str or not pattern_str:
+            return None
+        match = re.search(pattern_str, text_str)
+        if not match:
+            return None
+        try:
+            value = match.group(1).strip()
+            return value or None
+        except IndexError:
+            return None
 
 
+
+    except Exception:
+        return ""
 def parse_ts_union(text: str | None, type_name: str) -> list[str]:
-    text_str = str(text or "")
-    type_name_str = str(type_name or "")
-    if not text_str or not type_name_str:
-        return []
-    match = re.search(rf"export\s+type\s+{re.escape(type_name_str)}\s*=\s*([^;]+);", text_str, re.S)
-    if not match:
-        return []
-    return re.findall(r"'([^']+)'|\"([^\"]+)\"", match.group(1))
+    if not isinstance(text, str): text = str(text or '')
+    if not isinstance(type_name, str): type_name = str(type_name or '')
+    try:
+        text_str = str(text or "")
+        type_name_str = str(type_name or "")
+        if not text_str or not type_name_str:
+            return []
+        match = re.search(rf"export\s+type\s+{re.escape(type_name_str)}\s*=\s*([^;]+);", text_str, re.S)
+        if not match:
+            return []
+        return re.findall(r"'([^']+)'|\"([^\"]+)\"", match.group(1))
 
 
+
+    except Exception:
+        return []
 def clean_ts_union(values: list[tuple[str, str]] | list[str]) -> list[str]:
-    if not isinstance(values, (list, tuple, set)):
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        if not isinstance(values, (list, tuple, set)):
+            return []
+        cleaned: list[str] = []
+        for value in values:
+            if isinstance(value, (tuple, list, set)):
+                item = next((str(part) for part in value if part), "")
+            else:
+                item = str(value or "")
+            if item and item not in cleaned:
+                cleaned.append(item)
+        return cleaned
+
+
+
+    except Exception:
         return []
-    cleaned: list[str] = []
-    for value in values:
-        if isinstance(value, (tuple, list, set)):
-            item = next((str(part) for part in value if part), "")
-        else:
-            item = str(value or "")
-        if item and item not in cleaned:
-            cleaned.append(item)
-    return cleaned
-
-
 def parse_ts_union_values(text: str | None, type_name: str) -> list[str]:
     return clean_ts_union(parse_ts_union(text, type_name))
 
