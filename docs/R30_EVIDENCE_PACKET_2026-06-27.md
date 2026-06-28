@@ -63,7 +63,7 @@ Publish handoff families:
 
 ## R30 Release Gate Details
 
-Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after the R30 owner convergence docs refresh, from `spark-cli` head `2f36c33`:
+Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after the Telegram handoff audit subject alignment, from `spark-cli` head `7d0cddf`:
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
@@ -83,7 +83,7 @@ Fresh clean-tree run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --
 - `r30_unattended_identity_guard`: pass, `verify --r30` now runs the isolated fake-token setup smoke and requires exit code `2`, `identity_access_mutation` output, no generated module/setup/installed/secret state files, and no fake-token/dashboard/private-key residue.
 - `registry_pins`: fail
 - `local_installers`: pass
-- `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30. The structured `source_truth_blockers` list keeps the hold explicit without hiding carried handoffs: `r30_local_runtime_handoff_docs`, `release_lane`, `r30_voice_registry_decision`, and `registry_pins`. The R30 gate exposes `source_truth_ready=false`, `source_truth_blockers=["r30_local_runtime_handoff_docs","release_lane","r30_voice_registry_decision","registry_pins"]`, `installer_pins_are_r30=false`, and `publish_handoff_blockers` at the top level so release audits can read the publication hold without digging into nested check payloads.
+- `publication_order`: pass, because source/registry truth is not green yet and installer pins have not been advanced to R30. The structured `source_truth_blockers` list keeps the hold explicit without hiding carried handoffs: `release_lane`, `r30_voice_registry_decision`, and `registry_pins`. The R30 gate exposes `source_truth_ready=false`, `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`, `installer_pins_are_r30=false`, and `publish_handoff_blockers` at the top level so release audits can read the publication hold without digging into nested check payloads.
 - Source-truth readiness now also includes the CLI owner handoff docs and local runtime handoff docs. If either handoff packet goes stale, `source_truth_ready` must stay false before installer pins can move.
 - `r30_installer_pins`: fail, installer still points at `spark-cli-public-installer-2026-06-26-r29`
 - `r30_hosted_publication_contract`: fail when hosted verification is requested before R30 source truth and local installer pins are green. This names the hosted result as baseline-only instead of letting a self-consistent hosted R29 pass look like R30 publication proof.

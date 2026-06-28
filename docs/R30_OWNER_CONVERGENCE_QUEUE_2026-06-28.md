@@ -10,17 +10,15 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work. Rechecked after the `112affc` Telegram Level 5
-handoff refresh; dirty release repo count remained `0`, OS compile stayed
-green, the owner handoff manifest stayed aligned, patch-apply proof stayed
-green, and the Access 5 anti-read-only gate stayed green.
+red only for release-truth work. Rechecked after the Telegram handoff audit
+subject alignment; dirty release repo count remained `0`, OS compile stayed
+green, the owner handoff manifest stayed aligned, local runtime handoff docs
+stayed aligned, patch-apply proof stayed green, and the Access 5 anti-read-only
+gate stayed green.
 
-The current top-level source-truth blocker set is exactly
-`r30_local_runtime_handoff_docs`, `release_lane`,
+The current top-level source-truth blocker set is exactly `release_lane`,
 `r30_voice_registry_decision`, and `registry_pins`.
 
-- `r30_local_runtime_handoff_docs`: Telegram and Spawner local runtime artifacts
-  are documented and patch-proven, but still not owner-source/registry truth.
 - `release_lane`: 5 direct R30 blockers and 0 supporting hygiene rows.
 - `r30_voice_registry_decision`: voice needs source-owned trace/governor proof
   before registry movement.
