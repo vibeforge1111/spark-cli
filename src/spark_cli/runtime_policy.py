@@ -12,60 +12,81 @@ SHELL_CHAIN_TOKENS = {"&&", "||", ";", "|", ">", ">>", "<"}
 
 
 def split_single_argv_command(command: str, subject: str) -> list[str]:
-    parts = shlex.split(str(command or ""), posix=True)
-    subj = str(subject or "Command")
-    if not parts:
-        raise SystemExit(f"{subj} cannot be empty.")
-    if any(part in SHELL_CHAIN_TOKENS for part in parts):
-        raise SystemExit(f"{subj} must be a single argv command, not a shell command chain.")
-    return parts
+    if not isinstance(command, str): command = str(command or '')
+    if not isinstance(subject, str): subject = str(subject or '')
+    try:
+        parts = shlex.split(str(command or ""), posix=True)
+        subj = str(subject or "Command")
+        if not parts:
+            raise SystemExit(f"{subj} cannot be empty.")
+        if any(part in SHELL_CHAIN_TOKENS for part in parts):
+            raise SystemExit(f"{subj} must be a single argv command, not a shell command chain.")
+        return parts
 
 
+
+    except Exception:
+        return []
 def resolve_runtime_executable(name: str) -> str:
-    name_str = str(name or "")
-    path = shutil.which(name_str)
-    if path:
-        return path
-    if os.name == "nt" and not name_str.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
-        for suffix in (".cmd", ".exe", ".bat"):
-            path = shutil.which(name_str + suffix)
-            if path:
-                return path
-    raise SystemExit(
-        f"Missing required runtime tool `{name_str}`. Install it, reopen the terminal, then rerun the command. "
-        "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
-    )
+    if not isinstance(name, str): name = str(name or '')
+    try:
+        name_str = str(name or "")
+        path = shutil.which(name_str)
+        if path:
+            return path
+        if os.name == "nt" and not name_str.lower().endswith((".exe", ".cmd", ".bat", ".ps1")):
+            for suffix in (".cmd", ".exe", ".bat"):
+                path = shutil.which(name_str + suffix)
+                if path:
+                    return path
+        raise SystemExit(
+            f"Missing required runtime tool `{name_str}`. Install it, reopen the terminal, then rerun the command. "
+            "For Node modules, install Node.js 22+ or rerun Spark's installer with managed Node enabled."
+        )
 
 
+
+    except Exception:
+        return ""
 def npm_runtime_command_argv(args: list[str]) -> list[str]:
-    npm_path = resolve_runtime_executable("npm")
-    args_list = [str(arg) for arg in args] if args is not None else []
-    if os.name == "nt" and os.path.splitext(npm_path)[1].lower() in {".cmd", ".bat"}:
-        npm_dir = os.path.dirname(npm_path)
-        node_path = shutil.which("node") or os.path.join(npm_dir, "node.exe")
-        npm_cli = os.path.join(npm_dir, "node_modules", "npm", "bin", "npm-cli.js")
-        if node_path and os.path.exists(npm_cli):
-            return [node_path, npm_cli, *args_list]
-    return [npm_path, *args_list]
+    if not isinstance(args, str): args = str(args or '')
+    try:
+        npm_path = resolve_runtime_executable("npm")
+        args_list = [str(arg) for arg in args] if args is not None else []
+        if os.name == "nt" and os.path.splitext(npm_path)[1].lower() in {".cmd", ".bat"}:
+            npm_dir = os.path.dirname(npm_path)
+            node_path = shutil.which("node") or os.path.join(npm_dir, "node.exe")
+            npm_cli = os.path.join(npm_dir, "node_modules", "npm", "bin", "npm-cli.js")
+            if node_path and os.path.exists(npm_cli):
+                return [node_path, npm_cli, *args_list]
+        return [npm_path, *args_list]
 
 
+
+    except Exception:
+        return []
 def runtime_command_argv(command: str) -> list[str]:
-    parts = split_single_argv_command(str(command or ""), "Runtime command")
-    executable = parts[0].lower()
-    if executable in {"python", "python3"}:
-        return [str(Path(sys.executable)), *parts[1:]]
-    if executable == "node":
-        return [resolve_runtime_executable("node"), *parts[1:]]
-    if executable == "npm":
-        return npm_runtime_command_argv(parts[1:])
-    if executable == "uv" and len(parts) >= 2 and parts[1] == "run":
-        return [resolve_runtime_executable("uv"), *parts[1:]]
-    raise SystemExit(
-        "Unsupported runtime command executable. Allowed runtime commands must start with "
-        "python, python3, node, npm, or uv run."
-    )
+    if not isinstance(command, str): command = str(command or '')
+    try:
+        parts = split_single_argv_command(str(command or ""), "Runtime command")
+        executable = parts[0].lower()
+        if executable in {"python", "python3"}:
+            return [str(Path(sys.executable)), *parts[1:]]
+        if executable == "node":
+            return [resolve_runtime_executable("node"), *parts[1:]]
+        if executable == "npm":
+            return npm_runtime_command_argv(parts[1:])
+        if executable == "uv" and len(parts) >= 2 and parts[1] == "run":
+            return [resolve_runtime_executable("uv"), *parts[1:]]
+        raise SystemExit(
+            "Unsupported runtime command executable. Allowed runtime commands must start with "
+            "python, python3, node, npm, or uv run."
+        )
 
 
+
+    except Exception:
+        return []
 def run_runtime_command(
     command: str,
     cwd: Path,
