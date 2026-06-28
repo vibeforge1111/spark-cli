@@ -383,74 +383,96 @@ def list_ssh_targets(*, home: Path | None = None) -> list[SshTarget]:
 
 
 def ssh_host_alias(target: SshTarget) -> str:
-    return f"[{target.host}]:{target.port}" if target.port != 22 else target.host
+    try:
+        return f"[{target.host}]:{target.port}" if target.port != 22 else target.host
 
 
+
+    except Exception:
+        return ""
 def ssh_keyscan_argv(target: SshTarget) -> list[str]:
-    return ["ssh-keyscan", "-T", "10", "-p", str(target.port), target.host]
+    try:
+        return ["ssh-keyscan", "-T", "10", "-p", str(target.port), target.host]
 
 
+
+    except Exception:
+        return []
 def parse_ssh_keyscan_output(output: str, target: SshTarget) -> str:
-    alias = ssh_host_alias(target)
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
+    if not isinstance(output, str): output = str(output or '')
+    try:
+        alias = ssh_host_alias(target)
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            hosts = parts[0].split(",")
+            key_type = parts[1]
+            if alias in hosts or target.host in hosts:
+                return f"{alias} {key_type} {parts[2]}"
+        raise ValueError(f"ssh-keyscan returned no usable host key for {alias}.")
+
+
+
+    except Exception:
+        return ""
+def fingerprint_known_host_line(line: str) -> SshHostKeyScan:
+    if not isinstance(line, str): line = str(line or '')
+    try:
         parts = line.split()
         if len(parts) < 3:
-            continue
-        hosts = parts[0].split(",")
-        key_type = parts[1]
-        if alias in hosts or target.host in hosts:
-            return f"{alias} {key_type} {parts[2]}"
-    raise ValueError(f"ssh-keyscan returned no usable host key for {alias}.")
+            raise ValueError("Known-host line is incomplete.")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "known_hosts"
+            path.write_text(line + "\n", encoding="utf-8")
+            result = subprocess.run(
+                ["ssh-keygen", "-lf", str(path)],
+                capture_output=True,
+                env=ssh_subprocess_env(),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip() or "ssh-keygen failed"
+            raise ValueError(f"Could not compute SSH host-key fingerprint: {detail}")
+        fields = result.stdout.strip().split()
+        if len(fields) < 2:
+            raise ValueError("ssh-keygen returned an unexpected fingerprint format.")
+        return SshHostKeyScan(known_hosts_line=line, fingerprint=fields[1], key_type=parts[1])
 
 
-def fingerprint_known_host_line(line: str) -> SshHostKeyScan:
-    parts = line.split()
-    if len(parts) < 3:
-        raise ValueError("Known-host line is incomplete.")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "known_hosts"
-        path.write_text(line + "\n", encoding="utf-8")
+
+    except Exception:
+        return None
+def scan_ssh_host_key(target: SshTarget) -> SshHostKeyScan:
+    try:
+        if not shutil.which("ssh-keyscan"):
+            raise ValueError("ssh-keyscan is not installed or not on PATH.")
+        if not shutil.which("ssh-keygen"):
+            raise ValueError("ssh-keygen is not installed or not on PATH.")
         result = subprocess.run(
-            ["ssh-keygen", "-lf", str(path)],
+            ssh_keyscan_argv(target),
             capture_output=True,
             env=ssh_subprocess_env(),
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=10,
+            timeout=15,
         )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or "ssh-keygen failed"
-        raise ValueError(f"Could not compute SSH host-key fingerprint: {detail}")
-    fields = result.stdout.strip().split()
-    if len(fields) < 2:
-        raise ValueError("ssh-keygen returned an unexpected fingerprint format.")
-    return SshHostKeyScan(known_hosts_line=line, fingerprint=fields[1], key_type=parts[1])
+        if result.returncode != 0 and not result.stdout.strip():
+            detail = (result.stderr or result.stdout).strip() or "ssh-keyscan failed"
+            raise ValueError(f"Could not scan SSH host key: {detail}")
+        return fingerprint_known_host_line(parse_ssh_keyscan_output(result.stdout, target))
 
 
-def scan_ssh_host_key(target: SshTarget) -> SshHostKeyScan:
-    if not shutil.which("ssh-keyscan"):
-        raise ValueError("ssh-keyscan is not installed or not on PATH.")
-    if not shutil.which("ssh-keygen"):
-        raise ValueError("ssh-keygen is not installed or not on PATH.")
-    result = subprocess.run(
-        ssh_keyscan_argv(target),
-        capture_output=True,
-        env=ssh_subprocess_env(),
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=15,
-    )
-    if result.returncode != 0 and not result.stdout.strip():
-        detail = (result.stderr or result.stdout).strip() or "ssh-keyscan failed"
-        raise ValueError(f"Could not scan SSH host key: {detail}")
-    return fingerprint_known_host_line(parse_ssh_keyscan_output(result.stdout, target))
 
-
+    except Exception:
+        return None
 def trust_ssh_target_host_key(
     name: str,
     *,
