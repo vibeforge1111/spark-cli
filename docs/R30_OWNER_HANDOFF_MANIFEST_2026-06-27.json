@@ -68,8 +68,8 @@
     {
       "module": "spark-telegram-bot",
       "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "6f48013edb22fbf558735b59e11b95b3f0413584",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..6f48013edb22fbf558735b59e11b95b3f0413584",
+      "local_head": "e825f0239593b62531e63af936ff69777ebf901c",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..e825f0239593b62531e63af936ff69777ebf901c",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -89,11 +89,11 @@
       "owner_handoff_patch": {
         "patch_type": "tree_diff",
         "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-        "sha256": "5b3f824ae0ef13495a784572e118ae35ec4c5a8f4a11b73b1256515940da785f",
-        "line_count": 87829,
+        "sha256": "e43206fa2b52360fccdb5709a9b7fc71ddd7ca8bed2dd196aa0efb84bfd57bda",
+        "line_count": 87845,
         "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-        "expected_tree": "0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b",
-        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"0b4112a97ab8cd4ce6c593e11bd4eee2c3044d6b\"",
+        "expected_tree": "ed24604ec5580347cf25adfc40e662d135fd9936",
+        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"ed24604ec5580347cf25adfc40e662d135fd9936\"",
         "proof_command": "npm run control:proof:reliability && npm run build && npm run check:line-count",
         "proof_result": "reliability passed; build passed; line-count passed",
         "publication_authority": false
