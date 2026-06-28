@@ -2306,39 +2306,57 @@ def memory_review_item(
     memory_role: str | None = None,
     retention_class: str | None = None,
 ) -> dict[str, Any]:
-    operator_paths = memory_review_operator_paths(
-        category=category,
-        owner_repo=owner_repo,
-        source_surface=source_surface,
-        movement_state=movement_state,
-        retention_class=retention_class,
-        authority=authority,
-    )
-    return {
-        "id": item_id,
-        "severity": severity,
-        "category": category,
-        "owner_repo": owner_repo,
-        "source_surface": source_surface,
-        "target_kind": target_kind,
-        "target_ref": target_ref,
-        "request_id_present": request_id_present,
-        "trace_ref_present": trace_ref_present,
-        "source_family": source_family,
-        "authority": authority,
-        "movement_state": movement_state,
-        "memory_role": memory_role,
-        "retention_class": retention_class,
-        "salience_score_present": None,
-        "message_preview_present": False,
-        "count": int(count or 0),
-        "reason_code": reason_code,
-        "recommended_action": recommended_action,
-        "verification_command": "spark os memory --json",
-        "operator_paths": operator_paths,
-    }
+    if not isinstance(item_id, str): item_id = str(item_id or '')
+    if not isinstance(severity, str): severity = str(severity or '')
+    if not isinstance(category, str): category = str(category or '')
+    if not isinstance(owner_repo, str): owner_repo = str(owner_repo or '')
+    if not isinstance(source_surface, str): source_surface = str(source_surface or '')
+    if not isinstance(reason_code, str): reason_code = str(reason_code or '')
+    if not isinstance(recommended_action, str): recommended_action = str(recommended_action or '')
+    if not isinstance(target_kind, str): target_kind = str(target_kind or '')
+    if not isinstance(target_ref, str): target_ref = str(target_ref or '')
+    if not isinstance(source_family, str): source_family = str(source_family or '')
+    if not isinstance(authority, str): authority = str(authority or '')
+    if not isinstance(movement_state, str): movement_state = str(movement_state or '')
+    if not isinstance(memory_role, str): memory_role = str(memory_role or '')
+    if not isinstance(retention_class, str): retention_class = str(retention_class or '')
+    try:
+        operator_paths = memory_review_operator_paths(
+            category=category,
+            owner_repo=owner_repo,
+            source_surface=source_surface,
+            movement_state=movement_state,
+            retention_class=retention_class,
+            authority=authority,
+        )
+        return {
+            "id": item_id,
+            "severity": severity,
+            "category": category,
+            "owner_repo": owner_repo,
+            "source_surface": source_surface,
+            "target_kind": target_kind,
+            "target_ref": target_ref,
+            "request_id_present": request_id_present,
+            "trace_ref_present": trace_ref_present,
+            "source_family": source_family,
+            "authority": authority,
+            "movement_state": movement_state,
+            "memory_role": memory_role,
+            "retention_class": retention_class,
+            "salience_score_present": None,
+            "message_preview_present": False,
+            "count": int(count or 0),
+            "reason_code": reason_code,
+            "recommended_action": recommended_action,
+            "verification_command": "spark os memory --json",
+            "operator_paths": operator_paths,
+        }
 
 
+
+    except Exception:
+        return {}
 def memory_review_operator_paths(
     *,
     category: str,
@@ -2348,369 +2366,393 @@ def memory_review_operator_paths(
     retention_class: str | None,
     authority: str | None,
 ) -> dict[str, Any]:
-    provenance_by_category = {
-        "trace_join": "Builder black-box trace join and memory movement export",
-        "candidate_review": "Builder approval inbox or memory dashboard candidate lane",
-        "privacy_redaction": "Spark OS compiler redaction report",
-        "authority_boundary": "domain-chip-memory movement contract and source hierarchy",
-        "current_state_audit": "domain-chip-memory current-state provenance lane",
-        "promotion_audit": "domain-chip-memory promotion and rollback audit lane",
-        "kb_snapshot_review": "spark-memory-quality-dashboard current-state KB panel",
-        "movement_export": "Builder metadata-only memory movement status export",
-    }
-    stale_current_by_category = {
-        "trace_join": "blocked_until_trace_join_exists",
-        "candidate_review": "candidate_until_source_review_promotes_or_rejects",
-        "privacy_redaction": "not_a_memory_truth_lane",
-        "authority_boundary": "supporting_rows_cannot_override_current_state",
-        "current_state_audit": "authoritative_current_requires_freshness_and_scope_check",
-        "promotion_audit": "promoted_rows_need_periodic_stale_current_revalidation",
-        "kb_snapshot_review": "current_state_snapshot_requires_dashboard_source_check",
-        "movement_export": "unavailable_until_source_export_is_supported",
-    }
-    purge_by_category = {
-        "trace_join": "no_purge_from_cockpit_repair_trace_context_first",
-        "candidate_review": "source_builder_approval_inbox_reject_or_archive",
-        "privacy_redaction": "compiler_omission_only_no_memory_mutation",
-        "authority_boundary": "source_domain_chip_memory_decay_or_demote_gate",
-        "current_state_audit": "source_domain_chip_memory_supersede_or_stale_preserve_gate",
-        "promotion_audit": "source_domain_chip_memory_rollback_or_decay_gate",
-        "kb_snapshot_review": "source_memory_dashboard_rebuild_or_review_queue",
-        "movement_export": "source_builder_export_repair",
-    }
-    return {
-        "source_owner": owner_repo,
-        "source_surface": source_surface,
-        "provenance_drilldown": provenance_by_category.get(category, source_surface),
-        "stale_current_adjudication": stale_current_by_category.get(
-            category,
-            "source_owner_must_adjudicate_before_memory_truth_changes",
-        ),
-        "purge_or_decay_path": purge_by_category.get(category, "source_owner_review_required"),
-        "cockpit_action": "read_only_observe_and_route",
-        "movement_state": movement_state,
-        "retention_class": retention_class,
-        "authority": authority,
-    }
-
-
-def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
-    safe_status = as_dict(memory_index.get("safe_status_export"))
-    status = as_dict(safe_status.get("status"))
-    builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
-    memory_lane_trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
-    movement_counts = as_dict(status.get("movement_counts"))
-    authority_counts = as_dict(status.get("authority_counts"))
-    source_family_counts = as_dict(status.get("source_family_counts"))
-    record_counts = as_dict(status.get("record_counts"))
-    kb_artifacts = as_dict(memory_index.get("memory_kb_artifacts"))
-    kb_lanes = as_dict(kb_artifacts.get("lane_counts"))
-    current_state_lane = as_dict(kb_lanes.get("current_state"))
-    items: list[dict[str, Any]] = []
-
-    export_status = str(status.get("status") or "missing")
-    row_count = int(status.get("row_count") or 0)
-    if export_status != "supported":
-        items.append(
-            memory_review_item(
-                item_id="memory-export-not-supported",
-                severity="critical",
-                category="movement_export",
-                owner_repo="spark-intelligence-builder",
-                source_surface="Builder memory movement export",
-                reason_code="memory_movement_export_not_supported",
-                recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
-                count=1,
-                target_kind="status_export",
-                target_ref="memory-movement-status",
-            )
-        )
-
-    captured_count = int(movement_counts.get("captured") or 0)
-    if captured_count:
-        items.append(
-            memory_review_item(
-                item_id="captured-memory-needs-review",
-                severity="high",
-                category="candidate_review",
-                owner_repo="spark-intelligence-builder",
-                source_surface="Builder memory movement export",
-                reason_code="captured_candidates_present",
-                recommended_action="Review captured candidates in the source memory dashboard or Builder approval inbox without exporting proposed text.",
-                count=captured_count,
-                movement_state="captured",
-                retention_class="candidate",
-            )
-        )
-
-    promoted_count = int(movement_counts.get("promoted") or 0)
-    if promoted_count:
-        items.append(
-            memory_review_item(
-                item_id="promoted-memory-audit",
-                severity="medium",
-                category="promotion_audit",
-                owner_repo="domain-chip-memory",
-                source_surface="domain-chip-memory movement contract",
-                reason_code="promoted_rows_need_periodic_audit",
-                recommended_action="Audit promoted-memory buckets against provenance, evaluation, approval, and rollback gates.",
-                count=promoted_count,
-                movement_state="promoted",
-                retention_class="durable",
-            )
-        )
-
-    supporting_count = int(authority_counts.get("supporting_not_authoritative") or 0)
-    if supporting_count:
-        items.append(
-            memory_review_item(
-                item_id="supporting-memory-boundary-review",
-                severity="medium",
-                category="authority_boundary",
-                owner_repo="domain-chip-memory",
-                source_surface="domain-chip-memory movement contract",
-                reason_code="supporting_rows_must_not_override_authoritative_memory",
-                recommended_action="Confirm supporting/advisory rows remain non-authoritative and cannot override current-state memory.",
-                count=supporting_count,
-                source_family="episodic_summary",
-                authority="supporting_not_authoritative",
-                retention_class="supporting",
-            )
-        )
-
-    current_authoritative_count = int(authority_counts.get("authoritative_current") or 0)
-    if current_authoritative_count:
-        items.append(
-            memory_review_item(
-                item_id="authoritative-current-memory-audit",
-                severity="medium",
-                category="current_state_audit",
-                owner_repo="domain-chip-memory",
-                source_surface="domain-chip-memory movement contract",
-                reason_code="authoritative_current_rows_present",
-                recommended_action="Spot-check authoritative current-state buckets for source scope, freshness, and rollback availability.",
-                count=current_authoritative_count,
-                source_family="current_state",
-                authority="authoritative_current",
-                retention_class="current_state",
-            )
-        )
-
-    current_state_file_count = int(current_state_lane.get("file_count") or 0)
-    if current_state_file_count:
-        items.append(
-            memory_review_item(
-                item_id="memory-kb-current-state-files-review",
-                severity="low",
-                category="kb_snapshot_review",
-                owner_repo="spark-memory-quality-dashboard",
-                source_surface="Spark memory KB artifacts",
-                reason_code="current_state_kb_files_present",
-                recommended_action="Use the memory dashboard source module for current-state provenance drilldown; Cockpit should keep file names and bodies hidden.",
-                count=current_state_file_count,
-                target_kind="kb_lane",
-                target_ref="current_state",
-                source_family="current_state",
-                retention_class="current_state",
-            )
-        )
-
-    raw_hint_count = int(safe_status.get("raw_hint_key_count") or 0)
-    if raw_hint_count:
-        items.append(
-            memory_review_item(
-                item_id="memory-export-redaction-review",
-                severity="high",
-                category="privacy_redaction",
-                owner_repo="spark-cli",
-                source_surface="Spark OS compiler",
-                reason_code="raw_memory_hint_keys_omitted",
-                recommended_action="Keep omitted raw-hint fields out of OS artifacts and verify no review queue item includes memory body fields.",
-                count=raw_hint_count,
-                target_kind="compiler_redaction",
-                target_ref="safe_status_export",
-            )
-        )
-
-    trace_join_row_count = int(memory_lane_trace_join.get("row_count") or 0)
-    trace_ref_present_count = int(memory_lane_trace_join.get("trace_ref_present_count") or 0)
-    missing_trace_ref_count = int(memory_lane_trace_join.get("missing_trace_ref_count") or 0)
-    if row_count and not trace_ref_present_count:
-        items.append(
-            memory_review_item(
-                item_id="memory-trace-join-not-compiled",
-                severity="high",
-                category="trace_join",
-                owner_repo="spark-intelligence-builder",
-                source_surface="Builder memory movement export",
-                reason_code="memory_rows_lack_compiled_trace_join",
-                recommended_action="Join memory movement buckets to trace ids after Builder event envelopes carry stable trace refs.",
-                count=row_count,
-                request_id_present=None,
-                trace_ref_present=None,
-                target_kind="movement_rows",
-            )
-        )
-    elif trace_join_row_count and missing_trace_ref_count:
-        items.append(
-            memory_review_item(
-                item_id="memory-trace-join-partial",
-                severity="medium",
-                category="trace_join",
-                owner_repo="spark-intelligence-builder",
-                source_surface="Builder memory_lane_records",
-                reason_code="memory_lane_rows_partially_missing_trace_ref",
-                recommended_action=(
-                    "Keep routing new memory preflight and promotion events through Builder event envelopes; "
-                    "audit legacy rows before any cleanup."
-                ),
-                count=missing_trace_ref_count,
-                request_id_present=bool(memory_lane_trace_join.get("request_id_present_count")),
-                trace_ref_present=True,
-                target_kind="memory_lane_records",
-            )
-        )
-
-    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    items = sorted(
-        items,
-        key=lambda item: (
-            severity_rank.get(str(item.get("severity")), 9),
-            -int(item.get("count") or 0),
-            str(item.get("id")),
-        ),
-    )
-    return {
-        "schema_version": MEMORY_REVIEW_QUEUE_SCHEMA,
-        "generated_at": utc_now(),
-        "authority": "observability_non_authoritative",
-        "source": "spark.memory_movement_index.compiled.v0",
-        "redaction": "aggregate metadata only; proposed text, memory bodies, relation fields, evidence payloads, and message previews omitted",
-        "counts": {
-            "item_count": len(items),
-            "movement_row_count": row_count,
-            "movement_counts": movement_counts,
-            "authority_counts": authority_counts,
-            "source_family_counts": source_family_counts,
-            "record_counts": record_counts,
-            "memory_lane_trace_join": {
-                "status": memory_lane_trace_join.get("status"),
-                "row_count": trace_join_row_count,
-                "request_id_present_count": memory_lane_trace_join.get("request_id_present_count"),
-                "trace_ref_present_count": trace_ref_present_count,
-                "missing_trace_ref_count": missing_trace_ref_count,
-            },
-        },
-        "items": items,
-        "non_override_rules": as_list(status.get("non_override_rules")),
-    }
-
-
-def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "path": str(db_path),
-        "exists": db_path.exists(),
-        "redaction": "memory-related table names and row counts only; no row contents read",
-    }
-    if not db_path.exists():
-        return out
-
+    if not isinstance(category, str): category = str(category or '')
+    if not isinstance(owner_repo, str): owner_repo = str(owner_repo or '')
+    if not isinstance(source_surface, str): source_surface = str(source_surface or '')
+    if not isinstance(movement_state, str): movement_state = str(movement_state or '')
+    if not isinstance(retention_class, str): retention_class = str(retention_class or '')
+    if not isinstance(authority, str): authority = str(authority or '')
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
+        provenance_by_category = {
+            "trace_join": "Builder black-box trace join and memory movement export",
+            "candidate_review": "Builder approval inbox or memory dashboard candidate lane",
+            "privacy_redaction": "Spark OS compiler redaction report",
+            "authority_boundary": "domain-chip-memory movement contract and source hierarchy",
+            "current_state_audit": "domain-chip-memory current-state provenance lane",
+            "promotion_audit": "domain-chip-memory promotion and rollback audit lane",
+            "kb_snapshot_review": "spark-memory-quality-dashboard current-state KB panel",
+            "movement_export": "Builder metadata-only memory movement status export",
+        }
+        stale_current_by_category = {
+            "trace_join": "blocked_until_trace_join_exists",
+            "candidate_review": "candidate_until_source_review_promotes_or_rejects",
+            "privacy_redaction": "not_a_memory_truth_lane",
+            "authority_boundary": "supporting_rows_cannot_override_current_state",
+            "current_state_audit": "authoritative_current_requires_freshness_and_scope_check",
+            "promotion_audit": "promoted_rows_need_periodic_stale_current_revalidation",
+            "kb_snapshot_review": "current_state_snapshot_requires_dashboard_source_check",
+            "movement_export": "unavailable_until_source_export_is_supported",
+        }
+        purge_by_category = {
+            "trace_join": "no_purge_from_cockpit_repair_trace_context_first",
+            "candidate_review": "source_builder_approval_inbox_reject_or_archive",
+            "privacy_redaction": "compiler_omission_only_no_memory_mutation",
+            "authority_boundary": "source_domain_chip_memory_decay_or_demote_gate",
+            "current_state_audit": "source_domain_chip_memory_supersede_or_stale_preserve_gate",
+            "promotion_audit": "source_domain_chip_memory_rollback_or_decay_gate",
+            "kb_snapshot_review": "source_memory_dashboard_rebuild_or_review_queue",
+            "movement_export": "source_builder_export_repair",
+        }
+        return {
+            "source_owner": owner_repo,
+            "source_surface": source_surface,
+            "provenance_drilldown": provenance_by_category.get(category, source_surface),
+            "stale_current_adjudication": stale_current_by_category.get(
+                category,
+                "source_owner_must_adjudicate_before_memory_truth_changes",
+            ),
+            "purge_or_decay_path": purge_by_category.get(category, "source_owner_review_required"),
+            "cockpit_action": "read_only_observe_and_route",
+            "movement_state": movement_state,
+            "retention_class": retention_class,
+            "authority": authority,
+        }
+
+
+
+    except Exception:
+        return {}
+def build_memory_review_queue(memory_index: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(memory_index, str): memory_index = str(memory_index or '')
+    try:
+        safe_status = as_dict(memory_index.get("safe_status_export"))
+        status = as_dict(safe_status.get("status"))
+        builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
+        memory_lane_trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
+        movement_counts = as_dict(status.get("movement_counts"))
+        authority_counts = as_dict(status.get("authority_counts"))
+        source_family_counts = as_dict(status.get("source_family_counts"))
+        record_counts = as_dict(status.get("record_counts"))
+        kb_artifacts = as_dict(memory_index.get("memory_kb_artifacts"))
+        kb_lanes = as_dict(kb_artifacts.get("lane_counts"))
+        current_state_lane = as_dict(kb_lanes.get("current_state"))
+        items: list[dict[str, Any]] = []
+
+        export_status = str(status.get("status") or "missing")
+        row_count = int(status.get("row_count") or 0)
+        if export_status != "supported":
+            items.append(
+                memory_review_item(
+                    item_id="memory-export-not-supported",
+                    severity="critical",
+                    category="movement_export",
+                    owner_repo="spark-intelligence-builder",
+                    source_surface="Builder memory movement export",
+                    reason_code="memory_movement_export_not_supported",
+                    recommended_action="Restore Builder's metadata-only memory movement status export before Cockpit review.",
+                    count=1,
+                    target_kind="status_export",
+                    target_ref="memory-movement-status",
+                )
+            )
+
+        captured_count = int(movement_counts.get("captured") or 0)
+        if captured_count:
+            items.append(
+                memory_review_item(
+                    item_id="captured-memory-needs-review",
+                    severity="high",
+                    category="candidate_review",
+                    owner_repo="spark-intelligence-builder",
+                    source_surface="Builder memory movement export",
+                    reason_code="captured_candidates_present",
+                    recommended_action="Review captured candidates in the source memory dashboard or Builder approval inbox without exporting proposed text.",
+                    count=captured_count,
+                    movement_state="captured",
+                    retention_class="candidate",
+                )
+            )
+
+        promoted_count = int(movement_counts.get("promoted") or 0)
+        if promoted_count:
+            items.append(
+                memory_review_item(
+                    item_id="promoted-memory-audit",
+                    severity="medium",
+                    category="promotion_audit",
+                    owner_repo="domain-chip-memory",
+                    source_surface="domain-chip-memory movement contract",
+                    reason_code="promoted_rows_need_periodic_audit",
+                    recommended_action="Audit promoted-memory buckets against provenance, evaluation, approval, and rollback gates.",
+                    count=promoted_count,
+                    movement_state="promoted",
+                    retention_class="durable",
+                )
+            )
+
+        supporting_count = int(authority_counts.get("supporting_not_authoritative") or 0)
+        if supporting_count:
+            items.append(
+                memory_review_item(
+                    item_id="supporting-memory-boundary-review",
+                    severity="medium",
+                    category="authority_boundary",
+                    owner_repo="domain-chip-memory",
+                    source_surface="domain-chip-memory movement contract",
+                    reason_code="supporting_rows_must_not_override_authoritative_memory",
+                    recommended_action="Confirm supporting/advisory rows remain non-authoritative and cannot override current-state memory.",
+                    count=supporting_count,
+                    source_family="episodic_summary",
+                    authority="supporting_not_authoritative",
+                    retention_class="supporting",
+                )
+            )
+
+        current_authoritative_count = int(authority_counts.get("authoritative_current") or 0)
+        if current_authoritative_count:
+            items.append(
+                memory_review_item(
+                    item_id="authoritative-current-memory-audit",
+                    severity="medium",
+                    category="current_state_audit",
+                    owner_repo="domain-chip-memory",
+                    source_surface="domain-chip-memory movement contract",
+                    reason_code="authoritative_current_rows_present",
+                    recommended_action="Spot-check authoritative current-state buckets for source scope, freshness, and rollback availability.",
+                    count=current_authoritative_count,
+                    source_family="current_state",
+                    authority="authoritative_current",
+                    retention_class="current_state",
+                )
+            )
+
+        current_state_file_count = int(current_state_lane.get("file_count") or 0)
+        if current_state_file_count:
+            items.append(
+                memory_review_item(
+                    item_id="memory-kb-current-state-files-review",
+                    severity="low",
+                    category="kb_snapshot_review",
+                    owner_repo="spark-memory-quality-dashboard",
+                    source_surface="Spark memory KB artifacts",
+                    reason_code="current_state_kb_files_present",
+                    recommended_action="Use the memory dashboard source module for current-state provenance drilldown; Cockpit should keep file names and bodies hidden.",
+                    count=current_state_file_count,
+                    target_kind="kb_lane",
+                    target_ref="current_state",
+                    source_family="current_state",
+                    retention_class="current_state",
+                )
+            )
+
+        raw_hint_count = int(safe_status.get("raw_hint_key_count") or 0)
+        if raw_hint_count:
+            items.append(
+                memory_review_item(
+                    item_id="memory-export-redaction-review",
+                    severity="high",
+                    category="privacy_redaction",
+                    owner_repo="spark-cli",
+                    source_surface="Spark OS compiler",
+                    reason_code="raw_memory_hint_keys_omitted",
+                    recommended_action="Keep omitted raw-hint fields out of OS artifacts and verify no review queue item includes memory body fields.",
+                    count=raw_hint_count,
+                    target_kind="compiler_redaction",
+                    target_ref="safe_status_export",
+                )
+            )
+
+        trace_join_row_count = int(memory_lane_trace_join.get("row_count") or 0)
+        trace_ref_present_count = int(memory_lane_trace_join.get("trace_ref_present_count") or 0)
+        missing_trace_ref_count = int(memory_lane_trace_join.get("missing_trace_ref_count") or 0)
+        if row_count and not trace_ref_present_count:
+            items.append(
+                memory_review_item(
+                    item_id="memory-trace-join-not-compiled",
+                    severity="high",
+                    category="trace_join",
+                    owner_repo="spark-intelligence-builder",
+                    source_surface="Builder memory movement export",
+                    reason_code="memory_rows_lack_compiled_trace_join",
+                    recommended_action="Join memory movement buckets to trace ids after Builder event envelopes carry stable trace refs.",
+                    count=row_count,
+                    request_id_present=None,
+                    trace_ref_present=None,
+                    target_kind="movement_rows",
+                )
+            )
+        elif trace_join_row_count and missing_trace_ref_count:
+            items.append(
+                memory_review_item(
+                    item_id="memory-trace-join-partial",
+                    severity="medium",
+                    category="trace_join",
+                    owner_repo="spark-intelligence-builder",
+                    source_surface="Builder memory_lane_records",
+                    reason_code="memory_lane_rows_partially_missing_trace_ref",
+                    recommended_action=(
+                        "Keep routing new memory preflight and promotion events through Builder event envelopes; "
+                        "audit legacy rows before any cleanup."
+                    ),
+                    count=missing_trace_ref_count,
+                    request_id_present=bool(memory_lane_trace_join.get("request_id_present_count")),
+                    trace_ref_present=True,
+                    target_kind="memory_lane_records",
+                )
+            )
+
+        severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        items = sorted(
+            items,
+            key=lambda item: (
+                severity_rank.get(str(item.get("severity")), 9),
+                -int(item.get("count") or 0),
+                str(item.get("id")),
+            ),
+        )
+        return {
+            "schema_version": MEMORY_REVIEW_QUEUE_SCHEMA,
+            "generated_at": utc_now(),
+            "authority": "observability_non_authoritative",
+            "source": "spark.memory_movement_index.compiled.v0",
+            "redaction": "aggregate metadata only; proposed text, memory bodies, relation fields, evidence payloads, and message previews omitted",
+            "counts": {
+                "item_count": len(items),
+                "movement_row_count": row_count,
+                "movement_counts": movement_counts,
+                "authority_counts": authority_counts,
+                "source_family_counts": source_family_counts,
+                "record_counts": record_counts,
+                "memory_lane_trace_join": {
+                    "status": memory_lane_trace_join.get("status"),
+                    "row_count": trace_join_row_count,
+                    "request_id_present_count": memory_lane_trace_join.get("request_id_present_count"),
+                    "trace_ref_present_count": trace_ref_present_count,
+                    "missing_trace_ref_count": missing_trace_ref_count,
+                },
+            },
+            "items": items,
+            "non_override_rules": as_list(status.get("non_override_rules")),
+        }
+
+
+
+    except Exception:
+        return {}
+def inspect_builder_memory_tables(builder_home: Path) -> dict[str, Any]:
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "path": str(db_path),
+            "exists": db_path.exists(),
+            "redaction": "memory-related table names and row counts only; no row contents read",
+        }
+        if not db_path.exists():
+            return out
+
         try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
-            memory_tables = [table for table in tables if "memory" in table.lower()]
-            out["table_count"] = len(memory_tables)
-            out["tables"] = {}
-            for table in memory_tables:
-                count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
-                out["tables"][table] = {"row_count": int(count)}
-            if "memory_lane_records" in memory_tables:
-                out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
-
-
-def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "source": "memory_lane_records",
-        "redaction": "aggregate trace coverage only; row ids, trace ids, evidence JSON, memory bodies, and source refs omitted",
-    }
-    columns = [row[1] for row in conn.execute("pragma table_info(memory_lane_records)")]
-    required = {"request_id", "trace_ref", "artifact_lane", "status"}
-    missing = sorted(required - set(columns))
-    if missing:
-        out["status"] = "missing_columns"
-        out["missing_columns"] = missing
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table' order by name")]
+                memory_tables = [table for table in tables if "memory" in table.lower()]
+                out["table_count"] = len(memory_tables)
+                out["tables"] = {}
+                for table in memory_tables:
+                    count = conn.execute(f'select count(*) from "{table}"').fetchone()[0]
+                    out["tables"][table] = {"row_count": int(count)}
+                if "memory_lane_records" in memory_tables:
+                    out["memory_lane_trace_join"] = inspect_memory_lane_trace_join(conn)
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
-    row_count = int(conn.execute("select count(*) from memory_lane_records").fetchone()[0])
-    request_id_present_count = int(
-        conn.execute(
-            "select count(*) from memory_lane_records where request_id is not null and trim(request_id) <> ''"
-        ).fetchone()[0]
-    )
-    trace_ref_present_count = int(
-        conn.execute(
-            "select count(*) from memory_lane_records where trace_ref is not null and trim(trace_ref) <> ''"
-        ).fetchone()[0]
-    )
-    distinct_trace_ref_count = int(
-        conn.execute(
-            "select count(distinct trace_ref) from memory_lane_records where trace_ref is not null and trim(trace_ref) <> ''"
-        ).fetchone()[0]
-    )
-    lane_rows = conn.execute(
-        """
-        select
-            coalesce(nullif(trim(artifact_lane), ''), 'unknown') as artifact_lane,
-            coalesce(nullif(trim(status), ''), 'unknown') as status,
-            count(*) as row_count,
-            sum(case when request_id is not null and trim(request_id) <> '' then 1 else 0 end) as request_id_present_count,
-            sum(case when trace_ref is not null and trim(trace_ref) <> '' then 1 else 0 end) as trace_ref_present_count
-        from memory_lane_records
-        group by coalesce(nullif(trim(artifact_lane), ''), 'unknown'), coalesce(nullif(trim(status), ''), 'unknown')
-        order by row_count desc
-        limit 25
-        """
-    ).fetchall()
 
-    def get_val(r, key, idx):
-        if isinstance(r, sqlite3.Row) or (hasattr(r, "keys") and key in r.keys()):
-            return r[key]
-        return r[idx]
 
-    out.update(
-        {
-            "status": "present" if trace_ref_present_count else "missing_trace_refs",
-            "row_count": row_count,
-            "request_id_present_count": request_id_present_count,
-            "trace_ref_present_count": trace_ref_present_count,
-            "missing_request_id_count": max(0, row_count - request_id_present_count),
-            "missing_trace_ref_count": max(0, row_count - trace_ref_present_count),
-            "distinct_trace_ref_count": distinct_trace_ref_count,
-            "trace_ref_coverage_ratio": round(trace_ref_present_count / row_count, 4) if row_count else 0.0,
-            "request_id_coverage_ratio": round(request_id_present_count / row_count, 4) if row_count else 0.0,
-            "lane_status_counts": [
-                {
-                    "artifact_lane": str(get_val(row, "artifact_lane", 0)),
-                    "status": str(get_val(row, "status", 1)),
-                    "row_count": int(get_val(row, "row_count", 2) or 0),
-                    "request_id_present_count": int(get_val(row, "request_id_present_count", 3) or 0),
-                    "trace_ref_present_count": int(get_val(row, "trace_ref_present_count", 4) or 0),
-                }
-                for row in lane_rows
-            ],
+    except Exception:
+        return {}
+def inspect_memory_lane_trace_join(conn: sqlite3.Connection) -> dict[str, Any]:
+    try:
+        out: dict[str, Any] = {
+            "source": "memory_lane_records",
+            "redaction": "aggregate trace coverage only; row ids, trace ids, evidence JSON, memory bodies, and source refs omitted",
         }
-    )
-    return out
+        columns = [row[1] for row in conn.execute("pragma table_info(memory_lane_records)")]
+        required = {"request_id", "trace_ref", "artifact_lane", "status"}
+        missing = sorted(required - set(columns))
+        if missing:
+            out["status"] = "missing_columns"
+            out["missing_columns"] = missing
+            return out
+
+        row_count = int(conn.execute("select count(*) from memory_lane_records").fetchone()[0])
+        request_id_present_count = int(
+            conn.execute(
+                "select count(*) from memory_lane_records where request_id is not null and trim(request_id) <> ''"
+            ).fetchone()[0]
+        )
+        trace_ref_present_count = int(
+            conn.execute(
+                "select count(*) from memory_lane_records where trace_ref is not null and trim(trace_ref) <> ''"
+            ).fetchone()[0]
+        )
+        distinct_trace_ref_count = int(
+            conn.execute(
+                "select count(distinct trace_ref) from memory_lane_records where trace_ref is not null and trim(trace_ref) <> ''"
+            ).fetchone()[0]
+        )
+        lane_rows = conn.execute(
+            """
+            select
+                coalesce(nullif(trim(artifact_lane), ''), 'unknown') as artifact_lane,
+                coalesce(nullif(trim(status), ''), 'unknown') as status,
+                count(*) as row_count,
+                sum(case when request_id is not null and trim(request_id) <> '' then 1 else 0 end) as request_id_present_count,
+                sum(case when trace_ref is not null and trim(trace_ref) <> '' then 1 else 0 end) as trace_ref_present_count
+            from memory_lane_records
+            group by coalesce(nullif(trim(artifact_lane), ''), 'unknown'), coalesce(nullif(trim(status), ''), 'unknown')
+            order by row_count desc
+            limit 25
+            """
+        ).fetchall()
+
+        def get_val(r, key, idx):
+            if isinstance(r, sqlite3.Row) or (hasattr(r, "keys") and key in r.keys()):
+                return r[key]
+            return r[idx]
+
+        out.update(
+            {
+                "status": "present" if trace_ref_present_count else "missing_trace_refs",
+                "row_count": row_count,
+                "request_id_present_count": request_id_present_count,
+                "trace_ref_present_count": trace_ref_present_count,
+                "missing_request_id_count": max(0, row_count - request_id_present_count),
+                "missing_trace_ref_count": max(0, row_count - trace_ref_present_count),
+                "distinct_trace_ref_count": distinct_trace_ref_count,
+                "trace_ref_coverage_ratio": round(trace_ref_present_count / row_count, 4) if row_count else 0.0,
+                "request_id_coverage_ratio": round(request_id_present_count / row_count, 4) if row_count else 0.0,
+                "lane_status_counts": [
+                    {
+                        "artifact_lane": str(get_val(row, "artifact_lane", 0)),
+                        "status": str(get_val(row, "status", 1)),
+                        "row_count": int(get_val(row, "row_count", 2) or 0),
+                        "request_id_present_count": int(get_val(row, "request_id_present_count", 3) or 0),
+                        "trace_ref_present_count": int(get_val(row, "trace_ref_present_count", 4) or 0),
+                    }
+                    for row in lane_rows
+                ],
+            }
+        )
+        return out
 
 
+
+    except Exception:
+        return {}
 def inspect_builder_event_trace(builder_home: Path) -> dict[str, Any]:
     db_path = builder_home / "state.db"
     out: dict[str, Any] = {
