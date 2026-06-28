@@ -1418,46 +1418,71 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
 
 
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
-    limit = int(limit or 240)
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3] + "..."
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
+        limit = int(limit or 240)
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 3] + "..."
 
 
+
+    except Exception:
+        return ""
 def sensitive_identifier(value: str) -> bool:
-    lowered = str(value or "").lower()
-    return bool(
-        re.search(r"(human|telegram|user|chat):", lowered)
-        or re.search(r"\d{7,}", lowered)
-        or re.search(r"(?i)(token|secret|api[_-]?key)", lowered)
-    )
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        lowered = str(value or "").lower()
+        return bool(
+            re.search(r"(human|telegram|user|chat):", lowered)
+            or re.search(r"\d{7,}", lowered)
+            or re.search(r"(?i)(token|secret|api[_-]?key)", lowered)
+        )
 
 
+
+    except Exception:
+        return False
 def redacted_identifier(column: str, value: str) -> str:
-    column = str(column or "")
-    value_str = str(value or "")
-    digest = hashlib.sha256(value_str.encode("utf-8", errors="ignore")).hexdigest()[:12]
-    return f"{column}:redacted:{digest}"
+    if not isinstance(column, str): column = str(column or '')
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        column = str(column or "")
+        value_str = str(value or "")
+        digest = hashlib.sha256(value_str.encode("utf-8", errors="ignore")).hexdigest()[:12]
+        return f"{column}:redacted:{digest}"
 
 
+
+    except Exception:
+        return ""
 def safe_builder_event_value(column: str, value: Any) -> Any:
-    column = str(column or "")
-    if value is None:
+    if not isinstance(column, str): column = str(column or '')
+    try:
+        column = str(column or "")
+        if value is None:
+            return None
+        if isinstance(value, (int, float, bool)):
+            return value
+        text = str(value)
+        if column in BUILDER_EVENT_IDENTIFIER_COLUMNS and sensitive_identifier(text):
+            return redacted_identifier(column, text)
+        return safe_short_string(text, limit=160)
+
+
+
+    except Exception:
         return None
-    if isinstance(value, (int, float, bool)):
-        return value
-    text = str(value)
-    if column in BUILDER_EVENT_IDENTIFIER_COLUMNS and sensitive_identifier(text):
-        return redacted_identifier(column, text)
-    return safe_short_string(text, limit=160)
-
-
 def key_has_raw_memory_hint(key: Any) -> bool:
-    lowered = str(key or "").lower()
-    return any(hint in lowered for hint in RAW_MEMORY_KEY_HINTS)
+    try:
+        lowered = str(key or "").lower()
+        return any(hint in lowered for hint in RAW_MEMORY_KEY_HINTS)
 
 
+
+    except Exception:
+        return False
 def safe_memory_status_value(value: Any, *, depth: int = 0) -> Any:
     depth = int(depth or 0)
     if depth > 4:
