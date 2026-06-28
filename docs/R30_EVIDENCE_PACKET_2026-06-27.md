@@ -67,6 +67,19 @@ Fresh release-truth refresh at `2026-06-28T06:16:06Z`:
 - Live `spark access status --level 5 --json`: `effective_access_level=5`, `activation_state=active_for_services`, `service_enabled=true`, `service_can_operate_whole_computer=true`, `effective_codex_sandbox=danger-full-access`, `missing_or_stale_services=[]`, and `skipped_unstartable_telegram_profiles=["sparkqa-bot"]`.
 - No registry pin, installer pin, hosted metadata, source tag, deploy, publish, or remote merge was changed during this refresh.
 
+Fresh proof sweep at `2026-06-28T06:29:24Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`, `voice_surface_mode=egress`, and `voice_surface_blockers=1`.
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; unhealthy modules `[]`; Telegram profiles remain `primary` running and `sparkqa-bot` stopped/unstartable; repair hints `[]`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: `ok=false`; the only failing module is still `spark-voice-comms`, with pin `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` against `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703` (`pin_drift`).
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`; local installer release remains `spark-cli-public-installer-2026-06-26-r29`.
+- Telegram `npm run control:proof:reliability`: passed. Generated at `2026-06-28T06:27:24Z`; actionable, blocking, and fresh-strict trace audit statuses are clean; live trace join is clean; live route proof is `ready (5/4)`, no-action route proof is `ready (5/4)`, safe prompt proof is `ready (4/4)`, stale live route evidence is `0`, and legacy proof gaps remain backed-only in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`.
+- Telegram `npm run build`: passed.
+- Telegram `npm run check:line-count`: passed with `13` baselined god-files, `2` shrinking, `0` growing, and `0` new over cap.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: `ok=false` by design; `source_truth_ready=false`; `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`; `installer_pins_are_r30=false`; `release_lane` reports `dirty_repo_count=0`, `critical_duplicate_truth_count=0`, `5` direct R30 blockers, and `0` supporting hygiene rows. Direct blockers remain `domain-chip-memory`, `spark-intelligence-builder`, `spark-telegram-bot`, `spark-voice-comms`, and `spawner-ui`. `owner_handoff_manifest`, `r30_access_level5_codex_sandbox`, `r30_voice_runtime_truth`, `publication_order`, and local installer checks are green.
+- No registry pin, installer pin, hosted metadata, source tag, deploy, publish, or remote merge was changed during this sweep.
+
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, publish-handoff classification, owner/local handoff docs, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Source-truth blockers are exactly `release_lane`, `r30_voice_registry_decision`, and `registry_pins`; installer pins intentionally remain pre-R30. |
