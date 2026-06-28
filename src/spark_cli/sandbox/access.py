@@ -133,68 +133,96 @@ def persist_level5_guardrails(*, home: Path | None = None, env: dict[str, str] |
 
 
 def _remove_env_keys(path: Path, keys: set[str]) -> bool:
-    if not path.exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(keys, str): keys = str(keys or '')
+    try:
+        if not path.exists():
+            return False
+        values = read_env_file(path)
+        changed = False
+        for key in keys:
+            if key in values:
+                values.pop(key, None)
+                changed = True
+        if changed:
+            write_env_file(path, values)
+        return changed
+
+
+
+    except Exception:
         return False
-    values = read_env_file(path)
-    changed = False
-    for key in keys:
-        if key in values:
-            values.pop(key, None)
-            changed = True
-    if changed:
-        write_env_file(path, values)
-    return changed
-
-
 def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
-    paths = level5_env_paths(home=home, env=env)
-    changed = {
-        "spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV)),
-        "telegram": _remove_env_keys(paths["telegram"], set(LEVEL5_ENV)),
-    }
-    write_audit_event(
-        "access",
-        "level5",
-        {
-            "action_id": "level5_guardrails_disable",
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        paths = level5_env_paths(home=home, env=env)
+        changed = {
+            "spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV)),
+            "telegram": _remove_env_keys(paths["telegram"], set(LEVEL5_ENV)),
+        }
+        write_audit_event(
+            "access",
+            "level5",
+            {
+                "action_id": "level5_guardrails_disable",
+                "changed": changed,
+                "env_files": {key: str(path) for key, path in paths.items()},
+                "rollback_command": "spark access setup --level 5 --enable-high-agency",
+            },
+            home=home,
+        )
+        return {
             "changed": changed,
             "env_files": {key: str(path) for key, path in paths.items()},
-            "rollback_command": "spark access setup --level 5 --enable-high-agency",
-        },
-        home=home,
-    )
-    return {
-        "changed": changed,
-        "env_files": {key: str(path) for key, path in paths.items()},
-        "audit": sandbox_audit_ref("access", "level5"),
-    }
+            "audit": sandbox_audit_ref("access", "level5"),
+        }
 
 
+
+    except Exception:
+        return {}
 def generated_level5_env(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
-    paths = level5_env_paths(home=home, env=env)
-    merged: dict[str, str] = {}
-    for path in paths.values():
-        merged.update(read_env_file(path))
-    return merged
-
-
-def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    return home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-
-
-def _parse_utc_timestamp(value: object) -> float | None:
-    if not isinstance(value, str) or not value:
-        return None
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        paths = level5_env_paths(home=home, env=env)
+        merged: dict[str, str] = {}
+        for path in paths.values():
+            merged.update(read_env_file(path))
+        return merged
+
+
+
+    except Exception:
+        return {}
+def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        env_values = env or os.environ
+        return home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+
+
+
+    except Exception:
+        return Path(".")
+def _parse_utc_timestamp(value: object) -> float | None:
+    try:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp()
+
+
+
+    except Exception:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.timestamp()
-
-
 def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | None:
     path = home_or_default(home=home) / "logs" / "remote" / "access" / "level5.jsonl"
     if not path.exists():
