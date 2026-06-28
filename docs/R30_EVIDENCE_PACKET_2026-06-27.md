@@ -199,6 +199,7 @@ Current hosted truth:
 - hosted release: `spark-cli-public-installer-2026-06-26-r29`
 - hosted ref: `spark-cli-public-installer-2026-06-26-r29`
 - hosted commit: `a6738be7a97a7254a5b09e06ce08692d99967bd6`
+- hosted verified at: `2026-06-28T02:50:53Z`
 - local committed manifest release/ref: `spark-cli-public-installer-2026-06-26-r29`
 
 Hosted self-consistency:
