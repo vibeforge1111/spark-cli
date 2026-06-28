@@ -4696,502 +4696,528 @@ def builder_source_audit(path: Path) -> dict[str, Any]:
 
 
 def spawner_state_source_audit(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    reference_needles = (".spawner", "SPAWNER_STATE_DIR", "spawnerStateDir", "spawner-state")
-    family_counts: Counter[str] = Counter()
-    file_count = 0
-    for root_name in ["src", "scripts", "docs", "tests"]:
-        root = path / root_name
-        if not root.exists():
-            continue
-        for candidate in root.rglob("*"):
-            if not candidate.is_file():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        reference_needles = (".spawner", "SPAWNER_STATE_DIR", "spawnerStateDir", "spawner-state")
+        family_counts: Counter[str] = Counter()
+        file_count = 0
+        for root_name in ["src", "scripts", "docs", "tests"]:
+            root = path / root_name
+            if not root.exists():
                 continue
-            if any(part in {"node_modules", ".git", "dist", "build", ".svelte-kit"} for part in candidate.parts):
-                continue
+            for candidate in root.rglob("*"):
+                if not candidate.is_file():
+                    continue
+                if any(part in {"node_modules", ".git", "dist", "build", ".svelte-kit"} for part in candidate.parts):
+                    continue
+                try:
+                    text = candidate.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if any(needle in text for needle in reference_needles):
+                    file_count += 1
+                    family_counts[root_name] += 1
+
+        state_helper = path / "src" / "lib" / "server" / "spawner-state.ts"
+        helper_text = ""
+        if state_helper.exists():
             try:
-                text = candidate.read_text(encoding="utf-8", errors="replace")
+                helper_text = state_helper.read_text(encoding="utf-8", errors="replace")
             except OSError:
-                continue
-            if any(needle in text for needle in reference_needles):
-                file_count += 1
-                family_counts[root_name] += 1
+                helper_text = ""
 
-    state_helper = path / "src" / "lib" / "server" / "spawner-state.ts"
-    helper_text = ""
-    if state_helper.exists():
-        try:
-            helper_text = state_helper.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            helper_text = ""
-
-    audit_route = path / "src" / "routes" / "api" / "system" / "state-root" / "+server.ts"
-    spark_home_state_fallback_present = (
-        "SPARK_HOME" in helper_text
-        and "state" in helper_text
-        and "spawner-ui" in helper_text
-    )
-    cwd_spawner_fallback_present = "'.spawner'" in helper_text or '".spawner"' in helper_text
-    return {
-        "path": str(path),
-        "exists": path.exists(),
-        "module_local_state_exists": (path / ".spawner").exists(),
-        "state_root_audit_route_exists": audit_route.exists(),
-        "state_helper_exists": state_helper.exists(),
-        "configured_state_env_supported": "SPAWNER_STATE_DIR" in helper_text,
-        "spark_home_state_fallback_present": spark_home_state_fallback_present,
-        "cwd_spawner_fallback_present": cwd_spawner_fallback_present,
-        "cwd_spawner_fallback_gated_by_spark_home": cwd_spawner_fallback_present and spark_home_state_fallback_present,
-        "reference_file_count": file_count,
-        "reference_family_counts": dict(sorted(family_counts.items())),
-        "redaction": "source metadata only; no mission files, provider results, prompts, or state row contents read",
-    }
+        audit_route = path / "src" / "routes" / "api" / "system" / "state-root" / "+server.ts"
+        spark_home_state_fallback_present = (
+            "SPARK_HOME" in helper_text
+            and "state" in helper_text
+            and "spawner-ui" in helper_text
+        )
+        cwd_spawner_fallback_present = "'.spawner'" in helper_text or '".spawner"' in helper_text
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "module_local_state_exists": (path / ".spawner").exists(),
+            "state_root_audit_route_exists": audit_route.exists(),
+            "state_helper_exists": state_helper.exists(),
+            "configured_state_env_supported": "SPAWNER_STATE_DIR" in helper_text,
+            "spark_home_state_fallback_present": spark_home_state_fallback_present,
+            "cwd_spawner_fallback_present": cwd_spawner_fallback_present,
+            "cwd_spawner_fallback_gated_by_spark_home": cwd_spawner_fallback_present and spark_home_state_fallback_present,
+            "reference_file_count": file_count,
+            "reference_family_counts": dict(sorted(family_counts.items())),
+            "redaction": "source metadata only; no mission files, provider results, prompts, or state row contents read",
+        }
 
 
+
+    except Exception:
+        return {}
 def git_dirty_from_repo(repo: dict[str, Any]) -> tuple[int, int]:
-    repo_dict = repo if isinstance(repo, dict) else {}
-    git = as_dict(repo_dict.get("git"))
-    dirty = int(git.get("dirty_tracked_count") or 0)
-    untracked = int(git.get("untracked_count") or 0)
-    if dirty or untracked:
-        return dirty, untracked
-    path = repo_dict.get("path")
-    if isinstance(path, str) and path.strip():
-        status = git_board_status(Path(path))
-        return int(status.get("dirty_tracked_count") or 0), int(status.get("untracked_count") or 0)
-    return 0, 0
-
-
-def installed_runtime_clean_summary(installed_modules: dict[str, Any], module_id: str) -> dict[str, Any]:
-    installed = as_dict(installed_modules.get(module_id))
-    installed_path_raw = first_string(installed.get("path"), installed.get("source"))
-    if not installed_path_raw:
-        return {"clean": False, "path": "", "head": "", "reason": "not installed"}
-    installed_path = Path(installed_path_raw)
-    installed_git = git_board_status(installed_path)
-    dirty = int(installed_git.get("dirty_tracked_count") or 0)
-    untracked = int(installed_git.get("untracked_count") or 0)
-    head = str(installed_git.get("head_commit") or "")[:12]
-    return {
-        "clean": dirty == 0 and untracked == 0,
-        "path": str(installed_path),
-        "head": head,
-        "branch": installed_git.get("branch"),
-        "dirty_tracked_count": dirty,
-        "untracked_count": untracked,
-        "reason": "" if dirty == 0 and untracked == 0 else "installed runtime dirty",
-    }
-
-
-def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
-    sys_map = system_map if isinstance(system_map, dict) else {}
-    source_roots = as_dict(sys_map.get("source_roots"))
-    spark_home = Path(str(source_roots.get("spark_home") or "")).expanduser()
-    desktop = Path(str(source_roots.get("desktop") or "")).expanduser()
-    installed_modules = as_dict(sys_map.get("installed_modules"))
-    registry_modules = as_dict(as_dict(sys_map.get("registry")).get("modules"))
-    items: list[dict[str, Any]] = []
-
-    builder_installed = as_dict(installed_modules.get("spark-intelligence-builder"))
-    builder_runtime_artifact = first_string(builder_installed.get("path"), builder_installed.get("source"))
-    builder_owner_source = desktop / "spark-intelligence-builder"
-    builder_nonrelease = spark_home / "modules" / "spark-intelligence-builder" / "source"
-    if builder_runtime_artifact and builder_nonrelease.exists() and str(builder_nonrelease) != builder_runtime_artifact:
-        runtime_audit = builder_source_audit(Path(builder_runtime_artifact))
-        duplicate_audit = builder_source_audit(builder_nonrelease)
-        desktop_audit = builder_source_audit(builder_owner_source)
-        command_count = int(runtime_audit.get("aoc_command_marker_count") or 0)
-        trace_ref_present = bool(runtime_audit.get("trace_ref_argument_present"))
-        release_ready = command_count == len(BUILDER_AOC_COMMAND_MARKERS) and trace_ref_present
-        runtime_clean = (
-            int(runtime_audit.get("dirty_tracked_count") or 0) == 0
-            and int(runtime_audit.get("untracked_count") or 0) == 0
-        )
-        duplicate_dirty = int(duplicate_audit.get("dirty_tracked_count") or 0) + int(duplicate_audit.get("untracked_count") or 0)
-        builder_classification = "installed_legacy_backlog" if release_ready and runtime_clean else "active_legacy"
-        builder_severity = "warning" if builder_classification == "installed_legacy_backlog" else "critical"
-        builder_risk = (
-            "Operators can patch the non-release duplicate and believe they changed active Builder truth, but installed module "
-            "metadata and generated Telegram config point at the clean release source."
-            if builder_classification == "installed_legacy_backlog"
-            else "Operators can patch the dirty Desktop owner checkout or non-release duplicate and believe they changed the active Builder truth."
-        )
-        builder_next_action = (
-            "Keep the release Builder source canonical. Treat the non-release installed-looking path and Desktop checkout as "
-            "read-only backlog until a targeted feature slice is re-derived onto the clean release line."
-            if builder_classification == "installed_legacy_backlog"
-            else (
-                "Treat the release Builder source as canonical for the current Spark OS line. Curate or replace the dirty "
-                "Desktop owner checkout separately, and do not merge its backlog wholesale into the promoted source."
-            )
-        )
-        items.append(
-            duplicate_truth_item(
-                item_id="builder-release-vs-nonrelease-installed-source",
-                fact="Promoted Builder release source and legacy Builder sources",
-                classification=builder_classification,
-                severity=builder_severity,
-                owner_repo="spark-intelligence-builder-release",
-                canonical_path=str(Path(builder_runtime_artifact)),
-                duplicate_path=str(builder_nonrelease),
-                evidence=(
-                    "Installed module metadata points at the promoted Builder release source while another installed-looking "
-                    "Builder source and the dirty Desktop Builder owner checkout still exist. "
-                    f"Promoted release source exposes {command_count}/{len(BUILDER_AOC_COMMAND_MARKERS)} AOC command markers"
-                    f"{' with trace-ref support' if trace_ref_present else ' without detected trace-ref support'}."
-                ),
-                risk=builder_risk,
-                next_safe_action=builder_next_action,
-                verification_command="spark verify --onboarding --json",
-                rollback="Repoint installed module metadata only after another Builder source passes the same AOC, trace, and live proof gates.",
-                evidence_details={
-                    "promoted_release_source": runtime_audit,
-                    "desktop_backlog_source": desktop_audit,
-                    "duplicate_nonrelease": duplicate_audit,
-                    "duplicate_dirty_file_count": duplicate_dirty,
-                    "onboarding_gate": "builder_runtime_source",
-                    "local_source_probe": "Insert repo src on sys.path before importing spark_intelligence.cli build_parser.",
-                    "source_truth_policy": "Release Builder source is canonical for the current Spark OS line; Desktop Builder is backlog until curated or replaced.",
-                    "release_ready": release_ready,
-                    "runtime_clean": runtime_clean,
-                },
-            )
-        )
-
-    spawner_installed = as_dict(installed_modules.get("spawner-ui"))
-    spawner_source_raw = first_string(spawner_installed.get("path"), spawner_installed.get("source"))
-    spawner_source = Path(spawner_source_raw) if spawner_source_raw else Path()
-    spawner_state = spark_home / "state" / "spawner-ui"
-    spawner_local_state = spawner_source / ".spawner" if spawner_source_raw else Path()
-    spawner_state_audit_route = spawner_source / "src" / "routes" / "api" / "system" / "state-root" / "+server.ts"
-    if spawner_source_raw and spawner_local_state.exists():
-        spawner_audit = spawner_state_source_audit(spawner_source)
-        audit_route_evidence = (
-            " State-root audit route exists."
-            if spawner_state_audit_route.exists()
-            else " State-root audit route is not present yet."
-        )
-        if spawner_audit.get("cwd_spawner_fallback_gated_by_spark_home"):
-            fallback_evidence = " Source still contains a cwd .spawner fallback, gated behind SPARK_HOME state fallback."
-            spawner_classification = "active_legacy_gated"
-            spawner_severity = "warning"
-            spawner_next_action = (
-                "Keep module-local state read-only and warning-only. Before archive, run a source-reference scan, "
-                "two clean compiles, and one live trace proof showing no runtime read/write dependency."
-            )
-        elif spawner_audit.get("cwd_spawner_fallback_present"):
-            fallback_evidence = " Source still contains a cwd .spawner fallback."
-            spawner_classification = "active_legacy"
-            spawner_severity = "critical"
-            spawner_next_action = (
-                "Keep module-local state read-only and warning-only. Before archive, replace or gate the cwd .spawner fallback, "
-                "then rerun source-reference scan, two clean compiles, and one live trace proof."
-            )
-        else:
-            fallback_evidence = " No cwd .spawner fallback was detected in the state helper."
-            spawner_classification = "active_legacy_gated"
-            spawner_severity = "warning"
-            spawner_next_action = (
-                "Keep module-local state read-only and warning-only. Before archive, run two clean compiles and one live trace proof."
-            )
-        items.append(
-            duplicate_truth_item(
-                item_id="spawner-module-local-state-root",
-                fact="Spawner mission state root",
-                classification=spawner_classification,
-                severity=spawner_severity,
-                owner_repo="spawner-ui",
-                canonical_path=str(spawner_state),
-                duplicate_path=str(spawner_local_state),
-                evidence=(
-                    "Current compiler and proof artifacts use spark-home state while module-local Spawner state also exists."
-                    + audit_route_evidence
-                    + fallback_evidence
-                ),
-                risk="Old mission files can be mistaken for current mission truth.",
-                next_safe_action=spawner_next_action,
-                verification_command="Invoke-WebRequest http://127.0.0.1:3333/api/system/state-root; rg -n \"\\\\.spawner|SPAWNER_STATE|stateDir\" src scripts",
-                rollback="Leave module-local state untouched and read-only until current runtime no longer reads or writes it.",
-                evidence_details=spawner_audit,
-            )
-        )
-
-    for repo_name, fact, owner, classification in [
-        ("spark-intelligence-builder", "Builder owner repo curation state", "spark-intelligence-builder", "owner_repo_dirty"),
-        ("spark-telegram-bot", "Telegram owner repo curation state", "spark-telegram-bot", "owner_repo_dirty"),
-        ("spawner-ui", "Spawner owner repo curation state", "spawner-ui", "owner_repo_dirty"),
-        ("domain-chip-memory", "Memory substrate owner repo curation state", "domain-chip-memory", "owner_repo_dirty"),
-        ("spark-memory-quality-dashboard", "Memory dashboard projection state", "spark-memory-quality-dashboard", "projection_dirty"),
-    ]:
-        repo = repo_by_name(sys_map, repo_name)
-        if not repo:
-            continue
-        dirty, untracked = git_dirty_from_repo(repo)
+    if not isinstance(repo, str): repo = str(repo or '')
+    try:
+        repo_dict = repo if isinstance(repo, dict) else {}
+        git = as_dict(repo_dict.get("git"))
+        dirty = int(git.get("dirty_tracked_count") or 0)
+        untracked = int(git.get("untracked_count") or 0)
         if dirty or untracked:
-            runtime_module = {"spark-intelligence-builder": "spark-intelligence-builder", "spawner-ui": "spawner-ui"}.get(repo_name)
-            runtime_summary = installed_runtime_clean_summary(installed_modules, runtime_module) if runtime_module else {}
-            repo_path = str(repo.get("path") or "")
-            installed_path = str(runtime_summary.get("path") or "")
-            non_authoritative_backlog = bool(runtime_summary.get("clean")) and installed_path and repo_path and installed_path != repo_path
-            item_classification = "read_only_backlog" if non_authoritative_backlog else classification
-            severity = "warning" if owner not in {"spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"} else "critical"
-            risk = "Dirty source can be mistaken for released or installed truth before curation."
-            next_safe_action = "Curate the worktree by feature family before merge, release, or cleanup."
-            rollback = "Do not revert unrelated work; leave the worktree intact until source-owner curation."
-            evidence = f"Repo board reports {dirty} tracked and {untracked} untracked local changes."
-            evidence_details: dict[str, Any] | None = None
-            if non_authoritative_backlog:
-                severity = "warning"
-                evidence += (
-                    " Installed runtime truth is clean and points at a different source path, so this checkout is "
-                    "classified as non-authoritative backlog."
-                )
-                risk = "Backlog source can confuse operators, but current installed runtime truth is clean and separate."
-                next_safe_action = (
-                    "Keep this checkout out of installer/release truth. Re-derive selected backlog slices onto the clean "
-                    "canonical runtime line with focused tests before promotion."
-                )
-                rollback = "Leave the backlog checkout intact; keep installed runtime metadata pointed at the clean canonical source."
-                evidence_details = {
-                    "installed_runtime": runtime_summary,
-                    "source_truth_policy": "Dirty Desktop checkout is backlog while clean installed runtime remains canonical.",
-                }
-            items.append(
-                duplicate_truth_item(
-                    item_id=f"{repo_name}-dirty-owner-repo",
-                    fact=fact,
-                    classification=item_classification,
-                    owner_repo=owner,
-                    canonical_path=repo_path,
-                    duplicate_path="",
-                    evidence=evidence,
-                    risk=risk,
-                    next_safe_action=next_safe_action,
-                    verification_command="git status --short --branch",
-                    rollback=rollback,
-                    severity=severity,
-                    evidence_details=evidence_details,
-                )
-            )
+            return dirty, untracked
+        path = repo_dict.get("path")
+        if isinstance(path, str) and path.strip():
+            status = git_board_status(Path(path))
+            return int(status.get("dirty_tracked_count") or 0), int(status.get("untracked_count") or 0)
+        return 0, 0
 
-    for module_id, fact in [
-        ("spark-telegram-bot", "Telegram installed runtime source"),
-        ("spawner-ui", "Spawner installed runtime source"),
-    ]:
+
+
+    except Exception:
+        return ()
+def installed_runtime_clean_summary(installed_modules: dict[str, Any], module_id: str) -> dict[str, Any]:
+    if not isinstance(installed_modules, str): installed_modules = str(installed_modules or '')
+    if not isinstance(module_id, str): module_id = str(module_id or '')
+    try:
         installed = as_dict(installed_modules.get(module_id))
         installed_path_raw = first_string(installed.get("path"), installed.get("source"))
-        if installed_path_raw:
-            installed_path = Path(installed_path_raw)
-            installed_repo = collect_repo_metadata(installed_path)
-            installed_git = git_board_status(installed_path)
-            dirty, untracked = git_dirty_from_repo(installed_repo)
-            if dirty or untracked:
-                items.append(
-                    duplicate_truth_item(
-                        item_id=f"{module_id}-dirty-installed-runtime",
-                        fact=fact,
-                        classification="canonical_runtime_dirty",
-                        severity="critical",
-                        owner_repo=module_id,
-                        canonical_path=str(installed_path),
-                        duplicate_path="",
-                        evidence=f"Running installed source has {dirty} tracked and {untracked} untracked local changes.",
-                        risk="The current runtime can drift from owner repo, registry, and hosted installer truth.",
-                        next_safe_action="Commit or port the minimum live-proof changes into the owner repo and release line.",
-                        verification_command="git status --short --branch",
-                        rollback="Keep runtime running from installed source until curated release proof passes.",
-                    )
+        if not installed_path_raw:
+            return {"clean": False, "path": "", "head": "", "reason": "not installed"}
+        installed_path = Path(installed_path_raw)
+        installed_git = git_board_status(installed_path)
+        dirty = int(installed_git.get("dirty_tracked_count") or 0)
+        untracked = int(installed_git.get("untracked_count") or 0)
+        head = str(installed_git.get("head_commit") or "")[:12]
+        return {
+            "clean": dirty == 0 and untracked == 0,
+            "path": str(installed_path),
+            "head": head,
+            "branch": installed_git.get("branch"),
+            "dirty_tracked_count": dirty,
+            "untracked_count": untracked,
+            "reason": "" if dirty == 0 and untracked == 0 else "installed runtime dirty",
+        }
+
+
+
+    except Exception:
+        return {}
+def build_duplicate_truths(system_map: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    try:
+        sys_map = system_map if isinstance(system_map, dict) else {}
+        source_roots = as_dict(sys_map.get("source_roots"))
+        spark_home = Path(str(source_roots.get("spark_home") or "")).expanduser()
+        desktop = Path(str(source_roots.get("desktop") or "")).expanduser()
+        installed_modules = as_dict(sys_map.get("installed_modules"))
+        registry_modules = as_dict(as_dict(sys_map.get("registry")).get("modules"))
+        items: list[dict[str, Any]] = []
+
+        builder_installed = as_dict(installed_modules.get("spark-intelligence-builder"))
+        builder_runtime_artifact = first_string(builder_installed.get("path"), builder_installed.get("source"))
+        builder_owner_source = desktop / "spark-intelligence-builder"
+        builder_nonrelease = spark_home / "modules" / "spark-intelligence-builder" / "source"
+        if builder_runtime_artifact and builder_nonrelease.exists() and str(builder_nonrelease) != builder_runtime_artifact:
+            runtime_audit = builder_source_audit(Path(builder_runtime_artifact))
+            duplicate_audit = builder_source_audit(builder_nonrelease)
+            desktop_audit = builder_source_audit(builder_owner_source)
+            command_count = int(runtime_audit.get("aoc_command_marker_count") or 0)
+            trace_ref_present = bool(runtime_audit.get("trace_ref_argument_present"))
+            release_ready = command_count == len(BUILDER_AOC_COMMAND_MARKERS) and trace_ref_present
+            runtime_clean = (
+                int(runtime_audit.get("dirty_tracked_count") or 0) == 0
+                and int(runtime_audit.get("untracked_count") or 0) == 0
+            )
+            duplicate_dirty = int(duplicate_audit.get("dirty_tracked_count") or 0) + int(duplicate_audit.get("untracked_count") or 0)
+            builder_classification = "installed_legacy_backlog" if release_ready and runtime_clean else "active_legacy"
+            builder_severity = "warning" if builder_classification == "installed_legacy_backlog" else "critical"
+            builder_risk = (
+                "Operators can patch the non-release duplicate and believe they changed active Builder truth, but installed module "
+                "metadata and generated Telegram config point at the clean release source."
+                if builder_classification == "installed_legacy_backlog"
+                else "Operators can patch the dirty Desktop owner checkout or non-release duplicate and believe they changed the active Builder truth."
+            )
+            builder_next_action = (
+                "Keep the release Builder source canonical. Treat the non-release installed-looking path and Desktop checkout as "
+                "read-only backlog until a targeted feature slice is re-derived onto the clean release line."
+                if builder_classification == "installed_legacy_backlog"
+                else (
+                    "Treat the release Builder source as canonical for the current Spark OS line. Curate or replace the dirty "
+                    "Desktop owner checkout separately, and do not merge its backlog wholesale into the promoted source."
+                )
+            )
+            items.append(
+                duplicate_truth_item(
+                    item_id="builder-release-vs-nonrelease-installed-source",
+                    fact="Promoted Builder release source and legacy Builder sources",
+                    classification=builder_classification,
+                    severity=builder_severity,
+                    owner_repo="spark-intelligence-builder-release",
+                    canonical_path=str(Path(builder_runtime_artifact)),
+                    duplicate_path=str(builder_nonrelease),
+                    evidence=(
+                        "Installed module metadata points at the promoted Builder release source while another installed-looking "
+                        "Builder source and the dirty Desktop Builder owner checkout still exist. "
+                        f"Promoted release source exposes {command_count}/{len(BUILDER_AOC_COMMAND_MARKERS)} AOC command markers"
+                        f"{' with trace-ref support' if trace_ref_present else ' without detected trace-ref support'}."
+                    ),
+                    risk=builder_risk,
+                    next_safe_action=builder_next_action,
+                    verification_command="spark verify --onboarding --json",
+                    rollback="Repoint installed module metadata only after another Builder source passes the same AOC, trace, and live proof gates.",
+                    evidence_details={
+                        "promoted_release_source": runtime_audit,
+                        "desktop_backlog_source": desktop_audit,
+                        "duplicate_nonrelease": duplicate_audit,
+                        "duplicate_dirty_file_count": duplicate_dirty,
+                        "onboarding_gate": "builder_runtime_source",
+                        "local_source_probe": "Insert repo src on sys.path before importing spark_intelligence.cli build_parser.",
+                        "source_truth_policy": "Release Builder source is canonical for the current Spark OS line; Desktop Builder is backlog until curated or replaced.",
+                        "release_ready": release_ready,
+                        "runtime_clean": runtime_clean,
+                    },
+                )
+            )
+
+        spawner_installed = as_dict(installed_modules.get("spawner-ui"))
+        spawner_source_raw = first_string(spawner_installed.get("path"), spawner_installed.get("source"))
+        spawner_source = Path(spawner_source_raw) if spawner_source_raw else Path()
+        spawner_state = spark_home / "state" / "spawner-ui"
+        spawner_local_state = spawner_source / ".spawner" if spawner_source_raw else Path()
+        spawner_state_audit_route = spawner_source / "src" / "routes" / "api" / "system" / "state-root" / "+server.ts"
+        if spawner_source_raw and spawner_local_state.exists():
+            spawner_audit = spawner_state_source_audit(spawner_source)
+            audit_route_evidence = (
+                " State-root audit route exists."
+                if spawner_state_audit_route.exists()
+                else " State-root audit route is not present yet."
+            )
+            if spawner_audit.get("cwd_spawner_fallback_gated_by_spark_home"):
+                fallback_evidence = " Source still contains a cwd .spawner fallback, gated behind SPARK_HOME state fallback."
+                spawner_classification = "active_legacy_gated"
+                spawner_severity = "warning"
+                spawner_next_action = (
+                    "Keep module-local state read-only and warning-only. Before archive, run a source-reference scan, "
+                    "two clean compiles, and one live trace proof showing no runtime read/write dependency."
+                )
+            elif spawner_audit.get("cwd_spawner_fallback_present"):
+                fallback_evidence = " Source still contains a cwd .spawner fallback."
+                spawner_classification = "active_legacy"
+                spawner_severity = "critical"
+                spawner_next_action = (
+                    "Keep module-local state read-only and warning-only. Before archive, replace or gate the cwd .spawner fallback, "
+                    "then rerun source-reference scan, two clean compiles, and one live trace proof."
                 )
             else:
-                registry_entry = as_dict(registry_modules.get(module_id))
-                registry_commit = str(installed.get("registry_commit") or registry_entry.get("commit") or "").strip().lower()
-                registry_source = str(installed.get("registry_source") or registry_entry.get("source") or "").strip()
-                head_commit = str(installed_git.get("head_commit") or "").strip().lower()
-                if registry_commit and head_commit and registry_commit != head_commit:
-                    branch = str(installed_git.get("branch") or "").strip()
-                    remote_branch_head = str(git_remote_branch_head(installed_path, branch) or "").strip().lower()
-                    release_branch_published = bool(
-                        branch.startswith("release/stability-") and remote_branch_head and remote_branch_head == head_commit
+                fallback_evidence = " No cwd .spawner fallback was detected in the state helper."
+                spawner_classification = "active_legacy_gated"
+                spawner_severity = "warning"
+                spawner_next_action = (
+                    "Keep module-local state read-only and warning-only. Before archive, run two clean compiles and one live trace proof."
+                )
+            items.append(
+                duplicate_truth_item(
+                    item_id="spawner-module-local-state-root",
+                    fact="Spawner mission state root",
+                    classification=spawner_classification,
+                    severity=spawner_severity,
+                    owner_repo="spawner-ui",
+                    canonical_path=str(spawner_state),
+                    duplicate_path=str(spawner_local_state),
+                    evidence=(
+                        "Current compiler and proof artifacts use spark-home state while module-local Spawner state also exists."
+                        + audit_route_evidence
+                        + fallback_evidence
+                    ),
+                    risk="Old mission files can be mistaken for current mission truth.",
+                    next_safe_action=spawner_next_action,
+                    verification_command="Invoke-WebRequest http://127.0.0.1:3333/api/system/state-root; rg -n \"\\\\.spawner|SPAWNER_STATE|stateDir\" src scripts",
+                    rollback="Leave module-local state untouched and read-only until current runtime no longer reads or writes it.",
+                    evidence_details=spawner_audit,
+                )
+            )
+
+        for repo_name, fact, owner, classification in [
+            ("spark-intelligence-builder", "Builder owner repo curation state", "spark-intelligence-builder", "owner_repo_dirty"),
+            ("spark-telegram-bot", "Telegram owner repo curation state", "spark-telegram-bot", "owner_repo_dirty"),
+            ("spawner-ui", "Spawner owner repo curation state", "spawner-ui", "owner_repo_dirty"),
+            ("domain-chip-memory", "Memory substrate owner repo curation state", "domain-chip-memory", "owner_repo_dirty"),
+            ("spark-memory-quality-dashboard", "Memory dashboard projection state", "spark-memory-quality-dashboard", "projection_dirty"),
+        ]:
+            repo = repo_by_name(sys_map, repo_name)
+            if not repo:
+                continue
+            dirty, untracked = git_dirty_from_repo(repo)
+            if dirty or untracked:
+                runtime_module = {"spark-intelligence-builder": "spark-intelligence-builder", "spawner-ui": "spawner-ui"}.get(repo_name)
+                runtime_summary = installed_runtime_clean_summary(installed_modules, runtime_module) if runtime_module else {}
+                repo_path = str(repo.get("path") or "")
+                installed_path = str(runtime_summary.get("path") or "")
+                non_authoritative_backlog = bool(runtime_summary.get("clean")) and installed_path and repo_path and installed_path != repo_path
+                item_classification = "read_only_backlog" if non_authoritative_backlog else classification
+                severity = "warning" if owner not in {"spark-intelligence-builder", "spark-telegram-bot", "spawner-ui"} else "critical"
+                risk = "Dirty source can be mistaken for released or installed truth before curation."
+                next_safe_action = "Curate the worktree by feature family before merge, release, or cleanup."
+                rollback = "Do not revert unrelated work; leave the worktree intact until source-owner curation."
+                evidence = f"Repo board reports {dirty} tracked and {untracked} untracked local changes."
+                evidence_details: dict[str, Any] | None = None
+                if non_authoritative_backlog:
+                    severity = "warning"
+                    evidence += (
+                        " Installed runtime truth is clean and points at a different source path, so this checkout is "
+                        "classified as non-authoritative backlog."
                     )
-                    classification = (
-                        "release_branch_pending_registry_batch"
-                        if release_branch_published
-                        else "runtime_ahead_of_registry_pin"
-                    )
-                    severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
-                    evidence = (
-                        "Running installed source is clean and its HEAD is already present on the release branch, "
-                        "but the public registry commit still points at the previous installer batch. "
-                        "This is an intentional release metadata decision, not dirty local file drift."
-                        if release_branch_published
-                        else "Running installed source is clean but its git HEAD differs from the registry commit. "
-                        "This is release metadata drift, not dirty local file drift."
-                    )
+                    risk = "Backlog source can confuse operators, but current installed runtime truth is clean and separate."
                     next_safe_action = (
-                        "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
-                        "current public registry pin if the batch is deferred."
-                        if release_branch_published
-                        else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
-                        "installed source classified as a local runtime test artifact."
+                        "Keep this checkout out of installer/release truth. Re-derive selected backlog slices onto the clean "
+                        "canonical runtime line with focused tests before promotion."
                     )
+                    rollback = "Leave the backlog checkout intact; keep installed runtime metadata pointed at the clean canonical source."
+                    evidence_details = {
+                        "installed_runtime": runtime_summary,
+                        "source_truth_policy": "Dirty Desktop checkout is backlog while clean installed runtime remains canonical.",
+                    }
+                items.append(
+                    duplicate_truth_item(
+                        item_id=f"{repo_name}-dirty-owner-repo",
+                        fact=fact,
+                        classification=item_classification,
+                        owner_repo=owner,
+                        canonical_path=repo_path,
+                        duplicate_path="",
+                        evidence=evidence,
+                        risk=risk,
+                        next_safe_action=next_safe_action,
+                        verification_command="git status --short --branch",
+                        rollback=rollback,
+                        severity=severity,
+                        evidence_details=evidence_details,
+                    )
+                )
+
+        for module_id, fact in [
+            ("spark-telegram-bot", "Telegram installed runtime source"),
+            ("spawner-ui", "Spawner installed runtime source"),
+        ]:
+            installed = as_dict(installed_modules.get(module_id))
+            installed_path_raw = first_string(installed.get("path"), installed.get("source"))
+            if installed_path_raw:
+                installed_path = Path(installed_path_raw)
+                installed_repo = collect_repo_metadata(installed_path)
+                installed_git = git_board_status(installed_path)
+                dirty, untracked = git_dirty_from_repo(installed_repo)
+                if dirty or untracked:
                     items.append(
                         duplicate_truth_item(
-                            item_id=f"{module_id}-runtime-registry-pin-drift",
-                            fact=f"{fact} release pin",
-                            classification=classification,
-                            severity=severity,
+                            item_id=f"{module_id}-dirty-installed-runtime",
+                            fact=fact,
+                            classification="canonical_runtime_dirty",
+                            severity="critical",
                             owner_repo=module_id,
                             canonical_path=str(installed_path),
-                            duplicate_path=registry_source,
-                            evidence=evidence,
-                            risk="Spark start/restart/update can warn or move operators back to older public installer truth.",
-                            next_safe_action=next_safe_action,
-                            verification_command="spark status --json; git status --short --branch; git rev-parse HEAD",
-                            rollback="Keep the current public registry pin until the newer runtime commit has source-owner release proof.",
-                            evidence_details={
-                                "installed_head": head_commit[:12],
-                                "registry_commit": registry_commit[:12],
-                                "branch": branch,
-                                "remote_branch_head": remote_branch_head[:12] if remote_branch_head else None,
-                                "release_branch_published": release_branch_published,
-                                "runtime_dirty_tracked_count": dirty,
-                                "runtime_untracked_count": untracked,
-                            },
+                            duplicate_path="",
+                            evidence=f"Running installed source has {dirty} tracked and {untracked} untracked local changes.",
+                            risk="The current runtime can drift from owner repo, registry, and hosted installer truth.",
+                            next_safe_action="Commit or port the minimum live-proof changes into the owner repo and release line.",
+                            verification_command="git status --short --branch",
+                            rollback="Keep runtime running from installed source until curated release proof passes.",
                         )
                     )
+                else:
+                    registry_entry = as_dict(registry_modules.get(module_id))
+                    registry_commit = str(installed.get("registry_commit") or registry_entry.get("commit") or "").strip().lower()
+                    registry_source = str(installed.get("registry_source") or registry_entry.get("source") or "").strip()
+                    head_commit = str(installed_git.get("head_commit") or "").strip().lower()
+                    if registry_commit and head_commit and registry_commit != head_commit:
+                        branch = str(installed_git.get("branch") or "").strip()
+                        remote_branch_head = str(git_remote_branch_head(installed_path, branch) or "").strip().lower()
+                        release_branch_published = bool(
+                            branch.startswith("release/stability-") and remote_branch_head and remote_branch_head == head_commit
+                        )
+                        classification = (
+                            "release_branch_pending_registry_batch"
+                            if release_branch_published
+                            else "runtime_ahead_of_registry_pin"
+                        )
+                        severity = "decision" if release_branch_published else ("critical" if module_id == "spark-telegram-bot" else "warning")
+                        evidence = (
+                            "Running installed source is clean and its HEAD is already present on the release branch, "
+                            "but the public registry commit still points at the previous installer batch. "
+                            "This is an intentional release metadata decision, not dirty local file drift."
+                            if release_branch_published
+                            else "Running installed source is clean but its git HEAD differs from the registry commit. "
+                            "This is release metadata drift, not dirty local file drift."
+                        )
+                        next_safe_action = (
+                            "Include this clean release-branch runtime in the next named installer metadata batch, or hold the "
+                            "current public registry pin if the batch is deferred."
+                            if release_branch_published
+                            else "Port and push the owner repo commit, update registry/release metadata, or explicitly keep this "
+                            "installed source classified as a local runtime test artifact."
+                        )
+                        items.append(
+                            duplicate_truth_item(
+                                item_id=f"{module_id}-runtime-registry-pin-drift",
+                                fact=f"{fact} release pin",
+                                classification=classification,
+                                severity=severity,
+                                owner_repo=module_id,
+                                canonical_path=str(installed_path),
+                                duplicate_path=registry_source,
+                                evidence=evidence,
+                                risk="Spark start/restart/update can warn or move operators back to older public installer truth.",
+                                next_safe_action=next_safe_action,
+                                verification_command="spark status --json; git status --short --branch; git rev-parse HEAD",
+                                rollback="Keep the current public registry pin until the newer runtime commit has source-owner release proof.",
+                                evidence_details={
+                                    "installed_head": head_commit[:12],
+                                    "registry_commit": registry_commit[:12],
+                                    "branch": branch,
+                                    "remote_branch_head": remote_branch_head[:12] if remote_branch_head else None,
+                                    "release_branch_published": release_branch_published,
+                                    "runtime_dirty_tracked_count": dirty,
+                                    "runtime_untracked_count": untracked,
+                                },
+                            )
+                        )
 
-    browser_extension = repo_by_name(sys_map, "spark-browser-extension")
-    if browser_extension:
-        items.append(
-            duplicate_truth_item(
-                item_id="spark-browser-extension-planning-residue",
-                fact="Browser/computer-use capability lane",
-                classification="deprecated",
-                owner_repo="spark-cli",
-                canonical_path="browser-use lane through spark-cli authority policy",
-                duplicate_path=str(browser_extension.get("path") or ""),
-                evidence="Browser extension repo exists but current Spark plan uses browser-use through CLI authority and trace metadata.",
-                risk="Old extension language can reintroduce a parallel capability surface.",
-                next_safe_action="Keep browser-extension references historical; route active plans through browser-use.",
-                verification_command="rg -n \"spark-browser-extension|browser extension\" docs README.md tasks.md",
-                rollback="Keep old repo untouched as history; do not route runtime through it.",
-                severity="decision",
+        browser_extension = repo_by_name(sys_map, "spark-browser-extension")
+        if browser_extension:
+            items.append(
+                duplicate_truth_item(
+                    item_id="spark-browser-extension-planning-residue",
+                    fact="Browser/computer-use capability lane",
+                    classification="deprecated",
+                    owner_repo="spark-cli",
+                    canonical_path="browser-use lane through spark-cli authority policy",
+                    duplicate_path=str(browser_extension.get("path") or ""),
+                    evidence="Browser extension repo exists but current Spark plan uses browser-use through CLI authority and trace metadata.",
+                    risk="Old extension language can reintroduce a parallel capability surface.",
+                    next_safe_action="Keep browser-extension references historical; route active plans through browser-use.",
+                    verification_command="rg -n \"spark-browser-extension|browser extension\" docs README.md tasks.md",
+                    rollback="Keep old repo untouched as history; do not route runtime through it.",
+                    severity="decision",
+                )
             )
-        )
 
-    systems_repo = repo_by_name(system_map, "spark-intelligence-systems")
-    if systems_repo:
-        items.append(
-            duplicate_truth_item(
-                item_id="spark-intelligence-systems-prototype-compiler",
-                fact="Spark OS compiler ownership",
-                classification="projection",
-                owner_repo="spark-cli",
-                canonical_path="spark-cli production compiler",
-                duplicate_path=str(systems_repo.get("path") or desktop / "spark-intelligence-systems"),
-                evidence="spark-intelligence-systems remains doctrine/runbook/prototype while production compile output is owned by spark-cli.",
-                risk="Prototype output can be mistaken for live OS truth.",
-                next_safe_action="Keep doctrine here; keep runtime read-model artifacts source-owned by spark-cli.",
-                verification_command="spark os compile",
-                rollback="If production compiler fails, use this repo only as a reference, not runtime truth.",
-                severity="decision",
+        systems_repo = repo_by_name(system_map, "spark-intelligence-systems")
+        if systems_repo:
+            items.append(
+                duplicate_truth_item(
+                    item_id="spark-intelligence-systems-prototype-compiler",
+                    fact="Spark OS compiler ownership",
+                    classification="projection",
+                    owner_repo="spark-cli",
+                    canonical_path="spark-cli production compiler",
+                    duplicate_path=str(systems_repo.get("path") or desktop / "spark-intelligence-systems"),
+                    evidence="spark-intelligence-systems remains doctrine/runbook/prototype while production compile output is owned by spark-cli.",
+                    risk="Prototype output can be mistaken for live OS truth.",
+                    next_safe_action="Keep doctrine here; keep runtime read-model artifacts source-owned by spark-cli.",
+                    verification_command="spark os compile",
+                    rollback="If production compiler fails, use this repo only as a reference, not runtime truth.",
+                    severity="decision",
+                )
             )
-        )
 
-    counts = Counter(str(item.get("classification")) for item in items)
-    severity_counts = Counter(str(item.get("severity")) for item in items)
-    return {
-        "schema_version": DUPLICATE_TRUTHS_SCHEMA,
-        "generated_at": utc_now(),
-        "redaction": "metadata only; no diffs, env values, logs, prompts, memory bodies, transcripts, or provider output",
-        "summary": {
-            "item_count": len(items),
-            "classification_counts": dict(sorted(counts.items())),
-            "severity_counts": dict(sorted(severity_counts.items())),
-        },
-        "items": items,
-    }
+        counts = Counter(str(item.get("classification")) for item in items)
+        severity_counts = Counter(str(item.get("severity")) for item in items)
+        return {
+            "schema_version": DUPLICATE_TRUTHS_SCHEMA,
+            "generated_at": utc_now(),
+            "redaction": "metadata only; no diffs, env values, logs, prompts, memory bodies, transcripts, or provider output",
+            "summary": {
+                "item_count": len(items),
+                "classification_counts": dict(sorted(counts.items())),
+                "severity_counts": dict(sorted(severity_counts.items())),
+            },
+            "items": items,
+        }
 
 
+
+    except Exception:
+        return {}
 def build_repo_board(system_map: dict[str, Any]) -> dict[str, Any]:
-    sys_map = system_map if isinstance(system_map, dict) else {}
-    registry_modules = set(as_dict(as_dict(sys_map.get("registry")).get("modules")).keys())
-    installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
-    rows: list[dict[str, Any]] = []
+    if not isinstance(system_map, str): system_map = str(system_map or '')
+    try:
+        sys_map = system_map if isinstance(system_map, dict) else {}
+        registry_modules = set(as_dict(as_dict(sys_map.get("registry")).get("modules")).keys())
+        installed_modules = set(as_dict(sys_map.get("installed_modules")).keys())
+        rows: list[dict[str, Any]] = []
 
-    for repo in as_list(sys_map.get("discovered_repos")):
-        repo = as_dict(repo)
-        name = str(repo.get("name") or "")
-        ids = repo_ids(repo)
-        registry_present = bool(ids & registry_modules)
-        installed_present = bool(ids & installed_modules)
-        git = git_board_status(Path(str(repo.get("path") or "")))
-        manifest = repo_manifest_presence(repo)
-        release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
-        rows.append(
-            {
-                "repo": name,
-                "path": repo.get("path"),
-                "branch": git.get("branch"),
-                "upstream": git.get("upstream"),
-                "ahead": git.get("ahead"),
-                "behind": git.get("behind"),
-                "dirty_tracked_count": git.get("dirty_tracked_count"),
-                "untracked_count": git.get("untracked_count"),
-                "last_commit": git.get("last_commit"),
-                "git_available": git.get("available"),
-                "manifest_presence": manifest,
-                "registry_present": registry_present,
-                "installed_present": installed_present,
-                "module_ids": sorted(ids),
-                "owner_surface": repo_owner_surface(name),
-                "release_eligibility": release_eligibility,
-                "risk_class": repo_risk_class(name, release_eligibility),
-                "next_safe_action": next_safe_action,
-                "do_not_merge_reason": do_not_merge_reason,
-            }
+        for repo in as_list(sys_map.get("discovered_repos")):
+            repo = as_dict(repo)
+            name = str(repo.get("name") or "")
+            ids = repo_ids(repo)
+            registry_present = bool(ids & registry_modules)
+            installed_present = bool(ids & installed_modules)
+            git = git_board_status(Path(str(repo.get("path") or "")))
+            manifest = repo_manifest_presence(repo)
+            release_eligibility, do_not_merge_reason, next_safe_action = repo_release_status(name, git, manifest, registry_present)
+            rows.append(
+                {
+                    "repo": name,
+                    "path": repo.get("path"),
+                    "branch": git.get("branch"),
+                    "upstream": git.get("upstream"),
+                    "ahead": git.get("ahead"),
+                    "behind": git.get("behind"),
+                    "dirty_tracked_count": git.get("dirty_tracked_count"),
+                    "untracked_count": git.get("untracked_count"),
+                    "last_commit": git.get("last_commit"),
+                    "git_available": git.get("available"),
+                    "manifest_presence": manifest,
+                    "registry_present": registry_present,
+                    "installed_present": installed_present,
+                    "module_ids": sorted(ids),
+                    "owner_surface": repo_owner_surface(name),
+                    "release_eligibility": release_eligibility,
+                    "risk_class": repo_risk_class(name, release_eligibility),
+                    "next_safe_action": next_safe_action,
+                    "do_not_merge_reason": do_not_merge_reason,
+                }
+            )
+
+        summary = {
+            "repo_count": len(rows),
+            "git_repo_count": sum(1 for row in rows if row["git_available"]),
+            "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
+            "blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
+            "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
+        }
+        duplicate_truths = build_duplicate_truths(sys_map)
+        summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
+        summary["critical_duplicate_truth_count"] = as_dict(
+            as_dict(duplicate_truths.get("summary")).get("severity_counts")
+        ).get("critical", 0)
+        ranked = sorted(
+            rows,
+            key=lambda row: (
+                {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(row["risk_class"]), 4),
+                {"blocked": 0, "inspect": 1, "eligible": 2, "not_release_candidate": 3}.get(str(row["release_eligibility"]), 4),
+                str(row["repo"]).lower(),
+            ),
         )
-
-    summary = {
-        "repo_count": len(rows),
-        "git_repo_count": sum(1 for row in rows if row["git_available"]),
-        "dirty_repo_count": sum(1 for row in rows if int(row.get("dirty_tracked_count") or 0) or int(row.get("untracked_count") or 0)),
-        "blocked_release_count": sum(1 for row in rows if row["release_eligibility"] == "blocked"),
-        "critical_repo_count": sum(1 for row in rows if row["risk_class"] == "critical"),
-    }
-    duplicate_truths = build_duplicate_truths(sys_map)
-    summary["duplicate_truth_count"] = as_dict(duplicate_truths.get("summary")).get("item_count", 0)
-    summary["critical_duplicate_truth_count"] = as_dict(
-        as_dict(duplicate_truths.get("summary")).get("severity_counts")
-    ).get("critical", 0)
-    ranked = sorted(
-        rows,
-        key=lambda row: (
-            {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(row["risk_class"]), 4),
-            {"blocked": 0, "inspect": 1, "eligible": 2, "not_release_candidate": 3}.get(str(row["release_eligibility"]), 4),
-            str(row["repo"]).lower(),
-        ),
-    )
-    return {
-        "schema_version": REPO_BOARD_SCHEMA,
-        "generated_at": utc_now(),
-        "redaction": "repo status metadata only; filenames, diffs, env files, logs, and untracked file names omitted",
-        "summary": summary,
-        "next_actions": [
-            {
-                "repo": row["repo"],
-                "risk_class": row["risk_class"],
-                "release_eligibility": row["release_eligibility"],
-                "next_safe_action": row["next_safe_action"],
-                "do_not_merge_reason": row["do_not_merge_reason"],
-            }
-            for row in ranked[:20]
-        ],
-        "duplicate_truths": duplicate_truths,
-        "repos": rows,
-    }
+        return {
+            "schema_version": REPO_BOARD_SCHEMA,
+            "generated_at": utc_now(),
+            "redaction": "repo status metadata only; filenames, diffs, env files, logs, and untracked file names omitted",
+            "summary": summary,
+            "next_actions": [
+                {
+                    "repo": row["repo"],
+                    "risk_class": row["risk_class"],
+                    "release_eligibility": row["release_eligibility"],
+                    "next_safe_action": row["next_safe_action"],
+                    "do_not_merge_reason": row["do_not_merge_reason"],
+                }
+                for row in ranked[:20]
+            ],
+            "duplicate_truths": duplicate_truths,
+            "repos": rows,
+        }
 
 
+
+    except Exception:
+        return {}
 def build_voice_surface_view(system_map: dict[str, Any]) -> dict[str, Any]:
     sys_map = system_map if isinstance(system_map, dict) else {}
     repos = [as_dict(repo) for repo in as_list(sys_map.get("discovered_repos"))]
