@@ -20,6 +20,7 @@ Use this index as the entry point for R30 release prep.
 11. [R30 installer preparation checklist](./R30_INSTALLER_PREP_2026-06-27.md)
 12. [R30 public release note draft](./R30_RELEASE_NOTE_DRAFT_2026-06-27.md)
 13. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
+14. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
 
 ## Current Verdict
 
@@ -42,6 +43,7 @@ Current green proof:
 - Voice runtime truth is checked by the R30 gate so docs cannot claim duplex/green while compiled runtime truth is `egress` with a transcription blocker.
 - The Builder trace lifecycle decision is explicit and checked by the R30 gate.
 - The Access 5 Codex sandbox evidence is checked by the R30 gate across CLI transition proof, direct Spawner, PRD, and Telegram activation paths.
+- The Access Level 5 read-only elimination audit records the live invariant: lower-level Telegram chats may become operator only after effective `danger-full-access` service proof, Telegram runner writability proof, and default Codex launcher stale-env promotion proof.
 - R30 unattended identity setup smoke fails closed before writes.
 
 Current blockers:
