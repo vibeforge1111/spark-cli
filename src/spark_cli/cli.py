@@ -159,7 +159,7 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, and Telegram Level 5 full-permission proof onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, and the Level 5 full-permission audit doc onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
             "npm test -- --run tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
@@ -9019,10 +9019,10 @@ def collect_r30_handoff_manifest_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "4a0de9a43619caa9acfbd03756620c4737b7b30151d51005c8233adc9b1e926d",
-            "line_count": 87565,
+            "sha256": "f10def99dab7a46134a32ab48edff9a71f185dc31e39d570fab8e8eea0c5a36f",
+            "line_count": 87650,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "89d073b222eae9f5e65c6236dfbc01d689354f2d",
+            "expected_tree": "4319346ef30c1c5a985b6eb62c01ad124f089230",
             "publication_authority": False,
             "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
         },
@@ -9218,10 +9218,10 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "4a0de9a43619caa9acfbd03756620c4737b7b30151d51005c8233adc9b1e926d",
-            "line_count": 87565,
+            "sha256": "f10def99dab7a46134a32ab48edff9a71f185dc31e39d570fab8e8eea0c5a36f",
+            "line_count": 87650,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "89d073b222eae9f5e65c6236dfbc01d689354f2d",
+            "expected_tree": "4319346ef30c1c5a985b6eb62c01ad124f089230",
             "publication_authority": False,
             "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
         },
