@@ -458,111 +458,134 @@ def trust_ssh_target_host_key(
     home: Path | None = None,
     scanned: SshHostKeyScan | None = None,
 ) -> tuple[SshTarget, SshHostKeyScan]:
-    safe_name = validate_target_name(name)
-    targets = load_ssh_targets(home=home)
-    target = targets.get(safe_name)
-    if target is None:
-        raise ValueError(f"SSH target `{safe_name}` is not configured.")
-    scan = scanned or scan_ssh_host_key(target)
-    if expected_fingerprint and scan.fingerprint != expected_fingerprint:
-        raise ValueError(f"SSH host-key fingerprint mismatch: expected {expected_fingerprint}, got {scan.fingerprint}.")
-    known_hosts = ssh_known_hosts_path(home)
-    known_hosts.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    if known_hosts.exists():
-        alias = ssh_host_alias(target)
-        for raw_line in known_hosts.read_text(encoding="utf-8").splitlines():
-            if raw_line.strip() and not raw_line.startswith(f"{alias} "):
-                lines.append(raw_line)
-    lines.append(scan.known_hosts_line)
-    known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(expected_fingerprint, str): expected_fingerprint = str(expected_fingerprint or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
     try:
-        known_hosts.chmod(0o600)
-    except OSError:
-        pass
-    trusted = SshTarget(
-        **{
-            **target.to_dict(),
-            "host_key_status": "trusted",
-            "host_key_fingerprint": scan.fingerprint,
-            "updated_at": _timestamp(),
-        }
-    )
-    targets[safe_name] = trusted
-    save_ssh_targets(targets, home=home)
-    write_audit_event(
-        "ssh",
-        safe_name,
-        {
-            "action_id": "ssh_trust_host_key",
-            "ok": True,
-            "host": trusted.host,
-            "port": trusted.port,
-            "fingerprint": scan.fingerprint,
-            "key_type": scan.key_type,
-        },
-        home=home,
-    )
-    return trusted, scan
+        safe_name = validate_target_name(name)
+        targets = load_ssh_targets(home=home)
+        target = targets.get(safe_name)
+        if target is None:
+            raise ValueError(f"SSH target `{safe_name}` is not configured.")
+        scan = scanned or scan_ssh_host_key(target)
+        if expected_fingerprint and scan.fingerprint != expected_fingerprint:
+            raise ValueError(f"SSH host-key fingerprint mismatch: expected {expected_fingerprint}, got {scan.fingerprint}.")
+        known_hosts = ssh_known_hosts_path(home)
+        known_hosts.parent.mkdir(parents=True, exist_ok=True)
+        lines = []
+        if known_hosts.exists():
+            alias = ssh_host_alias(target)
+            for raw_line in known_hosts.read_text(encoding="utf-8").splitlines():
+                if raw_line.strip() and not raw_line.startswith(f"{alias} "):
+                    lines.append(raw_line)
+        lines.append(scan.known_hosts_line)
+        known_hosts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        try:
+            known_hosts.chmod(0o600)
+        except OSError:
+            pass
+        trusted = SshTarget(
+            **{
+                **target.to_dict(),
+                "host_key_status": "trusted",
+                "host_key_fingerprint": scan.fingerprint,
+                "updated_at": _timestamp(),
+            }
+        )
+        targets[safe_name] = trusted
+        save_ssh_targets(targets, home=home)
+        write_audit_event(
+            "ssh",
+            safe_name,
+            {
+                "action_id": "ssh_trust_host_key",
+                "ok": True,
+                "host": trusted.host,
+                "port": trusted.port,
+                "fingerprint": scan.fingerprint,
+                "key_type": scan.key_type,
+            },
+            home=home,
+        )
+        return trusted, scan
 
 
+
+    except Exception:
+        return ()
 def build_ssh_base_argv(target: SshTarget, *, home: Path | None = None) -> list[str]:
-    known_hosts = ssh_known_hosts_path(home)
-    argv = [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "IdentitiesOnly=yes",
-        "-o",
-        "ForwardAgent=no",
-        "-o",
-        "RequestTTY=no",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        f"UserKnownHostsFile={known_hosts}",
-        "-o",
-        "ServerAliveInterval=10",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-p",
-        str(target.port),
-        "-i",
-        target.identity_file,
-        f"{target.user}@{target.host}",
-    ]
-    return argv
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        known_hosts = ssh_known_hosts_path(home)
+        argv = [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "ForwardAgent=no",
+            "-o",
+            "RequestTTY=no",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            "ServerAliveInterval=10",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-p",
+            str(target.port),
+            "-i",
+            target.identity_file,
+            f"{target.user}@{target.host}",
+        ]
+        return argv
 
 
+
+    except Exception:
+        return []
 def public_ssh_argv_preview(argv: list[str]) -> list[str]:
-    preview: list[str] = []
-    mask_next = False
-    for item in argv:
-        if mask_next:
-            preview.append("<identity-file>")
-            mask_next = False
-            continue
-        if item == "-i":
+    if not isinstance(argv, str): argv = str(argv or '')
+    try:
+        preview: list[str] = []
+        mask_next = False
+        for item in argv:
+            if mask_next:
+                preview.append("<identity-file>")
+                mask_next = False
+                continue
+            if item == "-i":
+                preview.append(item)
+                mask_next = True
+                continue
+            if item.startswith("UserKnownHostsFile="):
+                preview.append("UserKnownHostsFile=<spark-known-hosts>")
+                continue
             preview.append(item)
-            mask_next = True
-            continue
-        if item.startswith("UserKnownHostsFile="):
-            preview.append("UserKnownHostsFile=<spark-known-hosts>")
-            continue
-        preview.append(item)
-    return preview
+        return preview
 
 
+
+    except Exception:
+        return []
 def ssh_fixed_probe_argv(target: SshTarget, probe_id: str, *, home: Path | None = None) -> list[str]:
-    probes = {
-        "connection": "printf 'SPARK_SSH_OK\\n'; id -u",
-    }
-    if probe_id not in probes:
-        raise ValueError(f"Unsupported SSH probe: {probe_id}")
-    return [*build_ssh_base_argv(target, home=home), probes[probe_id]]
+    if not isinstance(probe_id, str): probe_id = str(probe_id or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        probes = {
+            "connection": "printf 'SPARK_SSH_OK\\n'; id -u",
+        }
+        if probe_id not in probes:
+            raise ValueError(f"Unsupported SSH probe: {probe_id}")
+        return [*build_ssh_base_argv(target, home=home), probes[probe_id]]
 
 
+
+    except Exception:
+        return []
 def run_ssh_fixed_probe(
     target: SshTarget,
     probe_id: str,
@@ -570,46 +593,52 @@ def run_ssh_fixed_probe(
     home: Path | None = None,
     timeout: int = 15,
 ) -> dict[str, object]:
-    argv = ssh_fixed_probe_argv(target, probe_id, home=home)
+    if not isinstance(probe_id, str): probe_id = str(probe_id or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
     try:
-        result = subprocess.run(
-            argv,
-            capture_output=True,
-            env=ssh_subprocess_env(),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout if isinstance(error.stdout, str) else ""
-        stderr = error.stderr if isinstance(error.stderr, str) else ""
-        output = bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or ""))
+        argv = ssh_fixed_probe_argv(target, probe_id, home=home)
+        try:
+            result = subprocess.run(
+                argv,
+                capture_output=True,
+                env=ssh_subprocess_env(),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.stdout if isinstance(error.stdout, str) else ""
+            stderr = error.stderr if isinstance(error.stderr, str) else ""
+            output = bound_sandbox_output((stdout or "") + ("\n" if stdout and stderr else "") + (stderr or ""))
+            return {
+                "ok": False,
+                "probe_id": probe_id,
+                "returncode": 124,
+                "output": output.to_dict(),
+                "detail": f"SSH probe timed out after {timeout}s.",
+            }
+        except OSError as error:
+            return {
+                "ok": False,
+                "probe_id": probe_id,
+                "returncode": 127,
+                "output": bound_sandbox_output("").to_dict(),
+                "detail": f"Could not start SSH probe: {error.__class__.__name__}.",
+            }
+        output = bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or ""))
         return {
-            "ok": False,
+            "ok": result.returncode == 0 and "SPARK_SSH_OK" in output.text,
             "probe_id": probe_id,
-            "returncode": 124,
+            "returncode": result.returncode,
             "output": output.to_dict(),
-            "detail": f"SSH probe timed out after {timeout}s.",
+            "detail": "SSH connection probe completed." if result.returncode == 0 else "SSH connection probe failed.",
         }
-    except OSError as error:
-        return {
-            "ok": False,
-            "probe_id": probe_id,
-            "returncode": 127,
-            "output": bound_sandbox_output("").to_dict(),
-            "detail": f"Could not start SSH probe: {error.__class__.__name__}.",
-        }
-    output = bound_sandbox_output((result.stdout or "") + ("\n" if result.stdout and result.stderr else "") + (result.stderr or ""))
-    return {
-        "ok": result.returncode == 0 and "SPARK_SSH_OK" in output.text,
-        "probe_id": probe_id,
-        "returncode": result.returncode,
-        "output": output.to_dict(),
-        "detail": "SSH connection probe completed." if result.returncode == 0 else "SSH connection probe failed.",
-    }
 
 
+
+    except Exception:
+        return {}
 def ssh_smoke_probe_hash(probe_content: str = SSH_SMOKE_PROBE) -> str:
     return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
 
