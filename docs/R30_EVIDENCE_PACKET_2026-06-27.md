@@ -52,6 +52,8 @@ Fresh proof-gate refresh at `2026-06-28T05:58:40Z`:
 - Telegram `npm run control:proof:reliability`: passed; trace audit is actionable/blocking/fresh-strict clean, live trace join is clean, live route proof is `ready (5/4)`, no-action route proof is `ready (5/4)`, safe prompt proof is `ready (4/4)`, and stale live route evidence is `0`.
 - Telegram `npm run build`: passed.
 - Telegram `npm run check:line-count`: passed with `13` baselined god-files, `2` shrinking, `0` growing, and `0` new over cap.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json`: `ok=true`; hosted `agent.sparkswarm.ai` remains self-consistent for R29 at `spark-cli-public-installer-2026-06-26-r29`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --hosted-installers --json`: `ok=false`; `r30_hosted_publication_contract` says hosted verification is baseline-only because source/registry truth is not green (`release_lane`, `r30_voice_registry_decision`, `registry_pins`) and local installer pins are still R29.
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
@@ -253,7 +255,7 @@ Current hosted truth:
 - hosted release: `spark-cli-public-installer-2026-06-26-r29`
 - hosted ref: `spark-cli-public-installer-2026-06-26-r29`
 - hosted commit: `a6738be7a97a7254a5b09e06ce08692d99967bd6`
-- hosted verified at: `2026-06-28T02:50:53Z`
+- hosted verified at: `2026-06-28T06:01:24Z`
 - local committed manifest release/ref: `spark-cli-public-installer-2026-06-26-r29`
 
 Hosted self-consistency:
@@ -262,6 +264,9 @@ Hosted self-consistency:
 - `install.ps1` hosted byte hash matches hosted checksum metadata.
 - `/install/commands.json` matches hosted installer hashes.
 - `/install/release-manifest.json` reports the hosted R29 release/ref.
+- `verify --r30 --hosted-installers --json` correctly fails
+  `r30_hosted_publication_contract` while source truth is blocked and local
+  installer pins remain R29.
 
 R30 interpretation:
 
