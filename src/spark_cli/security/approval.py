@@ -58,60 +58,89 @@ def _digest_command(argv: list[str]) -> str:
 
 
 def _lower_parts(argv: list[str]) -> list[str]:
-    argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
-    return [str(part or "").lower() for part in argv_list]
+    if not isinstance(argv, str): argv = str(argv or '')
+    try:
+        argv_list = argv if isinstance(argv, list) else list(argv) if isinstance(argv, (tuple, set)) else []
+        return [str(part or "").lower() for part in argv_list]
 
 
+
+    except Exception:
+        return []
 def _contains_any(parts: list[str], values: set[str]) -> bool:
-    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
-    values_set = values if isinstance(values, set) else set(values) if isinstance(values, (list, tuple)) else set()
-    lowered_parts = {str(p or "").lower() for p in parts_list}
-    lowered_values = {str(v or "").lower() for v in values_set}
-    return bool(lowered_parts & lowered_values)
+    if not isinstance(parts, str): parts = str(parts or '')
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+        values_set = values if isinstance(values, set) else set(values) if isinstance(values, (list, tuple)) else set()
+        lowered_parts = {str(p or "").lower() for p in parts_list}
+        lowered_values = {str(v or "").lower() for v in values_set}
+        return bool(lowered_parts & lowered_values)
 
 
+
+    except Exception:
+        return False
 def _target_after(parts: list[str], command_names: set[str]) -> str:
-    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
-    cmd_names = {str(cmd or "").lower() for cmd in (command_names if isinstance(command_names, set) else set(command_names or []))}
-    for index, part in enumerate(parts_list):
-        part_str = str(part or "").lower()
-        if part_str in cmd_names and index + 1 < len(parts_list):
-            for candidate in parts_list[index + 1 :]:
-                candidate_str = str(candidate or "")
-                if not candidate_str.startswith("-"):
-                    return candidate_str
-    return ""
+    if not isinstance(parts, str): parts = str(parts or '')
+    if not isinstance(command_names, str): command_names = str(command_names or '')
+    try:
+        parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+        cmd_names = {str(cmd or "").lower() for cmd in (command_names if isinstance(command_names, set) else set(command_names or []))}
+        for index, part in enumerate(parts_list):
+            part_str = str(part or "").lower()
+            if part_str in cmd_names and index + 1 < len(parts_list):
+                for candidate in parts_list[index + 1 :]:
+                    candidate_str = str(candidate or "")
+                    if not candidate_str.startswith("-"):
+                        return candidate_str
+        return ""
 
 
+
+    except Exception:
+        return ""
 def _has_option_value(parts: list[str], option_names: set[str], suspicious_values: set[str]) -> bool:
-    parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
-    lowered = _lower_parts(parts_list)
-    opt_names = {str(opt or "").lower() for opt in (option_names if isinstance(option_names, set) else set(option_names or []))}
-    susp_vals = {str(susp or "").lower() for susp in (suspicious_values if isinstance(suspicious_values, set) else set(suspicious_values or []))}
-    for index, part in enumerate(lowered):
-        value = ""
-        if "=" in part:
-            name, value = part.split("=", 1)
-            if name not in opt_names:
+    if not isinstance(parts, str): parts = str(parts or '')
+    if not isinstance(option_names, str): option_names = str(option_names or '')
+    if not isinstance(suspicious_values, str): suspicious_values = str(suspicious_values or '')
+    try:
+        parts_list = parts if isinstance(parts, list) else list(parts) if isinstance(parts, (tuple, set)) else []
+        lowered = _lower_parts(parts_list)
+        opt_names = {str(opt or "").lower() for opt in (option_names if isinstance(option_names, set) else set(option_names or []))}
+        susp_vals = {str(susp or "").lower() for susp in (suspicious_values if isinstance(suspicious_values, set) else set(suspicious_values or []))}
+        for index, part in enumerate(lowered):
+            value = ""
+            if "=" in part:
+                name, value = part.split("=", 1)
+                if name not in opt_names:
+                    continue
+            elif part in opt_names and index + 1 < len(lowered):
+                value = lowered[index + 1]
+            else:
                 continue
-        elif part in opt_names and index + 1 < len(lowered):
-            value = lowered[index + 1]
-        else:
-            continue
-        normalized = value.replace("\\", "/").rstrip("/")
-        if (
-            normalized in susp_vals
-            or any(normalized.startswith(item.rstrip("/") + "/") for item in susp_vals)
-            or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in susp_vals)
-        ):
-            return True
-    return False
+            normalized = value.replace("\\", "/").rstrip("/")
+            if (
+                normalized in susp_vals
+                or any(normalized.startswith(item.rstrip("/") + "/") for item in susp_vals)
+                or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in susp_vals)
+            ):
+                return True
+        return False
 
 
+
+    except Exception:
+        return False
 def _is_env_assignment(value: str) -> bool:
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", str(value or "")))
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", str(value or "")))
 
 
+
+    except Exception:
+        return False
 def _decision(
     argv: list[str],
     context: CommandContext,
