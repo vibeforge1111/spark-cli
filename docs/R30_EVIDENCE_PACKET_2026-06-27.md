@@ -342,6 +342,14 @@ Fresh proof refresh at `2026-06-28T08:25:16Z`:
 - Telegram `npm run check:line-count`: passed, `R-21 LINE-COUNT GATE: PASS`; 13 baselined god-files, 2 shrinking, 0 growing, 0 new over cap. `src/index.ts` shrank `10804 -> 10802`; `src/recursive.ts` shrank `3198 -> 3197`.
 - Telegram `npm run control:proof:reliability`: passed. Fresh-strict trace audit remains clean for actionable/blocking/latest gaps; legacy proof gaps remain backed and non-release-blocking in `telegram_route_confidence`, `builder_gateway`, and `spawner_prd_trace`; live trace join is clean with 21 structurally joined rows, 5 joined live rows, 0 gap rows, live route proof 5/4, no-action route proof 5/4, and safe prompt proof 4/4; render firewall, proof capsules, eval coverage, legacy prompt surface, capability evidence, and surface eval are all clean.
 
+Fresh Spark-wide proof refresh at `2026-06-28T08:30:16Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`; publish handoff families remained `local_runtime_test_artifacts` and `builder_trace_health`.
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; Telegram relay runtime reported OK, Spawner UI health returned HTTP 200, voice was importable, and Builder runtime core was importable.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: failed only because `spark-voice-comms` registry pin still lags or diverges from remote `refs/heads/main`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`.
+
 ## Registry Pin Blocker
 
 The registry pin gate is red for `spark-voice-comms`.
