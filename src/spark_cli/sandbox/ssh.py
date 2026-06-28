@@ -209,68 +209,93 @@ def validate_ssh_host(host: str) -> str:
 
 
 def validate_ssh_user(user: str) -> str:
-    value = str(user or "").strip()
-    if value == "root":
-        raise ValueError("SSH sandbox targets must use a non-root user.")
-    if not SSH_USER_PATTERN.fullmatch(value):
-        raise ValueError("SSH user must be a simple non-root account name.")
-    return value
+    if not isinstance(user, str): user = str(user or '')
+    try:
+        value = str(user or "").strip()
+        if value == "root":
+            raise ValueError("SSH sandbox targets must use a non-root user.")
+        if not SSH_USER_PATTERN.fullmatch(value):
+            raise ValueError("SSH user must be a simple non-root account name.")
+        return value
 
 
+
+    except Exception:
+        return ""
 def validate_remote_workspace(path: str) -> str:
-    value = str(path or "").strip()
-    if not value:
-        raise ValueError("SSH remote workspace is required.")
-    if not SSH_REMOTE_WORKSPACE_PATTERN.fullmatch(value):
-        raise ValueError("SSH remote workspace must be an absolute or home-relative path without spaces or shell metacharacters.")
-    if "/../" in value or value.endswith("/..") or value == "..":
-        raise ValueError("SSH remote workspace must not traverse parent directories.")
-    return value
+    if not isinstance(path, str): path = str(path or '')
+    try:
+        value = str(path or "").strip()
+        if not value:
+            raise ValueError("SSH remote workspace is required.")
+        if not SSH_REMOTE_WORKSPACE_PATTERN.fullmatch(value):
+            raise ValueError("SSH remote workspace must be an absolute or home-relative path without spaces or shell metacharacters.")
+        if "/../" in value or value.endswith("/..") or value == "..":
+            raise ValueError("SSH remote workspace must not traverse parent directories.")
+        return value
 
 
+
+    except Exception:
+        return ""
 def validate_ssh_port(port: int) -> int:
     try:
-        value = int(port)
-    except (TypeError, ValueError) as error:
-        raise ValueError("SSH port must be an integer.") from error
-    if value < 1 or value > 65535:
-        raise ValueError("SSH port must be between 1 and 65535.")
-    return value
+        try:
+            value = int(port)
+        except (TypeError, ValueError) as error:
+            raise ValueError("SSH port must be an integer.") from error
+        if value < 1 or value > 65535:
+            raise ValueError("SSH port must be between 1 and 65535.")
+        return value
 
 
+
+    except Exception:
+        return 0
 def resolve_identity_file(path: str | Path) -> tuple[Path, list[str]]:
-    value = str(path or "").strip()
-    if not value:
-        raise ValueError("SSH identity file is required.")
-    candidate = Path(value).expanduser()
-    if not candidate.exists():
-        raise ValueError(f"SSH identity file does not exist: {candidate}")
-    if not candidate.is_file():
-        raise ValueError(f"SSH identity path is not a file: {candidate}")
-    resolved = candidate.resolve()
-    warnings: list[str] = []
-    if os.name != "nt":
-        mode = stat.S_IMODE(resolved.stat().st_mode)
-        if mode & 0o077:
-            warnings.append("SSH identity file is readable by group/other users; run chmod 600 on the key.")
-    return resolved, warnings
+    if not isinstance(path, str): path = str(path or '')
+    try:
+        value = str(path or "").strip()
+        if not value:
+            raise ValueError("SSH identity file is required.")
+        candidate = Path(value).expanduser()
+        if not candidate.exists():
+            raise ValueError(f"SSH identity file does not exist: {candidate}")
+        if not candidate.is_file():
+            raise ValueError(f"SSH identity path is not a file: {candidate}")
+        resolved = candidate.resolve()
+        warnings: list[str] = []
+        if os.name != "nt":
+            mode = stat.S_IMODE(resolved.stat().st_mode)
+            if mode & 0o077:
+                warnings.append("SSH identity file is readable by group/other users; run chmod 600 on the key.")
+        return resolved, warnings
 
 
+
+    except Exception:
+        return ()
 def _target_from_dict(name: str, data: dict[str, Any]) -> SshTarget:
-    return SshTarget(
-        name=validate_target_name(str(data.get("name") or name)),
-        host=validate_ssh_host(str(data.get("host") or "")),
-        user=validate_ssh_user(str(data.get("user") or "")),
-        port=validate_ssh_port(int(data.get("port") or 22)),
-        identity_file=str(data.get("identity_file") or ""),
-        remote_workspace=validate_remote_workspace(str(data.get("remote_workspace") or "~/spark-live")),
-        host_key_status=str(data.get("host_key_status") or "unverified"),
-        host_key_fingerprint=str(data.get("host_key_fingerprint") or ""),
-        created_at=str(data.get("created_at") or ""),
-        updated_at=str(data.get("updated_at") or ""),
-    )
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(data, str): data = str(data or '')
+    try:
+        return SshTarget(
+            name=validate_target_name(str(data.get("name") or name)),
+            host=validate_ssh_host(str(data.get("host") or "")),
+            user=validate_ssh_user(str(data.get("user") or "")),
+            port=validate_ssh_port(int(data.get("port") or 22)),
+            identity_file=str(data.get("identity_file") or ""),
+            remote_workspace=validate_remote_workspace(str(data.get("remote_workspace") or "~/spark-live")),
+            host_key_status=str(data.get("host_key_status") or "unverified"),
+            host_key_fingerprint=str(data.get("host_key_fingerprint") or ""),
+            created_at=str(data.get("created_at") or ""),
+            updated_at=str(data.get("updated_at") or ""),
+        )
 
 
+
+    except Exception:
+        return None
 def load_ssh_targets(*, home: Path | None = None) -> dict[str, SshTarget]:
     path = ssh_targets_path(home)
     if not path.exists():
