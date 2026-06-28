@@ -120,6 +120,25 @@ R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
+R30_REQUIRED_DOCS = [
+    "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
+    "docs/R30_RELEASE_PLAN_2026-06-27.md",
+    "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+    "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+    "docs/R30_OWNER_CONVERGENCE_QUEUE_2026-06-28.md",
+    "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+    "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+    "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
+    "docs/R30_INSTALLER_PREP_2026-06-27.md",
+    "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+    "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
+    "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
+    "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
+    "docs/R30_GOAL_PROMPT_2026-06-27.md",
+]
 R30_VOICE_REPO_URL = "https://github.com/vibeforge1111/spark-voice-comms"
 R30_OWNER_REF_AUDIT_SOURCES = {
     "domain-chip-memory": {
@@ -10098,6 +10117,21 @@ def collect_r30_unattended_identity_guard_status(
             temp_context.cleanup()
 
 
+def collect_r30_docs_status(*, repo_root: Path | None = None) -> dict[str, Any]:
+    root = repo_root or REPO_ROOT
+    missing = [path for path in R30_REQUIRED_DOCS if not (root / path).exists()]
+    return {
+        "ok": not missing,
+        "detail": (
+            "R30 documentation packet is present."
+            if not missing
+            else f"Missing R30 docs: {', '.join(missing)}."
+        ),
+        "required_docs": list(R30_REQUIRED_DOCS),
+        "missing": missing,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -10206,29 +10240,16 @@ def collect_r30_release_gate_payload(
         if not source_truth_ready and installer_pins_are_r30
         else "Source/registry truth is green, but installer pins have not been advanced to R30."
     )
-    docs = [
-        "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
-        "docs/R30_RELEASE_PLAN_2026-06-27.md",
-        "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
-        "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
-        "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
-        "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
-        "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
-        "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
-        "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
-        "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
-        "docs/R30_INSTALLER_PREP_2026-06-27.md",
-        "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
-        "docs/R30_GOAL_PROMPT_2026-06-27.md",
-    ]
-    missing_docs = [path for path in docs if not (REPO_ROOT / path).exists()]
+    r30_docs = collect_r30_docs_status()
+    missing_docs = list(r30_docs.get("missing") or [])
     handoff_families = list(publish_handoffs.get("families") or [])
 
     checks = [
         {
             "name": "r30_docs",
-            "ok": not missing_docs,
-            "detail": "R30 documentation packet is present." if not missing_docs else f"Missing R30 docs: {', '.join(missing_docs)}.",
+            "ok": bool(r30_docs.get("ok")),
+            "detail": r30_docs.get("detail", "R30 documentation packet"),
+            "required_docs": r30_docs.get("required_docs", []),
             "missing": missing_docs,
         },
         {

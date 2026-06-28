@@ -46,6 +46,7 @@ from spark_cli.cli import (
     collect_harness_vendor_integrity_payload,
     collect_r30_access_level5_codex_sandbox_status,
     collect_r30_builder_trace_lifecycle_status,
+    collect_r30_docs_status,
     collect_r30_live_status_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
@@ -69,6 +70,7 @@ from spark_cli.cli import (
     collect_llm_doctor_context,
     collect_telegram_fix_payload,
     collect_verify_payload,
+    R30_REQUIRED_DOCS,
     configure_telegram_profile,
     cmd_config_get,
     cmd_list,
@@ -13160,6 +13162,35 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(checks["publication_order"]["installer_pins_are_r30"])
         self.assertFalse(checks["r30_installer_pins"]["ok"])
         self.assertIn("spark-cli-public-installer-2026-06-26-r29", checks["r30_installer_pins"]["detail"])
+
+    def test_r30_docs_status_requires_stability_and_dcl_handoff_docs(self) -> None:
+        expected_docs = {
+            "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+            "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
+            "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
+        }
+        self.assertTrue(expected_docs.issubset(set(R30_REQUIRED_DOCS)))
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            for doc in R30_REQUIRED_DOCS:
+                path = root / doc
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if doc != "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md":
+                    path.write_text("placeholder\n", encoding="utf-8")
+
+            missing = collect_r30_docs_status(repo_root=root)
+            (root / "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md").write_text(
+                "placeholder\n",
+                encoding="utf-8",
+            )
+            fresh = collect_r30_docs_status(repo_root=root)
+
+        self.assertFalse(missing["ok"])
+        self.assertEqual(
+            missing["missing"],
+            ["docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md"],
+        )
+        self.assertTrue(fresh["ok"])
 
     def test_r30_release_gate_blocks_premature_r30_installer_pins(self) -> None:
         compiled = {
