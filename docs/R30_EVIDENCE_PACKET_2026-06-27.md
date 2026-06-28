@@ -42,6 +42,17 @@ Fresh access/full-permission refresh at `2026-06-28T05:46:02Z`:
 - Telegram `npm run build` passed; Spawner `npm run build` passed.
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` remains honestly red only for `release_lane`, `r30_voice_registry_decision`, `registry_pins`, and pre-R30 installer pins.
 
+Fresh proof-gate refresh at `2026-06-28T05:58:40Z`:
+
+- `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`, `voice_surface_mode=egress`, and `voice_surface_blockers=1`.
+- `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: `ok=false`; the only failing module remains `spark-voice-comms`, with registry pin `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` lagging `refs/heads/main` at `c74490d68ece65ffad21dc5b88f44602e1afa703`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json`: `ok=true`.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json`: `ok=true`.
+- Telegram `npm run control:proof:reliability`: passed; trace audit is actionable/blocking/fresh-strict clean, live trace join is clean, live route proof is `ready (5/4)`, no-action route proof is `ready (5/4)`, safe prompt proof is `ready (4/4)`, and stale live route evidence is `0`.
+- Telegram `npm run build`: passed.
+- Telegram `npm run check:line-count`: passed with `13` baselined god-files, `2` shrinking, `0` growing, and `0` new over cap.
+
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` | FAIL | Executable R30 gate is present and honest. Passing checks: R30 docs, OS compile, live status, publish-handoff classification, owner/local handoff docs, voice runtime truth, Access 5 sandbox evidence, unattended identity guard, local installer integrity, and publication order. Source-truth blockers are exactly `release_lane`, `r30_voice_registry_decision`, and `registry_pins`; installer pins intentionally remain pre-R30. |
@@ -59,20 +70,22 @@ Fresh access/full-permission refresh at `2026-06-28T05:46:02Z`:
 
 ## Spark OS Compile Details
 
-Latest CLI proof refresh: `2026-06-28T04:37:39Z`; Spark OS compile was re-run during the same proof sweep.
+Latest CLI proof refresh: `2026-06-28T05:58:40Z`; Spark OS compile was re-run during the same proof sweep.
 
 Important fields:
 
 - `ok=true`
 - `gaps=0`
-- `dirty_repo_count=0`
-- `blocked_release_count=0`
-- `duplicate_truth_count=2`
-- `critical_duplicate_truth_count=0`
 - `voice_surface_mode=egress`
 - `voice_surface_blockers=1`
 - `voice_surface_blocker`: voice transcription is not ready
 - `requires_confirmation_for_actions=true`
+
+The broad release-lane dirty/supporting counts are proven by
+`PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`, not by the
+top-level Spark OS compile payload. The latest clean-tree R30 gate reports `0`
+dirty release repos, `5` direct R30 release-lane issues, and `0` supporting
+hygiene rows.
 
 Publish handoff families:
 
