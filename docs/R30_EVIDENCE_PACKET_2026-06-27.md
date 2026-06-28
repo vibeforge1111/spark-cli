@@ -119,6 +119,12 @@ Fresh voice owner-lane proof at `2026-06-28T04:41:25Z`; remote owner refs were r
 - Remote audit at `2026-06-28T04:41:25Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 - Executable remote-ref audit at `2026-06-28T03:50:55Z` passed inside `verify --r30`: `refs/heads/main` and `refs/tags/spark-ship-2026-06-26` still resolve to `c74490d68ece65ffad21dc5b88f44602e1afa703`, `refs/heads/codex/turnintent-voice-policy-20260531` still resolves to `12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4`, and `refs/heads/release/r30-voice-trace-governor` is still absent.
 
+Fresh Builder/Spawner handoff verifier result at `2026-06-28T05:06:40Z`:
+
+- `spark-intelligence-builder` local proof head is now `ca21e183c6c04a658260b218e22fad7b67e02cc7`; regenerated `docs/r30/patches/r30-builder-trace-proof-stack.patch` has SHA256 `48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d` and applies to owner base `c94eac853fed935ac09bed1c56912968f3365c14`, producing tree `a9aedb619481ffc9fa22d6289e82df47400948cf`. Builder proof passed: `208 passed, 26 subtests passed`.
+- `spawner-ui` local proof head is now `7b31391560a4f7b14fe2983514a61e623b77266e`; regenerated `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `041f0c1026b94d008d4aef577ff687c8ed906476f575654c88fa24ce64b1ce34` and applies to owner base `fdb8fded47447417dbf146130bddd0967e1f6bc0`, producing tree `5c67da065bc1eedd1d4f95c35b9e2fa3839789fb`. Spawner focused proof passed: `61 passed`.
+- Clean `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` after commit `caabb4a` still reports `ok=false`, by design, with `source_truth_blockers=["release_lane","r30_voice_registry_decision","registry_pins"]`. `owner_handoff_manifest`, `r30_owner_handoff_patch_apply`, `r30_access_level5_codex_sandbox`, and `publication_order` are green; `release_lane` reports `0` dirty release repos and `5` direct R30 blockers.
+
 Executable owner-handoff patch apply verification at `2026-06-28T03:42:45Z`:
 
 - `domain-chip-memory`, `spark-intelligence-builder`, `spark-telegram-bot`,
