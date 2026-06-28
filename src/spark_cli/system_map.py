@@ -4055,409 +4055,435 @@ def trace_repair_owner(component: str) -> dict[str, str]:
 
 
 def build_trace_current_health(trace_index: dict[str, Any]) -> dict[str, Any]:
-    trace_idx = trace_index if isinstance(trace_index, dict) else {}
-    trace_health = as_dict(trace_idx.get("builder_trace_health"))
-    recent_windows = [as_dict(row) for row in as_list(trace_health.get("recent_windows"))]
-    total_missing = int(trace_health.get("missing_trace_ref_count") or 0)
-    current_window = next(
-        (
-            row
-            for label in ("1h", "24h")
-            for row in recent_windows
-            if row.get("window") == label and int(row.get("row_count") or 0)
-        ),
-        None,
-    )
-    if current_window is None and recent_windows:
-        current_window = recent_windows[0]
-
-    if not current_window:
-        status = "unknown"
-        row_count = 0
-        missing_count = 0
-        ratio = 0.0
-        window = "unknown"
-    else:
-        window = str(current_window.get("window") or "unknown")
-        row_count = int(current_window.get("row_count") or 0)
-        missing_count = int(current_window.get("missing_trace_ref_count") or 0)
-        ratio = float(current_window.get("missing_trace_ref_ratio") or 0.0)
-        if row_count and missing_count:
-            status = "current_missing_trace_refs"
-        elif row_count and total_missing:
-            status = "current_clean_historical_backlog"
-        elif row_count:
-            status = "current_clean"
-        elif total_missing:
-            status = "no_recent_events_historical_backlog"
-        else:
-            status = "clean"
-
-    return {
-        "schema_version": "spark.trace_current_health.v0",
-        "status": status,
-        "window": window,
-        "row_count": row_count,
-        "missing_trace_ref_count": missing_count,
-        "missing_trace_ref_ratio": ratio,
-        "total_missing_trace_ref_count": total_missing,
-        "historical_missing_trace_ref_count": max(total_missing - missing_count, 0),
-        "repair_scope": (
-            "current"
-            if status == "current_missing_trace_refs"
-            else "historical_backlog"
-            if status in {"current_clean_historical_backlog", "no_recent_events_historical_backlog"}
-            else status
-        ),
-        "redaction": "aggregate recency metadata only; no raw event text or identifiers",
-    }
-
-
-def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]]:
-    trace_idx = trace_index if isinstance(trace_index, dict) else {}
-    queue: list[dict[str, Any]] = []
-    trace_health = as_dict(trace_idx.get("builder_trace_health"))
-    current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
-    historical_scope = str(current_health.get("repair_scope") or "") == "historical_backlog"
-    telegram_gate = as_dict(trace_idx.get("telegram_final_answer_gate_samples"))
-    telegram_join = as_dict(telegram_gate.get("trace_join"))
-    spawner = as_dict(trace_idx.get("spawner_prd_auto_trace_samples"))
-    spawner_join = as_dict(spawner.get("join_keys"))
-    spawner_request_overlap = as_dict(spawner.get("builder_request_overlap"))
-    spawner_trace_overlap = as_dict(spawner.get("builder_trace_ref_overlap"))
-
-    if telegram_gate.get("exists") and telegram_join.get("status") != "join_key_present":
-        queue.append(
-            {
-                "id": "telegram-final-answer-missing-join-key",
-                "priority": "critical",
-                "rank_reason": "blocks Telegram -> Builder trace joins",
-                "owner_repo": "spark-telegram-bot",
-                "source_module": "final-answer gate audit producer",
-                "event_producer_family": "telegram_final_answer_gate",
-                "missing_field": "request_id_or_trace_ref",
-                "observed_event_count": int(telegram_gate.get("parsed_count") or 0),
-                "safe_fix": "Emit request_id or trace_ref metadata with final-answer gate checks.",
-                "verification_command": "spark os trace --json",
-            }
+    if not isinstance(trace_index, str): trace_index = str(trace_index or '')
+    try:
+        trace_idx = trace_index if isinstance(trace_index, dict) else {}
+        trace_health = as_dict(trace_idx.get("builder_trace_health"))
+        recent_windows = [as_dict(row) for row in as_list(trace_health.get("recent_windows"))]
+        total_missing = int(trace_health.get("missing_trace_ref_count") or 0)
+        current_window = next(
+            (
+                row
+                for label in ("1h", "24h")
+                for row in recent_windows
+                if row.get("window") == label and int(row.get("row_count") or 0)
+            ),
+            None,
         )
+        if current_window is None and recent_windows:
+            current_window = recent_windows[0]
 
-    spawner_request_count = int(spawner_join.get("request_id_count") or 0)
-    spawner_overlap_count = int(spawner_request_overlap.get("matched_builder_request_id_count") or 0)
-    spawner_trace_overlap_count = int(spawner_trace_overlap.get("matched_builder_trace_ref_count") or 0)
-    if spawner_request_count and not (spawner_overlap_count or spawner_trace_overlap_count):
-        queue.append(
-            {
-                "id": "spawner-builder-missing-shared-trace",
-                "priority": "critical",
-                "rank_reason": "blocks Builder -> Spawner mission reconstruction",
-                "owner_repo": "spawner-ui",
-                "source_module": "PRD auto trace / Builder mission bridge",
-                "event_producer_family": "spawner_prd_auto_trace",
-                "missing_field": "shared_request_id_or_trace_ref",
-                "observed_event_count": spawner_request_count,
-                "safe_fix": "Write the Builder request id or derived trace ref into Spawner mission events and Builder mission events.",
-                "verification_command": "spark os trace --json",
-            }
-        )
-
-    rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
-    for row in rows[:10]:
-        row = as_dict(row)
-        component = str(row.get("component") or "unknown")
-        event_type = str(row.get("event_type") or "unknown")
-        owner = trace_repair_owner(component)
-        rank_reason = "largest Builder producer bucket missing trace_ref"
-        safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
-        temporal_state = str(row.get("repair_temporal_state") or "")
-        latest_clean = temporal_state in {"latest_clean", "latest_clean_historical_window_debt"}
-        stale_missing = temporal_state == "stale_missing_trace_ref"
-        if latest_clean:
-            rank_reason = "latest Builder row for this producer carries trace_ref; older rows remain in the aggregate window"
-            safe_fix = "Watch for new missing-trace rows; no source patch is needed unless the producer regresses."
-        elif stale_missing:
-            rank_reason = "historical Builder producer bucket has no recent rows; latest known row predates the active window"
-            safe_fix = "Reproduce the producer before patching; this may be stale backlog rather than current runtime behavior."
-        elif historical_scope:
-            rank_reason = "historical Builder backlog missing trace_ref; recent trace window is clean"
-            safe_fix = (
-                "Verify whether this historical bucket still reproduces; new traffic may already carry trace refs."
-            )
-        queue.append(
-            {
-                "id": trace_repair_id("builder", component, event_type, "missing-trace-ref"),
-                "priority": "medium" if historical_scope or latest_clean or stale_missing else "high",
-                "rank_reason": rank_reason,
-                "owner_repo": owner.get("owner_repo"),
-                "source_module": owner.get("source_module"),
-                "event_producer_family": component,
-                "event_type": event_type,
-                "missing_field": "trace_ref",
-                "observed_event_count": int(row.get("event_count") or 0),
-                "temporal_scope": temporal_state or ("historical_backlog" if historical_scope else "current_or_unknown"),
-                "latest_event_trace_state": row.get("latest_event_trace_state"),
-                "latest_event_trace_ref_present": bool(row.get("latest_event_trace_ref_present")),
-                "latest_event_request_id_present": bool(row.get("latest_event_request_id_present")),
-                "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
-                "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
-                "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "current_health_status": current_health.get("status"),
-                "current_window": current_health.get("window"),
-                "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
-                "safe_fix": safe_fix,
-                "verification_command": "spark os trace --json",
-            }
-        )
-
-    high_open_count = int(trace_health.get("high_severity_open_count") or 0)
-    if high_open_count:
-        queue.append(
-            {
-                "id": "builder-open-high-severity-events",
-                "priority": "medium",
-                "rank_reason": "high severity events remain open",
-                "owner_repo": "spark-intelligence-builder",
-                "source_module": "Builder black-box event lifecycle",
-                "event_producer_family": "builder_events",
-                "missing_field": "resolution_or_close_event",
-                "observed_event_count": high_open_count,
-                "safe_fix": "Add close/resolution metadata for high-severity events once the owning guardrail is repaired or confirmed active.",
-                "verification_command": "spark os trace --json",
-            }
-        )
-
-    priority_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    return sorted(
-        queue,
-        key=lambda item: (
-            priority_rank.get(str(item.get("priority")), 9),
-            -int(item.get("observed_event_count") or 0),
-            str(item.get("id")),
-        ),
-    )
-
-
-def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, Any]:
-    trace_idx = trace_index if isinstance(trace_index, dict) else {}
-    trace_health = as_dict(trace_idx.get("builder_trace_health"))
-    current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
-    repair_queue = [as_dict(item) for item in as_list(trace_idx.get("trace_repair_queue"))]
-    cards: list[dict[str, Any]] = []
-
-    for item in repair_queue:
-        if item.get("owner_repo") != "spark-intelligence-builder" or item.get("missing_field") != "trace_ref":
-            continue
-        component = str(item.get("event_producer_family") or "builder_events")
-        event_type = str(item.get("event_type") or "unknown")
-        temporal_scope = str(item.get("temporal_scope") or "")
-        if temporal_scope == "latest_clean_historical_window_debt":
-            status = "latest_clean_historical_window_debt"
-        elif temporal_scope == "latest_clean":
-            status = "latest_clean"
-        elif temporal_scope == "stale_missing_trace_ref":
-            status = "stale_missing_trace_ref"
-        elif current_health.get("repair_scope") == "current":
-            status = "current"
-        elif current_health.get("repair_scope") == "historical_backlog":
-            status = "historical_backlog"
-        else:
+        if not current_window:
             status = "unknown"
-        cards.append(
-            {
-                "schema_version": "spark.builder_trace_repair_card.v0",
-                "id": item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref"),
-                "category": "missing_trace_ref",
-                "title": f"Thread trace_ref into {component} / {event_type}",
-                "status": status,
-                "priority": item.get("priority") or "high",
-                "owner_repo": "spark-intelligence-builder",
-                "source_module": item.get("source_module") or f"{component} event emission",
-                "event_producer_family": component,
-                "event_type": event_type,
-                "missing_field": "trace_ref",
-                "observed_event_count": int(item.get("observed_event_count") or 0),
-                "current_window": current_health.get("window"),
-                "current_window_row_count": int(current_health.get("row_count") or 0),
-                "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
-                "total_missing_trace_ref_count": int(current_health.get("total_missing_trace_ref_count") or 0),
-                "latest_event_trace_state": item.get("latest_event_trace_state") or "unknown",
-                "latest_event_trace_ref_present": bool(item.get("latest_event_trace_ref_present")),
-                "latest_event_request_id_present": bool(item.get("latest_event_request_id_present")),
-                "recent_1h_missing_trace_ref_count": int(item.get("recent_1h_missing_trace_ref_count") or 0),
-                "recent_24h_missing_trace_ref_count": int(item.get("recent_24h_missing_trace_ref_count") or 0),
-                "recent_24h_row_count": int(item.get("recent_24h_row_count") or 0),
-                "evidence": item.get("rank_reason") or "Builder event producer bucket is missing trace_ref.",
-                "recommended_action": item.get("safe_fix")
-                or "Thread active request_id and trace_ref into the event producer before recording Builder events.",
-                "verification_command": item.get("verification_command") or "spark os trace --json",
-                "data_boundary": "aggregate metadata only; no event bodies, raw prompts, provider output, memory bodies, transcripts, audio, chat ids, or secrets",
-            }
-        )
-        if len(cards) >= 6:
-            break
-
-    high_rows = [as_dict(row) for row in as_list(as_dict(trace_health.get("high_severity_open_sources")).get("rows"))]
-    for row in high_rows[:4]:
-        component = str(row.get("component") or "builder_events")
-        event_type = str(row.get("event_type") or "unknown")
-        status = str(row.get("status") or "open")
-        severity = str(row.get("severity") or "high")
-        lifecycle_state = str(row.get("lifecycle_temporal_state") or row.get("latest_lifecycle_state") or "unknown")
-        if lifecycle_state == "latest_resolved":
-            card_status = "latest_resolved"
-            priority = "medium"
-            evidence = "latest lifecycle row for this high-severity family is resolved or lower severity"
-            recommended_action = "Keep as historical lifecycle debt unless new high-severity rows appear."
-        elif lifecycle_state == "stale_open_high_severity":
-            card_status = "stale_open_high_severity"
-            priority = "medium"
-            evidence = "latest high-severity row predates the active window"
-            recommended_action = "Reproduce before patching; this may be stale lifecycle backlog."
+            row_count = 0
+            missing_count = 0
+            ratio = 0.0
+            window = "unknown"
         else:
-            card_status = "open"
-            priority = "critical" if severity == "critical" else "high"
-            evidence = "high or critical Builder events remain open in aggregate black-box metadata"
-            recommended_action = (
-                "Confirm whether the guardrail is still active, then add source-owned close/resolution metadata."
+            window = str(current_window.get("window") or "unknown")
+            row_count = int(current_window.get("row_count") or 0)
+            missing_count = int(current_window.get("missing_trace_ref_count") or 0)
+            ratio = float(current_window.get("missing_trace_ref_ratio") or 0.0)
+            if row_count and missing_count:
+                status = "current_missing_trace_refs"
+            elif row_count and total_missing:
+                status = "current_clean_historical_backlog"
+            elif row_count:
+                status = "current_clean"
+            elif total_missing:
+                status = "no_recent_events_historical_backlog"
+            else:
+                status = "clean"
+
+        return {
+            "schema_version": "spark.trace_current_health.v0",
+            "status": status,
+            "window": window,
+            "row_count": row_count,
+            "missing_trace_ref_count": missing_count,
+            "missing_trace_ref_ratio": ratio,
+            "total_missing_trace_ref_count": total_missing,
+            "historical_missing_trace_ref_count": max(total_missing - missing_count, 0),
+            "repair_scope": (
+                "current"
+                if status == "current_missing_trace_refs"
+                else "historical_backlog"
+                if status in {"current_clean_historical_backlog", "no_recent_events_historical_backlog"}
+                else status
+            ),
+            "redaction": "aggregate recency metadata only; no raw event text or identifiers",
+        }
+
+
+
+    except Exception:
+        return {}
+def build_trace_repair_queue(trace_index: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(trace_index, str): trace_index = str(trace_index or '')
+    try:
+        trace_idx = trace_index if isinstance(trace_index, dict) else {}
+        queue: list[dict[str, Any]] = []
+        trace_health = as_dict(trace_idx.get("builder_trace_health"))
+        current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
+        historical_scope = str(current_health.get("repair_scope") or "") == "historical_backlog"
+        telegram_gate = as_dict(trace_idx.get("telegram_final_answer_gate_samples"))
+        telegram_join = as_dict(telegram_gate.get("trace_join"))
+        spawner = as_dict(trace_idx.get("spawner_prd_auto_trace_samples"))
+        spawner_join = as_dict(spawner.get("join_keys"))
+        spawner_request_overlap = as_dict(spawner.get("builder_request_overlap"))
+        spawner_trace_overlap = as_dict(spawner.get("builder_trace_ref_overlap"))
+
+        if telegram_gate.get("exists") and telegram_join.get("status") != "join_key_present":
+            queue.append(
+                {
+                    "id": "telegram-final-answer-missing-join-key",
+                    "priority": "critical",
+                    "rank_reason": "blocks Telegram -> Builder trace joins",
+                    "owner_repo": "spark-telegram-bot",
+                    "source_module": "final-answer gate audit producer",
+                    "event_producer_family": "telegram_final_answer_gate",
+                    "missing_field": "request_id_or_trace_ref",
+                    "observed_event_count": int(telegram_gate.get("parsed_count") or 0),
+                    "safe_fix": "Emit request_id or trace_ref metadata with final-answer gate checks.",
+                    "verification_command": "spark os trace --json",
+                }
             )
-        owner = trace_repair_owner(component)
-        cards.append(
-            {
-                "schema_version": "spark.builder_trace_repair_card.v0",
-                "id": trace_repair_id(
-                    "builder",
-                    component,
-                    event_type,
-                    row.get("reason_code") or "unknown-reason",
-                    status,
-                    severity,
-                    "open-high-severity",
-                ),
-                "category": "open_high_severity_event",
-                "title": f"Resolve high-severity {component} / {event_type}",
-                "status": card_status,
-                "priority": priority,
-                "owner_repo": owner.get("owner_repo") or "spark-intelligence-builder",
-                "source_module": owner.get("source_module") or f"{component} event lifecycle",
-                "event_producer_family": component,
-                "event_type": event_type,
-                "reason_code": row.get("reason_code"),
-                "event_status": status,
-                "event_severity": severity,
-                "latest_lifecycle_state": row.get("latest_lifecycle_state") or "unknown",
-                "latest_event_status": row.get("latest_event_status"),
-                "latest_event_severity": row.get("latest_event_severity"),
-                "latest_event_trace_ref_present": bool(row.get("latest_event_trace_ref_present")),
-                "latest_event_request_id_present": bool(row.get("latest_event_request_id_present")),
-                "recent_1h_high_open_count": int(row.get("recent_1h_high_open_count") or 0),
-                "recent_24h_high_open_count": int(row.get("recent_24h_high_open_count") or 0),
-                "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
-                "missing_field": "resolution_or_close_event",
-                "observed_event_count": int(row.get("event_count") or 0),
-                "current_window": current_health.get("window"),
-                "evidence": evidence,
-                "recommended_action": recommended_action,
-                "verification_command": "spark os trace --json",
-                "data_boundary": "aggregate metadata only; no event bodies, raw prompts, provider output, memory bodies, transcripts, audio, chat ids, or secrets",
-            }
+
+        spawner_request_count = int(spawner_join.get("request_id_count") or 0)
+        spawner_overlap_count = int(spawner_request_overlap.get("matched_builder_request_id_count") or 0)
+        spawner_trace_overlap_count = int(spawner_trace_overlap.get("matched_builder_trace_ref_count") or 0)
+        if spawner_request_count and not (spawner_overlap_count or spawner_trace_overlap_count):
+            queue.append(
+                {
+                    "id": "spawner-builder-missing-shared-trace",
+                    "priority": "critical",
+                    "rank_reason": "blocks Builder -> Spawner mission reconstruction",
+                    "owner_repo": "spawner-ui",
+                    "source_module": "PRD auto trace / Builder mission bridge",
+                    "event_producer_family": "spawner_prd_auto_trace",
+                    "missing_field": "shared_request_id_or_trace_ref",
+                    "observed_event_count": spawner_request_count,
+                    "safe_fix": "Write the Builder request id or derived trace ref into Spawner mission events and Builder mission events.",
+                    "verification_command": "spark os trace --json",
+                }
+            )
+
+        rows = as_list(as_dict(trace_health.get("missing_trace_ref_sources")).get("rows"))
+        for row in rows[:10]:
+            row = as_dict(row)
+            component = str(row.get("component") or "unknown")
+            event_type = str(row.get("event_type") or "unknown")
+            owner = trace_repair_owner(component)
+            rank_reason = "largest Builder producer bucket missing trace_ref"
+            safe_fix = "Thread the active request_id/trace_ref into this event producer before recording black-box events."
+            temporal_state = str(row.get("repair_temporal_state") or "")
+            latest_clean = temporal_state in {"latest_clean", "latest_clean_historical_window_debt"}
+            stale_missing = temporal_state == "stale_missing_trace_ref"
+            if latest_clean:
+                rank_reason = "latest Builder row for this producer carries trace_ref; older rows remain in the aggregate window"
+                safe_fix = "Watch for new missing-trace rows; no source patch is needed unless the producer regresses."
+            elif stale_missing:
+                rank_reason = "historical Builder producer bucket has no recent rows; latest known row predates the active window"
+                safe_fix = "Reproduce the producer before patching; this may be stale backlog rather than current runtime behavior."
+            elif historical_scope:
+                rank_reason = "historical Builder backlog missing trace_ref; recent trace window is clean"
+                safe_fix = (
+                    "Verify whether this historical bucket still reproduces; new traffic may already carry trace refs."
+                )
+            queue.append(
+                {
+                    "id": trace_repair_id("builder", component, event_type, "missing-trace-ref"),
+                    "priority": "medium" if historical_scope or latest_clean or stale_missing else "high",
+                    "rank_reason": rank_reason,
+                    "owner_repo": owner.get("owner_repo"),
+                    "source_module": owner.get("source_module"),
+                    "event_producer_family": component,
+                    "event_type": event_type,
+                    "missing_field": "trace_ref",
+                    "observed_event_count": int(row.get("event_count") or 0),
+                    "temporal_scope": temporal_state or ("historical_backlog" if historical_scope else "current_or_unknown"),
+                    "latest_event_trace_state": row.get("latest_event_trace_state"),
+                    "latest_event_trace_ref_present": bool(row.get("latest_event_trace_ref_present")),
+                    "latest_event_request_id_present": bool(row.get("latest_event_request_id_present")),
+                    "recent_1h_missing_trace_ref_count": int(row.get("recent_1h_missing_trace_ref_count") or 0),
+                    "recent_24h_missing_trace_ref_count": int(row.get("recent_24h_missing_trace_ref_count") or 0),
+                    "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
+                    "current_health_status": current_health.get("status"),
+                    "current_window": current_health.get("window"),
+                    "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
+                    "safe_fix": safe_fix,
+                    "verification_command": "spark os trace --json",
+                }
+            )
+
+        high_open_count = int(trace_health.get("high_severity_open_count") or 0)
+        if high_open_count:
+            queue.append(
+                {
+                    "id": "builder-open-high-severity-events",
+                    "priority": "medium",
+                    "rank_reason": "high severity events remain open",
+                    "owner_repo": "spark-intelligence-builder",
+                    "source_module": "Builder black-box event lifecycle",
+                    "event_producer_family": "builder_events",
+                    "missing_field": "resolution_or_close_event",
+                    "observed_event_count": high_open_count,
+                    "safe_fix": "Add close/resolution metadata for high-severity events once the owning guardrail is repaired or confirmed active.",
+                    "verification_command": "spark os trace --json",
+                }
+            )
+
+        priority_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        return sorted(
+            queue,
+            key=lambda item: (
+                priority_rank.get(str(item.get("priority")), 9),
+                -int(item.get("observed_event_count") or 0),
+                str(item.get("id")),
+            ),
         )
 
-    category_counts: dict[str, int] = {}
-    owner_counts: dict[str, int] = {}
-    for card in cards:
-        category = str(card.get("category") or "unknown")
-        owner_repo = str(card.get("owner_repo") or "unknown")
-        category_counts[category] = category_counts.get(category, 0) + 1
-        owner_counts[owner_repo] = owner_counts.get(owner_repo, 0) + 1
-
-    return {
-        "schema_version": "spark.builder_trace_repair_cards.v0",
-        "card_count": len(cards),
-        "category_counts": category_counts,
-        "owner_counts": owner_counts,
-        "current_health": current_health,
-        "redaction": "repair cards are derived from aggregate Builder event metadata only",
-        "items": cards,
-    }
 
 
+    except Exception:
+        return []
+def build_builder_trace_repair_cards(trace_index: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(trace_index, str): trace_index = str(trace_index or '')
+    try:
+        trace_idx = trace_index if isinstance(trace_index, dict) else {}
+        trace_health = as_dict(trace_idx.get("builder_trace_health"))
+        current_health = as_dict(trace_idx.get("trace_current_health")) or build_trace_current_health(trace_idx)
+        repair_queue = [as_dict(item) for item in as_list(trace_idx.get("trace_repair_queue"))]
+        cards: list[dict[str, Any]] = []
+
+        for item in repair_queue:
+            if item.get("owner_repo") != "spark-intelligence-builder" or item.get("missing_field") != "trace_ref":
+                continue
+            component = str(item.get("event_producer_family") or "builder_events")
+            event_type = str(item.get("event_type") or "unknown")
+            temporal_scope = str(item.get("temporal_scope") or "")
+            if temporal_scope == "latest_clean_historical_window_debt":
+                status = "latest_clean_historical_window_debt"
+            elif temporal_scope == "latest_clean":
+                status = "latest_clean"
+            elif temporal_scope == "stale_missing_trace_ref":
+                status = "stale_missing_trace_ref"
+            elif current_health.get("repair_scope") == "current":
+                status = "current"
+            elif current_health.get("repair_scope") == "historical_backlog":
+                status = "historical_backlog"
+            else:
+                status = "unknown"
+            cards.append(
+                {
+                    "schema_version": "spark.builder_trace_repair_card.v0",
+                    "id": item.get("id") or trace_repair_id("builder", component, event_type, "missing-trace-ref"),
+                    "category": "missing_trace_ref",
+                    "title": f"Thread trace_ref into {component} / {event_type}",
+                    "status": status,
+                    "priority": item.get("priority") or "high",
+                    "owner_repo": "spark-intelligence-builder",
+                    "source_module": item.get("source_module") or f"{component} event emission",
+                    "event_producer_family": component,
+                    "event_type": event_type,
+                    "missing_field": "trace_ref",
+                    "observed_event_count": int(item.get("observed_event_count") or 0),
+                    "current_window": current_health.get("window"),
+                    "current_window_row_count": int(current_health.get("row_count") or 0),
+                    "current_window_missing_trace_ref_count": int(current_health.get("missing_trace_ref_count") or 0),
+                    "total_missing_trace_ref_count": int(current_health.get("total_missing_trace_ref_count") or 0),
+                    "latest_event_trace_state": item.get("latest_event_trace_state") or "unknown",
+                    "latest_event_trace_ref_present": bool(item.get("latest_event_trace_ref_present")),
+                    "latest_event_request_id_present": bool(item.get("latest_event_request_id_present")),
+                    "recent_1h_missing_trace_ref_count": int(item.get("recent_1h_missing_trace_ref_count") or 0),
+                    "recent_24h_missing_trace_ref_count": int(item.get("recent_24h_missing_trace_ref_count") or 0),
+                    "recent_24h_row_count": int(item.get("recent_24h_row_count") or 0),
+                    "evidence": item.get("rank_reason") or "Builder event producer bucket is missing trace_ref.",
+                    "recommended_action": item.get("safe_fix")
+                    or "Thread active request_id and trace_ref into the event producer before recording Builder events.",
+                    "verification_command": item.get("verification_command") or "spark os trace --json",
+                    "data_boundary": "aggregate metadata only; no event bodies, raw prompts, provider output, memory bodies, transcripts, audio, chat ids, or secrets",
+                }
+            )
+            if len(cards) >= 6:
+                break
+
+        high_rows = [as_dict(row) for row in as_list(as_dict(trace_health.get("high_severity_open_sources")).get("rows"))]
+        for row in high_rows[:4]:
+            component = str(row.get("component") or "builder_events")
+            event_type = str(row.get("event_type") or "unknown")
+            status = str(row.get("status") or "open")
+            severity = str(row.get("severity") or "high")
+            lifecycle_state = str(row.get("lifecycle_temporal_state") or row.get("latest_lifecycle_state") or "unknown")
+            if lifecycle_state == "latest_resolved":
+                card_status = "latest_resolved"
+                priority = "medium"
+                evidence = "latest lifecycle row for this high-severity family is resolved or lower severity"
+                recommended_action = "Keep as historical lifecycle debt unless new high-severity rows appear."
+            elif lifecycle_state == "stale_open_high_severity":
+                card_status = "stale_open_high_severity"
+                priority = "medium"
+                evidence = "latest high-severity row predates the active window"
+                recommended_action = "Reproduce before patching; this may be stale lifecycle backlog."
+            else:
+                card_status = "open"
+                priority = "critical" if severity == "critical" else "high"
+                evidence = "high or critical Builder events remain open in aggregate black-box metadata"
+                recommended_action = (
+                    "Confirm whether the guardrail is still active, then add source-owned close/resolution metadata."
+                )
+            owner = trace_repair_owner(component)
+            cards.append(
+                {
+                    "schema_version": "spark.builder_trace_repair_card.v0",
+                    "id": trace_repair_id(
+                        "builder",
+                        component,
+                        event_type,
+                        row.get("reason_code") or "unknown-reason",
+                        status,
+                        severity,
+                        "open-high-severity",
+                    ),
+                    "category": "open_high_severity_event",
+                    "title": f"Resolve high-severity {component} / {event_type}",
+                    "status": card_status,
+                    "priority": priority,
+                    "owner_repo": owner.get("owner_repo") or "spark-intelligence-builder",
+                    "source_module": owner.get("source_module") or f"{component} event lifecycle",
+                    "event_producer_family": component,
+                    "event_type": event_type,
+                    "reason_code": row.get("reason_code"),
+                    "event_status": status,
+                    "event_severity": severity,
+                    "latest_lifecycle_state": row.get("latest_lifecycle_state") or "unknown",
+                    "latest_event_status": row.get("latest_event_status"),
+                    "latest_event_severity": row.get("latest_event_severity"),
+                    "latest_event_trace_ref_present": bool(row.get("latest_event_trace_ref_present")),
+                    "latest_event_request_id_present": bool(row.get("latest_event_request_id_present")),
+                    "recent_1h_high_open_count": int(row.get("recent_1h_high_open_count") or 0),
+                    "recent_24h_high_open_count": int(row.get("recent_24h_high_open_count") or 0),
+                    "recent_24h_row_count": int(row.get("recent_24h_row_count") or 0),
+                    "missing_field": "resolution_or_close_event",
+                    "observed_event_count": int(row.get("event_count") or 0),
+                    "current_window": current_health.get("window"),
+                    "evidence": evidence,
+                    "recommended_action": recommended_action,
+                    "verification_command": "spark os trace --json",
+                    "data_boundary": "aggregate metadata only; no event bodies, raw prompts, provider output, memory bodies, transcripts, audio, chat ids, or secrets",
+                }
+            )
+
+        category_counts: dict[str, int] = {}
+        owner_counts: dict[str, int] = {}
+        for card in cards:
+            category = str(card.get("category") or "unknown")
+            owner_repo = str(card.get("owner_repo") or "unknown")
+            category_counts[category] = category_counts.get(category, 0) + 1
+            owner_counts[owner_repo] = owner_counts.get(owner_repo, 0) + 1
+
+        return {
+            "schema_version": "spark.builder_trace_repair_cards.v0",
+            "card_count": len(cards),
+            "category_counts": category_counts,
+            "owner_counts": owner_counts,
+            "current_health": current_health,
+            "redaction": "repair cards are derived from aggregate Builder event metadata only",
+            "items": cards,
+        }
+
+
+
+    except Exception:
+        return {}
 def build_trace_index(spark_home: Path, builder_home: Path) -> dict[str, Any]:
-    spark_home = Path(spark_home)
-    builder_home = Path(builder_home)
-    spawner_state = spark_home / "state" / "spawner-ui"
-    telegram_state = spark_home / "state" / "spark-telegram-bot"
-    trace_index = {
-        "schema_version": TRACE_INDEX_SCHEMA,
-        "generated_at": utc_now(),
-        "redaction": "aggregate metadata only; no raw event summaries, mission responses, logs, or message text",
-        "builder_events": inspect_builder_event_trace(builder_home),
-        "builder_event_samples": inspect_builder_event_samples(builder_home),
-        "builder_trace_groups": inspect_builder_trace_groups(builder_home),
-        "builder_trace_health": inspect_builder_trace_health(builder_home),
-        "telegram_final_answer_gate": count_safe_jsonl(telegram_state / "final-answer-gate-audit.jsonl"),
-        "telegram_final_answer_gate_samples": inspect_telegram_final_answer_gate(
-            telegram_state / "final-answer-gate-audit.jsonl"
-        ),
-        "telegram_outbound_audit": count_safe_jsonl(telegram_state / "node-outbound-audit.jsonl"),
-        "telegram_outbound_audit_samples": inspect_telegram_outbound_audit(
-            telegram_state / "node-outbound-audit.jsonl"
-        ),
-        "spawner_mission_control_shape": inspect_json_shape(spawner_state / "mission-control.json"),
-        "spawner_provider_results_shape": inspect_json_shape(spawner_state / "mission-provider-results.json"),
-        "spawner_prd_auto_trace": count_safe_jsonl(spawner_state / "prd-auto-trace.jsonl"),
-        "spawner_prd_auto_trace_samples": inspect_spawner_prd_auto_trace(
-            spawner_state / "prd-auto-trace.jsonl",
-            builder_home=builder_home,
-        ),
-        "authority_verdicts": inspect_spawner_authority_verdicts(spawner_state / "prd-auto-trace.jsonl"),
-        "review_candidates": build_spark_os_review_candidates(
-            spawner_state / "prd-auto-trace.jsonl",
-            builder_home=builder_home,
-        ),
-        "next_required_bridges": [
-            "Map Spawner mission ids to Builder mission_changed_state events.",
-            "Map Telegram final-answer gate checks to final_answer_checked black-box events.",
-            "Emit Telegram request_id or trace_ref join keys from final-answer gate checks.",
-        ],
-    }
-    trace_index["trace_current_health"] = build_trace_current_health(trace_index)
-    trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
-    trace_index["builder_trace_repair_cards"] = build_builder_trace_repair_cards(trace_index)
-    return trace_index
+    if spark_home is not None and not hasattr(spark_home, 'resolve'): from pathlib import Path; spark_home = Path(str(spark_home))
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        spark_home = Path(spark_home)
+        builder_home = Path(builder_home)
+        spawner_state = spark_home / "state" / "spawner-ui"
+        telegram_state = spark_home / "state" / "spark-telegram-bot"
+        trace_index = {
+            "schema_version": TRACE_INDEX_SCHEMA,
+            "generated_at": utc_now(),
+            "redaction": "aggregate metadata only; no raw event summaries, mission responses, logs, or message text",
+            "builder_events": inspect_builder_event_trace(builder_home),
+            "builder_event_samples": inspect_builder_event_samples(builder_home),
+            "builder_trace_groups": inspect_builder_trace_groups(builder_home),
+            "builder_trace_health": inspect_builder_trace_health(builder_home),
+            "telegram_final_answer_gate": count_safe_jsonl(telegram_state / "final-answer-gate-audit.jsonl"),
+            "telegram_final_answer_gate_samples": inspect_telegram_final_answer_gate(
+                telegram_state / "final-answer-gate-audit.jsonl"
+            ),
+            "telegram_outbound_audit": count_safe_jsonl(telegram_state / "node-outbound-audit.jsonl"),
+            "telegram_outbound_audit_samples": inspect_telegram_outbound_audit(
+                telegram_state / "node-outbound-audit.jsonl"
+            ),
+            "spawner_mission_control_shape": inspect_json_shape(spawner_state / "mission-control.json"),
+            "spawner_provider_results_shape": inspect_json_shape(spawner_state / "mission-provider-results.json"),
+            "spawner_prd_auto_trace": count_safe_jsonl(spawner_state / "prd-auto-trace.jsonl"),
+            "spawner_prd_auto_trace_samples": inspect_spawner_prd_auto_trace(
+                spawner_state / "prd-auto-trace.jsonl",
+                builder_home=builder_home,
+            ),
+            "authority_verdicts": inspect_spawner_authority_verdicts(spawner_state / "prd-auto-trace.jsonl"),
+            "review_candidates": build_spark_os_review_candidates(
+                spawner_state / "prd-auto-trace.jsonl",
+                builder_home=builder_home,
+            ),
+            "next_required_bridges": [
+                "Map Spawner mission ids to Builder mission_changed_state events.",
+                "Map Telegram final-answer gate checks to final_answer_checked black-box events.",
+                "Emit Telegram request_id or trace_ref join keys from final-answer gate checks.",
+            ],
+        }
+        trace_index["trace_current_health"] = build_trace_current_health(trace_index)
+        trace_index["trace_repair_queue"] = build_trace_repair_queue(trace_index)
+        trace_index["builder_trace_repair_cards"] = build_builder_trace_repair_cards(trace_index)
+        return trace_index
 
 
+
+    except Exception:
+        return {}
 def build_memory_movement_index(builder_home: Path) -> dict[str, Any]:
-    builder_home = Path(builder_home)
-    builder_memory_tables = inspect_builder_memory_tables(builder_home)
-    trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
-    trace_bridge_instruction = (
-        "Audit legacy memory lane rows missing trace refs before cleanup; new memory preflight events should keep request_id and trace_ref."
-        if trace_join.get("status") == "present"
-        else "Join memory movement events to trace ids once Builder event envelopes carry stable trace refs."
-    )
-    memory_index = {
-        "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
-        "generated_at": utc_now(),
-        "authority": "observability_non_authoritative",
-        "redaction": (
-            "metadata-only memory movement index; no raw memory text, row bodies, profile facts, "
-            "conversation turns, evidence payloads, or Telegram update payloads emitted"
-        ),
-        "builder_memory_tables": builder_memory_tables,
-        "safe_status_export": read_memory_movement_status_export(builder_home),
-        "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
-        "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
-        "next_required_bridges": [
-            "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
-            "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
-            trace_bridge_instruction,
-            "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
-        ],
-    }
-    memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
-    return memory_index
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        builder_home = Path(builder_home)
+        builder_memory_tables = inspect_builder_memory_tables(builder_home)
+        trace_join = as_dict(builder_memory_tables.get("memory_lane_trace_join"))
+        trace_bridge_instruction = (
+            "Audit legacy memory lane rows missing trace refs before cleanup; new memory preflight events should keep request_id and trace_ref."
+            if trace_join.get("status") == "present"
+            else "Join memory movement events to trace ids once Builder event envelopes carry stable trace refs."
+        )
+        memory_index = {
+            "schema_version": MEMORY_MOVEMENT_INDEX_SCHEMA,
+            "generated_at": utc_now(),
+            "authority": "observability_non_authoritative",
+            "redaction": (
+                "metadata-only memory movement index; no raw memory text, row bodies, profile facts, "
+                "conversation turns, evidence payloads, or Telegram update payloads emitted"
+            ),
+            "builder_memory_tables": builder_memory_tables,
+            "safe_status_export": read_memory_movement_status_export(builder_home),
+            "memory_kb_artifacts": summarize_memory_kb_artifacts(builder_home),
+            "memory_run_artifacts": summarize_memory_run_artifacts(builder_home),
+            "next_required_bridges": [
+                "Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().",
+                "Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.",
+                trace_bridge_instruction,
+                "Promote this index into Builder AOC and cockpit as evidence only, never as instructions or profile truth.",
+            ],
+        }
+        memory_index["memory_review_queue"] = build_memory_review_queue(memory_index)
+        return memory_index
 
 
+
+    except Exception:
+        return {}
 def build_gaps(system_map: dict[str, Any]) -> list[dict[str, str]]:
     sys_map = system_map if isinstance(system_map, dict) else {}
     registry_modules = set(as_dict(sys_map.get("registry", {}).get("modules")).keys())
