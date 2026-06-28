@@ -107,6 +107,7 @@ Fresh direct-blocker proof results, refreshed at `2026-06-27T21:33:59Z`:
 Fresh voice owner-lane proof at `2026-06-27T23:38:48Z`:
 
 - `spark-voice-comms` prepared release lane `release/r30-voice-trace-governor` at `c502ec096cefb48839e3279d3392343231884415`: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
+- Rechecked at `2026-06-28T00:54:49Z` on the same prepared local lane: `PYTHONPATH=src python3 -m pytest -q` passed, `132 passed`.
 - Delta over public owner base `c74490d68ece65ffad21dc5b88f44602e1afa703`: `src/voice_comms_chip/runtime_state.py`, `src/voice_comms_chip/spark_hook.py`, `tests/test_runtime_state.py`, and `tests/test_spark_hook.py`.
 - Remote audit at `2026-06-27T23:33:53Z` still shows `main` and `spark-ship-2026-06-26` at `c74490d68ece65ffad21dc5b88f44602e1afa703`; no remote `release/r30-voice-trace-governor` branch exists. This is fresh local proof only, not registry or source-owner truth.
 
@@ -238,6 +239,8 @@ Current evidence:
 - registry pin: `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee`
 - remote ref checked: `refs/heads/main`
 - remote head: `c74490d68ece65ffad21dc5b88f44602e1afa703`
+- installed metadata: `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`
+- prepared local owner-lane head: `c502ec096cefb48839e3279d3392343231884415`
 - status: `pin_drift`
 
 Do not solve this by pinning to `c74490d` if R30 claims the current Spark OS voice trace proof. The owner handoff packet records why: local installed voice has two additional trace/governor commits that must land or be replaced by equivalent owner-source proof first. The R30 voice gate now requires their full hashes, `8a246af1eb0732aec432d88e4e4c2b6411023b7c` and `7555a363d7638537b1a9ec1ee377e460d2343323`, in the structured voice owner handoff manifest. A local owner-lane port is prepared at `c502ec096cefb48839e3279d3392343231884415`, but it is not pushed/tagged, not installed metadata truth, and not registry truth.
