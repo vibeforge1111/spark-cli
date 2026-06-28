@@ -24,6 +24,7 @@ Use this index as the entry point for R30 release prep.
 15. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
 16. [R30 Domain Chip Labs Telegram creator plan](./R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md)
 17. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
+18. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
 
 ## Current Verdict
 
@@ -55,6 +56,9 @@ Current green proof:
 - The R30 Telegram live trace recapture runbook gives the exact four
   SparkRecursive_bot safe prompts and pass criteria needed before Telegram
   reliability can be called green again.
+- The R30 stability/DCL/Spawner goal prompt makes Domain Chip Labs creation,
+  Spawner loop closure, and Telegram capability truth explicit R30 readiness
+  criteria rather than polish.
 
 Current blockers:
 
@@ -67,6 +71,8 @@ Current blockers:
   lane, not yet a complete installer-ready capability.
 - Telegram live trace recapture is currently stale and must be refreshed in the
   real SparkRecursive_bot chat before the reliability ladder is green again.
+- Domain Chip Labs creation and Spawner execution are not yet proven as a
+  complete, installer-ready user path.
 - The R30 installer baseline drift audit confirms no current R30 prep doc claims
   the local installer baseline is still R28; remaining R28 references are
   historical context or patch history.
