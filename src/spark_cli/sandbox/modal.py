@@ -76,140 +76,162 @@ def _check(name: str, ok: bool, detail: str, *, repair: str = "", level: str | N
 
 
 def modal_sdk_available() -> bool:
-    return importlib.util.find_spec("modal") is not None
+    try:
+        return importlib.util.find_spec("modal") is not None
 
 
+
+    except Exception:
+        return False
 def modal_cli_path() -> str:
-    return shutil.which("modal") or ""
+    try:
+        return shutil.which("modal") or ""
 
 
+
+    except Exception:
+        return ""
 def modal_auth_markers(*, home: Path | None = None) -> dict[str, object]:
-    root = home or Path.home()
-    config_candidates = [
-        Path(os.environ.get("MODAL_CONFIG_PATH", "")).expanduser() if os.environ.get("MODAL_CONFIG_PATH") else None,
-        root / ".modal.toml",
-        root / ".modal" / "config.toml",
-    ]
-    config_paths = [path for path in config_candidates if path is not None and path.exists()]
-    env_auth = bool(os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET"))
-    return {
-        "env_auth": env_auth,
-        "config_present": bool(config_paths),
-        "config_count": len(config_paths),
-        "profile": os.environ.get("MODAL_PROFILE") or "",
-        "environment": os.environ.get("MODAL_ENVIRONMENT") or "",
-    }
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        root = home or Path.home()
+        config_candidates = [
+            Path(os.environ.get("MODAL_CONFIG_PATH", "")).expanduser() if os.environ.get("MODAL_CONFIG_PATH") else None,
+            root / ".modal.toml",
+            root / ".modal" / "config.toml",
+        ]
+        config_paths = [path for path in config_candidates if path is not None and path.exists()]
+        env_auth = bool(os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET"))
+        return {
+            "env_auth": env_auth,
+            "config_present": bool(config_paths),
+            "config_count": len(config_paths),
+            "profile": os.environ.get("MODAL_PROFILE") or "",
+            "environment": os.environ.get("MODAL_ENVIRONMENT") or "",
+        }
 
 
+
+    except Exception:
+        return {}
 def collect_modal_doctor_payload(*, home: Path | None = None) -> dict[str, object]:
-    capabilities = modal_doctor_capabilities()
-    sdk_ok = modal_sdk_available()
-    cli = modal_cli_path()
-    auth = modal_auth_markers(home=home)
-    auth_ok = bool(auth["env_auth"] or auth["config_present"])
-    checks = [
-        _check(
-            "modal_sdk",
-            sdk_ok,
-            "Modal Python SDK is importable." if sdk_ok else "Modal Python SDK is not importable.",
-            repair="Install Modal with `python -m pip install modal`, then rerun doctor.",
-        ),
-        _check(
-            "modal_cli",
-            bool(cli),
-            "Modal CLI is available on PATH." if cli else "Modal CLI is optional and was not found on PATH.",
-            repair="Optional: install the Modal CLI or use the Python SDK path.",
-            level="info" if cli else "warning",
-        ),
-        _check(
-            "modal_auth_marker",
-            auth_ok,
-            "Modal auth marker found without reading token material." if auth_ok else "No Modal auth marker found.",
-            repair="Run `python -m modal setup` or set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.",
-        ),
-        _check(
-            "default_limits",
-            True,
-            f"Smoke uses timeout={MODAL_SANDBOX_TIMEOUT_SECONDS}s, idle_timeout={MODAL_SANDBOX_IDLE_TIMEOUT_SECONDS}s, block_network=True.",
-        ),
-        _check(
-            "secret_policy",
-            True,
-            "Smoke sends no Spark secrets, no Modal Secrets, and no project files by default.",
-        ),
-    ]
-    ok = all(bool(check["ok"]) for check in checks if check["level"] != "warning")
-    return {
-        "ok": ok,
-        "backend": "modal",
-        "command": "doctor",
-        "mode": "read_only",
-        "capabilities": capabilities.to_dict(),
-        "checks": checks,
-        "auth": {
-            "env_auth": auth["env_auth"],
-            "config_present": auth["config_present"],
-            "profile": auth["profile"],
-            "environment": auth["environment"],
-        },
-        "next": "Run `spark sandbox modal smoke --json` to create a tiny no-secret sandbox." if ok else "Fix Modal SDK/auth checks, then rerun doctor.",
-    }
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        capabilities = modal_doctor_capabilities()
+        sdk_ok = modal_sdk_available()
+        cli = modal_cli_path()
+        auth = modal_auth_markers(home=home)
+        auth_ok = bool(auth["env_auth"] or auth["config_present"])
+        checks = [
+            _check(
+                "modal_sdk",
+                sdk_ok,
+                "Modal Python SDK is importable." if sdk_ok else "Modal Python SDK is not importable.",
+                repair="Install Modal with `python -m pip install modal`, then rerun doctor.",
+            ),
+            _check(
+                "modal_cli",
+                bool(cli),
+                "Modal CLI is available on PATH." if cli else "Modal CLI is optional and was not found on PATH.",
+                repair="Optional: install the Modal CLI or use the Python SDK path.",
+                level="info" if cli else "warning",
+            ),
+            _check(
+                "modal_auth_marker",
+                auth_ok,
+                "Modal auth marker found without reading token material." if auth_ok else "No Modal auth marker found.",
+                repair="Run `python -m modal setup` or set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.",
+            ),
+            _check(
+                "default_limits",
+                True,
+                f"Smoke uses timeout={MODAL_SANDBOX_TIMEOUT_SECONDS}s, idle_timeout={MODAL_SANDBOX_IDLE_TIMEOUT_SECONDS}s, block_network=True.",
+            ),
+            _check(
+                "secret_policy",
+                True,
+                "Smoke sends no Spark secrets, no Modal Secrets, and no project files by default.",
+            ),
+        ]
+        ok = all(bool(check["ok"]) for check in checks if check["level"] != "warning")
+        return {
+            "ok": ok,
+            "backend": "modal",
+            "command": "doctor",
+            "mode": "read_only",
+            "capabilities": capabilities.to_dict(),
+            "checks": checks,
+            "auth": {
+                "env_auth": auth["env_auth"],
+                "config_present": auth["config_present"],
+                "profile": auth["profile"],
+                "environment": auth["environment"],
+            },
+            "next": "Run `spark sandbox modal smoke --json` to create a tiny no-secret sandbox." if ok else "Fix Modal SDK/auth checks, then rerun doctor.",
+        }
 
 
+
+    except Exception:
+        return {}
 def modal_smoke_script() -> str:
-    return textwrap.dedent(
-        f"""
-        import sys
+    try:
+        return textwrap.dedent(
+            f"""
+            import sys
 
-        import modal
-
-
-        def _text(value):
-            if isinstance(value, bytes):
-                return value.decode("utf-8", errors="replace")
-            return str(value or "")
+            import modal
 
 
-        sandbox = None
-        try:
-            app = modal.App.lookup({MODAL_APP_NAME!r}, create_if_missing=True)
-            sandbox = modal.Sandbox.create(
-                "sh",
-                "-lc",
-                "sleep 20",
-                app=app,
-                timeout={MODAL_SANDBOX_TIMEOUT_SECONDS},
-                idle_timeout={MODAL_SANDBOX_IDLE_TIMEOUT_SECONDS},
-                block_network=True,
-            )
-            process = sandbox.exec(
-                "sh",
-                "-lc",
-                "printf 'SPARK_MODAL_SMOKE_OK\\\\n'; printf 'network=blocked\\\\n'; id -u",
-                timeout=15,
-            )
-            stdout = process.stdout.read()
-            stderr = process.stderr.read()
-            result = process.wait()
-            if result is None:
-                result = getattr(process, "returncode", 0) or 0
-            sys.stdout.write(_text(stdout))
-            sys.stderr.write(_text(stderr))
-            sys.exit(int(result))
-        finally:
-            if sandbox is not None:
-                try:
-                    sandbox.terminate()
-                except Exception:
-                    pass
-                try:
-                    sandbox.detach()
-                except Exception:
-                    pass
-        """
-    ).strip()
+            def _text(value):
+                if isinstance(value, bytes):
+                    return value.decode("utf-8", errors="replace")
+                return str(value or "")
 
 
+            sandbox = None
+            try:
+                app = modal.App.lookup({MODAL_APP_NAME!r}, create_if_missing=True)
+                sandbox = modal.Sandbox.create(
+                    "sh",
+                    "-lc",
+                    "sleep 20",
+                    app=app,
+                    timeout={MODAL_SANDBOX_TIMEOUT_SECONDS},
+                    idle_timeout={MODAL_SANDBOX_IDLE_TIMEOUT_SECONDS},
+                    block_network=True,
+                )
+                process = sandbox.exec(
+                    "sh",
+                    "-lc",
+                    "printf 'SPARK_MODAL_SMOKE_OK\\\\n'; printf 'network=blocked\\\\n'; id -u",
+                    timeout=15,
+                )
+                stdout = process.stdout.read()
+                stderr = process.stderr.read()
+                result = process.wait()
+                if result is None:
+                    result = getattr(process, "returncode", 0) or 0
+                sys.stdout.write(_text(stdout))
+                sys.stderr.write(_text(stderr))
+                sys.exit(int(result))
+            finally:
+                if sandbox is not None:
+                    try:
+                        sandbox.terminate()
+                    except Exception:
+                        pass
+                    try:
+                        sandbox.detach()
+                    except Exception:
+                        pass
+            """
+        ).strip()
+
+
+
+    except Exception:
+        return ""
 def modal_smoke_subprocess_env(env: dict[str, str] | None = None) -> dict[str, str]:
     source = os.environ if env is None else env
     return {
