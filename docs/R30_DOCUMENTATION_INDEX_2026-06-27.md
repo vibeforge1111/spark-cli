@@ -26,6 +26,7 @@ Use this index as the entry point for R30 release prep.
 17. [R30 Domain Chip Labs and Spawner readiness spec](./R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md)
 18. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
 19. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
+20. [R30 DCL Spawner Telegram continuation handoff](./R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md)
 
 ## Current Verdict
 
@@ -58,6 +59,9 @@ Current green proof:
   state, artifact contract, Spawner closure contract, task list, QA matrix,
   planner-first rule, first local Telegram proof slice, and stop-ship
   conditions for this lane.
+- The R30 DCL Spawner Telegram continuation handoff records the current
+  uncommitted red-test slice for creator mission missing-proof closure, the
+  suspected bridge boundary, and the exact QA ladder for the next writable lane.
 - The R30 Telegram live trace recapture runbook gives the exact four
   SparkRecursive_bot safe prompts and pass criteria needed before Telegram
   reliability can be called green again.
