@@ -8969,6 +8969,16 @@ def collect_r30_handoff_manifest_status(
             "publication_authority": False,
             "proof_result_terms": ["5 normalized contracts", "4 official adapters", "1 shadow adapter"],
         },
+        "spark-intelligence-builder": {
+            "patch_type": "tree_diff",
+            "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+            "sha256": "3685894f24b75f5a05716c32ccf83e2b1949fc3ce5d0bc53286b26420f7fbe8d",
+            "line_count": 5826,
+            "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "expected_tree": "ca8819d76e14d48bdac00090580b5483a5056be3",
+            "publication_authority": False,
+            "proof_result_terms": ["208 passed", "26 subtests passed"],
+        },
     }
     commit_mismatches: list[dict[str, Any]] = []
     instruction_mismatches: list[dict[str, Any]] = []

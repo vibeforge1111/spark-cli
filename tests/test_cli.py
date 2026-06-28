@@ -14559,6 +14559,62 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(payload["patch_mismatches"][0]["module"], "domain-chip-memory")
         self.assertIn("missing_owner_handoff_patch", payload["patch_mismatches"][0]["issues"])
 
+    def test_r30_handoff_manifest_status_requires_builder_patch(self) -> None:
+        classification = {
+            "direct_blockers": [
+                {
+                    "module": "spark-intelligence-builder",
+                    "expected_commit": "a" * 40,
+                    "actual_commit": "b" * 40,
+                    "next_action": "port builder",
+                    "proof_commands": [
+                        "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+                    ],
+                }
+            ],
+            "supporting_hygiene": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "release": "spark-cli-public-installer-2026-06-27-r30",
+                        "status": "blocked_before_registry_or_installer_publication",
+                        "publication_boundary": (
+                            "No push, tag, deploy, registry pin update, installer pin update, "
+                            "or hosted publication is authorized by this manifest."
+                        ),
+                        "direct_blockers": [
+                            {
+                                "module": "spark-intelligence-builder",
+                                "expected_registry_commit": "a" * 40,
+                                "local_head": "b" * 40,
+                                "owner_refs": {
+                                    "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+                                    "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+                                    "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+                                    "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+                                },
+                                "next_action": "port builder",
+                                "proof_commands": [
+                                    "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+                                ],
+                                "local_proof": "passed",
+                            }
+                        ],
+                        "supporting_hygiene": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = collect_r30_handoff_manifest_status(classification, manifest_path=manifest_path)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("owner_handoff_patch_mismatch", payload["issues"])
+        self.assertEqual(payload["patch_mismatches"][0]["module"], "spark-intelligence-builder")
+        self.assertIn("missing_owner_handoff_patch", payload["patch_mismatches"][0]["issues"])
+
     def test_r30_handoff_manifest_status_requires_publication_boundary(self) -> None:
         classification = {
             "direct_blockers": [
