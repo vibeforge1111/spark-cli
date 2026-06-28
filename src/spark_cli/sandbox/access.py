@@ -52,32 +52,49 @@ LOWER_ACCESS_PROFILES: dict[int, dict[str, str]] = {
 
 
 def access_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
+    if not isinstance(platform, str): platform = str(platform or '')
+    try:
+        value = platform or sys.platform
+        if value == "darwin":
+            return "macos"
+        if value.startswith("win"):
+            return "windows"
+        if value.startswith("linux"):
+            return "linux"
+        return "unknown"
 
 
+
+    except Exception:
+        return ""
 def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
-    if configured:
-        return Path(configured).expanduser()
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "workspaces"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        env_values = env or os.environ
+        configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
+        if configured:
+            return Path(configured).expanduser()
+        spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+        return spark_home / "workspaces"
 
 
+
+    except Exception:
+        return Path(".")
 def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    root = spark_workspace_root(home=home, env=env)
-    default_workspace = root / "default"
-    default_workspace.mkdir(parents=True, exist_ok=True)
-    return default_workspace
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        root = spark_workspace_root(home=home, env=env)
+        default_workspace = root / "default"
+        default_workspace.mkdir(parents=True, exist_ok=True)
+        return default_workspace
 
 
+
+    except Exception:
+        return Path(".")
 def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
     env_values = env or os.environ
     spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()

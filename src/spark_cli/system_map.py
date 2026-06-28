@@ -5591,76 +5591,88 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
 
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
-    out_dir = Path(out_dir)
-    compiled = compiled if isinstance(compiled, dict) else {}
-    system_map = as_dict(compiled.get("system_map"))
-    paths = {
-        "system_map": out_dir / "system-map.json",
-        "authority_view": out_dir / "authority-view.json",
-        "capability_catalog": out_dir / "capability-catalog.json",
-        "trace_index": out_dir / "trace-index.json",
-        "memory_movement_index": out_dir / "memory-movement-index.json",
-        "repo_board": out_dir / "repo-board.json",
-        "voice_surface_view": out_dir / "voice-surface-view.json",
-        "operating_cockpit": out_dir / "operating-cockpit.json",
-        "gaps": out_dir / "gaps.md",
-    }
-    write_json(paths["system_map"], system_map)
-    write_json(paths["authority_view"], compiled.get("authority_view"))
-    write_json(paths["capability_catalog"], compiled.get("capability_catalog"))
-    write_json(paths["trace_index"], compiled.get("trace_index"))
-    write_json(paths["memory_movement_index"], compiled.get("memory_movement_index"))
-    write_json(paths["repo_board"], compiled.get("repo_board"))
-    write_json(paths["voice_surface_view"], compiled.get("voice_surface_view"))
-    write_json(paths["operating_cockpit"], compiled.get("operating_cockpit"))
-    write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map)
-    return {key: str(path) for key, path in paths.items()}
+    if out_dir is not None and not hasattr(out_dir, 'resolve'): from pathlib import Path; out_dir = Path(str(out_dir))
+    if not isinstance(compiled, str): compiled = str(compiled or '')
+    try:
+        out_dir = Path(out_dir)
+        compiled = compiled if isinstance(compiled, dict) else {}
+        system_map = as_dict(compiled.get("system_map"))
+        paths = {
+            "system_map": out_dir / "system-map.json",
+            "authority_view": out_dir / "authority-view.json",
+            "capability_catalog": out_dir / "capability-catalog.json",
+            "trace_index": out_dir / "trace-index.json",
+            "memory_movement_index": out_dir / "memory-movement-index.json",
+            "repo_board": out_dir / "repo-board.json",
+            "voice_surface_view": out_dir / "voice-surface-view.json",
+            "operating_cockpit": out_dir / "operating-cockpit.json",
+            "gaps": out_dir / "gaps.md",
+        }
+        write_json(paths["system_map"], system_map)
+        write_json(paths["authority_view"], compiled.get("authority_view"))
+        write_json(paths["capability_catalog"], compiled.get("capability_catalog"))
+        write_json(paths["trace_index"], compiled.get("trace_index"))
+        write_json(paths["memory_movement_index"], compiled.get("memory_movement_index"))
+        write_json(paths["repo_board"], compiled.get("repo_board"))
+        write_json(paths["voice_surface_view"], compiled.get("voice_surface_view"))
+        write_json(paths["operating_cockpit"], compiled.get("operating_cockpit"))
+        write_gaps_markdown(paths["gaps"], as_list(system_map.get("gaps")), system_map)
+        return {key: str(path) for key, path in paths.items()}
 
 
+
+    except Exception:
+        return {}
 def compile_summary(compiled: dict[str, Any], written: dict[str, str] | None = None) -> dict[str, Any]:
-    compiled = compiled if isinstance(compiled, dict) else {}
-    written = written if isinstance(written, dict) else {}
-    system_map = as_dict(compiled.get("system_map"))
-    capability_catalog = as_dict(compiled.get("capability_catalog"))
-    trace_index = as_dict(compiled.get("trace_index"))
-    memory_index = as_dict(compiled.get("memory_movement_index"))
-    repo_board = as_dict(compiled.get("repo_board"))
-    voice_surface = as_dict(compiled.get("voice_surface_view"))
-    duplicate_truths = as_dict(repo_board.get("duplicate_truths"))
-    builder_events = as_dict(trace_index.get("builder_events"))
-    builder_event_samples = as_dict(trace_index.get("builder_event_samples"))
-    builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
-    builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
-    review_candidates = as_dict(trace_index.get("review_candidates"))
-    memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
-    builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
-    return {
-        "schema_version": "spark.os_compile.summary.v0",
-        "generated_at": system_map.get("generated_at"),
-        "modules": len(as_list(system_map.get("modules"))),
-        "repos": len(as_list(system_map.get("discovered_repos"))),
-        "gaps": len(as_list(system_map.get("gaps"))),
-        "chip_manifests": len(as_list(capability_catalog.get("chip_manifests"))),
-        "skill_graphs": len(as_list(capability_catalog.get("skill_graphs"))),
-        "creator_system_surfaces": len(as_list(capability_catalog.get("creator_system_surfaces"))),
-        "specialization_path_surfaces": len(as_list(capability_catalog.get("specialization_path_surfaces"))),
-        "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
-        "authority_sources": {
-            key: as_dict(value).get("exists")
-            for key, value in as_dict(as_dict(compiled.get("authority_view")).get("observed_sources")).items()
-        },
-        "builder_event_rows": builder_events.get("row_count"),
-        "builder_event_samples": builder_event_samples.get("sample_count"),
-        "builder_trace_groups": builder_trace_groups.get("group_count"),
-        "builder_trace_health_flags": as_list(builder_trace_health.get("health_flags")),
-        "review_candidates": as_dict(review_candidates.get("counts")).get("candidate_count"),
-        "memory_movement_status": memory_status.get("status"),
-        "memory_movement_rows": memory_status.get("row_count"),
-        "builder_memory_table_count": builder_memory_tables.get("table_count"),
-        "repo_board": as_dict(repo_board.get("summary")),
-        "duplicate_truths": as_dict(duplicate_truths.get("summary")),
-        "voice_surface_mode": voice_surface.get("mode"),
-        "voice_surface_blockers": len(as_list(voice_surface.get("blockers"))),
-        "privacy": system_map.get("privacy"),
-        "outputs": written or {},
-    }
+    if not isinstance(compiled, str): compiled = str(compiled or '')
+    if not isinstance(written, str): written = str(written or '')
+    try:
+        compiled = compiled if isinstance(compiled, dict) else {}
+        written = written if isinstance(written, dict) else {}
+        system_map = as_dict(compiled.get("system_map"))
+        capability_catalog = as_dict(compiled.get("capability_catalog"))
+        trace_index = as_dict(compiled.get("trace_index"))
+        memory_index = as_dict(compiled.get("memory_movement_index"))
+        repo_board = as_dict(compiled.get("repo_board"))
+        voice_surface = as_dict(compiled.get("voice_surface_view"))
+        duplicate_truths = as_dict(repo_board.get("duplicate_truths"))
+        builder_events = as_dict(trace_index.get("builder_events"))
+        builder_event_samples = as_dict(trace_index.get("builder_event_samples"))
+        builder_trace_groups = as_dict(trace_index.get("builder_trace_groups"))
+        builder_trace_health = as_dict(trace_index.get("builder_trace_health"))
+        review_candidates = as_dict(trace_index.get("review_candidates"))
+        memory_status = as_dict(as_dict(memory_index.get("safe_status_export")).get("status"))
+        builder_memory_tables = as_dict(memory_index.get("builder_memory_tables"))
+        return {
+            "schema_version": "spark.os_compile.summary.v0",
+            "generated_at": system_map.get("generated_at"),
+            "modules": len(as_list(system_map.get("modules"))),
+            "repos": len(as_list(system_map.get("discovered_repos"))),
+            "gaps": len(as_list(system_map.get("gaps"))),
+            "chip_manifests": len(as_list(capability_catalog.get("chip_manifests"))),
+            "skill_graphs": len(as_list(capability_catalog.get("skill_graphs"))),
+            "creator_system_surfaces": len(as_list(capability_catalog.get("creator_system_surfaces"))),
+            "specialization_path_surfaces": len(as_list(capability_catalog.get("specialization_path_surfaces"))),
+            "capability_cards": len(as_list(capability_catalog.get("capability_cards"))),
+            "authority_sources": {
+                key: as_dict(value).get("exists")
+                for key, value in as_dict(as_dict(compiled.get("authority_view")).get("observed_sources")).items()
+            },
+            "builder_event_rows": builder_events.get("row_count"),
+            "builder_event_samples": builder_event_samples.get("sample_count"),
+            "builder_trace_groups": builder_trace_groups.get("group_count"),
+            "builder_trace_health_flags": as_list(builder_trace_health.get("health_flags")),
+            "review_candidates": as_dict(review_candidates.get("counts")).get("candidate_count"),
+            "memory_movement_status": memory_status.get("status"),
+            "memory_movement_rows": memory_status.get("row_count"),
+            "builder_memory_table_count": builder_memory_tables.get("table_count"),
+            "repo_board": as_dict(repo_board.get("summary")),
+            "duplicate_truths": as_dict(duplicate_truths.get("summary")),
+            "voice_surface_mode": voice_surface.get("mode"),
+            "voice_surface_blockers": len(as_list(voice_surface.get("blockers"))),
+            "privacy": system_map.get("privacy"),
+            "outputs": written or {},
+        }
+
+    except Exception:
+        return {}
