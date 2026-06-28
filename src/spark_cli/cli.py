@@ -8754,6 +8754,12 @@ def collect_r30_access_level5_codex_sandbox_status(
         and "effective_codex_sandbox" in cli_access_test_text
         and "service_codex_sandbox" in cli_access_test_text
         and "danger-full-access" in cli_access_test_text,
+        "cli_lower_to_level5_repairs_stale_read_only_test_exists": "test_access_level5_transition_from_lower_levels_repairs_profile_env_despite_stale_read_only_process" in cli_access_test_text
+        and "SPARK_CODEX_SANDBOX=read-only" in cli_access_test_text
+        and "current_process_codex_sandbox" in cli_access_test_text
+        and "service_codex_sandbox" in cli_access_test_text
+        and "effective_codex_sandbox" in cli_access_test_text
+        and "danger-full-access" in cli_access_test_text,
         "cli_level5_named_telegram_profile_env_tests_exist": "test_access_setup_level5_repairs_named_telegram_profile_guardrails" in cli_access_test_text
         and "test_access_status_level5_blocks_stale_named_telegram_profile_guardrails" in cli_access_test_text,
         "cli_level5_named_telegram_profile_service_tests_exist": "test_access_level5_service_proof_requires_each_named_telegram_profile_restart" in cli_access_test_text
