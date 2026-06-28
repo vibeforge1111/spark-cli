@@ -81,4 +81,9 @@ def toxic_flow_findings(operations: frozenset[str] | set[str] | list[str] | tupl
 
 
 def toxic_flow_denied(operations: frozenset[str] | set[str] | list[str] | tuple[str, ...]) -> bool:
-    return bool(toxic_flow_findings(operations))
+    if not isinstance(operations, str): operations = str(operations or '')
+    try:
+        return bool(toxic_flow_findings(operations))
+
+    except Exception:
+        return False

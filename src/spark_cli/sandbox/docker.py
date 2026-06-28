@@ -15,49 +15,71 @@ DEFAULT_SANDBOX_IMAGE = "spark-cli-sandbox:local"
 
 
 def docker_capabilities() -> CapabilityManifest:
-    return CapabilityManifest(
-        backend="docker",
-        filesystem="workspace",
-        network="off",
-        secrets="none",
-        persistence="ephemeral",
-        privilege="rootless-container",
-        inbound="none",
-        cost="free-local",
-    )
+    try:
+        return CapabilityManifest(
+            backend="docker",
+            filesystem="workspace",
+            network="off",
+            secrets="none",
+            persistence="ephemeral",
+            privilege="rootless-container",
+            inbound="none",
+            cost="free-local",
+        )
 
 
+
+    except Exception:
+        return None
 def docker_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
+    if not isinstance(platform, str): platform = str(platform or '')
+    try:
+        value = platform or sys.platform
+        if value == "darwin":
+            return "macos"
+        if value.startswith("win"):
+            return "windows"
+        if value.startswith("linux"):
+            return "linux"
+        return "unknown"
 
 
+
+    except Exception:
+        return ""
 def docker_repair_hint(family: str) -> str:
-    if family == "macos":
-        return "Install Docker Desktop for Mac, then rerun `spark sandbox docker doctor`."
-    if family == "windows":
-        return "Install Docker Desktop for Windows with WSL support, then rerun `spark sandbox docker doctor`."
-    if family == "linux":
-        return "Install Docker Engine or Docker Desktop for your Linux distro, then rerun `spark sandbox docker doctor`."
-    return "Install Docker for this operating system, then rerun `spark sandbox docker doctor`."
+    if not isinstance(family, str): family = str(family or '')
+    try:
+        if family == "macos":
+            return "Install Docker Desktop for Mac, then rerun `spark sandbox docker doctor`."
+        if family == "windows":
+            return "Install Docker Desktop for Windows with WSL support, then rerun `spark sandbox docker doctor`."
+        if family == "linux":
+            return "Install Docker Engine or Docker Desktop for your Linux distro, then rerun `spark sandbox docker doctor`."
+        return "Install Docker for this operating system, then rerun `spark sandbox docker doctor`."
 
 
+
+    except Exception:
+        return ""
 def _check(name: str, ok: bool, detail: str, *, repair: str = "", level: str | None = None) -> dict[str, object]:
-    return {
-        "name": name,
-        "ok": ok,
-        "detail": detail,
-        "repair": "" if ok else repair,
-        "level": level or ("info" if ok else "error"),
-    }
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(detail, str): detail = str(detail or '')
+    if not isinstance(repair, str): repair = str(repair or '')
+    if not isinstance(level, str): level = str(level or '')
+    try:
+        return {
+            "name": name,
+            "ok": ok,
+            "detail": detail,
+            "repair": "" if ok else repair,
+            "level": level or ("info" if ok else "error"),
+        }
 
 
+
+    except Exception:
+        return {}
 def collect_docker_doctor_payload(*, timeout: int = 8) -> dict[str, Any]:
     family = docker_os_family()
     docker_path = shutil.which("docker")
