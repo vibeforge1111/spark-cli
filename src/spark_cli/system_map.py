@@ -813,155 +813,183 @@ def inspect_safe_jsonl_samples(
 
 
 def safe_jsonl_sample_value(field: str, value: Any, *, identifier_fields: dict[str, str]) -> Any:
-    field = str(field or "")
-    identifier_fields = as_dict(identifier_fields)
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    if isinstance(value, str):
-        identifier_column = identifier_fields.get(field)
-        if identifier_column:
-            return safe_builder_event_value(identifier_column, value)
-        return safe_short_string(value, limit=160)
-    if isinstance(value, list):
-        return f"[list:{len(value)}]"
-    if isinstance(value, dict):
-        return f"[object:{len(value)}]"
-    return safe_short_string(str(value), limit=80)
-
-
-def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    out = inspect_safe_jsonl_samples(
-        path,
-        source="telegram_final_answer_gate",
-        safe_fields=SAFE_TELEGRAM_FINAL_ANSWER_FIELDS,
-    )
-    top_keys = as_dict(out.get("top_keys"))
-    request_id_present = "request_id" in top_keys or "requestId" in top_keys
-    trace_ref_present = "trace_ref" in top_keys or "traceRef" in top_keys
-    out["trace_join"] = {
-        "request_id_field_present": request_id_present,
-        "trace_ref_field_present": trace_ref_present,
-        "status": "join_key_present" if request_id_present or trace_ref_present else "missing_join_key",
-        "next_action": "Emit request_id or trace_ref from Telegram final-answer gate checks.",
-    }
-    return out
-
-
-def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    return inspect_safe_jsonl_samples(
-        path,
-        source="telegram_outbound_audit",
-        safe_fields=SAFE_TELEGRAM_OUTBOUND_FIELDS,
-    )
-
-
-def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[str, Any]:
-    path = Path(path)
-    builder_home = Path(builder_home)
-    out = inspect_safe_jsonl_samples(
-        path,
-        source="spawner_prd_auto_trace",
-        safe_fields=SAFE_SPAWNER_PRD_TRACE_FIELDS,
-        identifier_fields={
-            "requestId": "request_id",
-            "missionId": "request_id",
-            "traceRef": "trace_ref",
-            "trace_ref": "trace_ref",
-        },
-    )
-    request_ids: set[str] = set()
-    mission_ids: set[str] = set()
-    trace_refs: set[str] = set()
-    derived_trace_refs: set[str] = set()
-    if path.exists():
-        try:
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    if not line.strip():
-                        continue
-                    try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(payload, dict):
-                        continue
-                    request_id = payload.get("requestId")
-                    mission_id = payload.get("missionId")
-                    trace_ref = payload.get("traceRef") or payload.get("trace_ref")
-                    if isinstance(request_id, str) and request_id.strip():
-                        request_ids.add(request_id.strip())
-                    if isinstance(mission_id, str) and mission_id.strip():
-                        clean_mission_id = mission_id.strip()
-                        mission_ids.add(clean_mission_id)
-                        derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
-                    if isinstance(trace_ref, str) and trace_ref.strip():
-                        trace_refs.add(trace_ref.strip())
-        except OSError as exc:
-            out["join_error"] = f"{type(exc).__name__}: {exc}"
-    effective_trace_refs = set(trace_refs)
-    effective_trace_refs.update(derived_trace_refs)
-    out["join_keys"] = {
-        "request_id_count": len(request_ids),
-        "mission_id_count": len(mission_ids),
-        "trace_ref_count": len(trace_refs),
-        "derived_trace_ref_count": len(derived_trace_refs),
-    }
-    out["derived_trace_contract"] = {
-        "scheme": "trace:spawner-prd:<missionId>",
-        "source": "missionId",
-        "status": "derived_available" if derived_trace_refs else "missing_mission_id",
-    }
-    out["builder_request_overlap"] = inspect_builder_request_id_overlap(builder_home, request_ids)
-    out["builder_trace_ref_overlap"] = inspect_builder_trace_ref_overlap(builder_home, effective_trace_refs)
-    return out
-
-
-def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
-    builder_home = Path(builder_home)
-    request_ids_set = set(str(r) for r in as_list(request_ids))
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "exists": db_path.exists(),
-        "checked_request_id_count": len(request_ids_set),
-        "redaction": "overlap counts only; request id values omitted",
-    }
-    if not request_ids_set or not db_path.exists():
-        out["matched_builder_request_id_count"] = 0
-        return out
+    if not isinstance(field, str): field = str(field or '')
+    if not isinstance(identifier_fields, str): identifier_fields = str(identifier_fields or '')
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        field = str(field or "")
+        identifier_fields = as_dict(identifier_fields)
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            identifier_column = identifier_fields.get(field)
+            if identifier_column:
+                return safe_builder_event_value(identifier_column, value)
+            return safe_short_string(value, limit=160)
+        if isinstance(value, list):
+            return f"[list:{len(value)}]"
+        if isinstance(value, dict):
+            return f"[object:{len(value)}]"
+        return safe_short_string(str(value), limit=80)
+
+
+
+    except Exception:
+        return None
+def inspect_telegram_final_answer_gate(path: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        out = inspect_safe_jsonl_samples(
+            path,
+            source="telegram_final_answer_gate",
+            safe_fields=SAFE_TELEGRAM_FINAL_ANSWER_FIELDS,
+        )
+        top_keys = as_dict(out.get("top_keys"))
+        request_id_present = "request_id" in top_keys or "requestId" in top_keys
+        trace_ref_present = "trace_ref" in top_keys or "traceRef" in top_keys
+        out["trace_join"] = {
+            "request_id_field_present": request_id_present,
+            "trace_ref_field_present": trace_ref_present,
+            "status": "join_key_present" if request_id_present or trace_ref_present else "missing_join_key",
+            "next_action": "Emit request_id or trace_ref from Telegram final-answer gate checks.",
+        }
+        return out
+
+
+
+    except Exception:
+        return {}
+def inspect_telegram_outbound_audit(path: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        return inspect_safe_jsonl_samples(
+            path,
+            source="telegram_outbound_audit",
+            safe_fields=SAFE_TELEGRAM_OUTBOUND_FIELDS,
+        )
+
+
+
+    except Exception:
+        return {}
+def inspect_spawner_prd_auto_trace(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        path = Path(path)
+        builder_home = Path(builder_home)
+        out = inspect_safe_jsonl_samples(
+            path,
+            source="spawner_prd_auto_trace",
+            safe_fields=SAFE_SPAWNER_PRD_TRACE_FIELDS,
+            identifier_fields={
+                "requestId": "request_id",
+                "missionId": "request_id",
+                "traceRef": "trace_ref",
+                "trace_ref": "trace_ref",
+            },
+        )
+        request_ids: set[str] = set()
+        mission_ids: set[str] = set()
+        trace_refs: set[str] = set()
+        derived_trace_refs: set[str] = set()
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            payload = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(payload, dict):
+                            continue
+                        request_id = payload.get("requestId")
+                        mission_id = payload.get("missionId")
+                        trace_ref = payload.get("traceRef") or payload.get("trace_ref")
+                        if isinstance(request_id, str) and request_id.strip():
+                            request_ids.add(request_id.strip())
+                        if isinstance(mission_id, str) and mission_id.strip():
+                            clean_mission_id = mission_id.strip()
+                            mission_ids.add(clean_mission_id)
+                            derived_trace_refs.add(f"trace:spawner-prd:{clean_mission_id}")
+                        if isinstance(trace_ref, str) and trace_ref.strip():
+                            trace_refs.add(trace_ref.strip())
+            except OSError as exc:
+                out["join_error"] = f"{type(exc).__name__}: {exc}"
+        effective_trace_refs = set(trace_refs)
+        effective_trace_refs.update(derived_trace_refs)
+        out["join_keys"] = {
+            "request_id_count": len(request_ids),
+            "mission_id_count": len(mission_ids),
+            "trace_ref_count": len(trace_refs),
+            "derived_trace_ref_count": len(derived_trace_refs),
+        }
+        out["derived_trace_contract"] = {
+            "scheme": "trace:spawner-prd:<missionId>",
+            "source": "missionId",
+            "status": "derived_available" if derived_trace_refs else "missing_mission_id",
+        }
+        out["builder_request_overlap"] = inspect_builder_request_id_overlap(builder_home, request_ids)
+        out["builder_trace_ref_overlap"] = inspect_builder_trace_ref_overlap(builder_home, effective_trace_refs)
+        return out
+
+
+
+    except Exception:
+        return {}
+def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]) -> dict[str, Any]:
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    if not isinstance(request_ids, str): request_ids = str(request_ids or '')
+    try:
+        builder_home = Path(builder_home)
+        request_ids_set = set(str(r) for r in as_list(request_ids))
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "exists": db_path.exists(),
+            "checked_request_id_count": len(request_ids_set),
+            "redaction": "overlap counts only; request id values omitted",
+        }
+        if not request_ids_set or not db_path.exists():
+            out["matched_builder_request_id_count"] = 0
+            return out
         try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                out["matched_builder_request_id_count"] = 0
-                return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
-            if "request_id" not in columns:
-                out["request_id_column_exists"] = False
-                out["matched_builder_request_id_count"] = 0
-                return out
-            candidates = sorted(request_ids_set)[:500]
-            placeholders = ",".join("?" for _ in candidates)
-            matched = conn.execute(
-                f"""
-                select count(distinct request_id)
-                from builder_events
-                where request_id in ({placeholders})
-                """,
-                candidates,
-            ).fetchone()[0]
-            out["matched_builder_request_id_count"] = int(matched or 0)
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    out["matched_builder_request_id_count"] = 0
+                    return out
+                columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+                if "request_id" not in columns:
+                    out["request_id_column_exists"] = False
+                    out["matched_builder_request_id_count"] = 0
+                    return out
+                candidates = sorted(request_ids_set)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                matched = conn.execute(
+                    f"""
+                    select count(distinct request_id)
+                    from builder_events
+                    where request_id in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchone()[0]
+                out["matched_builder_request_id_count"] = int(matched or 0)
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
 
 
+
+    except Exception:
+        return {}
 def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) -> dict[str, Any]:
     builder_home = Path(builder_home)
     trace_refs_set = set(str(t) for t in as_list(trace_refs))
