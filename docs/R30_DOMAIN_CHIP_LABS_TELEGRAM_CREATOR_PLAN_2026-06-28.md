@@ -6,14 +6,16 @@ Generated: 2026-06-28
 
 R30 is not an installer-publish lane yet. It is still a source-owner convergence lane.
 
-- Telegram proof head: `8958d01a80a42c7c64c45c63956c1001568a6e11`
+- Telegram proof head: `0cf6e5c1624bfbe2e7c17163e2edce8c48d91032`
 - Telegram owner base: `67ad9e6ed297baf6c9daa74b879fa45bc45bd579`
 - Telegram handoff patch: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`
-- Patch SHA256: `2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160`
-- Patch apply tree after `git add -A`: `94671ae63d4e34fa8a412ccc04ca75f6cac93bc8`
+- Patch SHA256: `c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6`
+- Patch apply tree after `git add -A`: `1b676a0f948215599e41cf8f7a8ca7af5903af9e`
 - Local Telegram proof is review/apply material only. It is not registry, installer, or hosted publication authority.
 
-The latest Telegram slice improves the domain-chip creation preview and adds regression coverage for fresh “build a domain chip” intent. It does not complete the full Domain Chip Labs creator lane.
+The latest Telegram slice hardens rich Domain Chip Labs creator mission routing
+and adds top-level Telegram regression coverage for full creator-system prompts.
+It does not complete the full Domain Chip Labs creator lane.
 
 ## Problem To Solve
 

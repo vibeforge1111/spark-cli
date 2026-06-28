@@ -13166,6 +13166,7 @@ class SparkCliTests(unittest.TestCase):
     def test_r30_docs_status_requires_stability_and_dcl_handoff_docs(self) -> None:
         expected_docs = {
             "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+            "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md",
             "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
             "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
         }
@@ -13175,11 +13176,11 @@ class SparkCliTests(unittest.TestCase):
             for doc in R30_REQUIRED_DOCS:
                 path = root / doc
                 path.parent.mkdir(parents=True, exist_ok=True)
-                if doc != "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md":
+                if doc != "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md":
                     path.write_text("placeholder\n", encoding="utf-8")
 
             missing = collect_r30_docs_status(repo_root=root)
-            (root / "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md").write_text(
+            (root / "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md").write_text(
                 "placeholder\n",
                 encoding="utf-8",
             )
@@ -13188,7 +13189,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertFalse(missing["ok"])
         self.assertEqual(
             missing["missing"],
-            ["docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md"],
+            ["docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md"],
         )
         self.assertTrue(fresh["ok"])
 
@@ -14588,17 +14589,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
-                                    "line_count": 87936,
+                                    "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
+                                    "line_count": 88158,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
+                                    "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"94671ae63d4e34fa8a412ccc04ca75f6cac93bc8\""
+                                        "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
                                     ),
-                                    "proof_result": "reliability passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "local_proof": "passed",
@@ -15239,22 +15240,23 @@ class SparkCliTests(unittest.TestCase):
                                     "Harden Telegram Level 5 proof agreement",
                                     "Preserve natural Level 5 confirmations",
                                     "Improve domain chip creation preview",
+                                    "Harden DCL creator mission routing",
                                 ],
                                 "proof_commands": ["npm run control:proof:reliability"],
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
-                                    "line_count": 87936,
+                                    "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
+                                    "line_count": 88158,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
+                                    "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"94671ae63d4e34fa8a412ccc04ca75f6cac93bc8\""
+                                        "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
                                     ),
-                                    "proof_result": "reliability passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "owner_action": "Port onto the current owner release base before registry movement.",
@@ -15767,22 +15769,23 @@ class SparkCliTests(unittest.TestCase):
                             "Harden Telegram Level 5 proof agreement",
                             "Preserve natural Level 5 confirmations",
                             "Improve domain chip creation preview",
+                            "Harden DCL creator mission routing",
                         ],
                         "proof_commands": ["npm run control:proof:reliability"],
                         "owner_handoff_patch": {
                             "patch_type": "tree_diff",
                             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                            "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
-                            "line_count": 87936,
+                            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
+                            "line_count": 88158,
                             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                            "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
+                            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
                             "apply_check": (
                                 "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                 "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                 "git add -A && test \"$(git write-tree)\" = "
-                                "\"94671ae63d4e34fa8a412ccc04ca75f6cac93bc8\""
+                                "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
                             ),
-                            "proof_result": "reliability passed; build passed; line-count passed",
+                            "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
                             "publication_authority": False,
                         },
                         "owner_action": "Port onto the current owner release base before registry movement.",

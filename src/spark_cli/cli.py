@@ -134,6 +134,7 @@ R30_REQUIRED_DOCS = [
     "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
     "docs/R30_INSTALLER_PREP_2026-06-27.md",
     "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+    "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md",
     "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
     "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
     "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
@@ -222,8 +223,10 @@ R30_RELEASE_LANE_ACTIONS = {
         "proof_commands": ["spark verify --r30 --json"],
     },
     "spark-telegram-bot": {
-        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, and mixed access/build Level 5 full-permission proof hardening plus the DCL creator-preview guard onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
         "proof_commands": [
+            "npm test -- --run tests/domainChipLabsCreator.test.ts",
+            "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
             "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
             "npm run build",
             "npm run control:proof:reliability",
@@ -275,6 +278,7 @@ R30_LOCAL_RUNTIME_REQUIRED_SUBJECTS = {
         "Require Telegram Level 5 full permission proof",
         "Harden Telegram Level 5 proof agreement",
         "Improve domain chip creation preview",
+        "Harden DCL creator mission routing",
     ],
     "spawner-ui": [
         "Carry Harness proof refs in PRD traces",
@@ -9267,12 +9271,12 @@ def collect_r30_handoff_manifest_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
-            "line_count": 87936,
+            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
+            "line_count": 88158,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
+            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
             "publication_authority": False,
-            "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
+            "proof_result_terms": ["DCL creator tests passed", "route/Spawner tests passed", "build passed", "line-count passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",
@@ -9474,12 +9478,12 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "2d5f14ed8eea42b9707e06cf88d46a1b2eef6e7ab4e1c0465542810fcc71c160",
-            "line_count": 87936,
+            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
+            "line_count": 88158,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "94671ae63d4e34fa8a412ccc04ca75f6cac93bc8",
+            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
             "publication_authority": False,
-            "proof_result_terms": ["reliability passed", "build passed", "line-count passed"],
+            "proof_result_terms": ["DCL creator tests passed", "route/Spawner tests passed", "build passed", "line-count passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",

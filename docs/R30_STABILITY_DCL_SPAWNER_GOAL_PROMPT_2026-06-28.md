@@ -18,6 +18,11 @@ This goal sits on top of the existing R30 source-owner, registry, and installer
 gates. It does not authorize push, deploy, tag, publish, registry movement, or
 installer pin changes.
 
+Before broad implementation, use
+[R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md](./R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md)
+as the planner-first contract: define the user-visible working state, exact QA
+matrix, proof owner, remaining blocker, and stop-ship condition for each slice.
+
 ## Task List
 
 1. Audit the current Telegram -> Domain Chip Labs -> Spawner path end to end:
@@ -47,6 +52,8 @@ Use this in a writable Codex lane:
 Goal: Make Spark R30 genuinely stable for Domain Chip Labs creation, Spawner execution, and Telegram usability before any R30-ready claim.
 
 Do not push, deploy, tag, publish, move registry pins, or change installer pins. Preserve the existing R30 source-owner, registry, installer, and live trace gates. First reduce measured proof gaps, trace-join gaps, Spawner closure gaps, DCL creator gaps, and confusing capability-truth replies.
+
+Start with the R30 DCL/Spawner readiness spec. For each slice, document the failure being closed, great working state, source owner, exact QA, affected gate, remaining blocker, and stop-ship condition before broad code changes.
 
 Audit the real Telegram -> Domain Chip Labs -> Spawner path end to end: natural “build/create a domain chip” intent, pending state, scope follow-ups, /run, Spawner bridge, mission id/reply, artifact path, failure replies, Access Level 5 truth, writable-runner proof, and route/action/reply proof joins. Use the Higgsfield/Seedance conversation as one failure specimen, but prove the creator lane works for multiple domains.
 

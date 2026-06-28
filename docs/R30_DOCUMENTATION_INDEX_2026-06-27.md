@@ -23,8 +23,9 @@ Use this index as the entry point for R30 release prep.
 14. [R30 goal prompt](./R30_GOAL_PROMPT_2026-06-27.md)
 15. [Access Level 5 read-only elimination audit](./ACCESS_LEVEL5_READ_ONLY_ELIMINATION_AUDIT_2026-06-28.md)
 16. [R30 Domain Chip Labs Telegram creator plan](./R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md)
-17. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
-18. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
+17. [R30 Domain Chip Labs and Spawner readiness spec](./R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md)
+18. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
+19. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
 
 ## Current Verdict
 
@@ -53,6 +54,10 @@ Current green proof:
   conversation failure audit, universal creator UX standard, artifact contract,
   loop-engineering contract, and under-4000-character implementation goal
   prompt.
+- The R30 Domain Chip Labs and Spawner readiness spec defines the great working
+  state, artifact contract, Spawner closure contract, task list, QA matrix,
+  planner-first rule, first local Telegram proof slice, and stop-ship
+  conditions for this lane.
 - The R30 Telegram live trace recapture runbook gives the exact four
   SparkRecursive_bot safe prompts and pass criteria needed before Telegram
   reliability can be called green again.
@@ -69,6 +74,9 @@ Current blockers:
 - Hosted `agent.sparkswarm.ai` and local installer files now agree on R29; R30 is not hosted.
 - Domain Chip Labs Telegram creation is documented as a planned R30 UX/readiness
   lane, not yet a complete installer-ready capability.
+- The first local Telegram DCL creator slice is proven only as local runtime
+  evidence; source-owner handoff docs and runtime manifests must be refreshed
+  before it can count as source truth.
 - Telegram live trace recapture is currently stale and must be refreshed in the
   real SparkRecursive_bot chat before the reliability ladder is green again.
 - Domain Chip Labs creation and Spawner execution are not yet proven as a
