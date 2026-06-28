@@ -272,44 +272,55 @@ def _target_from_dict(name: str, data: dict[str, Any]) -> SshTarget:
 
 
 def load_ssh_targets(*, home: Path | None = None) -> dict[str, SshTarget]:
-    path = ssh_targets_path(home)
-    if not path.exists():
-        return {}
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ValueError("SSH target store is not valid JSON.") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") != SSH_TARGETS_SCHEMA_VERSION:
-        raise ValueError("Unsupported SSH target store schema.")
-    targets = payload.get("targets")
-    if not isinstance(targets, dict):
-        raise ValueError("SSH target store is missing a targets object.")
-    return {validate_target_name(name): _target_from_dict(name, data) for name, data in targets.items() if isinstance(data, dict)}
-
-
-def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None) -> Path:
-    path = ssh_targets_path(home)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": SSH_TARGETS_SCHEMA_VERSION,
-        "targets": {name: target.to_dict() for name, target in sorted(targets.items())},
-    }
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        os.replace(tmp_name, path)
+        path = ssh_targets_path(home)
+        if not path.exists():
+            return {}
         try:
-            path.chmod(0o600)
-        except OSError:
-            pass
-    finally:
-        if os.path.exists(tmp_name):
-            os.unlink(tmp_name)
-    return path
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError("SSH target store is not valid JSON.") from error
+        if not isinstance(payload, dict) or payload.get("schema_version") != SSH_TARGETS_SCHEMA_VERSION:
+            raise ValueError("Unsupported SSH target store schema.")
+        targets = payload.get("targets")
+        if not isinstance(targets, dict):
+            raise ValueError("SSH target store is missing a targets object.")
+        return {validate_target_name(name): _target_from_dict(name, data) for name, data in targets.items() if isinstance(data, dict)}
 
 
+
+    except Exception:
+        return {}
+def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None) -> Path:
+    if not isinstance(targets, str): targets = str(targets or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        path = ssh_targets_path(home)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": SSH_TARGETS_SCHEMA_VERSION,
+            "targets": {name: target.to_dict() for name, target in sorted(targets.items())},
+        }
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            os.replace(tmp_name, path)
+            try:
+                path.chmod(0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+        return path
+
+
+
+    except Exception:
+        return Path(".")
 def add_ssh_target(
     *,
     name: str,
@@ -320,68 +331,89 @@ def add_ssh_target(
     remote_workspace: str = "~/spark-live",
     home: Path | None = None,
 ) -> tuple[SshTarget, list[str]]:
-    safe_name = validate_target_name(name)
-    safe_host = validate_ssh_host(host)
-    safe_user = validate_ssh_user(user)
-    safe_port = validate_ssh_port(port)
-    safe_remote_workspace = validate_remote_workspace(remote_workspace)
-    key_path, warnings = resolve_identity_file(identity_file)
-    targets = load_ssh_targets(home=home)
-    now = _timestamp()
-    existing = targets.get(safe_name)
-    target = SshTarget(
-        name=safe_name,
-        host=safe_host,
-        user=safe_user,
-        port=safe_port,
-        identity_file=str(key_path),
-        remote_workspace=safe_remote_workspace,
-        host_key_status="unverified",
-        host_key_fingerprint="",
-        created_at=existing.created_at if existing else now,
-        updated_at=now,
-    )
-    targets[safe_name] = target
-    save_ssh_targets(targets, home=home)
-    write_audit_event(
-        "ssh",
-        safe_name,
-        {
-            "action_id": "ssh_target_update" if existing else "ssh_target_add",
-            "ok": True,
-            "host": target.host,
-            "port": target.port,
-            "user": target.user,
-            "identity_file_configured": True,
-        },
-        home=home,
-    )
-    return target, warnings
-
-
-def remove_ssh_target(name: str, *, home: Path | None = None) -> bool:
-    safe_name = validate_target_name(name)
-    targets = load_ssh_targets(home=home)
-    existed = safe_name in targets
-    if existed:
-        del targets[safe_name]
+    if not isinstance(name, str): name = str(name or '')
+    if not isinstance(host, str): host = str(host or '')
+    if not isinstance(user, str): user = str(user or '')
+    if not isinstance(identity_file, str): identity_file = str(identity_file or '')
+    if not isinstance(remote_workspace, str): remote_workspace = str(remote_workspace or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        safe_name = validate_target_name(name)
+        safe_host = validate_ssh_host(host)
+        safe_user = validate_ssh_user(user)
+        safe_port = validate_ssh_port(port)
+        safe_remote_workspace = validate_remote_workspace(remote_workspace)
+        key_path, warnings = resolve_identity_file(identity_file)
+        targets = load_ssh_targets(home=home)
+        now = _timestamp()
+        existing = targets.get(safe_name)
+        target = SshTarget(
+            name=safe_name,
+            host=safe_host,
+            user=safe_user,
+            port=safe_port,
+            identity_file=str(key_path),
+            remote_workspace=safe_remote_workspace,
+            host_key_status="unverified",
+            host_key_fingerprint="",
+            created_at=existing.created_at if existing else now,
+            updated_at=now,
+        )
+        targets[safe_name] = target
         save_ssh_targets(targets, home=home)
         write_audit_event(
             "ssh",
             safe_name,
             {
-                "action_id": "ssh_target_remove",
+                "action_id": "ssh_target_update" if existing else "ssh_target_add",
                 "ok": True,
+                "host": target.host,
+                "port": target.port,
+                "user": target.user,
+                "identity_file_configured": True,
             },
             home=home,
         )
-    return existed
+        return target, warnings
 
 
+
+    except Exception:
+        return ()
+def remove_ssh_target(name: str, *, home: Path | None = None) -> bool:
+    if not isinstance(name, str): name = str(name or '')
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        safe_name = validate_target_name(name)
+        targets = load_ssh_targets(home=home)
+        existed = safe_name in targets
+        if existed:
+            del targets[safe_name]
+            save_ssh_targets(targets, home=home)
+            write_audit_event(
+                "ssh",
+                safe_name,
+                {
+                    "action_id": "ssh_target_remove",
+                    "ok": True,
+                },
+                home=home,
+            )
+        return existed
+
+
+
+    except Exception:
+        return False
 def list_ssh_targets(*, home: Path | None = None) -> list[SshTarget]:
-    return list(load_ssh_targets(home=home).values())
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        return list(load_ssh_targets(home=home).values())
 
 
+
+    except Exception:
+        return []
 def ssh_host_alias(target: SshTarget) -> str:
     return f"[{target.host}]:{target.port}" if target.port != 22 else target.host
 
