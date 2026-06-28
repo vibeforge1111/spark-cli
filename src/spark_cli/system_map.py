@@ -963,460 +963,487 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
 
 
 def inspect_builder_trace_ref_overlap(builder_home: Path, trace_refs: set[str]) -> dict[str, Any]:
-    builder_home = Path(builder_home)
-    trace_refs_set = set(str(t) for t in as_list(trace_refs))
-    db_path = builder_home / "state.db"
-    out: dict[str, Any] = {
-        "source": "builder_events",
-        "exists": db_path.exists(),
-        "checked_trace_ref_count": len(trace_refs_set),
-        "redaction": "overlap counts only; trace ref values omitted",
-    }
-    if not trace_refs_set or not db_path.exists():
-        out["matched_builder_trace_ref_count"] = 0
-        return out
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    if not isinstance(trace_refs, str): trace_refs = str(trace_refs or '')
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        builder_home = Path(builder_home)
+        trace_refs_set = set(str(t) for t in as_list(trace_refs))
+        db_path = builder_home / "state.db"
+        out: dict[str, Any] = {
+            "source": "builder_events",
+            "exists": db_path.exists(),
+            "checked_trace_ref_count": len(trace_refs_set),
+            "redaction": "overlap counts only; trace ref values omitted",
+        }
+        if not trace_refs_set or not db_path.exists():
+            out["matched_builder_trace_ref_count"] = 0
+            return out
         try:
-            tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
-            if "builder_events" not in tables:
-                out["table_exists"] = False
-                out["matched_builder_trace_ref_count"] = 0
-                return out
-            columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
-            if "trace_ref" not in columns:
-                out["trace_ref_column_exists"] = False
-                out["matched_builder_trace_ref_count"] = 0
-                return out
-            candidates = sorted(trace_refs_set)[:500]
-            placeholders = ",".join("?" for _ in candidates)
-            matched = conn.execute(
-                f"""
-                select count(distinct trace_ref)
-                from builder_events
-                where trace_ref in ({placeholders})
-                """,
-                candidates,
-            ).fetchone()[0]
-            out["matched_builder_trace_ref_count"] = int(matched or 0)
-        finally:
-            conn.close()
-    except (sqlite3.Error, OSError) as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                tables = [row[0] for row in conn.execute("select name from sqlite_master where type='table'")]
+                if "builder_events" not in tables:
+                    out["table_exists"] = False
+                    out["matched_builder_trace_ref_count"] = 0
+                    return out
+                columns = [row[1] for row in conn.execute("pragma table_info(builder_events)")]
+                if "trace_ref" not in columns:
+                    out["trace_ref_column_exists"] = False
+                    out["matched_builder_trace_ref_count"] = 0
+                    return out
+                candidates = sorted(trace_refs_set)[:500]
+                placeholders = ",".join("?" for _ in candidates)
+                matched = conn.execute(
+                    f"""
+                    select count(distinct trace_ref)
+                    from builder_events
+                    where trace_ref in ({placeholders})
+                    """,
+                    candidates,
+                ).fetchone()[0]
+                out["matched_builder_trace_ref_count"] = int(matched or 0)
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+        return out
 
 
+
+    except Exception:
+        return {}
 def inspect_spawner_authority_verdicts(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    out: dict[str, Any] = {
-        "source": "spawner_prd_auto_trace",
-        "path": str(path),
-        "exists": path.exists(),
-        "schema_version": "spark.authority_verdict_index.v0",
-        "redaction": "authority verdict metadata only; prompts, mission bodies, provider output, and raw request identifiers omitted",
-        "verdict_count": 0,
-        "verdict_counts": {},
-        "action_family_counts": {},
-        "source_policy_counts": {},
-        "items": [],
-    }
-    if not path.exists():
-        return out
-
-    verdict_counts: Counter[str] = Counter()
-    action_family_counts: Counter[str] = Counter()
-    source_policy_counts: Counter[str] = Counter()
-    items: deque[dict[str, Any]] = deque(maxlen=40)
-    parsed_count = parse_errors = 0
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    parse_errors += 1
-                    continue
-                if not isinstance(payload, dict):
-                    continue
-                parsed_count += 1
-                if payload.get("event") != "authority_verdict_evaluated":
-                    continue
-                verdict = as_dict(payload.get("authorityVerdict"))
-                verdict_name = str(verdict.get("verdict") or "unknown")
-                action_family = str(verdict.get("actionFamily") or "unknown")
-                source_policy = str(verdict.get("sourcePolicy") or "unknown")
-                verdict_counts[verdict_name] += 1
-                action_family_counts[action_family] += 1
-                source_policy_counts[source_policy] += 1
-                trace_ref = verdict.get("traceRef") or payload.get("traceRef") or payload.get("trace_ref")
-                request_id = payload.get("requestId")
-                items.append(
-                    {
-                        "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
-                        "ts": safe_jsonl_sample_value("ts", payload.get("ts"), identifier_fields={}),
-                        "request_id": redacted_identifier("request_id", request_id) if isinstance(request_id, str) else None,
-                        "trace_ref": redacted_identifier("trace_ref", trace_ref) if isinstance(trace_ref, str) else None,
-                        "action_family": action_family,
-                        "source_policy": source_policy,
-                        "verdict": verdict_name,
-                        "confirmation_required": bool(verdict.get("confirmationRequired")),
-                        "scope": safe_short_string(str(verdict.get("scope") or "unknown"), limit=120),
-                        "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
-                        "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
-                    }
-                )
-    except Exception as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
-        return out
+        path = Path(path)
+        out: dict[str, Any] = {
+            "source": "spawner_prd_auto_trace",
+            "path": str(path),
+            "exists": path.exists(),
+            "schema_version": "spark.authority_verdict_index.v0",
+            "redaction": "authority verdict metadata only; prompts, mission bodies, provider output, and raw request identifiers omitted",
+            "verdict_count": 0,
+            "verdict_counts": {},
+            "action_family_counts": {},
+            "source_policy_counts": {},
+            "items": [],
+        }
+        if not path.exists():
+            return out
 
-    out["parsed_count"] = parsed_count
-    out["parse_errors"] = parse_errors
-    out["verdict_count"] = sum(verdict_counts.values())
-    out["verdict_counts"] = dict(verdict_counts.most_common(20))
-    out["action_family_counts"] = dict(action_family_counts.most_common(20))
-    out["source_policy_counts"] = dict(source_policy_counts.most_common(20))
-    out["items"] = list(items)
-    return out
-
-
-def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[str, Any]:
-    path = Path(path)
-    builder_home = Path(builder_home)
-    out: dict[str, Any] = {
-        "schema_version": REVIEW_CANDIDATES_SCHEMA,
-        "source": "spawner_prd_auto_trace",
-        "path": str(path),
-        "exists": path.exists(),
-        "owner_repos": {
-            "labs_packet": "spark-domain-chip-labs",
-            "swarm_proposal": "spark-swarm",
-            "source_trace": "spawner-ui",
-        },
-        "redaction": (
-            "metadata-only review candidates; raw prompts, project names, provider output, chat/user ids, "
-            "memory bodies, artifact bodies, transcript/audio bodies, secrets, and raw paths omitted"
-        ),
-        "counts": {"candidate_count": 0, "blocked_count": 0},
-        "items": [],
-    }
-    if not path.exists():
-        return out
-
-    groups: dict[str, dict[str, Any]] = {}
-    parse_errors = 0
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    payload = json.loads(line)
-                except Exception:
-                    parse_errors += 1
-                    continue
-                if not isinstance(payload, dict):
-                    continue
-
-                request_id = payload.get("requestId")
-                trace_ref = payload.get("traceRef") or payload.get("trace_ref")
-                mission_id = payload.get("missionId")
-                raw_key = next(
-                    (
-                        value.strip()
-                        for value in (trace_ref, request_id, mission_id)
-                        if isinstance(value, str) and value.strip()
-                    ),
-                    "",
-                )
-                if not raw_key:
-                    continue
-
-                group = groups.setdefault(
-                    raw_key,
-                    {
-                        "request_id": request_id.strip() if isinstance(request_id, str) else None,
-                        "trace_ref": trace_ref.strip() if isinstance(trace_ref, str) else None,
-                        "mission_id": mission_id.strip() if isinstance(mission_id, str) else None,
-                        "event_counts": Counter(),
-                        "file_count": None,
-                        "task_count": None,
-                        "authority_verdict": {},
-                        "latest_ts": None,
-                    },
-                )
-                if isinstance(request_id, str) and request_id.strip():
-                    group["request_id"] = request_id.strip()
-                if isinstance(trace_ref, str) and trace_ref.strip():
-                    group["trace_ref"] = trace_ref.strip()
-                if isinstance(mission_id, str) and mission_id.strip():
-                    group["mission_id"] = mission_id.strip()
-
-                event = str(payload.get("event") or "unknown")
-                group["event_counts"][safe_short_string(event, limit=80)] += 1
-                if isinstance(payload.get("fileCount"), int):
-                    group["file_count"] = payload.get("fileCount")
-                if isinstance(payload.get("taskCount"), int):
-                    group["task_count"] = payload.get("taskCount")
-                if isinstance(payload.get("ts"), str):
-                    group["latest_ts"] = payload.get("ts")
-                if event == "authority_verdict_evaluated":
+        verdict_counts: Counter[str] = Counter()
+        action_family_counts: Counter[str] = Counter()
+        source_policy_counts: Counter[str] = Counter()
+        items: deque[dict[str, Any]] = deque(maxlen=40)
+        parsed_count = parse_errors = 0
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        parse_errors += 1
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+                    parsed_count += 1
+                    if payload.get("event") != "authority_verdict_evaluated":
+                        continue
                     verdict = as_dict(payload.get("authorityVerdict"))
-                    group["authority_verdict"] = {
-                        "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
-                        "verdict": str(verdict.get("verdict") or "unknown"),
-                        "action_family": safe_short_string(str(verdict.get("actionFamily") or "unknown"), limit=80),
-                        "source_policy": safe_short_string(str(verdict.get("sourcePolicy") or "unknown"), limit=120),
-                        "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
-                        "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
-                    }
-    except Exception as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+                    verdict_name = str(verdict.get("verdict") or "unknown")
+                    action_family = str(verdict.get("actionFamily") or "unknown")
+                    source_policy = str(verdict.get("sourcePolicy") or "unknown")
+                    verdict_counts[verdict_name] += 1
+                    action_family_counts[action_family] += 1
+                    source_policy_counts[source_policy] += 1
+                    trace_ref = verdict.get("traceRef") or payload.get("traceRef") or payload.get("trace_ref")
+                    request_id = payload.get("requestId")
+                    items.append(
+                        {
+                            "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
+                            "ts": safe_jsonl_sample_value("ts", payload.get("ts"), identifier_fields={}),
+                            "request_id": redacted_identifier("request_id", request_id) if isinstance(request_id, str) else None,
+                            "trace_ref": redacted_identifier("trace_ref", trace_ref) if isinstance(trace_ref, str) else None,
+                            "action_family": action_family,
+                            "source_policy": source_policy,
+                            "verdict": verdict_name,
+                            "confirmation_required": bool(verdict.get("confirmationRequired")),
+                            "scope": safe_short_string(str(verdict.get("scope") or "unknown"), limit=120),
+                            "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
+                            "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
+                        }
+                    )
+        except Exception as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        out["parsed_count"] = parsed_count
+        out["parse_errors"] = parse_errors
+        out["verdict_count"] = sum(verdict_counts.values())
+        out["verdict_counts"] = dict(verdict_counts.most_common(20))
+        out["action_family_counts"] = dict(action_family_counts.most_common(20))
+        out["source_policy_counts"] = dict(source_policy_counts.most_common(20))
+        out["items"] = list(items)
         return out
 
-    candidates: list[dict[str, Any]] = []
-    for raw_key, group in groups.items():
-        event_counts = Counter(group.get("event_counts") or {})
-        has_artifact_metadata = bool(
-            event_counts.get("deterministic_static_artifacts_written")
-            or event_counts.get("fallback_analysis_written")
-            or event_counts.get("auto_worker_finished")
-        )
-        if not has_artifact_metadata:
-            continue
 
-        raw_request_id = group.get("request_id")
-        raw_trace_ref = group.get("trace_ref")
-        request_ref = (
-            redacted_identifier("request_id", raw_request_id)
-            if isinstance(raw_request_id, str) and raw_request_id
-            else None
-        )
-        trace_ref = (
-            redacted_identifier("trace_ref", raw_trace_ref)
-            if isinstance(raw_trace_ref, str) and raw_trace_ref
-            else redacted_identifier("trace_ref", raw_key)
-        )
-        authority = as_dict(group.get("authority_verdict"))
-        if not authority:
-            authority = {
-                "schema_version": "spark.authority_verdict.v1",
-                "verdict": "unknown",
-                "action_family": "unknown",
-                "source_policy": "unknown",
-                "source_repo": "spawner-ui",
-                "reason_code": "authority_verdict_missing",
-            }
 
-        builder_request_join = (
-            inspect_builder_request_id_overlap(builder_home, {raw_request_id})
-            if isinstance(raw_request_id, str) and raw_request_id
-            else {"matched_builder_request_id_count": 0}
-        )
-        builder_trace_join = (
-            inspect_builder_trace_ref_overlap(builder_home, {raw_trace_ref})
-            if isinstance(raw_trace_ref, str) and raw_trace_ref
-            else {"matched_builder_trace_ref_count": 0}
-        )
-        builder_join_present = bool(
-            int(as_dict(builder_request_join).get("matched_builder_request_id_count") or 0)
-            or int(as_dict(builder_trace_join).get("matched_builder_trace_ref_count") or 0)
-        )
-        blockers = []
-        if authority.get("verdict") != "allowed":
-            blockers.append("authority_verdict_not_allowed")
-        if not builder_join_present:
-            blockers.append("builder_trace_join_missing")
-        blockers.extend(
-            [
-                "human_review_required",
-                "benchmark_evidence_missing",
-                "rollback_review_missing",
-                "publication_approval_missing",
-            ]
-        )
-
-        event_count_dict = dict(event_counts.most_common(20))
-        labs_packet = {
-            "schema_version": "adaptive_creator_loop.spark_os_labs_review_packet.v1",
-            "packet_id": f"labs-review:{hashlib.sha256(raw_key.encode('utf-8', errors='ignore')).hexdigest()[:12]}",
-            "trace_ref": trace_ref,
-            "request_id": request_ref,
-            "source_repo": "spawner-ui",
-            "ownership": {
-                "contract_owner_repo": "spark-domain-chip-labs",
-                "contract_scope": "metadata_schema_review_only",
-                "source_owner_repo": "spawner-ui",
-                "labs_may_promote_memory": False,
-                "labs_may_wire_product_runtime": False,
-                "labs_may_publish_network": False,
+    except Exception:
+        return {}
+def build_spark_os_review_candidates(path: Path, *, builder_home: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if builder_home is not None and not hasattr(builder_home, 'resolve'): from pathlib import Path; builder_home = Path(str(builder_home))
+    try:
+        path = Path(path)
+        builder_home = Path(builder_home)
+        out: dict[str, Any] = {
+            "schema_version": REVIEW_CANDIDATES_SCHEMA,
+            "source": "spawner_prd_auto_trace",
+            "path": str(path),
+            "exists": path.exists(),
+            "owner_repos": {
+                "labs_packet": "spark-domain-chip-labs",
+                "swarm_proposal": "spark-swarm",
+                "source_trace": "spawner-ui",
             },
-            "source_artifact_metadata": {
-                "source_surface": "spawner_prd_auto_trace",
-                "artifact_body_exported": False,
-                "event_counts": event_count_dict,
-                "file_count": group.get("file_count"),
-                "task_count": group.get("task_count"),
-            },
-            "authority_verdict_ref": authority,
-            "privacy_status": {
-                "status": "metadata_only",
-                "raw_prompt_exported": False,
-                "provider_output_exported": False,
-                "chat_or_user_id_exported": False,
-                "memory_body_exported": False,
-                "artifact_body_exported": False,
-            },
-            "benchmark": {
-                "status": "placeholder",
-                "placeholder": "Labs benchmark review required before promotion.",
-                "required_before_promotion": True,
-            },
-            "rollback_route": {
-                "status": "review_required",
-                "route": "Reject packet candidate; leave source proof local and unchanged.",
-                "owner_repo": "spark-domain-chip-labs",
-            },
-            "human_review_required": True,
-            "network_absorbable": False,
-            "network_publication_allowed": False,
-            "memory_promotion_allowed": False,
-            "payload_export_policy": {
-                "mode": "metadata_only",
-                "allowed_fields_only": True,
-                "forbidden_payloads": [
-                    "raw_prompt",
-                    "provider_output",
-                    "chat_id",
-                    "user_id",
-                    "memory_body",
-                    "transcript_body",
-                    "audio_body",
-                    "secret_value",
-                    "artifact_body",
-                ],
-            },
-            "next_action": "Review this trace candidate in Labs before promotion or publication.",
+            "redaction": (
+                "metadata-only review candidates; raw prompts, project names, provider output, chat/user ids, "
+                "memory bodies, artifact bodies, transcript/audio bodies, secrets, and raw paths omitted"
+            ),
+            "counts": {"candidate_count": 0, "blocked_count": 0},
+            "items": [],
         }
-        swarm_proposal = {
-            "schemaVersion": "spark_swarm.spark_os_review_only_proposal.v1",
-            "proposalKind": "recursive_system",
-            "proposalState": "blocked",
-            "reviewOnly": True,
-            "owner": {
-                "contractOwnerRepo": "spark-swarm",
-                "sourceOwnerRepo": "spawner-ui",
-                "workspaceScoped": True,
-                "routeWorkspaceRequired": True,
-            },
-            "networkPublicationAllowed": False,
-            "networkPublishAction": "none",
-            "networkAbsorbable": False,
-            "memoryPromotionAllowed": False,
-            "traceRef": trace_ref,
-            "requestId": request_ref,
-            "spawnerProof": {
-                "status": "completed",
-                "sourceSystem": "spawner-ui",
-                "artifactBodyExported": False,
-                "eventCounts": event_count_dict,
-                "fileCount": group.get("file_count"),
-                "taskCount": group.get("task_count"),
-            },
-            "requiredGates": {
-                "labsReviewPacket": True,
-                "metadataOnlyPrivacy": True,
-                "humanReview": False,
-                "benchmarkEvidence": False,
-                "rollbackReview": False,
-                "publicationApproval": False,
-                "authorityApproval": authority.get("verdict") == "allowed",
-            },
-            "publicationBlock": {
-                "networkAbsorbable": False,
-                "networkPublicationAllowed": False,
-                "automaticPublish": False,
-                "noAutomaticPublish": True,
-            },
-            "blockedReasons": blockers,
-            "nextAction": "Keep as review-only until human, benchmark, rollback, publication, and authority gates pass.",
-        }
-        candidates.append(
-            {
-                "schema_version": "spark.os_review_candidate.v0",
-                "candidate_id": f"spark-os-review:{hashlib.sha256(raw_key.encode('utf-8', errors='ignore')).hexdigest()[:12]}",
-                "status": "blocked",
-                "latest_ts": safe_jsonl_sample_value("ts", group.get("latest_ts"), identifier_fields={}),
+        if not path.exists():
+            return out
+
+        groups: dict[str, dict[str, Any]] = {}
+        parse_errors = 0
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except Exception:
+                        parse_errors += 1
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+
+                    request_id = payload.get("requestId")
+                    trace_ref = payload.get("traceRef") or payload.get("trace_ref")
+                    mission_id = payload.get("missionId")
+                    raw_key = next(
+                        (
+                            value.strip()
+                            for value in (trace_ref, request_id, mission_id)
+                            if isinstance(value, str) and value.strip()
+                        ),
+                        "",
+                    )
+                    if not raw_key:
+                        continue
+
+                    group = groups.setdefault(
+                        raw_key,
+                        {
+                            "request_id": request_id.strip() if isinstance(request_id, str) else None,
+                            "trace_ref": trace_ref.strip() if isinstance(trace_ref, str) else None,
+                            "mission_id": mission_id.strip() if isinstance(mission_id, str) else None,
+                            "event_counts": Counter(),
+                            "file_count": None,
+                            "task_count": None,
+                            "authority_verdict": {},
+                            "latest_ts": None,
+                        },
+                    )
+                    if isinstance(request_id, str) and request_id.strip():
+                        group["request_id"] = request_id.strip()
+                    if isinstance(trace_ref, str) and trace_ref.strip():
+                        group["trace_ref"] = trace_ref.strip()
+                    if isinstance(mission_id, str) and mission_id.strip():
+                        group["mission_id"] = mission_id.strip()
+
+                    event = str(payload.get("event") or "unknown")
+                    group["event_counts"][safe_short_string(event, limit=80)] += 1
+                    if isinstance(payload.get("fileCount"), int):
+                        group["file_count"] = payload.get("fileCount")
+                    if isinstance(payload.get("taskCount"), int):
+                        group["task_count"] = payload.get("taskCount")
+                    if isinstance(payload.get("ts"), str):
+                        group["latest_ts"] = payload.get("ts")
+                    if event == "authority_verdict_evaluated":
+                        verdict = as_dict(payload.get("authorityVerdict"))
+                        group["authority_verdict"] = {
+                            "schema_version": str(verdict.get("schema_version") or "spark.authority_verdict.v1"),
+                            "verdict": str(verdict.get("verdict") or "unknown"),
+                            "action_family": safe_short_string(str(verdict.get("actionFamily") or "unknown"), limit=80),
+                            "source_policy": safe_short_string(str(verdict.get("sourcePolicy") or "unknown"), limit=120),
+                            "source_repo": safe_short_string(str(verdict.get("sourceRepo") or "unknown"), limit=80),
+                            "reason_code": safe_short_string(str(verdict.get("reasonCode") or "unknown"), limit=120),
+                        }
+        except Exception as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+
+        candidates: list[dict[str, Any]] = []
+        for raw_key, group in groups.items():
+            event_counts = Counter(group.get("event_counts") or {})
+            has_artifact_metadata = bool(
+                event_counts.get("deterministic_static_artifacts_written")
+                or event_counts.get("fallback_analysis_written")
+                or event_counts.get("auto_worker_finished")
+            )
+            if not has_artifact_metadata:
+                continue
+
+            raw_request_id = group.get("request_id")
+            raw_trace_ref = group.get("trace_ref")
+            request_ref = (
+                redacted_identifier("request_id", raw_request_id)
+                if isinstance(raw_request_id, str) and raw_request_id
+                else None
+            )
+            trace_ref = (
+                redacted_identifier("trace_ref", raw_trace_ref)
+                if isinstance(raw_trace_ref, str) and raw_trace_ref
+                else redacted_identifier("trace_ref", raw_key)
+            )
+            authority = as_dict(group.get("authority_verdict"))
+            if not authority:
+                authority = {
+                    "schema_version": "spark.authority_verdict.v1",
+                    "verdict": "unknown",
+                    "action_family": "unknown",
+                    "source_policy": "unknown",
+                    "source_repo": "spawner-ui",
+                    "reason_code": "authority_verdict_missing",
+                }
+
+            builder_request_join = (
+                inspect_builder_request_id_overlap(builder_home, {raw_request_id})
+                if isinstance(raw_request_id, str) and raw_request_id
+                else {"matched_builder_request_id_count": 0}
+            )
+            builder_trace_join = (
+                inspect_builder_trace_ref_overlap(builder_home, {raw_trace_ref})
+                if isinstance(raw_trace_ref, str) and raw_trace_ref
+                else {"matched_builder_trace_ref_count": 0}
+            )
+            builder_join_present = bool(
+                int(as_dict(builder_request_join).get("matched_builder_request_id_count") or 0)
+                or int(as_dict(builder_trace_join).get("matched_builder_trace_ref_count") or 0)
+            )
+            blockers = []
+            if authority.get("verdict") != "allowed":
+                blockers.append("authority_verdict_not_allowed")
+            if not builder_join_present:
+                blockers.append("builder_trace_join_missing")
+            blockers.extend(
+                [
+                    "human_review_required",
+                    "benchmark_evidence_missing",
+                    "rollback_review_missing",
+                    "publication_approval_missing",
+                ]
+            )
+
+            event_count_dict = dict(event_counts.most_common(20))
+            labs_packet = {
+                "schema_version": "adaptive_creator_loop.spark_os_labs_review_packet.v1",
+                "packet_id": f"labs-review:{hashlib.sha256(raw_key.encode('utf-8', errors='ignore')).hexdigest()[:12]}",
                 "trace_ref": trace_ref,
                 "request_id": request_ref,
                 "source_repo": "spawner-ui",
-                "owner_repo": "spark-cli",
-                "labs_packet_owner_repo": "spark-domain-chip-labs",
-                "swarm_proposal_owner_repo": "spark-swarm",
-                "builder_trace_join_present": builder_join_present,
-                "blockers": blockers,
-                "labs_review_packet_candidate": labs_packet,
-                "swarm_review_only_proposal_candidate": swarm_proposal,
-                "verification_command": "spark os compile --json",
+                "ownership": {
+                    "contract_owner_repo": "spark-domain-chip-labs",
+                    "contract_scope": "metadata_schema_review_only",
+                    "source_owner_repo": "spawner-ui",
+                    "labs_may_promote_memory": False,
+                    "labs_may_wire_product_runtime": False,
+                    "labs_may_publish_network": False,
+                },
+                "source_artifact_metadata": {
+                    "source_surface": "spawner_prd_auto_trace",
+                    "artifact_body_exported": False,
+                    "event_counts": event_count_dict,
+                    "file_count": group.get("file_count"),
+                    "task_count": group.get("task_count"),
+                },
+                "authority_verdict_ref": authority,
+                "privacy_status": {
+                    "status": "metadata_only",
+                    "raw_prompt_exported": False,
+                    "provider_output_exported": False,
+                    "chat_or_user_id_exported": False,
+                    "memory_body_exported": False,
+                    "artifact_body_exported": False,
+                },
+                "benchmark": {
+                    "status": "placeholder",
+                    "placeholder": "Labs benchmark review required before promotion.",
+                    "required_before_promotion": True,
+                },
+                "rollback_route": {
+                    "status": "review_required",
+                    "route": "Reject packet candidate; leave source proof local and unchanged.",
+                    "owner_repo": "spark-domain-chip-labs",
+                },
+                "human_review_required": True,
+                "network_absorbable": False,
+                "network_publication_allowed": False,
+                "memory_promotion_allowed": False,
+                "payload_export_policy": {
+                    "mode": "metadata_only",
+                    "allowed_fields_only": True,
+                    "forbidden_payloads": [
+                        "raw_prompt",
+                        "provider_output",
+                        "chat_id",
+                        "user_id",
+                        "memory_body",
+                        "transcript_body",
+                        "audio_body",
+                        "secret_value",
+                        "artifact_body",
+                    ],
+                },
+                "next_action": "Review this trace candidate in Labs before promotion or publication.",
             }
-        )
+            swarm_proposal = {
+                "schemaVersion": "spark_swarm.spark_os_review_only_proposal.v1",
+                "proposalKind": "recursive_system",
+                "proposalState": "blocked",
+                "reviewOnly": True,
+                "owner": {
+                    "contractOwnerRepo": "spark-swarm",
+                    "sourceOwnerRepo": "spawner-ui",
+                    "workspaceScoped": True,
+                    "routeWorkspaceRequired": True,
+                },
+                "networkPublicationAllowed": False,
+                "networkPublishAction": "none",
+                "networkAbsorbable": False,
+                "memoryPromotionAllowed": False,
+                "traceRef": trace_ref,
+                "requestId": request_ref,
+                "spawnerProof": {
+                    "status": "completed",
+                    "sourceSystem": "spawner-ui",
+                    "artifactBodyExported": False,
+                    "eventCounts": event_count_dict,
+                    "fileCount": group.get("file_count"),
+                    "taskCount": group.get("task_count"),
+                },
+                "requiredGates": {
+                    "labsReviewPacket": True,
+                    "metadataOnlyPrivacy": True,
+                    "humanReview": False,
+                    "benchmarkEvidence": False,
+                    "rollbackReview": False,
+                    "publicationApproval": False,
+                    "authorityApproval": authority.get("verdict") == "allowed",
+                },
+                "publicationBlock": {
+                    "networkAbsorbable": False,
+                    "networkPublicationAllowed": False,
+                    "automaticPublish": False,
+                    "noAutomaticPublish": True,
+                },
+                "blockedReasons": blockers,
+                "nextAction": "Keep as review-only until human, benchmark, rollback, publication, and authority gates pass.",
+            }
+            candidates.append(
+                {
+                    "schema_version": "spark.os_review_candidate.v0",
+                    "candidate_id": f"spark-os-review:{hashlib.sha256(raw_key.encode('utf-8', errors='ignore')).hexdigest()[:12]}",
+                    "status": "blocked",
+                    "latest_ts": safe_jsonl_sample_value("ts", group.get("latest_ts"), identifier_fields={}),
+                    "trace_ref": trace_ref,
+                    "request_id": request_ref,
+                    "source_repo": "spawner-ui",
+                    "owner_repo": "spark-cli",
+                    "labs_packet_owner_repo": "spark-domain-chip-labs",
+                    "swarm_proposal_owner_repo": "spark-swarm",
+                    "builder_trace_join_present": builder_join_present,
+                    "blockers": blockers,
+                    "labs_review_packet_candidate": labs_packet,
+                    "swarm_review_only_proposal_candidate": swarm_proposal,
+                    "verification_command": "spark os compile --json",
+                }
+            )
 
-    out["parse_errors"] = parse_errors
-    candidates.sort(key=lambda item: str(item.get("latest_ts") or ""), reverse=True)
-    items = candidates[:20]
-    out["counts"] = {
-        "candidate_count": len(candidates),
-        "candidate_sample_count": len(items),
-        "blocked_count": sum(1 for item in candidates if item.get("status") == "blocked"),
-        "builder_trace_join_present_count": sum(
-            1 for item in candidates if item.get("builder_trace_join_present")
-        ),
-    }
-    out["items"] = items
-    return out
+        out["parse_errors"] = parse_errors
+        candidates.sort(key=lambda item: str(item.get("latest_ts") or ""), reverse=True)
+        items = candidates[:20]
+        out["counts"] = {
+            "candidate_count": len(candidates),
+            "candidate_sample_count": len(items),
+            "blocked_count": sum(1 for item in candidates if item.get("status") == "blocked"),
+            "builder_trace_join_present_count": sum(
+                1 for item in candidates if item.get("builder_trace_join_present")
+            ),
+        }
+        out["items"] = items
+        return out
 
 
+
+    except Exception:
+        return {}
 def inspect_json_shape(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    data, error = read_json(path)
-    out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
-    if error and error != "missing":
-        out["error"] = error
-        return out
-    if isinstance(data, dict):
-        out["shape"] = "object"
-        out["top_level_keys"] = sorted(str(key) for key in data.keys())[:80]
-        out["top_level_key_count"] = len(data)
-    elif isinstance(data, list):
-        out["shape"] = "array"
-        out["item_count"] = len(data)
-    elif data is not None:
-        out["shape"] = type(data).__name__
-    return out
-
-
-def inspect_file_metadata(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    out: dict[str, Any] = {
-        "path": str(path),
-        "exists": path.exists(),
-        "redaction": "filesystem metadata only; file body not read",
-    }
-    if not path.exists():
-        return out
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
     try:
-        stat = path.stat()
-    except OSError as exc:
-        out["error"] = f"{type(exc).__name__}: {exc}"
+        path = Path(path)
+        data, error = read_json(path)
+        out: dict[str, Any] = {"path": str(path), "exists": path.exists(), "redaction": "shape only; values omitted"}
+        if error and error != "missing":
+            out["error"] = error
+            return out
+        if isinstance(data, dict):
+            out["shape"] = "object"
+            out["top_level_keys"] = sorted(str(key) for key in data.keys())[:80]
+            out["top_level_key_count"] = len(data)
+        elif isinstance(data, list):
+            out["shape"] = "array"
+            out["item_count"] = len(data)
+        elif data is not None:
+            out["shape"] = type(data).__name__
         return out
-    out["size_bytes"] = int(stat.st_size)
-    out["modified_at"] = (
-        datetime.fromtimestamp(stat.st_mtime, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    )
-    return out
 
 
+
+    except Exception:
+        return {}
+def inspect_file_metadata(path: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        path = Path(path)
+        out: dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "redaction": "filesystem metadata only; file body not read",
+        }
+        if not path.exists():
+            return out
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            out["error"] = f"{type(exc).__name__}: {exc}"
+            return out
+        out["size_bytes"] = int(stat.st_size)
+        out["modified_at"] = (
+            datetime.fromtimestamp(stat.st_mtime, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        )
+        return out
+
+
+
+    except Exception:
+        return {}
 def safe_short_string(value: str, limit: int = 240) -> str:
     cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", str(value or "").strip())
     limit = int(limit or 240)
