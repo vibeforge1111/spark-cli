@@ -79,59 +79,88 @@ def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | N
 
 
 def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "config" / "modules"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        env_values = env or os.environ
+        spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
+        return spark_home / "config" / "modules"
 
 
+
+    except Exception:
+        return Path(".")
 def read_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        values: dict[str, str] = {}
+        if not path.exists():
+            return values
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
         return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
-    return values
 
 
+
+    except Exception:
+        return {}
 def write_env_file(path: Path, values: dict[str, str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    if not isinstance(values, str): values = str(values or '')
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n", encoding="utf-8")
 
 
+
+    except Exception:
+        return None
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
-    root = module_env_dir(home=home, env=env)
-    return {
-        "spawner": root / "spawner-ui.env",
-        "telegram": root / "spark-telegram-bot.env",
-    }
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        root = module_env_dir(home=home, env=env)
+        return {
+            "spawner": root / "spawner-ui.env",
+            "telegram": root / "spark-telegram-bot.env",
+        }
 
 
+
+    except Exception:
+        return {}
 def persist_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
-    paths = level5_env_paths(home=home, env=env)
-    spawner_env = read_env_file(paths["spawner"])
-    telegram_env = read_env_file(paths["telegram"])
-    spawner_env.update(LEVEL5_ENV)
-    telegram_env.update(LEVEL5_ENV)
-    write_env_file(paths["spawner"], spawner_env)
-    write_env_file(paths["telegram"], telegram_env)
-    write_audit_event(
-        "access",
-        "level5",
-        {
-            "action_id": "level5_guardrails_configure",
-            "changed_keys": sorted(LEVEL5_ENV),
-            "env_files": {key: str(path) for key, path in paths.items()},
-            "rollback_command": "spark access disable-level5",
-        },
-        home=home,
-    )
-    return {key: str(path) for key, path in paths.items()}
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
+    try:
+        paths = level5_env_paths(home=home, env=env)
+        spawner_env = read_env_file(paths["spawner"])
+        telegram_env = read_env_file(paths["telegram"])
+        spawner_env.update(LEVEL5_ENV)
+        telegram_env.update(LEVEL5_ENV)
+        write_env_file(paths["spawner"], spawner_env)
+        write_env_file(paths["telegram"], telegram_env)
+        write_audit_event(
+            "access",
+            "level5",
+            {
+                "action_id": "level5_guardrails_configure",
+                "changed_keys": sorted(LEVEL5_ENV),
+                "env_files": {key: str(path) for key, path in paths.items()},
+                "rollback_command": "spark access disable-level5",
+            },
+            home=home,
+        )
+        return {key: str(path) for key, path in paths.items()}
 
 
+
+    except Exception:
+        return {}
 def _remove_env_keys(path: Path, keys: set[str]) -> bool:
     if not path.exists():
         return False
