@@ -10,16 +10,15 @@ hosted publication changes.
 ## Current Gate
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
-red only for release-truth work. Rechecked at `2026-06-27T23:33:53Z` from
-`spark-cli` head `648b0a7e0567`; dirty release repo count remained `0`:
+red only for release-truth work. Rechecked from `spark-cli` head
+`29a6a4c1deec78eab11bf0b312772cd6ddc2e595`; dirty release repo count remained
+`0`, OS compile stayed green, the owner handoff manifest stayed aligned, and
+the Access 5 anti-read-only gate stayed green.
 
-Rechecked again at `2026-06-27T23:57:06Z` from `spark-cli` head
-`1cc70ca6ff47a4145cef517eb31f954ca7c89a30`; dirty release repo count remained
-`0`. The current blocker set is still exactly `release_lane`,
-`r30_voice_registry_decision`, and `registry_pins`. The owner handoff manifest
-and Access 5 anti-read-only gate are green.
+The current blocker set is still exactly `release_lane`,
+`r30_voice_registry_decision`, and `registry_pins`.
 
-- `release_lane`: 5 direct R30 blockers and 5 supporting hygiene rows.
+- `release_lane`: 5 direct R30 blockers and 0 supporting hygiene rows.
 - `r30_voice_registry_decision`: voice needs source-owned trace/governor proof
   before registry movement.
 - `registry_pins`: `spark-voice-comms` pin drift remains real.
@@ -33,17 +32,12 @@ Current `release_lane` mismatches from the same gate:
 | Class | Module | Local head | Registry truth | Installed metadata | Issues |
 | --- | --- | --- | --- | --- | --- |
 | Direct R30 | `spark-voice-comms` | `c502ec096cef` | `21a9467e9bd4` | `0d6e366fd04d` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
-| Direct R30 | `spark-telegram-bot` | `8190500deebe` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
+| Direct R30 | `spark-telegram-bot` | `0cd7914e0c66` | `e5a1bd040986` | `e5a1bd040986` | `head_differs_from_registry` |
 | Direct R30 | `spawner-ui` | `3042f8acbdde` | `19b7d0bff144` | `19b7d0bff144` | `head_differs_from_registry` |
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `f21522accf66` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
-| Supporting | `domain-chip-spark-qa-evidence-lane` | `215c6b9cbefb` | `476644de047e` | `fc1a8b42bdc7` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
-| Supporting | `spark-character` | `cf8177561c16` | `6901e2e2ab0a` | `6901e2e2ab0a` | `head_differs_from_registry` |
-| Supporting | `spark-harness-core` | `b190986996f0` | `71e564b36b93` | `71e564b36b93` | `head_differs_from_registry` |
-| Supporting | `spark-researcher` | `587dbd2a57d6` | `906592e2bb02` | `906592e2bb02` | `head_differs_from_registry` |
-| Supporting | `spark-skill-graphs` | `8dcdd172f35f` | `59c211afc6f0` | `8dcdd172f35f` | `head_differs_from_registry`, `installed_metadata_differs_from_registry` |
 
-Fresh remote-ref audit at `2026-06-27T23:57:06Z` confirmed the owner bases
+Fresh remote-ref audit confirmed the owner bases
 listed below are still current. No remote `release/r30-voice-trace-governor`
 or `harness-discipline-line-count-gate` owner branch exists yet.
 
@@ -52,25 +46,17 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before registry |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `spark-voice-comms` | `main` / `spark-ship-2026-06-26` at `c74490d68ece`; owner branch `12bddc9bd0bd` | `c502ec096cef` on `release/r30-voice-trace-governor` | registry `21a9467e9bd4`; installed metadata `0d6e366fd04d` | Port/tag trace/governor commits or equivalent source-owned proof, then rerun voice and R30 gates. |
-| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `8190500deebe` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, and effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses. |
+| 2 | `spark-telegram-bot` | `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; no matching owner branch for `harness-discipline-line-count-gate` | `0cd7914e0c66` | registry/installed `e5a1bd040986` | Port or push Telegram reliability, streaming/rich default, proof packet, line-count, `/access 5` proof stack, effective-sandbox-only Level 5 reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, and health-token preservation. |
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `1cc70ca6ff47` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, and Access 5 anti-read-only verifier hardening before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a` | `29a6a4c1deec` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, and Access 5 anti-read-only verifier hardening before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
-These rows must not block the first direct R30 control-layer convergence, but
-they must stay visible before anyone claims Spark-wide publish truth across the
-full 11-repo lane.
-
-| Order | Module | Current public owner base | Local proof head | Registry/install truth | Owner action before Spark-wide publish |
-| ---: | --- | --- | --- | --- | --- |
-| 1 | `domain-chip-spark-qa-evidence-lane` | `main` at `4ea32635bf08`; reconcile branch `476644de047e` | `215c6b9cbefb` | registry `476644de047e`; installed metadata `fc1a8b42bdc7` | Decide whether the local `main` commit is source truth or reset/install back to the reconcile pin; then align installed metadata. |
-| 2 | `spark-character` | `spark-ship-2026-06-26` at `8cad27624c4b`; registry tag `spark-ship-2026-06-22` at `6901e2e2ab0a` | `cf8177561c16` | registry/installed `6901e2e2ab0a` | Review the character-network-policy lane against the newer public tag before claiming character publish truth. |
-| 3 | `spark-harness-core` | `main` at `a78c5bb2137a`; registry tag `v1.0.0-rc.2` at `71e564b36b93` | `b190986996f0` | registry/installed `71e564b36b93` | Decide whether the charter-link lane should become owner release truth or return runtime to the registry tag. |
-| 4 | `spark-researcher` | `main` / `spark-ship-2026-06-26` at `9ac089dd791c`; registry tag `spark-ship-2026-06-22` at `906592e2bb02` | `587dbd2a57d6` | registry/installed `906592e2bb02` | Review the self-edit-governor lane against the current public tag before claiming researcher publish truth. |
-| 5 | `spark-skill-graphs` | `main` at `bc30ee37b646`; reconcile branch `59c211afc6f0` | `8dcdd172f35f` | registry `59c211afc6f0`; installed metadata `8dcdd172f35f` | Resolve the split where installed metadata follows local `main` but registry still points at reconcile. |
+Supporting hygiene rows are clear in the current R30 gate. Keep them visible in
+future audits, but do not spend the next owner-source cycle on stale supporting
+rows while the five direct R30 blockers remain open.
 
 ## Required Proof Commands
 
