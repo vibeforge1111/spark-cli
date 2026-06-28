@@ -215,16 +215,21 @@ class BrowserUseCliTests(unittest.TestCase):
         args = parser.parse_args(["browser-use", "task", "--max-steps", "1", "review page"])
         self.assertEqual(args.max_steps, 1)
 
-    def test_discovers_checkout_root_from_current_directory(self) -> None:
+    def test_discover_repo_root_prefers_installed_package_root_over_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir) / "spark-cli"
-            nested = root / "nested"
-            (root / "scripts").mkdir(parents=True)
+            installed_root = Path(tmp_dir) / "installed-cli"
+            cwd_root = Path(tmp_dir) / "spark-cli"
+            nested = cwd_root / "nested"
+            for root in (installed_root, cwd_root):
+                (root / "scripts").mkdir(parents=True)
+                (root / "src" / "spark_cli").mkdir(parents=True)
+                (root / "pyproject.toml").write_text("[project]\nname='spark-cli'\n", encoding="utf-8")
+                (root / "scripts" / "install.sh").write_text("#!/usr/bin/env sh\n", encoding="utf-8")
             nested.mkdir()
-            (root / "pyproject.toml").write_text("[project]\nname='spark-cli'\n", encoding="utf-8")
-            (root / "scripts" / "install.sh").write_text("#!/usr/bin/env sh\n", encoding="utf-8")
-            with patch("spark_cli.cli.Path.cwd", return_value=nested):
-                self.assertEqual(cli.discover_repo_root(), root)
+            with patch("spark_cli.cli.Path.cwd", return_value=nested), \
+                 patch("spark_cli.cli.__file__", str(installed_root / "src" / "spark_cli" / "cli.py")), \
+                 patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(cli.discover_repo_root(), installed_root)
 
     def test_open_returns_page_summary_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

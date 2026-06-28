@@ -29,6 +29,7 @@ spark status
 
 That default setup installs:
 
+- `spark-harness-core`
 - `spark-researcher`
 - `spark-character`
 - `spark-intelligence-builder`
@@ -52,6 +53,8 @@ Add `--elevenlabs-api-key @clipboard` if you want hosted ElevenLabs TTS configur
 
 Public builder labs such as `spark-domain-chip-labs` and `spark-personality-chip-labs` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
 
+The current installer proof lane covers 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. The plain `telegram-starter` bundle exercises Harness Core, Researcher, Character, Builder, Memory, Spawner, and Telegram directly. `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs require their own optional-module proof before claiming the entire 11-repo lane is ship-ready.
+
 For creator-system and specialization-path work, verify those optional surfaces explicitly:
 
 ```bash
@@ -65,6 +68,8 @@ If another `spark` binary is already on your PATH, use `spark-local`. The packag
 ## What Spark CLI Does
 
 Spark CLI is the installer and operator shell for the Spark ecosystem. It gives a normal user one path instead of several separate repo installs.
+
+Spark runs an autonomous agent on your machine. Before granting access, read [SECURITY.md](./SECURITY.md) for the plain-language privacy, access-model, and telemetry disclosure: what is stored locally under `~/.spark/`, what the agent can read/write/run at each access level, and the fact that Spark has no usage telemetry or phone-home.
 
 ```mermaid
 flowchart TD
@@ -308,6 +313,20 @@ spark verify --provenance
 
 `--registry-pins` checks every blessed module pin against its remote HEAD. `--provenance` requires commit pins and attestation metadata for blessed modules; signed commit enforcement is still report-only until the release signing path is fully active.
 
+To preflight the autonomous mission-execution lane before relying on it, run:
+
+```bash
+spark verify --mission
+```
+
+This is the authoritative gate for "missions actually run", not just "the bot replies". It checks three things and prints a clear pass/fail:
+
+1. The Governor HMAC signing key (`SPARK_GOVERNOR_HMAC_KEY`) is provisioned. This is a diagnostic warning, not a hard failure; `spark setup` generates the key, and a missing key is the usual cause of an unsigned or blocked Governor decision.
+2. The mission provider is reachable. The live default is OpenAI Codex; if the Codex CLI is not on PATH or not signed in, the check fails fast with the `codex login` repair before any mission is attempted.
+3. A real round-trip mission is started against the local `spawner-ui` and runs to completion, emitting a unique marker on the Mission Control board. This catches the silent-expiry symptom where a mission is accepted but never completes.
+
+The exit code is `0` only when a real mission completed end to end. Run it after `spark setup` from the runtime env (mission keys are keychain-backed), with `spawner-ui` started (`spark start spawner-ui`) and the mission provider signed in. Add `--json` for the full machine-readable payload.
+
 To inspect only LLM choices and role readiness:
 
 ```bash
@@ -355,13 +374,14 @@ spark guide
 spark status
 spark verify
 spark verify --deep
+spark verify --mission
 spark fix telegram
 spark providers status
 spark autostart on --now
 spark fix autostart
 ```
 
-That installs the operating-system login hook and starts the local Spark stack immediately. After that, rebooting or logging back into the computer should bring the Telegram agent back without opening a terminal. Manual fallback:
+That installs the operating-system login hook and starts the local Spark stack immediately. `spark verify --mission` is optional but recommended before relying on autonomous builds: it runs a real round-trip mission and tells you whether missions complete or silently expire on this install. It needs `spawner-ui` running and the mission provider signed in. After that, rebooting or logging back into the computer should bring the Telegram agent back without opening a terminal. Manual fallback:
 
 ```bash
 spark start telegram-starter
@@ -409,7 +429,7 @@ Use `spark <cmd> --help` for full flags.
 | `spark doctor [--json]` | Diagnostic variant of status |
 | `spark doctor llm "<problem>"` | Ask the configured LLM for a redacted local repair plan |
 | `spark support bundle` | Create a local redacted support bundle |
-| `spark verify [--onboarding\|--deep\|--installers\|--sandboxes]` | Verify launch wiring, onboarding, runtime checks, installer integrity, or optional sandbox readiness |
+| `spark verify [--onboarding\|--deep\|--mission\|--installers\|--sandboxes]` | Verify launch wiring, onboarding, runtime checks, the autonomous mission lane (real round-trip mission), installer integrity, or optional sandbox readiness |
 | `spark fix <target>` | Repair checklist for `telegram`, `secrets`, `spawner`, `providers`, `memory`, `live`, `update`, or `autostart` |
 | `spark providers list\|status\|test\|recommend` | Inspect, test, and choose LLM provider wiring |
 | `spark browser-use status\|probe\|open\|screenshot\|task` | Inspect Browser Use, prove readiness, open URLs, capture screenshots, and run multi-step Browser Use Agent tasks |
@@ -554,7 +574,7 @@ spark sandbox modal smoke --json
 - [docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md](./docs/SPARK_NORMIE_ONBOARDING_AND_GATEWAY_TEST.md) - step-by-step install and real-time Telegram gateway test
 - [docs/LAUNCH_RUNBOOK.md](./docs/LAUNCH_RUNBOOK.md) - release-day verification
 - [docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md](./docs/LAUNCH_SECURITY_AUDIT_2026-04-24.md) - launch security audit
-- [SECURITY.md](./SECURITY.md) - secret and launch security notes
+- [SECURITY.md](./SECURITY.md) - privacy, sandbox/access model, telemetry disclosure, secret storage, and launch security notes
 
 ## License
 

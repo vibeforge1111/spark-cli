@@ -3,8 +3,8 @@ set -euo pipefail
 
 SPARK_PREFIX="${SPARK_PREFIX:-$HOME/.spark}"
 SPARK_CLI_SOURCE="${SPARK_CLI_SOURCE:-https://github.com/vibeforge1111/spark-cli}"
-SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-06-03-r24-v2}"
-SPARK_DEFAULT_CLI_REF="spark-cli-public-installer-2026-06-03-r24-v2"
+SPARK_CLI_RELEASE_NAME="${SPARK_CLI_RELEASE_NAME:-spark-cli-public-installer-2026-06-22-r28}"
+SPARK_DEFAULT_CLI_REF="spark-cli-public-installer-2026-06-22-r28"
 SPARK_CLI_REF_USER_SET=0
 if [ -n "${SPARK_CLI_REF:-}" ]; then
   SPARK_CLI_REF_USER_SET=1
@@ -50,6 +50,7 @@ SPARK_ASSUME_YES="${SPARK_ASSUME_YES:-0}"
 SPARK_EXISTING_MODE="${SPARK_EXISTING_MODE:-abort}"
 SPARK_INSTALL_LOCK_DIR=""
 SPARK_SECRET_FILES=()
+SPARK_SECRET_DIR=""
 
 usage() {
   cat <<'EOF'
@@ -286,10 +287,51 @@ installer_run_mode_label() {
   fi
 }
 
+check_setup_approval_preflight() {
+  if [ "$SPARK_SKIP_SETUP" = "1" ]; then
+    return
+  fi
+  if [ "$SPARK_NON_INTERACTIVE_SETUP" != "1" ]; then
+    return
+  fi
+  local mutates_identity_access=0
+  if [ -n "$SPARK_BOT_TOKEN" ] || [ -n "$SPARK_ADMIN_TELEGRAM_IDS" ]; then
+    mutates_identity_access=1
+  fi
+  if [ "${#extra_setup_args[@]}" -gt 0 ]; then
+    local setup_arg
+    for setup_arg in "${extra_setup_args[@]}"; do
+      case "$setup_arg" in
+        --bot-token|--bot-token=*|--admin-telegram-ids|--admin-telegram-ids=*)
+          mutates_identity_access=1
+          break
+          ;;
+      esac
+    done
+  fi
+  if [ "$mutates_identity_access" = "1" ]; then
+    cat >&2 <<'EOF'
+Refusing non-interactive spark setup because Telegram identity/access
+configuration requires explicit interactive approval.
+
+Two-phase install:
+  1. Re-run this installer without bot/admin setup flags (and without --yes /
+     non-interactive stdin) so the CLI is installed.
+  2. Then approve identity in an interactive terminal:
+       spark setup telegram-starter
+EOF
+    exit 2
+  fi
+}
+
 cleanup_secret_files() {
   if [ "${#SPARK_SECRET_FILES[@]}" -gt 0 ]; then
     rm -f "${SPARK_SECRET_FILES[@]}"
     SPARK_SECRET_FILES=()
+  fi
+  if [ -n "$SPARK_SECRET_DIR" ] && [ -d "$SPARK_SECRET_DIR" ]; then
+    rm -rf "$SPARK_SECRET_DIR"
+    SPARK_SECRET_DIR=""
   fi
 }
 
@@ -944,6 +986,7 @@ write_wrapper() {
   cat > "$wrapper" <<EOF
 #!/usr/bin/env bash
 export SPARK_HOME="$SPARK_PREFIX"
+export SPARK_CLI_SOURCE_ROOT="$SPARK_PREFIX/tools/spark-cli"
 export PATH="$SPARK_NODE_BIN_DIR:\$PATH"
 exec "$SPARK_PREFIX/tools/spark-cli-venv/bin/python" -m spark_cli.cli "\$@"
 EOF
@@ -1064,10 +1107,15 @@ run_setup() {
     spark_setup_cmd+=("--no-start-now" "--no-autostart")
   fi
   local spark_secret_ref_value=""
+  # Secret inputs must live inside SPARK_HOME so the CLI @file: guard accepts
+  # them; /tmp is rejected by that guard, which blocks scripted token installs.
+  SPARK_SECRET_DIR="$SPARK_PREFIX/state/setup-secret-inputs"
+  mkdir -p "$SPARK_SECRET_DIR"
+  chmod 700 "$SPARK_SECRET_DIR" 2>/dev/null || true
   spark_secret_ref() {
     local value="$1"
     local secret_file
-    secret_file="$(mktemp "${TMPDIR:-/tmp}/spark-secret.XXXXXX")"
+    secret_file="$(mktemp "$SPARK_SECRET_DIR/spark-secret.XXXXXX")"
     chmod 600 "$secret_file"
     printf '%s' "$value" > "$secret_file"
     SPARK_SECRET_FILES+=("$secret_file")
@@ -1204,6 +1252,7 @@ main() {
     exit 0
   fi
   print_plan
+  check_setup_approval_preflight
   preflight
   if [ "$SPARK_PREFLIGHT_ONLY" = "1" ]; then
     log "Preflight complete."

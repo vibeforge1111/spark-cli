@@ -55,6 +55,10 @@ jobs:
       - name: Verify registry pins
         run: python -m spark_cli.cli verify --registry-pins --json
 
+      - name: Assert expected unverified private pins
+        run: |
+          python -m spark_cli.cli verify --registry-pins --json | python -c "import json,sys; d=json.load(sys.stdin); n=int(d.get('unverified', 0)); assert n <= 3, f'unexpected unverified pins: {n}'; print('unverified:', n)"
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest

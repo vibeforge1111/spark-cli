@@ -12,6 +12,7 @@ The default bundle is `telegram-starter`.
 
 | Module | Launch role | Owns |
 |---|---|---|
+| `spark-harness-core` | Authority kernel for user intent, Governor, authorization, ledgers, and side-effect verification | Harness schemas, authority decisions, readiness contracts |
 | `spark-researcher` | Research, advisory packets, chip authoring, bounded improvement loops | research runtime and memory packet workflows |
 | `spark-character` | Persona, voice consistency, scoring, and opt-in character evolution | Spark character runtime and voice evaluation |
 | `spark-intelligence-builder` | Runtime core for identity, provider routing, memory bridge, and adapter logic | Builder state, provider profiles, domain-chip activation |
@@ -24,6 +25,7 @@ The default bundle is `telegram-starter`.
 ```text
 Telegram user
   -> spark-telegram-bot
+  -> spark-harness-core for intent, Governor, authorization, ledger, and side-effect authority
   -> spark-intelligence-builder for memory, researcher, identity, and LLM routing
   -> spark-character for persona rendering, voice scoring, and output sanitizing
   -> domain-chip-memory when Builder activates the default memory chip
@@ -63,13 +65,16 @@ After `spark setup` and `spark start spark-telegram-bot`, a configured operator 
 - use `/board` and `/mission <status|pause|resume|kill> <missionId>`
 - use the installed Researcher and domain-chip-memory repos for local research and memory/chip work
 
+## Optional Registry Modules And Public Labs
+
+`telegram-voice-starter` adds `spark-voice-comms` to the starter path for voice I/O and spoken replies. QA Evidence Lane and Skill Graphs are registry-pinned support modules that should be proven as optional modules before the whole 11-repo installer lane is declared ship-ready.
+
 ## Public Labs Outside The Starter Bundle
 
 Some public Spark labs are intentionally not installed by default until they expose the same installable module contract as the starter modules:
 
 - `spark-domain-chip-labs`: creator standards for domain chips, benchmark packs, specialization paths, autoloop policies, and review packets.
 - `spark-personality-chip-labs`: portable personality chip schemas and experiments.
-- `spark-voice-comms`: voice communication hooks, profiles, and provider examples.
 
 These labs are usable for builders, but Spark CLI should not tell public users that Spark Swarm, hosted Workspace review, or network submission is required for local experiments.
 
