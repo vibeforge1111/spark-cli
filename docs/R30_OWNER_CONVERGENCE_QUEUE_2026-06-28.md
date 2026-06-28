@@ -54,7 +54,7 @@ No remote `spark-cli-public-installer-2026-06-27-r30` tag exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `d7737038dc85` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `ca21e183c6c0` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | local docs/verifier lane on `harness-discipline-ruleset`; live head is verified by `git rev-parse HEAD` and `verify --r30`, with pre-refresh baseline `3bc788158c535b6a8eb0353e00797d11f39cd064` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, final Telegram full-permission/audit handoff refresh, natural confirmed Level 1/3/4 to Level 5 proof preservation, refreshed Spawner active Level 5 full-access lane proof, fresh voice handoff proof, and hosted R29 baseline evidence before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | local docs/verifier lane on `harness-discipline-ruleset`; live head `8eb05c01ae23ff58d04980fc36b4d1258684f164` is verified by `git rev-parse HEAD` and `verify --r30` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, final Telegram full-permission/audit handoff refresh, natural confirmed Level 1/3/4 to Level 5 proof preservation, refreshed Spawner active Level 5 full-access lane proof, Domain Chip Labs creator handoff, Telegram live trace recapture runbook, fresh voice handoff proof, and hosted R29 baseline evidence before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
@@ -125,11 +125,12 @@ PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json
 
 ## Latest Local Gate Snapshot
 
-Fresh checks at `2026-06-28T08:17:28Z`:
+Fresh checks at `2026-06-28T09:44:44Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json`: failed only for `release_lane`, `r30_voice_registry_decision`, `registry_pins`, and `r30_installer_pins`; `release_lane` had `dirty_repo_count=0` and 5 direct R30 blockers.
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`; publish handoff families remained `local_runtime_test_artifacts` and `builder_trace_health`.
 - `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json`: failed only because `spark-voice-comms` registry pin still lags or diverges from remote `refs/heads/main`.
+- Telegram `npm run control:proof:reliability`: currently blocked by stale live trace recapture; use [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md).
 
 ## After Owner Source Lands
 
