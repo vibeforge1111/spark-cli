@@ -8268,7 +8268,10 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
                     manifest_issues.append(f"voice_owner_handoff_patch_{key}_mismatch")
             apply_check = str(owner_handoff_patch.get("apply_check") or "")
             for term in [
+                "c74490d68ece65ffad21dc5b88f44602e1afa703",
                 "git am docs/r30/patches/r30-voice-trace-governor.patch",
+                "git write-tree",
+                "e3e1f881497011917fd9baa4f56db811ebccff7e",
                 "PYTHONPATH=src python3 -m pytest -q",
             ]:
                 if term not in apply_check:

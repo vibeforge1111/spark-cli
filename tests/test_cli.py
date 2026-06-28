@@ -13553,6 +13553,7 @@ class SparkCliTests(unittest.TestCase):
                             "apply_check": (
                                 "git checkout c74490d68ece65ffad21dc5b88f44602e1afa703 && "
                                 "git am docs/r30/patches/r30-voice-trace-governor.patch && "
+                                "test \"$(git write-tree)\" = \"e3e1f881497011917fd9baa4f56db811ebccff7e\" && "
                                 "PYTHONPATH=src python3 -m pytest -q"
                             ),
                             "apply_result": "132 passed",

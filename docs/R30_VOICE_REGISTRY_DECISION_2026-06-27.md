@@ -57,8 +57,10 @@ Prepared local owner-lane port, not yet pushed/tagged or registry truth:
 - owner handoff patch: `docs/r30/patches/r30-voice-trace-governor.patch`
   with SHA256 `f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff`
   applies to the public base and produces tree
-  `e3e1f881497011917fd9baa4f56db811ebccff7e`; this is an apply/review
-  artifact, not publication authority.
+  `e3e1f881497011917fd9baa4f56db811ebccff7e`; the R30 gate requires the
+  handoff manifest apply check to include `git write-tree`, that exact tree,
+  and `PYTHONPATH=src python3 -m pytest -q`. This is an apply/review artifact,
+  not publication authority.
 - current remote audit at `2026-06-28T02:08:33Z`: no remote `release/r30-voice-trace-governor` branch exists; `main` and `spark-ship-2026-06-26` remain at `c74490d68ece65ffad21dc5b88f44602e1afa703`
 
 This prepared lane reduces the owner-source handoff gap, but it does not clear

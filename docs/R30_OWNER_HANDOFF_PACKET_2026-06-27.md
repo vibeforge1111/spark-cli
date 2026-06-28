@@ -115,7 +115,9 @@ Fresh owner-handoff patch apply verification at `2026-06-28T02:43:50Z`:
   known one-line blank-EOF whitespace warning; the resulting tree matches.
 - `spark-voice-comms`: `r30-voice-trace-governor.patch` applies with `git am`
   to `c74490d68ece65ffad21dc5b88f44602e1afa703` and produces tree
-  `e3e1f881497011917fd9baa4f56db811ebccff7e`.
+  `e3e1f881497011917fd9baa4f56db811ebccff7e`. The voice handoff manifest
+  apply check now has to name `git write-tree`, that exact tree, and the voice
+  pytest proof command.
 - `spawner-ui`: `r30-spawner-runtime-artifact-tree.patch` applies to
   `fdb8fded47447417dbf146130bddd0967e1f6bc0` and produces tree
   `126d215fcfd798256cbafb2dbf35899c85f6bea2`.
