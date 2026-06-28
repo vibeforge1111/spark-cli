@@ -321,78 +321,100 @@ def as_list(value: Any) -> list[Any]:
 
 
 def as_dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    try:
+        return value if isinstance(value, dict) else {}
 
 
+
+    except Exception:
+        return {}
 def first_string(*values: Any) -> str:
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
+    try:
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
 
 
+
+    except Exception:
+        return ""
 def safe_auth_mode(value: Any) -> Any:
-    if not isinstance(value, str):
+    try:
+        if not isinstance(value, str):
+            return value
+        if value.lower() in {"api_key", "api-key", "apikey"}:
+            return "key_based"
         return value
-    if value.lower() in {"api_key", "api-key", "apikey"}:
-        return "key_based"
-    return value
 
 
+
+    except Exception:
+        return None
 def summarize_setup(setup: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(setup, dict):
-        return {"available": False}
+    if not isinstance(setup, str): setup = str(setup or '')
+    try:
+        if not isinstance(setup, dict):
+            return {"available": False}
 
-    llm = as_dict(setup.get("llm"))
-    roles: dict[str, Any] = {}
-    for role, payload in as_dict(llm.get("roles")).items():
-        role_payload = as_dict(payload)
-        roles[str(role)] = {
-            "provider": role_payload.get("provider"),
-            "bot_provider": role_payload.get("bot_provider"),
-            "model": role_payload.get("model"),
-            "auth_mode": safe_auth_mode(role_payload.get("auth_mode")),
-            "base_url_configured": bool(role_payload.get("base_url")),
+        llm = as_dict(setup.get("llm"))
+        roles: dict[str, Any] = {}
+        for role, payload in as_dict(llm.get("roles")).items():
+            role_payload = as_dict(payload)
+            roles[str(role)] = {
+                "provider": role_payload.get("provider"),
+                "bot_provider": role_payload.get("bot_provider"),
+                "model": role_payload.get("model"),
+                "auth_mode": safe_auth_mode(role_payload.get("auth_mode")),
+                "base_url_configured": bool(role_payload.get("base_url")),
+            }
+
+        telegram_profiles = as_dict(setup.get("telegram_profiles"))
+        return {
+            "available": True,
+            "bundle": setup.get("bundle"),
+            "modules": as_list(setup.get("modules")),
+            "configured_at": setup.get("configured_at"),
+            "builder_home": setup.get("builder_home"),
+            "secret_key_count": len(as_list(setup.get("secret_keys"))),
+            "telegram_profile_count": len(telegram_profiles),
+            "primary_telegram_profile": setup.get("primary_telegram_profile"),
+            "llm_roles": roles,
+            "redaction": "secret names, token values, env paths, webhooks, and raw profile metadata omitted",
         }
 
-    telegram_profiles = as_dict(setup.get("telegram_profiles"))
-    return {
-        "available": True,
-        "bundle": setup.get("bundle"),
-        "modules": as_list(setup.get("modules")),
-        "configured_at": setup.get("configured_at"),
-        "builder_home": setup.get("builder_home"),
-        "secret_key_count": len(as_list(setup.get("secret_keys"))),
-        "telegram_profile_count": len(telegram_profiles),
-        "primary_telegram_profile": setup.get("primary_telegram_profile"),
-        "llm_roles": roles,
-        "redaction": "secret names, token values, env paths, webhooks, and raw profile metadata omitted",
-    }
 
 
+    except Exception:
+        return {}
 def summarize_pids(pids: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(pids, dict):
+    if not isinstance(pids, str): pids = str(pids or '')
+    try:
+        if not isinstance(pids, dict):
+            return []
+        rows: list[dict[str, Any]] = []
+        for key, payload in sorted(pids.items()):
+            item = as_dict(payload)
+            command = item.get("command")
+            rows.append(
+                {
+                    "id": key,
+                    "module": item.get("module"),
+                    "profile": item.get("profile"),
+                    "pid": item.get("pid"),
+                    "command_configured": bool(command),
+                    "command_arg_count": len(command) if isinstance(command, list) else None,
+                    "path": item.get("path"),
+                    "started_at": item.get("started_at"),
+                    "ready_check": item.get("ready_check"),
+                }
+            )
+        return rows
+
+
+
+    except Exception:
         return []
-    rows: list[dict[str, Any]] = []
-    for key, payload in sorted(pids.items()):
-        item = as_dict(payload)
-        command = item.get("command")
-        rows.append(
-            {
-                "id": key,
-                "module": item.get("module"),
-                "profile": item.get("profile"),
-                "pid": item.get("pid"),
-                "command_configured": bool(command),
-                "command_arg_count": len(command) if isinstance(command, list) else None,
-                "path": item.get("path"),
-                "started_at": item.get("started_at"),
-                "ready_check": item.get("ready_check"),
-            }
-        )
-    return rows
-
-
 def discover_repo_paths(desktop: Path, installed: dict[str, Any] | None) -> list[Path]:
     candidates: dict[str, Path] = {}
     if desktop.exists():
