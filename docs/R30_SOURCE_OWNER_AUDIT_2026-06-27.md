@@ -113,7 +113,7 @@ R30 must not hide this family. It is currently carried as an explicit historical
 - `spark verify --r30 --json`: after `ea4e020`, `r30_builder_trace_lifecycle` is no longer a source-truth blocker when the exact historical family is carried and current windows remain clean.
 - `spark verify --r30 --json`: green for R30 docs, OS compile, live status, owner handoff manifest, local runtime artifact handoff manifest, voice runtime truth, Access 5 sandbox evidence, local installers, and publication order; red for the real source/registry/publish blockers.
 - `domain-chip-memory` owner-lane proof at `2026-06-28T07:22:12Z`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter.
-- `spark-intelligence-builder` owner-lane proof at `2026-06-27T21:33:59Z`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.04s`.
+- `spark-intelligence-builder` owner-lane proof at `2026-06-28T07:25:20Z`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.61s`.
 - `spark-voice-comms` remote tag worktree test: `121 passed`.
 - `spark-voice-comms` installed local branch test: `80 passed`.
 - Voice temporary worktree was removed after test.
