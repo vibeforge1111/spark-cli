@@ -16,7 +16,7 @@ Local runtime proof is strong: Spark OS compile, live status, provenance, local 
 
 ## Local Gate Results
 
-Fresh CLI proof refresh at `2026-06-28T02:08:33Z`:
+Fresh CLI proof refresh at `2026-06-28T02:34:36Z`:
 
 - `PYTHONPATH=src python3 -m spark_cli.cli os compile --json`: `ok=true`, `gaps=0`
 - `PYTHONPATH=src python3 -m spark_cli.cli live status --json`: `ok=true`; all listed Spark modules healthy, including Telegram relay runtime
@@ -41,7 +41,7 @@ Fresh CLI proof refresh at `2026-06-28T02:08:33Z`:
 
 ## Spark OS Compile Details
 
-Latest CLI proof refresh: `2026-06-28T02:08:33Z`.
+Latest CLI proof refresh: `2026-06-28T02:34:36Z`.
 
 Important fields:
 
@@ -63,7 +63,7 @@ Publish handoff families:
 
 ## R30 Release Gate Details
 
-Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` from `spark-cli` head `e1d79c8a54e2dee9204b26898c625eb1db2e0c18`:
+Fresh post-commit run of `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` from `spark-cli` head `5453347d5e297ec913e8f6086d14551abcf0e044`:
 
 - `r30_docs`: pass
 - `owner_handoff_manifest`: pass on a clean tree; the manifest matches the live release-lane classification and commit metadata
@@ -171,6 +171,7 @@ Additional Telegram runtime-env hardening at `2026-06-27T23:05:41Z`:
 - Spark CLI local commit `34c0cce` makes that anti-read-only contract executable in the R30 Access 5 gate, including the stale read-only lower-to-Level-5 regression, Telegram effective runtime-env proof, and Recursive bridge subprocess env-inheritance proof.
 - Spark CLI local commit `79789df` adds the Telegram R30 owner handoff patch gate, and `d5a97c0` makes the direct owner handoff manifest require the Telegram and Spawner patch artifacts as publication-bound review/apply material.
 - Spark CLI local commit `3e8d607` makes the voice registry decision gate require the prepared local voice release lane to record both ported commits with full hashes and their source commit hashes.
+- Spark CLI local commit `5453347` refreshes the R30 owner handoff docs, manifests, and Telegram patch artifact around `ce4a234` so the final Telegram Level 5 full-permission proof is part of the publication-bound handoff.
 - New regression: a stale read-only Telegram process env plus complete persisted Level 5 guardrails must promote to effective `danger-full-access`; a partial persisted bundle must not promote.
 - Telegram `npm test -- --run tests/level5RuntimeEnv.test.ts tests/accessPolicy.test.ts tests/accessActions.test.ts tests/runnerPreflight.test.ts tests/buildE2E.test.ts`: passed.
 - Telegram `npm run build`: passed.

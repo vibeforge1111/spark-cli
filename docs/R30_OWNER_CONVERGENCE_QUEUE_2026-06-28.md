@@ -11,7 +11,7 @@ hosted publication changes.
 
 Clean-tree `PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json` is
 red only for release-truth work. Rechecked from `spark-cli` head
-`e1d79c8a54e2dee9204b26898c625eb1db2e0c18`; dirty release repo count remained
+`5453347d5e297ec913e8f6086d14551abcf0e044`; dirty release repo count remained
 `0`, OS compile stayed green, the owner handoff manifest stayed aligned, and
 the Access 5 anti-read-only gate stayed green.
 
@@ -37,7 +37,7 @@ Current `release_lane` mismatches from the same gate:
 | Direct R30 | `domain-chip-memory` | `1fd272e519b5` | `f7f16a6ea8ee` | `f7f16a6ea8ee` | `head_differs_from_registry` |
 | Direct R30 | `spark-intelligence-builder` | `f21522accf66` | `e7f80fbf03bd` | `e7f80fbf03bd` | `head_differs_from_registry` |
 
-Fresh remote-ref audit at `2026-06-28T02:08:33Z` confirmed the owner bases
+Fresh remote-ref audit at `2026-06-28T02:34:36Z` confirmed the owner bases
 listed below are still current. No remote `release/r30-voice-trace-governor`
 or `harness-discipline-line-count-gate` owner branch exists yet.
 
@@ -50,7 +50,7 @@ or `harness-discipline-line-count-gate` owner branch exists yet.
 | 3 | `spawner-ui` | `main` / `spark-ship-2026-06-26` at `451d009aad84`; owner release branch `fdb8fded4744` | `3042f8acbdde` | registry/installed `19b7d0bff144` | Port or push PRD proof-continuity, Level 5 Codex sandbox, shared effective-env worker access/path validation, and Codex worker env propagation fixes. |
 | 4 | `domain-chip-memory` | `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; owner branch `3116ccaa3977` | `1fd272e519b5` | registry/installed `f7f16a6ea8ee` | Review/push vNext memory write-authority proof or replace with equivalent owner-source proof. |
 | 5 | `spark-intelligence-builder` | `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; owner branch `c94eac853fed` | `f21522accf66` | registry/installed `e7f80fbf03bd` | Review/push or rebase Builder trace/proof stack and keep historical trace lifecycle explicit. |
-| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | `e1d79c8a54e2` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, and the voice prepared-lane commit proof gate before installer pins move to R30. |
+| 6 | `spark-cli` | remote R29 release tag `7751ef43581c`; remote `master` `a6738be7a97a`; no R30 tag found | `5453347d5e2` | local installer stays R29 until source/registry truth is green | Port/push R30 docs, voice discovery, publication-order gates, Access 5 anti-read-only verifier hardening, the refreshed Telegram Access 5 owner-handoff proof, startup profile-env refresh proof, the direct owner manifest patch gate, the voice prepared-lane commit proof gate, and the final Telegram full-permission handoff refresh before installer pins move to R30. |
 
 ## Supporting Hygiene Queue
 
