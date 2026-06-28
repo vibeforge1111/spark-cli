@@ -196,117 +196,143 @@ def _parse_utc_timestamp(value: object) -> float | None:
 
 
 def _latest_level5_configure_timestamp(*, home: Path | None = None) -> float | None:
-    path = home_or_default(home=home) / "logs" / "remote" / "access" / "level5.jsonl"
-    if not path.exists():
-        return None
-    configured_at: float | None = None
-    disabled_at: float | None = None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        timestamp = _parse_utc_timestamp(event.get("timestamp"))
-        if timestamp is None:
-            continue
-        action_id = event.get("action_id")
-        if action_id == "level5_guardrails_configure":
-            configured_at = timestamp
-        elif action_id == "level5_guardrails_disable":
-            disabled_at = timestamp
-    if configured_at is None:
-        return None
-    if disabled_at is not None and disabled_at >= configured_at:
-        return None
-    return configured_at
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        path = home_or_default(home=home) / "logs" / "remote" / "access" / "level5.jsonl"
+        if not path.exists():
+            return None
+        configured_at: float | None = None
+        disabled_at: float | None = None
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            timestamp = _parse_utc_timestamp(event.get("timestamp"))
+            if timestamp is None:
+                continue
+            action_id = event.get("action_id")
+            if action_id == "level5_guardrails_configure":
+                configured_at = timestamp
+            elif action_id == "level5_guardrails_disable":
+                disabled_at = timestamp
+        if configured_at is None:
+            return None
+        if disabled_at is not None and disabled_at >= configured_at:
+            return None
+        return configured_at
 
 
+
+    except Exception:
+        return None
 def level5_guardrails_configured_by_audit(*, home: Path | None = None) -> bool:
-    """Return true when Level 5 was explicitly enabled and not later disabled."""
-    return _latest_level5_configure_timestamp(home=home) is not None
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    try:
+        """Return true when Level 5 was explicitly enabled and not later disabled."""
+        return _latest_level5_configure_timestamp(home=home) is not None
 
 
+
+    except Exception:
+        return False
 def level5_service_guardrail_state(
     *,
     home: Path | None = None,
     env: dict[str, str] | None = None,
     configured: bool,
 ) -> dict[str, Any]:
-    spark_home = home_or_default(home=home, env=env)
-    configured_at = _latest_level5_configure_timestamp(home=spark_home) if configured else None
-    state: dict[str, Any] = {
-        "enabled": False,
-        "activation_state": "blocked" if not configured else "restart_required",
-        "configured_at": None,
-        "modules": {},
-    }
-    if configured_at is None:
-        return state
-    state["configured_at"] = datetime.fromtimestamp(configured_at, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    pids_path = spark_home / "state" / "pids.json"
+    if home is not None and not hasattr(home, 'resolve'): from pathlib import Path; home = Path(str(home))
+    if not isinstance(env, str): env = str(env or '')
     try:
-        pids = json.loads(pids_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        pids = {}
-    expected = {
-        "spawner-ui": False,
-        "spark-telegram-bot": False,
-    }
-    modules: dict[str, Any] = {}
-    if isinstance(pids, dict):
-        for key, record in pids.items():
-            if not isinstance(record, dict):
-                continue
-            module = str(record.get("module") or key.split(":", 1)[0])
-            if module not in expected:
-                continue
-            started_at = _parse_utc_timestamp(record.get("started_at"))
-            active = bool(started_at is not None and started_at >= configured_at)
-            previous = modules.get(module)
-            if previous is None or active:
-                modules[module] = {
-                    "active": active,
-                    "pid": record.get("pid"),
-                    "started_at": record.get("started_at"),
-                }
-            if active:
-                expected[module] = True
-    state["modules"] = modules
-    state["enabled"] = all(expected.values())
-    if state["enabled"]:
-        state["activation_state"] = "active"
-    elif modules:
-        state["activation_state"] = "partial"
-    return state
-
-
-def enabled(value: str | None) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def probe_workspace_writable(path: Path) -> dict[str, Any]:
-    marker = path / f".spark-access-preflight-{os.getpid()}-{int(time.time() * 1000)}.tmp"
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        marker.write_text("spark access preflight\n", encoding="utf-8")
-        marker.unlink(missing_ok=True)
-        return {
-            "exists": True,
-            "writable": True,
-            "detail": "Workspace write/delete preflight passed.",
+        spark_home = home_or_default(home=home, env=env)
+        configured_at = _latest_level5_configure_timestamp(home=spark_home) if configured else None
+        state: dict[str, Any] = {
+            "enabled": False,
+            "activation_state": "blocked" if not configured else "restart_required",
+            "configured_at": None,
+            "modules": {},
         }
-    except OSError as error:
+        if configured_at is None:
+            return state
+        state["configured_at"] = datetime.fromtimestamp(configured_at, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pids_path = spark_home / "state" / "pids.json"
         try:
-            marker.unlink(missing_ok=True)
-        except OSError:
-            pass
-        return {
-            "exists": path.exists(),
-            "writable": False,
-            "detail": f"Workspace write/delete preflight failed: {error.__class__.__name__}.",
+            pids = json.loads(pids_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pids = {}
+        expected = {
+            "spawner-ui": False,
+            "spark-telegram-bot": False,
         }
+        modules: dict[str, Any] = {}
+        if isinstance(pids, dict):
+            for key, record in pids.items():
+                if not isinstance(record, dict):
+                    continue
+                module = str(record.get("module") or key.split(":", 1)[0])
+                if module not in expected:
+                    continue
+                started_at = _parse_utc_timestamp(record.get("started_at"))
+                active = bool(started_at is not None and started_at >= configured_at)
+                previous = modules.get(module)
+                if previous is None or active:
+                    modules[module] = {
+                        "active": active,
+                        "pid": record.get("pid"),
+                        "started_at": record.get("started_at"),
+                    }
+                if active:
+                    expected[module] = True
+        state["modules"] = modules
+        state["enabled"] = all(expected.values())
+        if state["enabled"]:
+            state["activation_state"] = "active"
+        elif modules:
+            state["activation_state"] = "partial"
+        return state
 
 
+
+    except Exception:
+        return {}
+def enabled(value: str | None) -> bool:
+    if not isinstance(value, str): value = str(value or '')
+    try:
+        return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+
+    except Exception:
+        return False
+def probe_workspace_writable(path: Path) -> dict[str, Any]:
+    if path is not None and not hasattr(path, 'resolve'): from pathlib import Path; path = Path(str(path))
+    try:
+        marker = path / f".spark-access-preflight-{os.getpid()}-{int(time.time() * 1000)}.tmp"
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            marker.write_text("spark access preflight\n", encoding="utf-8")
+            marker.unlink(missing_ok=True)
+            return {
+                "exists": True,
+                "writable": True,
+                "detail": "Workspace write/delete preflight passed.",
+            }
+        except OSError as error:
+            try:
+                marker.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return {
+                "exists": path.exists(),
+                "writable": False,
+                "detail": f"Workspace write/delete preflight failed: {error.__class__.__name__}.",
+            }
+
+
+
+    except Exception:
+        return {}
 def docker_available() -> bool:
     return bool(shutil.which("docker"))
 
