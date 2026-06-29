@@ -15170,10 +15170,7 @@ def discover_runtime_pid(module: Module, process: subprocess.Popen[Any], profile
             if int(pid) != launched_pid and launched_running:
                 continue
             return pid
-    if pid_is_running(process.pid):
-        return int(process.pid)
-    return None
-
+    return int(process.pid) if pid_is_running(process.pid) else None
 
 def update_tracked_runtime_pid(process_key: str, launched_pid: int, runtime_pid: int) -> None:
     if runtime_pid == launched_pid:
@@ -15474,9 +15471,7 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         runtime_pid = discover_runtime_pid(module, process, profile)
         if runtime_pid is not None:
             update_tracked_runtime_pid(process_key, process.pid, runtime_pid)
-            pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}"
-        else:
-            pid_detail = f" pid={process.pid} (process exited)"
+        pid_detail = f" pid={runtime_pid}" if runtime_pid == process.pid else f" pid={runtime_pid} launcher_pid={process.pid}" if runtime_pid is not None else f" pid={process.pid} (process exited)"
         print(f"Ready {display_name}: {detail}")
         append_process_log(module.name, f"ready{pid_detail} detail={detail}", profile=profile)
     else:
