@@ -323,6 +323,7 @@ from spark_cli.cli import (
     should_enforce_approval,
     linux_root_filesystem_read_only,
     mountinfo_mountpoints,
+    cmd_init,
 )
 from spark_cli.security.approval import CommandContext, approval_required_for_command
 from spark_cli.security.url_policy import UrlPolicy, validate_url_safety
@@ -1894,6 +1895,36 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(parsed["module"]["description"], description)
         self.assertEqual(parsed["healthcheck"]["success_hint"], "my-module is healthy.")
         self.assertEqual(parsed["paths"]["home"], "~/.spark/modules/my-module")
+
+    def test_cmd_init_handles_permission_error_on_target_dir(self) -> None:
+        """Regression: spark init used to crash with raw PermissionError traceback
+        when the parent directory of --path is not accessible (mode 000, or
+        a directory the current user cannot traverse). The fix wraps the
+        target_dir.exists() / iterdir() call in try/except OSError and
+        re-raises as a clean SystemExit message.
+        """
+        import argparse
+        import os as _os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as locked:
+            target = _os.path.join(locked, "child", "grandchild")
+            _os.chmod(locked, 0o000)
+            try:
+                args = argparse.Namespace(
+                    name="perm-test-module",
+                    path=target,
+                    kind="python",
+                    description="",
+                    force=False,
+                )
+                with self.assertRaises(SystemExit) as raised:
+                    cmd_init(args)
+                message = str(raised.exception)
+                self.assertIn("Cannot inspect", message)
+                self.assertIn("Permission denied", message)
+            finally:
+                _os.chmod(locked, 0o755)
 
     def test_scaffold_module_files_writes_expected_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

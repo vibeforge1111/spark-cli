@@ -16749,7 +16749,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     name = args.name.strip()
     validate_init_module_name(name)
     target_dir = Path(args.path).resolve() if args.path else Path(name).resolve()
-    if target_dir.exists() and any(target_dir.iterdir()) and not args.force:
+    try:
+        target_exists = target_dir.exists()
+        target_has_contents = target_exists and any(target_dir.iterdir())
+    except OSError as exc:
+        raise SystemExit(f"Cannot inspect {target_dir}: {exc.strerror or exc}.") from None
+    if target_exists and target_has_contents and not args.force:
         raise SystemExit(f"{target_dir} exists and is not empty; pass --force to scaffold into it anyway.")
     description = args.description or f"Spark {args.kind} module."
     created = scaffold_module_files(target_dir, name, args.kind, description)
