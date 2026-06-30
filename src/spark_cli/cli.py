@@ -11449,7 +11449,32 @@ def configured_llm_role_state(role: str) -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else {}
     if not isinstance(llm_state, dict):
-        return {}
+        llm_state = {}
+    # Merge user config overrides (config.json) on top of setup state
+    user_config = load_json(USER_CONFIG_PATH, {})
+    user_providers = user_config.get("providers") if isinstance(user_config, dict) else {}
+    if isinstance(user_providers, dict):
+        user_records = user_providers.get("records")
+        if isinstance(user_records, dict):
+            default_provider = llm_state.get("provider") or user_providers.get("default_provider")
+            if default_provider and isinstance(user_records.get(default_provider), dict):
+                user_record = user_records[default_provider]
+                # Override base_url and model from user config if present
+                if user_record.get("base_url"):
+                    llm_state["base_url"] = user_record["base_url"]
+                    # Also update role-specific state
+                    roles = llm_state.get("roles")
+                    if isinstance(roles, dict):
+                        for role_state in roles.values():
+                            if isinstance(role_state, dict):
+                                role_state["base_url"] = user_record["base_url"]
+                if user_record.get("model"):
+                    llm_state["model"] = user_record["model"]
+                    roles = llm_state.get("roles")
+                    if isinstance(roles, dict):
+                        for role_state in roles.values():
+                            if isinstance(role_state, dict):
+                                role_state["model"] = user_record["model"]
     roles = llm_state.get("roles")
     if isinstance(roles, dict) and isinstance(roles.get(role), dict):
         state = dict(roles[role])
