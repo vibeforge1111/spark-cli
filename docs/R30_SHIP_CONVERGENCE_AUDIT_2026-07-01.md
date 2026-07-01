@@ -50,7 +50,7 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | `spark-intelligence-builder` | Clean local head `dc3a122d3654b4a88b6c6e1562ac2deff1e0a176` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Anchor/push the Builder Domain Chip loop-proof candidate, close or carry builder trace lifecycle evidence with source-owned proof, then move registry truth only after verification. |
 | `spark-telegram-bot` | Clean, local head `c03665286ef27740cf62a6666afde2aba25de25b` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 0 dirty tracked files and 0 untracked files. | Treat `c03665286ef27740cf62a6666afde2aba25de25b` as the curated Telegram R30 candidate only after owner-source/handoff proof is refreshed; do not move the registry from the stale handoff patch. |
 | `spark-voice-comms` | Clean, but local head `c502ec096cefb48839e3279d3392343231884415`, installed metadata `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`, and registry `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` disagree. | Create or select a stable voice owner release ref from the current public owner base, port local trace/governor commits or equivalent owner-source proof, then update registry and installed metadata. |
-| `spawner-ui` | Clean, but local head `946a152061ccd16191d7136a2e6d49fa5b5b5457` differs from registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Port or push the Spawner R30 Loop Engineering proof stack, then rerun Spawner checks before registry movement. |
+| `spawner-ui` | Clean local source-squash head `1b1cf1ff982c2b29cbe64a3d73e754822535b028` differs from old registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Use the pushed source-squash ref for source truth; keep bulky CUA artifacts in the release artifact packet, not the source branch. |
 
 ## Supporting Hygiene
 
@@ -164,17 +164,26 @@ Builder Domain Chip loop-proof curation update:
   - `spawner-ui`: clean but off-registry.
 - R30 remains no-ship because clean local heads are not the same thing as owner-source, registry, handoff, installer, or hosted publication truth.
 
+R30 source-ref and registry update:
+
+- Pushed source candidate refs:
+  - `domain-chip-memory`: `refs/heads/release/r30-memory-authority-20260701` -> `1fd272e519b562afc118ca46ff7da175d735dc44`
+  - `domain-chip-spark-qa-evidence-lane`: `refs/heads/release/r30-evidence-lane-20260701` -> `18e09b209c31260723cebaed659abdb9c7f8c7b5`
+  - `spark-intelligence-builder`: `refs/heads/release/r30-builder-loop-proof-20260701` -> `dc3a122d3654b4a88b6c6e1562ac2deff1e0a176`
+  - `spark-telegram-bot`: `refs/heads/release/r30-telegram-loop-engineering-20260701` -> `c03665286ef27740cf62a6666afde2aba25de25b`
+  - `spark-voice-comms`: `refs/heads/release/r30-voice-trace-governor-20260701` -> `c502ec096cefb48839e3279d3392343231884415`
+  - `spawner-ui`: `refs/heads/release/r30-spawner-source-squash-20260701` -> `1b1cf1ff982c2b29cbe64a3d73e754822535b028`
+- Spawner note: pushing the full `946a152061ccd16191d7136a2e6d49fa5b5b5457` history stalled after uploading a 73.63 MiB pack with hundreds of CUA artifact files. A source-squash candidate was created from the owner base, carrying the 94 source/doc PRD paths and preserving bulky CUA artifacts in the R30 artifact packet instead of the source branch.
+- Spawner source-squash proof passed:
+  - `npm run check` (`spawner-source-squash-npm-check.log`, exit `0`)
+  - `npm run test:run -- src/lib/server/loop-engineering-control-plane.test.ts src/lib/server/loop-engineering-registry.test.ts src/lib/server/loop-engineering-evidence.test.ts src/routes/api/loop-engineering/prd-writing-chain.authority.test.ts` (`spawner-source-squash-loop-focused-vitest.log`, exit `0`, `28` tests)
+  - `npm run build` (`spawner-source-squash-npm-build.log`, exit `0`)
+- `registry.json` now points these modules at the anchored source refs above.
+- `PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json` is captured in `spark-verify-registry-pins-after-r30-source-refs.json` and exits `0`.
+
 ## Registry Pin Drift
 
-`spark verify --registry-pins --json` has one failing check:
-
-- `spark-voice-comms`
-  - pinned commit: `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee`
-  - remote ref: `refs/heads/main`
-  - remote head: `c74490d68ece65ffad21dc5b88f44602e1afa703`
-  - status: `pin_drift`
-
-Do not update the voice registry pin until the voice owner-source decision is resolved.
+`spark verify --registry-pins --json` now passes after the R30 source-ref registry update.
 
 ## Handoff / Runtime Blockers
 
