@@ -47,7 +47,7 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | --- | --- | --- |
 | `domain-chip-memory` | Clean, but local head `1fd272e519b562afc118ca46ff7da175d735dc44` differs from registry `f7f16a6ea8eee47566140fab5e1cd8142a8ff20a`. | Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement. |
 | `spark-intelligence-builder` | Dirty, ahead 44, local head `ca21e183c6c04a658260b218e22fad7b67e02cc7` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Curate dirty work, close or carry builder trace lifecycle evidence, then rerun Builder proof commands before registry movement. |
-| `spark-telegram-bot` | Dirty, local head `7cd45515c26e4bcc5626557f70c19865cbe0cdc0` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 69 dirty tracked files and 26 untracked files. | Continue curating dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix and Domain Chip starter-check route fix before registry movement. |
+| `spark-telegram-bot` | Dirty, local head `f820c366d11e18e81b9ebe04e089ca214f877095` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 68 dirty tracked files and 7 untracked files. | Continue curating dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix, Domain Chip starter-check route fix, and R30 live Telegram proof tooling before registry movement. |
 | `spark-voice-comms` | Clean, but local head `c502ec096cefb48839e3279d3392343231884415`, installed metadata `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`, and registry `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` disagree. | Create or select a stable voice owner release ref from the current public owner base, port local trace/governor commits or equivalent owner-source proof, then update registry and installed metadata. |
 | `spawner-ui` | Clean, but local head `946a152061ccd16191d7136a2e6d49fa5b5b5457` differs from registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Port or push the Spawner R30 Loop Engineering proof stack, then rerun Spawner checks before registry movement. |
 
@@ -84,6 +84,17 @@ Telegram curation update:
   - `npm test -- --run tests/domainChipLabsCreator.test.ts tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawnerLoopBugHunt.test.ts` (`telegram-curation-focused-dcl-route-after-advisory-order-fix.log`, exit `0`)
   - `npm run build` (`telegram-build-after-private-check-fix.log`, exit `0`)
 - Post-fix verifier output is captured in `spark-verify-r30-after-telegram-private-check-fix.json` and still exits `1`. R30 remains no-ship because Telegram is still dirty/off-registry and the wider source, handoff, voice, builder, registry, installer-pin, and hosted-installer blockers remain open.
+
+Telegram R30 proof-tooling update:
+
+- Commit `f820c366d11e18e81b9ebe04e089ca214f877095` added the operator-facing R30 live Telegram proof pack, screenshot digest manifest tooling, final evidence validator, local Domain Chip fast-path replay canary, and readiness audit.
+- Focused proof passed:
+  - `npm test -- --run tests/domainChipFastPathCanary.test.ts tests/liveTelegramCanaryEvidence.test.ts tests/r30LiveTelegramEvidence.test.ts tests/r30LiveTelegramSummary.test.ts tests/r30LoopEngineeringReadinessAudit.test.ts tests/r30ScreenshotEvidence.test.ts` (`telegram-r30-live-proof-tooling-tests.log`, exit `0`)
+  - `npm run domain-chip:fastpath:canary` (`telegram-domain-chip-fastpath-canary-script.log`, exit `0`)
+  - `npm run r30:live-telegram:proof-pack` (`telegram-r30-live-proof-pack-script.log`, exit `0`)
+  - `npm run r30:loop-readiness:audit` (`telegram-r30-loop-readiness-audit-script.log`, exit `0`, expected incomplete: `16/17` passed)
+  - `npm run build` (`telegram-build-after-r30-proof-tooling.log`, exit `0`)
+- Post-tooling verifier output is captured in `spark-verify-r30-after-telegram-proof-tooling.json` and still exits `1`. This proves the proof machinery is available; it does not substitute for operator-sent live Telegram Desktop evidence, registry movement, or installer publication proof.
 
 ## Registry Pin Drift
 
