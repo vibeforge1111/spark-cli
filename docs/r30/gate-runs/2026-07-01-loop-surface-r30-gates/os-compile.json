@@ -1,0 +1,158 @@
+{
+  "ok": true,
+  "schema_version": "spark.os_compile.summary.v0",
+  "generated_at": "2026-07-01T18:48:33Z",
+  "modules": 10,
+  "repos": 14,
+  "gaps": 0,
+  "chip_manifests": 3,
+  "skill_graphs": 1,
+  "creator_system_surfaces": 0,
+  "specialization_path_surfaces": 0,
+  "capability_cards": 0,
+  "authority_sources": {
+    "cli_access_policy": true,
+    "cli_capabilities": true,
+    "telegram_access_policy": true,
+    "builder_aoc": true,
+    "spawner_access_lanes": true,
+    "spawner_access_actions": true,
+    "browser_constants": false,
+    "browser_policy": false,
+    "swarm_sync_validation": false
+  },
+  "builder_event_rows": 53323,
+  "builder_event_samples": 40,
+  "builder_trace_groups": 12,
+  "builder_trace_health_flags": [
+    "open_high_severity_events"
+  ],
+  "builder_trace_current_health": {
+    "status": "current_clean",
+    "window": "1h",
+    "row_count": 454,
+    "missing_trace_ref_count": 0,
+    "historical_missing_trace_ref_count": 0,
+    "total_missing_trace_ref_count": 0,
+    "missing_trace_ref_ratio": 0.0,
+    "high_severity_open_count": 221,
+    "unresolved_high_severity_open_count": 176,
+    "current_unresolved_high_severity_open_count": 66,
+    "unresolved_high_severity_source_group_count": 2,
+    "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07",
+    "repair_temporal_state_counts": {},
+    "latest_missing_source_group_count": 0,
+    "latest_clean_historical_window_debt_group_count": 0,
+    "latest_missing_group_count": 0,
+    "latest_clean_window_debt_group_count": 0,
+    "latest_clean_group_count": 0
+  },
+  "builder_trace_recent_windows": [
+    {
+      "window": "1h",
+      "row_count": 454,
+      "missing_trace_ref_count": 0,
+      "missing_trace_ref_ratio": 0.0,
+      "high_severity_open_count": 30,
+      "high_severity_open_ratio": 0.0661
+    },
+    {
+      "window": "24h",
+      "row_count": 1121,
+      "missing_trace_ref_count": 0,
+      "missing_trace_ref_ratio": 0.0,
+      "high_severity_open_count": 66,
+      "high_severity_open_ratio": 0.0589
+    },
+    {
+      "window": "7d",
+      "row_count": 21540,
+      "missing_trace_ref_count": 0,
+      "missing_trace_ref_ratio": 0.0,
+      "high_severity_open_count": 176,
+      "high_severity_open_ratio": 0.0082
+    }
+  ],
+  "review_candidates": 74,
+  "memory_movement_status": "supported",
+  "memory_movement_rows": 5008,
+  "builder_memory_table_count": 1,
+  "repo_board": {
+    "repo_count": 14,
+    "git_repo_count": 12,
+    "dirty_repo_count": 0,
+    "blocked_release_count": 0,
+    "critical_repo_count": 3,
+    "duplicate_truth_count": 2,
+    "critical_duplicate_truth_count": 0
+  },
+  "duplicate_truths": {
+    "item_count": 2,
+    "classification_counts": {
+      "local_runtime_test_artifact": 2
+    },
+    "severity_counts": {
+      "decision": 2
+    },
+    "owner_sets": {
+      "local_runtime_test_artifact": [
+        "spark-telegram-bot",
+        "spawner-ui"
+      ]
+    }
+  },
+  "publish_handoffs": {
+    "schema_version": "spark.publish_handoffs.summary.v0",
+    "family_count": 2,
+    "families": [
+      "local_runtime_test_artifacts",
+      "builder_trace_health"
+    ],
+    "blocked_release_repos": [],
+    "local_runtime_test_artifacts": {
+      "count": 2,
+      "owners": [
+        "spark-telegram-bot",
+        "spawner-ui"
+      ]
+    },
+    "builder_trace_health": {
+      "flags": [
+        "open_high_severity_events"
+      ],
+      "high_severity_open_count": 221,
+      "unresolved_high_severity_open_count": 176,
+      "current_unresolved_high_severity_open_count": 66,
+      "unresolved_high_severity_source_group_count": 2,
+      "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07"
+    }
+  },
+  "voice_surface_mode": "egress",
+  "voice_surface_blockers": 1,
+  "privacy": {
+    "raw_secret_values_read": false,
+    "raw_logs_read": false,
+    "raw_conversation_content_read": false,
+    "raw_memory_evidence_read": false,
+    "sqlite_row_contents_read": false
+  },
+  "outputs": {
+    "system_map": "/Users/alchemistab/.spark/state/system-map/system-map.json",
+    "authority_view": "/Users/alchemistab/.spark/state/system-map/authority-view.json",
+    "capability_catalog": "/Users/alchemistab/.spark/state/system-map/capability-catalog.json",
+    "trace_index": "/Users/alchemistab/.spark/state/system-map/trace-index.json",
+    "memory_movement_index": "/Users/alchemistab/.spark/state/system-map/memory-movement-index.json",
+    "repo_board": "/Users/alchemistab/.spark/state/system-map/repo-board.json",
+    "voice_surface_view": "/Users/alchemistab/.spark/state/system-map/voice-surface-view.json",
+    "operating_cockpit": "/Users/alchemistab/.spark/state/system-map/operating-cockpit.json",
+    "gaps": "/Users/alchemistab/.spark/state/system-map/gaps.md"
+  },
+  "gate": {
+    "strict": false,
+    "scope": "all",
+    "ok": true,
+    "dirty_repo_count": 0,
+    "broad_dirty_repo_count": 0,
+    "critical_duplicate_truth_count": 0
+  }
+}

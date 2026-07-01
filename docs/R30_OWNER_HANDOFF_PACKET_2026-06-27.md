@@ -39,8 +39,8 @@ The latest access/full-permission proof recorded in the evidence packet remains 
 
 | Repo | Local range to review | Current public/owner truth | R30 handoff |
 | --- | --- | --- | --- |
-| `spark-telegram-bot` | `e5a1bd040986..0cf6e5c1624` | remote `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; registry baseline tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, `/access 5` activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base. Then rerun Telegram gates before registry pin movement. |
-| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..d7737038dc85` | owner branch `fdb8fded4744`; remote `main` / `spark-ship-2026-06-26` at `451d009aad84`; registry baseline tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client, PRD-lane, persisted Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, Codex worker env propagation, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base. Then rerun Spawner proof/check gates. |
+| `spark-telegram-bot` | `e5a1bd040986..505270251656` | remote `main` / `spark-ship-2026-06-26` at `67ad9e6ed297`; registry baseline tag `spark-ship-2026-06-22` at `e5a1bd040986`; no owner branch for `harness-discipline-line-count-gate` found | Port or push the reliability ladder, release-packet, line-count, publish-handoff, `/access 5` activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base. Then rerun Telegram gates before registry pin movement. |
+| `spawner-ui` | `19b7d0bff144..1b1cf1ff982c` | owner branch `fdb8fded4744`; remote `main` / `spark-ship-2026-06-26` at `451d009aad84`; registry baseline tag `spark-ship-2026-06-22` at `19b7d0bff144` | Port or push the PRD proof-continuity stack plus direct-client, PRD-lane, persisted Level 5 Codex sandbox fixes, shared effective-env worker access/path validation, Codex worker env propagation, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base. Then rerun Spawner proof/check gates. |
 | `spark-voice-comms` | `origin/codex/turnintent-voice-policy-20260531..7555a363d763`; prepared local lane `release/r30-voice-trace-governor` at `c502ec096cef` | owner branch `12bddc9bd0bd`; remote `main` / `spark-ship-2026-06-26` at `c74490d68ece`; registry pin `21a9467e9bd4` | Local owner-lane port is prepared and test-clean, but not pushed/tagged or registry truth. Source-owner remote handoff, installed metadata, and registry convergence still block R30 voice publication. |
 | `domain-chip-memory` | `origin/codex/turnintent-memory-boundary-20260531..1fd272e519b5` | owner branch `3116ccaa3977`; remote `main` / `spark-ship-2026-06-26` at `72a660a69c0c`; registry baseline tag `spark-ship-2026-06-22` at `f7f16a6ea8ee` | Review/push the vNext memory write authority proof against the current owner release base or replace with equivalent owner-source proof. |
 | `spark-intelligence-builder` | `origin/codex/turnintent-builder-boundary-20260531..ca21e183c6c0` | owner branch `c94eac853fed`; remote `main` / `spark-ship-2026-06-26` at `9d7bdefaa9a0`; registry baseline tag `spark-ship-2026-06-22` at `e7f80fbf03bd` | Review/push or rebase the 44-commit trace/proof/media/memory stack against the current owner release base. Keep the historical high-severity lifecycle family visible until closed by source-owned evidence. |
@@ -54,8 +54,8 @@ structured inventory is also recorded in
 
 | Repo | Exact range | Commits | Files changed | Boundary commits | Owner-lane command |
 | --- | --- | ---: | ---: | --- | --- |
-| `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032` | 1014 | 332 | first `43aeb4e476b9` / last `0cf6e5c1624` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032` |
-| `spawner-ui` | `origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754` | 17 | 29 | first `424547437e7e` / last `d7737038dc85` | `git log --reverse --oneline origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754` |
+| `spark-telegram-bot` | `e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf` | 1057 | 392 | first `43aeb4e476b9` / last `505270251656` | `git log --reverse --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf` |
+| `spawner-ui` | `19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028` | 8 | 276 | first `461c1c07caef` / last `1b1cf1ff982c` | `git log --reverse --oneline 19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028` |
 
 Do not squash these into registry truth from this debugging lane. The owner
 lane should inspect the exact range, decide whether to push or cherry-pick, run
@@ -108,7 +108,7 @@ Fresh local proof status for direct blockers, refreshed at `2026-06-27T21:33:59Z
 
 - `domain-chip-memory`: owner handoff patch `docs/r30/patches/r30-memory-authority-proof.patch` has SHA256 `58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83`; applying the tree-diff patch to owner branch base `3116ccaa3977` produces tree `ae30034f03ac`. Fresh proof at `2026-06-28T07:22:12Z`: `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` passed and reported 5 normalized contracts, 4 official adapters, and 1 shadow adapter. This is review/apply material only, not registry or publication authority.
 - `spark-intelligence-builder`: owner handoff patch `docs/r30/patches/r30-builder-trace-proof-stack.patch` has SHA256 `48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d`; applying the tree-diff patch to owner branch base `c94eac853fed` produces tree `a9aedb619481`. Fresh proof at `2026-06-28T07:25:20Z`: `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` passed, `208 passed, 26 subtests passed in 54.61s`. This is review/apply material only, not registry or publication authority.
-- `spark-telegram-bot`: reliability, build, line-count, profile-specific Level 5 env proof, mixed access/build Level 5 full-permission proof, and DCL creator mission routing gates passed. Owner handoff patch `docs/r30/patches/r30-telegram-control-reliability-stack.patch` has SHA256 `c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6`; applying the tree-diff patch to public owner base `67ad9e6ed297` produces tree `1b676a0f9482`, carrying local proof head `0cf6e5c1624` as review/apply material only, not registry or publication authority.
+- `spark-telegram-bot`: reliability, build, line-count, profile-specific Level 5 env proof, mixed access/build Level 5 full-permission proof, and DCL creator mission routing gates passed. Owner handoff patch `docs/r30/patches/r30-telegram-control-reliability-stack.patch` has SHA256 `3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e`; applying the tree-diff patch to public owner base `67ad9e6ed297` produces tree `8bda5f8a97a`, carrying local proof head `505270251656` as review/apply material only, not registry or publication authority.
 - `spark-voice-comms`: pytest passed.
 - `spark-voice-comms`: owner handoff patch `docs/r30/patches/r30-voice-trace-governor.patch` applies to public base `c74490d68ece`, produces tree `e3e1f8814970`, and passes `132 passed`; this remains review/apply material only, not registry or publication authority.
 - `spawner-ui`: owner handoff patch `docs/r30/patches/r30-spawner-runtime-artifact-tree.patch` has SHA256 `bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010`; applying the tree-diff patch to owner base `fdb8fded4744` produces tree `b5c43beb7035`. Focused access-action, Level 5 lane, and Codex sandbox tests were rechecked at `2026-06-28` with `44 passed`, and `npm run build` passed. This is review/apply material only, not registry or publication authority.
@@ -132,7 +132,7 @@ worktrees from the recorded owner bases, applies each patch, and requires
   `a9aedb619481ffc9fa22d6289e82df47400948cf`.
 - `spark-telegram-bot`: `r30-telegram-control-reliability-stack.patch`
   applies to `67ad9e6ed297baf6c9daa74b879fa45bc45bd579` and produces tree
-  `1b676a0f948215599e41cf8f7a8ca7af5903af9e`. `git apply` still reports
+  `8bda5f8a97a56ac6dc8910dd29636d682955908c`. `git apply` still reports
   known blank-EOF whitespace warnings; the resulting tree matches.
 - `spark-voice-comms`: `r30-voice-trace-governor.patch` applies with `git am`
   to `c74490d68ece65ffad21dc5b88f44602e1afa703` and produces tree
@@ -155,7 +155,7 @@ truth. Do not push from this debugging lane without explicit authorization.
 cd ~/.spark/modules/spark-telegram-bot/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032
+git log --oneline e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf
 npm test -- --run tests/domainChipLabsCreator.test.ts
 npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts
 npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts
@@ -167,7 +167,7 @@ npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/acc
 ```
 
 Owner action after review: push or port the
-`e5a1bd040986..0cf6e5c1624` reliability ladder, access activation stack, health-token preservation fix, `Harden Telegram profile Level 5 env proof`, active-profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Level 5 full-permission audit doc, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing into an owner release ref,
+`e5a1bd040986..505270251656` reliability ladder, access activation stack, health-token preservation fix, `Harden Telegram profile Level 5 env proof`, active-profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Level 5 full-permission audit doc, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing into an owner release ref,
 then update registry truth only after the proof commands pass on that owner ref.
 
 ### `spawner-ui`
@@ -176,7 +176,7 @@ then update registry truth only after the proof commands pass on that owner ref.
 cd ~/.spark/modules/spawner-ui/source
 git fetch origin --tags
 git status --short --branch
-git log --oneline origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754
+git log --oneline 19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028
 npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts
 npm test -- --run src/lib/server/access-execution-actions.test.ts src/lib/server/high-agency-workers.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts
 npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts
@@ -303,11 +303,11 @@ git diff --check
 
 ### `spark-telegram-bot`
 
-Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032`
+Range: `e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf`
 
 Top commits currently in the R30 handoff stack:
 
-- `0cf6e5c Harden DCL creator mission routing`
+- `5052702 Polish loop engineering Telegram replies`
 - `8958d01 Improve domain chip creation preview`
 - `e825f02 Harden Telegram Level 5 proof agreement`
 - `7cb3ce1 Preserve natural Level 5 confirmations`
@@ -367,11 +367,11 @@ npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/t
 
 ### `spawner-ui`
 
-Range: `origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754`
+Range: `19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028`
 
 Commits:
 
-- `d7737038 Promote Level 5 env for Spawner access actions`
+- `1b1cf1ff Squash Spawner loop engineering source`
 - `029c2086 Treat active Level 5 lane as full-access`
 - `7b313915 Prove Level 5 Codex launches ignore stale read-only env`
 - `3042f8ac Carry Level 5 env into Codex workers`

@@ -1,13 +1,13 @@
 {
   "schema_version": "spark.r30.owner_handoff_manifest.v0",
-  "generated_at": "2026-06-27",
+  "generated_at": "2026-07-01T18:48:38Z",
   "release": "spark-cli-public-installer-2026-06-27-r30",
   "status": "blocked_before_registry_or_installer_publication",
   "publication_boundary": "No push, tag, deploy, registry pin update, installer pin update, or hosted publication is authorized by this manifest.",
   "direct_blockers": [
     {
       "module": "domain-chip-memory",
-      "expected_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+      "expected_registry_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
       "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
       "local_range": "origin/codex/turnintent-memory-boundary-20260531..1fd272e519b562afc118ca46ff7da175d735dc44",
       "owner_refs": {
@@ -37,8 +37,8 @@
     },
     {
       "module": "spark-intelligence-builder",
-      "expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
-      "local_head": "ca21e183c6c04a658260b218e22fad7b67e02cc7",
+      "expected_registry_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "local_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
       "local_range": "origin/codex/turnintent-builder-boundary-20260531..ca21e183c6c04a658260b218e22fad7b67e02cc7",
       "owner_refs": {
         "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
@@ -67,9 +67,9 @@
     },
     {
       "module": "spark-telegram-bot",
-      "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
+      "expected_registry_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "local_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -98,13 +98,14 @@
         "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"8bda5f8a97a56ac6dc8910dd29636d682955908c\"",
         "proof_command": "npm test -- --run tests/domainChipLabsCreator.test.ts && npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts && npm test -- --run tests/buildE2E.test.ts && npm run build && npm run check:line-count",
         "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; buildE2E passed; build passed; line-count passed",
-        "publication_authority": false
+        "publication_authority": false,
+        "latest_proof_checked_at": "2026-07-01T18:48:38Z"
       },
       "local_proof": "passed"
     },
     {
       "module": "spark-voice-comms",
-      "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+      "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
       "local_head": "c502ec096cefb48839e3279d3392343231884415",
       "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
       "owner_refs": {
@@ -126,9 +127,9 @@
     },
     {
       "module": "spawner-ui",
-      "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754",
+      "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_range": "19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028",
       "owner_refs": {
         "main": "451d009aad84142092e9a21bda7788cf07910975",
         "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
@@ -158,7 +159,22 @@
       "local_proof": "passed"
     }
   ],
-  "supporting_hygiene": [],
+  "supporting_hygiene": [
+    {
+      "module": "domain-chip-spark-qa-evidence-lane",
+      "issues": [
+        "installed_metadata_differs_from_registry"
+      ],
+      "expected_registry_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "local_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ],
+      "local_proof": "passed"
+    }
+  ],
   "required_after_owner_handoffs": [
     "spark os compile --json",
     "spark live status --json",

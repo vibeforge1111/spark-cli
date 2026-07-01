@@ -1,6 +1,6 @@
 {
   "schema_version": "spark.r30.local_runtime_artifacts_handoff_manifest.v0",
-  "generated_at": "2026-06-27",
+  "generated_at": "2026-07-01T18:48:38Z",
   "release": "spark-cli-public-installer-2026-06-27-r30",
   "status": "blocked_before_registry_or_installer_publication",
   "publication_boundary": "No Telegram or Spawner registry pin, installed metadata, installer pin, tag, deploy, or hosted publication is authorized by this manifest.",
@@ -8,16 +8,16 @@
     {
       "module": "spark-telegram-bot",
       "runtime_classification": "local_runtime_test_artifact",
-      "expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_head": "0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
+      "expected_registry_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "local_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
       "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
-      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
-      "commit_count": 1014,
-      "changed_file_count": 332,
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..505270251656cf3fb05f16e66125bb50217fcdaf",
+      "commit_count": 1057,
+      "changed_file_count": 392,
       "first_local_commit": "43aeb4e476b920c73541818c58add8045231f47f",
       "first_local_commit_subject": "Add Telegram rich draft streaming controls",
-      "last_local_commit": "0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
-      "last_local_commit_subject": "Harden DCL creator mission routing",
+      "last_local_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+      "last_local_commit_subject": "Polish loop engineering Telegram replies",
       "owner_refs": {
         "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
         "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
@@ -51,7 +51,7 @@
         "Harden DCL creator mission routing"
       ],
       "owner_truth": "registry/tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
-      "owner_action": "Port or push the Telegram reliability ladder, release packet, line-count, publish-handoff, Access 5 activation proof stack, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, Level 5 proof gate, proof-oracle Level 5 runtime validation, effective-sandbox-only Telegram setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, effective Level 5 runtime-env promotion for Telegram and Recursive bridge subprocesses, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base before registry movement.",
+      "owner_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry movement.",
       "proof_commands": [
         "npm test -- --run tests/domainChipLabsCreator.test.ts",
         "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
@@ -59,7 +59,7 @@
         "npm run build",
         "npm run control:proof:reliability",
         "npm run check:line-count",
-        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/recursiveLevel5RuntimeEnv.test.ts tests/telegramCommandAuthority.test.ts",
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
         "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
       ],
       "owner_handoff_patch": {
@@ -72,7 +72,7 @@
         "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"8bda5f8a97a56ac6dc8910dd29636d682955908c\"",
         "proof_command": "npm test -- --run tests/domainChipLabsCreator.test.ts && npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts && npm test -- --run tests/buildE2E.test.ts && npm run build && npm run check:line-count",
         "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; buildE2E passed; build passed; line-count passed",
-        "latest_proof_checked_at": "2026-07-01T18:38:17Z",
+        "latest_proof_checked_at": "2026-07-01T18:48:38Z",
         "publication_authority": false
       },
       "local_proof": "passed"
@@ -80,16 +80,16 @@
     {
       "module": "spawner-ui",
       "runtime_classification": "local_runtime_test_artifact",
-      "expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_head": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
+      "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
       "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
-      "local_range": "origin/release/stability-2026-06-02-spawner-authority..d7737038dc855897dc0435d41c7b12ad1ca2d754",
-      "commit_count": 17,
-      "changed_file_count": 29,
-      "first_local_commit": "424547437e7e647829a1bfb5571c642e79afc6e6",
-      "first_local_commit_subject": "Carry Harness proof refs in PRD traces",
-      "last_local_commit": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
-      "last_local_commit_subject": "Promote Level 5 env for Spawner access actions",
+      "local_range": "19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "commit_count": 8,
+      "changed_file_count": 276,
+      "first_local_commit": "461c1c07caef6c54fca223f0c0c3547c2a865283",
+      "first_local_commit_subject": "Honor Level 5 Codex sandbox in direct client",
+      "last_local_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "last_local_commit_subject": "Squash Spawner loop engineering source",
       "owner_refs": {
         "main": "451d009aad84142092e9a21bda7788cf07910975",
         "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
@@ -107,7 +107,7 @@
         "Promote Level 5 env for Spawner access actions"
       ],
       "owner_truth": "owner branch fdb8fded4744; registry/tag spark-ship-2026-06-22 at 19b7d0bff144",
-      "owner_action": "Port or push the Spawner PRD proof-continuity stack plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base before registry movement.",
+      "owner_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry movement.",
       "proof_commands": [
         "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
         "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",

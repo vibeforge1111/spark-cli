@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "summary": "Spark installer integrity verification",
+  "manifest": "scripts/installer-manifest.json",
+  "checks": [
+    {
+      "name": "local_release_metadata",
+      "ok": true,
+      "expected_release": "spark-cli-public-installer-2026-06-26-r29",
+      "actual_release": "spark-cli-public-installer-2026-06-26-r29",
+      "expected_ref": "spark-cli-public-installer-2026-06-26-r29",
+      "actual_ref": "spark-cli-public-installer-2026-06-26-r29",
+      "detail": "Installer release pins match committed installer manifest metadata."
+    },
+    {
+      "name": "local_release_ref_reachable",
+      "ok": true,
+      "expected_ref": "spark-cli-public-installer-2026-06-26-r29",
+      "detail": "Installer source release tag has a valid Spark public release-tag shape."
+    },
+    {
+      "name": "local_install.sh",
+      "ok": true,
+      "expected_sha256": "139837199c24b39f9aac8b647beec0cf623badebdaf74aa88f5315b3b6b30414",
+      "actual_sha256": "139837199c24b39f9aac8b647beec0cf623badebdaf74aa88f5315b3b6b30414",
+      "detail": "install.sh matches committed installer manifest."
+    },
+    {
+      "name": "local_install.ps1",
+      "ok": true,
+      "expected_sha256": "4f111cca7ac28fe09d5f2a824d9fb70c30abe204e1dbbba2570c566dbeaec81b",
+      "actual_sha256": "4f111cca7ac28fe09d5f2a824d9fb70c30abe204e1dbbba2570c566dbeaec81b",
+      "detail": "install.ps1 matches committed installer manifest."
+    }
+  ]
+}
