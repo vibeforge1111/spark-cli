@@ -16869,6 +16869,10 @@ def cmd_logs(args: argparse.Namespace) -> int:
     if profile != DEFAULT_TELEGRAM_PROFILE and args.target != "spark-telegram-bot":
         raise SystemExit("--profile only applies to spark-telegram-bot logs.")
     path = module_log_path(args.target, profile)
+    if not path.exists() and profile != DEFAULT_TELEGRAM_PROFILE and args.target == "spark-telegram-bot":
+        fallback_path = module_log_path(args.target, DEFAULT_TELEGRAM_PROFILE)
+        if fallback_path.exists():
+            path = fallback_path
     if not path.exists():
         display_name = module_process_key(args.target, profile)
         print(f"No logs yet for {display_name} at {path}")
