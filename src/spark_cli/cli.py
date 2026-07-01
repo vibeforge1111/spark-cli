@@ -3456,7 +3456,8 @@ def spark_builder_home() -> Path:
 
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
-    lines = [f"{key}={value}" for key, value in values.items()]
+    sanitized = {key: value.replace("\n", "").replace("\r", "") for key, value in values.items()}
+    lines = [f"{key}={value}" for key, value in sanitized.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     # Generated module env files hold control-plane keys (SPARK_BRIDGE_API_KEY,
@@ -4891,7 +4892,8 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
         lines.append("")
     lines.append(start)
     for key, value in values.items():
-        lines.append(f"{key}={value}")
+        sanitized = value.replace("\n", "").replace("\r", "")
+        lines.append(f"{key}={sanitized}")
     lines.append(end)
     # Atomic write: write to a unique temp path, chmod to private mode, then
     # os.replace into place so a concurrent reader never observes a half-written
