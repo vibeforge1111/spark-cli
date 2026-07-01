@@ -47,7 +47,7 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | --- | --- | --- |
 | `domain-chip-memory` | Clean, but local head `1fd272e519b562afc118ca46ff7da175d735dc44` differs from registry `f7f16a6ea8eee47566140fab5e1cd8142a8ff20a`. | Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement. |
 | `spark-intelligence-builder` | Dirty, ahead 44, local head `ca21e183c6c04a658260b218e22fad7b67e02cc7` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Curate dirty work, close or carry builder trace lifecycle evidence, then rerun Builder proof commands before registry movement. |
-| `spark-telegram-bot` | Dirty, local head `d4bc0630b4209df67dffe64f9ff4df99e51de0d0` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 58 dirty tracked files and 5 untracked files. | Continue curating dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix, Domain Chip starter-check route fix, R30 live Telegram proof tooling, and strengthened DCL creation proof routes before registry movement. |
+| `spark-telegram-bot` | Dirty, local head `6b4805fd7ace7d733a753be553b8f7289224c457` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 38 dirty tracked files and 5 untracked files. | Continue curating dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix, Domain Chip starter-check route fix, R30 live Telegram proof tooling, strengthened DCL creation proof routes, and expanded live-canary/control-proof gates before registry movement. |
 | `spark-voice-comms` | Clean, but local head `c502ec096cefb48839e3279d3392343231884415`, installed metadata `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`, and registry `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` disagree. | Create or select a stable voice owner release ref from the current public owner base, port local trace/governor commits or equivalent owner-source proof, then update registry and installed metadata. |
 | `spawner-ui` | Clean, but local head `946a152061ccd16191d7136a2e6d49fa5b5b5457` differs from registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Port or push the Spawner R30 Loop Engineering proof stack, then rerun Spawner checks before registry movement. |
 
@@ -107,6 +107,15 @@ Telegram DCL creation-core update:
   - `npm test -- --run tests/chipCreate.test.ts tests/chipLoop.test.ts tests/domainChipLabsCreator.test.ts tests/domainChipCreatedContext.test.ts tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawnerLoopBugHunt.test.ts` (`telegram-dcl-core-creation-route-tests.log`, exit `0`)
   - `npm run build` (`telegram-build-after-dcl-core.log`, exit `0`)
 - Post-DCL verifier output is captured in `spark-verify-r30-after-telegram-dcl-core.json` and still exits `1`. R30 remains blocked by Telegram dirty/off-registry state plus the wider handoff, voice, builder, registry, installer-pin, and hosted-installer gates.
+
+Telegram live-canary/control-proof update:
+
+- Commit `6b4805fd7ace7d733a753be553b8f7289224c457` added the full-canary Domain Chip onboarding case, a 9/10 surface-eval bar for Domain Chip onboarding replies, watchdogs for Telegram health wrappers, fail-closed relay polling states, and trace-join handling for superseded stale proof rows.
+- Focused proof passed:
+  - `npm test -- --run tests/controlProofLiveCanaryPack.test.ts tests/controlProofSurfaceEval.test.ts tests/controlProofTraceJoin.test.ts tests/healthPolling.test.ts tests/missionRelayHealth.test.ts` (`telegram-live-canary-control-proof-tests.log`, exit `0`)
+  - `npm run control:proof:surface -- --strict` (`telegram-control-proof-surface-strict.log`, exit `0`; Domain Chip onboarding scored `10/10`)
+  - `npm run build` (`telegram-build-after-live-canary-control-proof.log`, exit `0`)
+- Post-canary verifier output is captured in `spark-verify-r30-after-telegram-live-canary-gates.json` and still exits `1`. R30 remains no-ship until source heads, handoff metadata, live operator evidence, registry pins, installer pins, and hosted installer proof converge.
 
 ## Registry Pin Drift
 
