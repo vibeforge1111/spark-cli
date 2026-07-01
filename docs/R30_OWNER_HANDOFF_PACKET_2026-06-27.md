@@ -354,6 +354,7 @@ Required terminal subjects that must survive owner-source porting:
 - `Use proof oracle for Telegram Level 5`
 - `Require effective Level 5 sandbox proof in Telegram`
 - `Require Level 5 proof for operator access status`
+- `Harden DCL creator mission routing`
 
 Minimum owner-lane proof after port:
 
@@ -388,6 +389,10 @@ Commits:
 - `0adc4880 Mark missing PRD Harness proof gaps`
 - `95d5b3ee Redact PRD trace path refs`
 - `42454743 Carry Harness proof refs in PRD traces`
+
+Required terminal subjects that must survive owner-source porting:
+
+- `Promote Level 5 env for Spawner access actions`
 
 Minimum owner-lane proof after port:
 
