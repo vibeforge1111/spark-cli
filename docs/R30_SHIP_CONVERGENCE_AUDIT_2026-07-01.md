@@ -58,6 +58,13 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | `spark-cli` | Dirty tracked files: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`, `src/spark_cli/cli.py`, `tests/test_cli.py`. | Curate or commit the verifier/patch changes before final R30 publication. |
 | `domain-chip-spark-qa-evidence-lane` | Detached HEAD with dirty tracked files and six untracked source files. | Curate the evidence-lane worktree before claiming Spark-wide source truth. |
 
+Post-audit update:
+
+- Commit `4c9ad8210f119357eec7d8b3c4b0e415997ad6ec` isolated named Telegram profile runtime tokens so a named profile cannot inherit the default bot token.
+- Focused proof passed: `PYTHONPATH=src python3 -m pytest -q tests/test_cli.py -k 'named_telegram_profile_runtime_env'` returned `2 passed`.
+- Post-fix R30 verifier output is captured in `spark-verify-r30-after-cli-token-fix.json`.
+- R30 remains no-ship. `spark-cli` still has one dirty tracked file: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`.
+
 ## Registry Pin Drift
 
 `spark verify --registry-pins --json` has one failing check:
