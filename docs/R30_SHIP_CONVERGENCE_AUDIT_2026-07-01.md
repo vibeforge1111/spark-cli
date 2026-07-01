@@ -47,7 +47,7 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | --- | --- | --- |
 | `domain-chip-memory` | Clean, but local head `1fd272e519b562afc118ca46ff7da175d735dc44` differs from registry `f7f16a6ea8eee47566140fab5e1cd8142a8ff20a`. | Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement. |
 | `spark-intelligence-builder` | Dirty, ahead 44, local head `ca21e183c6c04a658260b218e22fad7b67e02cc7` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Curate dirty work, close or carry builder trace lifecycle evidence, then rerun Builder proof commands before registry movement. |
-| `spark-telegram-bot` | Dirty, local head `e86b84afcd43afd141f858698dca0af1b1a172ee` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`. | Curate dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix before registry movement. |
+| `spark-telegram-bot` | Dirty, local head `7cd45515c26e4bcc5626557f70c19865cbe0cdc0` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 69 dirty tracked files and 26 untracked files. | Continue curating dirty work and port/push the Telegram reliability stack including the R30 loop-status route fix and Domain Chip starter-check route fix before registry movement. |
 | `spark-voice-comms` | Clean, but local head `c502ec096cefb48839e3279d3392343231884415`, installed metadata `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`, and registry `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` disagree. | Create or select a stable voice owner release ref from the current public owner base, port local trace/governor commits or equivalent owner-source proof, then update registry and installed metadata. |
 | `spawner-ui` | Clean, but local head `946a152061ccd16191d7136a2e6d49fa5b5b5457` differs from registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Port or push the Spawner R30 Loop Engineering proof stack, then rerun Spawner checks before registry movement. |
 
@@ -55,7 +55,7 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 
 | Module | Current state | Required next action |
 | --- | --- | --- |
-| `spark-cli` | Dirty tracked files: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`, `src/spark_cli/cli.py`, `tests/test_cli.py`. | Curate or commit the verifier/patch changes before final R30 publication. |
+| `spark-cli` | Dirty tracked file: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`. | Curate or replace the stale Telegram handoff patch before final R30 publication. |
 | `domain-chip-spark-qa-evidence-lane` | Detached HEAD with dirty tracked files and six untracked source files. | Curate the evidence-lane worktree before claiming Spark-wide source truth. |
 
 Post-audit update:
@@ -73,6 +73,17 @@ Handoff patch forensic result:
 - Applying the dirty patch to owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579` succeeds and produces tree `cb5ec14ed045c007a3a3a9eaf9a52be81ef67ea4`.
 - The current Telegram worktree staged as source truth would produce tree `b88c4630a3f2cce74dcc1cc31c87e7e613b53e14`.
 - Conclusion: the dirty patch is internally applyable but does not represent the current Telegram worktree. Do not update owner handoff metadata or registry pins from this patch until the Telegram source lane is curated into the intended R30 source truth.
+
+Telegram curation update:
+
+- Commit `7cd45515c26e4bcc5626557f70c19865cbe0cdc0` fixed two Domain Chip follow-up route bugs:
+  - `run the private check` after a creation receipt now runs local starter hooks instead of queueing Spawner benchmark work.
+  - no-action Domain Chip advisory questions now keep their no-execution boundary before generic Loop Engineering status can preempt them.
+- Focused proof passed:
+  - `npm test -- --run tests/domainChipBenchmarkFollowup.test.ts` (`telegram-domain-chip-benchmark-followup-private-check.log`, exit `0`)
+  - `npm test -- --run tests/domainChipLabsCreator.test.ts tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawnerLoopBugHunt.test.ts` (`telegram-curation-focused-dcl-route-after-advisory-order-fix.log`, exit `0`)
+  - `npm run build` (`telegram-build-after-private-check-fix.log`, exit `0`)
+- Post-fix verifier output is captured in `spark-verify-r30-after-telegram-private-check-fix.json` and still exits `1`. R30 remains no-ship because Telegram is still dirty/off-registry and the wider source, handoff, voice, builder, registry, installer-pin, and hosted-installer blockers remain open.
 
 ## Registry Pin Drift
 
