@@ -9344,7 +9344,10 @@ def delete_revoke_all_secrets(secret_ids: Iterable[str], *, dry_run: bool = Fals
 def spawner_state_dir_for_revoke_all() -> Path:
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
     raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
-    return Path(raw).expanduser()
+    resolved = Path(raw).expanduser().resolve()
+    if not str(resolved).startswith(str(SPARK_HOME.resolve())):
+        raise SystemExit("SPAWNER_STATE_DIR escapes SPARK_HOME; refusing unsafe path.")
+    return resolved
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
