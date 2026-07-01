@@ -111,6 +111,17 @@ Hosted installer proof is absent.
 10. Rerun the full R30 gate packet plus Spawner/Telegram Loop Engineering smoke regressions.
 11. Send the final packet to independent release jury before any public ship call.
 
+## Owner-Proof Commands Captured
+
+These commands reduce uncertainty about local behavior, but they do not make R30 shippable until source heads, dirty worktrees, registry pins, handoff manifests, and installer pins converge.
+
+| Module | Command | Exit | Result artifact |
+| --- | --- | ---: | --- |
+| `domain-chip-memory` | `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` | 0 | `domain-chip-memory-benchmark-contracts.log` |
+| `spark-voice-comms` | `PYTHONPATH=src python3 -m pytest -q` | 0 | `spark-voice-comms-pytest.log` (`132 passed`) |
+| `spark-intelligence-builder` | `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` | 0 | `spark-intelligence-builder-focused-pytest.log` (`208 passed`, `26` subtests passed) |
+| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m pytest -q` | 0 | `domain-chip-spark-qa-evidence-lane-pytest.log` (`206 passed`) |
+
 ## Current Recommendation
 
 Continue convergence work. Do not ship R30 yet.
