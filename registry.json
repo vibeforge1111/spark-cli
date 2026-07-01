@@ -53,26 +53,27 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "3323a656b890f88262e88d862e2787c9a2f092ae",
+        "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
         "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
-        "canonical_head": "3323a656b890f88262e88d862e2787c9a2f092ae",
-        "runtime_mirror_head": "3323a656b890f88262e88d862e2787c9a2f092ae",
+        "canonical_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
+        "runtime_mirror_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
         "tree_clean": true,
-        "validated_at": "2026-07-01T18:38:17Z",
+        "validated_at": "2026-07-01T20:20:05Z",
         "evidence": [
           "R30 Telegram loop-engineering candidate anchored on release/r30-telegram-loop-engineering-20260701",
           "authority closure ladder focused tests passed",
           "npm run build passed after authority closure curation",
           "Domain Chip creation, private check, live canary, and conversational closure routes covered",
           "Loop Engineering Telegram copy QA, evaluator-flagged tests, full npm test, and npm run build passed after readability curation",
-          "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed"
+          "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed",
+          "R30 Telegram Loop Engineering status replies now render generic proof blocks for old and new Spawner-backed Domain Chips; focused status/surface/command/domain-chip tests and npm run build passed."
         ],
         "license_spdx": "MIT"
       },
@@ -80,25 +81,26 @@
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
         "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701",
-        "canonical_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
-        "runtime_mirror_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "canonical_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
+        "runtime_mirror_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-01T20:20:05Z",
         "evidence": [
           "R30 Builder Domain Chip loop-proof candidate anchored on release/r30-builder-loop-proof-20260701",
           "focused pytest passed: 278 passed, 26 subtests passed",
           "python3 -m compileall src tests passed",
-          "chips create Governor authorization and loop-runner evidence binding covered"
+          "chips create Governor authorization and loop-runner evidence binding covered",
+          "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed."
         ]
       },
       "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701"
