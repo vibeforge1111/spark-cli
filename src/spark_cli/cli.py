@@ -11552,6 +11552,9 @@ def resolve_llm_doctor_target(args: argparse.Namespace) -> dict[str, Any]:
 def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> str:
     base_url = str(target["base_url"]).rstrip("/")
     url = f"{base_url}/chat/completions"
+    errors = validate_url_safety(url, label="LLM provider base_url")
+    if errors:
+        raise SystemExit(f"LLM provider URL rejected: {'; '.join(errors)}")
     body = {
         "model": target["model"],
         "messages": [
@@ -11585,6 +11588,9 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
 def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
     base_url = str(target["base_url"]).rstrip("/")
     url = f"{base_url}/api/chat"
+    errors = validate_url_safety(url, label="Ollama base_url")
+    if errors:
+        raise SystemExit(f"Ollama URL rejected: {'; '.join(errors)}")
     body = {
         "model": target["model"],
         "stream": False,
