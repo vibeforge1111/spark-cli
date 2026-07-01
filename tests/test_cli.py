@@ -14643,17 +14643,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
-                                    "line_count": 106203,
+                                    "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+                                    "line_count": 106366,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+                                    "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
+                                        "\"58fa67eb52e9e7f27e0162ce971b0ac137e9aa69\""
                                     ),
-                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability and future-chip registry lookup gates passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "local_proof": "passed",
@@ -15300,17 +15300,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
-                                    "line_count": 106203,
+                                    "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+                                    "line_count": 106366,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+                                    "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
+                                        "\"58fa67eb52e9e7f27e0162ce971b0ac137e9aa69\""
                                     ),
-                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability and future-chip registry lookup gates passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "owner_action": "Port onto the current owner release base before registry movement.",
@@ -15839,17 +15839,17 @@ class SparkCliTests(unittest.TestCase):
                         "owner_handoff_patch": {
                             "patch_type": "tree_diff",
                             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
-                            "line_count": 106203,
+                            "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+                            "line_count": 106366,
                             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+                            "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
                             "apply_check": (
                                 "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                 "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                 "git add -A && test \"$(git write-tree)\" = "
-                                "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
+                                "\"58fa67eb52e9e7f27e0162ce971b0ac137e9aa69\""
                             ),
-                            "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
+                            "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability and future-chip registry lookup gates passed; build passed; line-count passed",
                             "publication_authority": False,
                         },
                         "owner_action": "Port onto the current owner release base before registry movement.",

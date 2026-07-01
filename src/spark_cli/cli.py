@@ -9280,12 +9280,12 @@ def collect_r30_handoff_manifest_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
-            "line_count": 106203,
+            "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+            "line_count": 106366,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+            "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
             "publication_authority": False,
-            "proof_result_terms": ["loop status readability gates passed", "build passed", "DCL creator tests passed"],
+            "proof_result_terms": ["loop status readability and future-chip registry lookup gates passed", "build passed", "DCL creator tests passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",
@@ -9487,12 +9487,12 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
-            "line_count": 106203,
+            "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+            "line_count": 106366,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+            "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
             "publication_authority": False,
-            "proof_result_terms": ["loop status readability gates passed", "build passed", "DCL creator tests passed"],
+            "proof_result_terms": ["loop status readability and future-chip registry lookup gates passed", "build passed", "DCL creator tests passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",
