@@ -53,25 +53,26 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "fa0b1a34df4e38bab89d49816640b06a3c2fd2bf",
+      "commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "fa0b1a34df4e38bab89d49816640b06a3c2fd2bf",
+        "commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
         "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
-        "canonical_head": "fa0b1a34df4e38bab89d49816640b06a3c2fd2bf",
-        "runtime_mirror_head": "fa0b1a34df4e38bab89d49816640b06a3c2fd2bf",
+        "canonical_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "runtime_mirror_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
         "tree_clean": true,
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-01T18:38:17Z",
         "evidence": [
           "R30 Telegram loop-engineering candidate anchored on release/r30-telegram-loop-engineering-20260701",
           "authority closure ladder focused tests passed",
           "npm run build passed after authority closure curation",
           "Domain Chip creation, private check, live canary, and conversational closure routes covered",
-          "Loop Engineering Telegram copy QA, evaluator-flagged tests, full npm test, and npm run build passed after readability curation"
+          "Loop Engineering Telegram copy QA, evaluator-flagged tests, full npm test, and npm run build passed after readability curation",
+          "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed"
         ],
         "license_spdx": "MIT"
       },

@@ -9280,12 +9280,12 @@ def collect_r30_handoff_manifest_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
-            "line_count": 88158,
+            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+            "line_count": 106203,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
+            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
             "publication_authority": False,
-            "proof_result_terms": ["DCL creator tests passed", "route/Spawner tests passed", "build passed", "line-count passed"],
+            "proof_result_terms": ["loop status readability gates passed", "build passed", "DCL creator tests passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",
@@ -9487,12 +9487,12 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "spark-telegram-bot": {
             "patch_type": "tree_diff",
             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
-            "line_count": 88158,
+            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+            "line_count": 106203,
             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
+            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
             "publication_authority": False,
-            "proof_result_terms": ["DCL creator tests passed", "route/Spawner tests passed", "build passed", "line-count passed"],
+            "proof_result_terms": ["loop status readability gates passed", "build passed", "DCL creator tests passed"],
         },
         "spawner-ui": {
             "patch_type": "tree_diff",
