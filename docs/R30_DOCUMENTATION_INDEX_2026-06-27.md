@@ -30,11 +30,18 @@ Use this index as the entry point for R30 release prep.
 21. [R30 Telegram live trace recapture](./R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md)
 22. [R30 stability, Domain Chip Labs, and Spawner goal prompt](./R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md)
 23. [R30 DCL Spawner Telegram continuation handoff](./R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md)
+24. [R30 ship convergence audit](./R30_SHIP_CONVERGENCE_AUDIT_2026-07-01.md)
 
 ## Current Verdict
 
 R30 is prepared as a documented release packet, but it is not ready for
 installer pin changes, hosted publication, or public release claims.
+
+Latest gate truth is captured in the 2026-07-01 ship convergence audit. That
+fresh packet still has `spark verify --r30 --json` and
+`spark verify --registry-pins --json` red, with source truth, installer pins,
+registry pins, voice registry drift, builder trace lifecycle, and hosted
+installer proof still blocking public R30.
 
 Current green proof:
 
