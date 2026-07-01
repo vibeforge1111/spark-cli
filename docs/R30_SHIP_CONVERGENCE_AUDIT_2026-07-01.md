@@ -65,6 +65,15 @@ Post-audit update:
 - Post-fix R30 verifier output is captured in `spark-verify-r30-after-cli-token-fix.json`.
 - R30 remains no-ship. `spark-cli` still has one dirty tracked file: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`.
 
+Handoff patch forensic result:
+
+- Current dirty Telegram handoff patch SHA-256: `fd679a26b0979ef538e4013550b4c4660196506e231583798713b9ba0c8eafd9`.
+- Current dirty Telegram handoff patch line count: `88332`.
+- Manifest still expects SHA-256 `c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6`, line count `88158`, and expected tree `1b676a0f948215599e41cf8f7a8ca7af5903af9e`.
+- Applying the dirty patch to owner base `67ad9e6ed297baf6c9daa74b879fa45bc45bd579` succeeds and produces tree `cb5ec14ed045c007a3a3a9eaf9a52be81ef67ea4`.
+- The current Telegram worktree staged as source truth would produce tree `b88c4630a3f2cce74dcc1cc31c87e7e613b53e14`.
+- Conclusion: the dirty patch is internally applyable but does not represent the current Telegram worktree. Do not update owner handoff metadata or registry pins from this patch until the Telegram source lane is curated into the intended R30 source truth.
+
 ## Registry Pin Drift
 
 `spark verify --registry-pins --json` has one failing check:
