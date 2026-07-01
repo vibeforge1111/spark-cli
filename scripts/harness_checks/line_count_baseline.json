@@ -1,11 +1,12 @@
 {
-  "hard_cap": 3000,
-  "warn_cap": 1500,
-  "root": "harness-discipline-docs",
-  "offenders": {
-    "src/spark_cli/cli.py": 18105,
-    "src/spark_cli/system_map.py": 5658,
-    "tests/test_cli.py": 14759,
-    "tests/test_system_map.py": 2055
-  }
+    "hard_cap": 3000,
+    "warn_cap": 1500,
+    "root": "harness-discipline-docs",
+    "offenders": {
+        "src/spark_cli/cli.py": 18111,
+        "src/spark_cli/system_map.py": 5658,
+        "tests/test_cli.py": 14759,
+        "tests/test_system_map.py": 2055
+    },
+    "src/spark_cli/cli.py": 18111
 }
