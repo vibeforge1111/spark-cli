@@ -9534,7 +9534,8 @@ def collect_r30_local_runtime_artifacts_handoff_status(
     manifest_modules = manifest.get("artifacts")
     manifest_modules = manifest_modules if isinstance(manifest_modules, list) else []
     manifest_names = sorted(str(item.get("module") or "") for item in manifest_modules if isinstance(item, dict))
-    if manifest_names != owners:
+    resolved_local_runtime_artifacts = not owners
+    if manifest_names != owners and not resolved_local_runtime_artifacts:
         issues.append("local_runtime_owners_mismatch")
     for item in manifest_modules:
         if not isinstance(item, dict):
@@ -9543,8 +9544,15 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         module = str(item.get("module") or "")
         live = live_rows.get(module)
         if live is None:
-            mismatches.append({"module": module, "issues": ["missing_live_release_lane_row"]})
-            continue
+            if resolved_local_runtime_artifacts:
+                live = {
+                    "expected_commit": item.get("expected_registry_commit"),
+                    "actual_commit": item.get("local_head"),
+                    "installed_registry_commit": item.get("installed_registry_commit"),
+                }
+            else:
+                mismatches.append({"module": module, "issues": ["missing_live_release_lane_row"]})
+                continue
         row_issues: list[str] = []
         if item.get("expected_registry_commit") != live.get("expected_commit"):
             row_issues.append("expected_registry_commit_mismatch")
@@ -9642,6 +9650,7 @@ def collect_r30_local_runtime_artifacts_handoff_status(
         "mismatches": mismatches,
         "owners": owners,
         "artifacts": manifest_names,
+        "resolved_local_runtime_artifacts": resolved_local_runtime_artifacts,
     }
 
 

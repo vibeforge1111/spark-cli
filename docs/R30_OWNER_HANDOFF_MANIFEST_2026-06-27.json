@@ -4,7 +4,9 @@
   "release": "spark-cli-public-installer-2026-06-27-r30",
   "status": "blocked_before_registry_or_installer_publication",
   "publication_boundary": "No push, tag, deploy, registry pin update, installer pin update, or hosted publication is authorized by this manifest.",
-  "direct_blockers": [
+  "direct_blockers": [],
+  "supporting_hygiene": [],
+  "resolved_direct_blockers": [
     {
       "module": "domain-chip-memory",
       "expected_registry_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
@@ -159,7 +161,7 @@
       "local_proof": "passed"
     }
   ],
-  "supporting_hygiene": [
+  "resolved_supporting_hygiene": [
     {
       "module": "domain-chip-spark-qa-evidence-lane",
       "issues": [

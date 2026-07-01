@@ -50,6 +50,7 @@ from spark_cli.cli import (
     collect_r30_live_status_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
+    R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH,
     collect_r30_owner_handoff_patch_apply_status,
     collect_r30_owner_action_packet,
     collect_r30_owner_ref_remote_audit,
@@ -14642,17 +14643,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
-                                    "line_count": 88158,
+                                    "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+                                    "line_count": 106203,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
+                                    "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
+                                        "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
                                     ),
-                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "local_proof": "passed",
@@ -15299,17 +15300,17 @@ class SparkCliTests(unittest.TestCase):
                                 "owner_handoff_patch": {
                                     "patch_type": "tree_diff",
                                     "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                                    "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
-                                    "line_count": 88158,
+                                    "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+                                    "line_count": 106203,
                                     "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                                    "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
+                                    "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
                                     "apply_check": (
                                         "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                         "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                         "git add -A && test \"$(git write-tree)\" = "
-                                        "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
+                                        "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
                                     ),
-                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
+                                    "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
                                     "publication_authority": False,
                                 },
                                 "owner_action": "Port onto the current owner release base before registry movement.",
@@ -15373,6 +15374,16 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["issues"], [])
         self.assertEqual(payload["artifacts"], ["spark-telegram-bot", "spawner-ui"])
+
+        resolved_payload = collect_r30_local_runtime_artifacts_handoff_status(
+            {"direct_blockers": []},
+            {"local_runtime_test_artifacts": {"owners": []}},
+            manifest_path=R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH,
+        )
+        self.assertTrue(resolved_payload["ok"])
+        self.assertEqual(resolved_payload["issues"], [])
+        self.assertEqual(resolved_payload["artifacts"], ["spark-telegram-bot", "spawner-ui"])
+        self.assertTrue(resolved_payload["resolved_local_runtime_artifacts"])
 
     def test_r30_local_runtime_artifacts_handoff_requires_publication_boundary(self) -> None:
         classification = {
@@ -15828,17 +15839,17 @@ class SparkCliTests(unittest.TestCase):
                         "owner_handoff_patch": {
                             "patch_type": "tree_diff",
                             "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
-                            "sha256": "c5f0e9a60fdbf623c22a932cbf2f4adb9e258f5ff9dfee4ce46f9a40930914f6",
-                            "line_count": 88158,
+                            "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+                            "line_count": 106203,
                             "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
-                            "expected_tree": "1b676a0f948215599e41cf8f7a8ca7af5903af9e",
+                            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
                             "apply_check": (
                                 "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && "
                                 "git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && "
                                 "git add -A && test \"$(git write-tree)\" = "
-                                "\"1b676a0f948215599e41cf8f7a8ca7af5903af9e\""
+                                "\"8bda5f8a97a56ac6dc8910dd29636d682955908c\""
                             ),
-                            "proof_result": "DCL creator tests passed; route/Spawner tests passed; build passed; line-count passed",
+                            "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability gates passed; build passed; line-count passed",
                             "publication_authority": False,
                         },
                         "owner_action": "Port onto the current owner release base before registry movement.",
