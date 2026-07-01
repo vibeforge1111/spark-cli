@@ -12519,12 +12519,27 @@ def provider_status_payload() -> dict[str, Any]:
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     if not isinstance(llm_state, dict):
+        role_payload = {
+            role: {
+                "provider": "not_configured",
+                "bot_provider": None,
+                "model": "",
+                "auth_mode": "not_configured",
+                "base_url": "",
+                "ready": False,
+            }
+            for role in LLM_ROLES
+        }
+        repair_hints = [
+            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider.",
+            *build_llm_repair_hints({"provider": "not_configured", "roles": role_payload}),
+        ]
         return {
             "ok": False,
             "configured": False,
             "summary": "No LLM provider is configured.",
-            "roles": {},
-            "repair_hints": ["Run `spark setup --llm-provider openai` or `spark setup --llm-provider codex` to choose a provider."],
+            "roles": role_payload,
+            "repair_hints": repair_hints,
         }
     roles = llm_state.get("roles")
     if not isinstance(roles, dict):
