@@ -46,7 +46,8 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | Module | Current state | Required next action |
 | --- | --- | --- |
 | `domain-chip-memory` | Clean, but local head `1fd272e519b562afc118ca46ff7da175d735dc44` differs from registry `f7f16a6ea8eee47566140fab5e1cd8142a8ff20a`. | Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement. |
-| `spark-intelligence-builder` | Dirty, ahead 44, local head `ca21e183c6c04a658260b218e22fad7b67e02cc7` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Curate dirty work, close or carry builder trace lifecycle evidence, then rerun Builder proof commands before registry movement. |
+| `domain-chip-spark-qa-evidence-lane` | Clean detached head `18e09b209c31260723cebaed659abdb9c7f8c7b5` differs from registry `476644de047edc7e3f42a5d28ac842877ffb522f`. | Anchor the detached R30 evidence-lane commit to an owner-source branch/ref, then update handoff/registry truth only after proof is preserved. |
+| `spark-intelligence-builder` | Clean local head `dc3a122d3654b4a88b6c6e1562ac2deff1e0a176` differs from registry `e7f80fbf03bda196fe7b40a49b8ce5a69ff21131`. | Anchor/push the Builder Domain Chip loop-proof candidate, close or carry builder trace lifecycle evidence with source-owned proof, then move registry truth only after verification. |
 | `spark-telegram-bot` | Clean, local head `c03665286ef27740cf62a6666afde2aba25de25b` differs from registry `e5a1bd0409865ddb3024c15ed35ccd0038e31776`; verifier reports 0 dirty tracked files and 0 untracked files. | Treat `c03665286ef27740cf62a6666afde2aba25de25b` as the curated Telegram R30 candidate only after owner-source/handoff proof is refreshed; do not move the registry from the stale handoff patch. |
 | `spark-voice-comms` | Clean, but local head `c502ec096cefb48839e3279d3392343231884415`, installed metadata `0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3`, and registry `21a9467e9bd4eebd54b06a72a4c21afcfcd316ee` disagree. | Create or select a stable voice owner release ref from the current public owner base, port local trace/governor commits or equivalent owner-source proof, then update registry and installed metadata. |
 | `spawner-ui` | Clean, but local head `946a152061ccd16191d7136a2e6d49fa5b5b5457` differs from registry `19b7d0bff14471f2df7d6f0790d72146e9825d95`. | Port or push the Spawner R30 Loop Engineering proof stack, then rerun Spawner checks before registry movement. |
@@ -56,7 +57,6 @@ Current installer pins still point at `spark-cli-public-installer-2026-06-26-r29
 | Module | Current state | Required next action |
 | --- | --- | --- |
 | `spark-cli` | Dirty tracked file: `docs/r30/patches/r30-telegram-control-reliability-stack.patch`. | Curate or replace the stale Telegram handoff patch before final R30 publication. |
-| `domain-chip-spark-qa-evidence-lane` | Detached HEAD with dirty tracked files and six untracked source files. | Curate the evidence-lane worktree before claiming Spark-wide source truth. |
 
 Post-audit update:
 
@@ -135,6 +135,35 @@ Telegram authority-closure curation update:
   - `spawner-ui`: clean but off-registry.
 - R30 remains no-ship because `source_truth_ready=false`, `installer_pins_are_r30=false`, hosted installer proof is absent, and the source truth blockers still include publish handoffs, owner handoff manifest, local runtime artifact handoff, stale owner handoff patch apply, release lane, voice registry decision, builder trace lifecycle, and registry pins.
 
+QA evidence-lane curation update:
+
+- Commit `18e09b209c31260723cebaed659abdb9c7f8c7b5` hardened the Domain Chip QA evidence lane and left the evidence-lane repo clean.
+- The slice adds Domain Chip quality/promotion proof gates, blind A/B helper packets, adversary reports, safety judge reports, consumer-transfer proof, operator approval proof, hard-blocker normalization, schema expansion, DCL fixture health checks, and repair-focused negative fixtures.
+- Focused proof passed:
+  - `PYTHONPATH=src python3 -m pytest -q` (`domain-chip-spark-qa-evidence-lane-pytest-after-curation.log`, exit `0`, `206 passed`)
+  - `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli dcl-fixture-check` (`domain-chip-spark-qa-evidence-lane-dcl-fixture-check.log`, exit `0`, `18` scenarios)
+  - `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli evaluate` (`domain-chip-spark-qa-evidence-lane-evaluate-current.log`, exit `0`)
+  - `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli watchtower` (`domain-chip-spark-qa-evidence-lane-watchtower.log`, exit `0`)
+- The commit currently lives on detached HEAD. It is source-worthy evidence, but it is not yet owner-source/registry truth.
+
+Builder Domain Chip loop-proof curation update:
+
+- Commit `dc3a122d3654b4a88b6c6e1562ac2deff1e0a176` bound Builder Domain Chip creation and autoloop proof more tightly to Harness Core/Governor authority.
+- The slice adds CLI `chips create` fallback Governor authorization, redacted command receipt context, Codex service-role runtime provider fallback, loop-runner nested metric extraction, useful hook-error summaries, recent mutation carry-forward, and canonical loop-runner evidence written into chip reports.
+- Focused proof passed:
+  - `PYTHONPATH=src python3 -m pytest -q tests/test_auth_profiles.py tests/test_chip_create_paths.py tests/test_loop_runner.py tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` (`spark-intelligence-builder-r30-focused-after-curation.log`, exit `0`, `278 passed`, `26` subtests passed)
+  - `python3 -m compileall src tests` (`spark-intelligence-builder-compileall-after-curation.log`, exit `0`)
+- Post-curation verifier output is captured in `spark-verify-r30-after-builder-evidence-lane-curation.json` and still exits `1`.
+- Remaining release-lane issues after this update:
+  - `spark-cli`: dirty stale Telegram handoff patch.
+  - `domain-chip-memory`: clean but off-registry.
+  - `domain-chip-spark-qa-evidence-lane`: clean but off-registry and detached.
+  - `spark-intelligence-builder`: clean but off-registry.
+  - `spark-telegram-bot`: clean but off-registry.
+  - `spark-voice-comms`: clean but off-registry and installed metadata differs from registry.
+  - `spawner-ui`: clean but off-registry.
+- R30 remains no-ship because clean local heads are not the same thing as owner-source, registry, handoff, installer, or hosted publication truth.
+
 ## Registry Pin Drift
 
 `spark verify --registry-pins --json` has one failing check:
@@ -189,8 +218,12 @@ These commands reduce uncertainty about local behavior, but they do not make R30
 | --- | --- | ---: | --- |
 | `domain-chip-memory` | `PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts` | 0 | `domain-chip-memory-benchmark-contracts.log` |
 | `spark-voice-comms` | `PYTHONPATH=src python3 -m pytest -q` | 0 | `spark-voice-comms-pytest.log` (`132 passed`) |
-| `spark-intelligence-builder` | `PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` | 0 | `spark-intelligence-builder-focused-pytest.log` (`208 passed`, `26` subtests passed) |
-| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m pytest -q` | 0 | `domain-chip-spark-qa-evidence-lane-pytest.log` (`206 passed`) |
+| `spark-intelligence-builder` | `PYTHONPATH=src python3 -m pytest -q tests/test_auth_profiles.py tests/test_chip_create_paths.py tests/test_loop_runner.py tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py` | 0 | `spark-intelligence-builder-r30-focused-after-curation.log` (`278 passed`, `26` subtests passed) |
+| `spark-intelligence-builder` | `python3 -m compileall src tests` | 0 | `spark-intelligence-builder-compileall-after-curation.log` |
+| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m pytest -q` | 0 | `domain-chip-spark-qa-evidence-lane-pytest-after-curation.log` (`206 passed`) |
+| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli dcl-fixture-check` | 0 | `domain-chip-spark-qa-evidence-lane-dcl-fixture-check.log` (`18` scenarios) |
+| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli evaluate` | 0 | `domain-chip-spark-qa-evidence-lane-evaluate-current.log` |
+| `domain-chip-spark-qa-evidence-lane` | `PYTHONPATH=src python3 -m domain_chip_spark_qa_evidence_lane.cli watchtower` | 0 | `domain-chip-spark-qa-evidence-lane-watchtower.log` |
 
 ## Current Recommendation
 
