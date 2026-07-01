@@ -3660,11 +3660,16 @@ def read_generated_env(path: Path) -> dict[str, str]:
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
     env = shell_command_env(filtered=True)
     env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
-    if module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile):
+    named_telegram_profile = module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile)
+    if named_telegram_profile:
         env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
     env.update(keychain_env_for_module(module))
     if module.name == "spark-telegram-bot":
-        env.update(keychain_env_for_telegram_profile(profile))
+        profile_env = keychain_env_for_telegram_profile(profile)
+        if named_telegram_profile:
+            env.pop("BOT_TOKEN", None)
+            env.pop("TELEGRAM_BOT_TOKEN", None)
+        env.update(profile_env)
     return write_boundary_env(env)
 
 

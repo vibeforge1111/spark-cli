@@ -1995,6 +1995,55 @@ class SparkCliTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             normalize_telegram_profile("../bad")
 
+    def test_named_telegram_profile_runtime_env_does_not_inherit_default_bot_token(self) -> None:
+        gateway = make_telegram_gateway()
+
+        def fake_generated_env(path: Path) -> dict[str, str]:
+            name = Path(path).name
+            if name == "spark-telegram-bot.env":
+                return {
+                    "BOT_TOKEN": "default-token",
+                    "TELEGRAM_RELAY_SECRET": "default-relay",
+                    "TELEGRAM_RELAY_PORT": "8789",
+                }
+            if name == "spark-telegram-bot.qa-bot.env":
+                return {
+                    "TELEGRAM_RELAY_PORT": "8791",
+                    "SPARK_TELEGRAM_PROFILE": "qa-bot",
+                }
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_generated_env), \
+             patch("spark_cli.cli.keychain_env_for_module", return_value={"BOT_TOKEN": "default-token"}), \
+             patch("spark_cli.cli.keychain_env_for_telegram_profile", return_value={}):
+            env = module_runtime_env(gateway, "qa-bot")
+
+        self.assertNotIn("BOT_TOKEN", env)
+        self.assertEqual(env["TELEGRAM_RELAY_PORT"], "8791")
+        self.assertEqual(env["SPARK_TELEGRAM_PROFILE"], "qa-bot")
+
+    def test_named_telegram_profile_runtime_env_uses_own_profile_token(self) -> None:
+        gateway = make_telegram_gateway()
+
+        def fake_generated_env(path: Path) -> dict[str, str]:
+            name = Path(path).name
+            if name == "spark-telegram-bot.env":
+                return {"BOT_TOKEN": "default-token"}
+            if name == "spark-telegram-bot.qa-bot.env":
+                return {"TELEGRAM_RELAY_PORT": "8791", "SPARK_TELEGRAM_PROFILE": "qa-bot"}
+            return {}
+
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_generated_env), \
+             patch("spark_cli.cli.keychain_env_for_module", return_value={"BOT_TOKEN": "default-token"}), \
+             patch(
+                 "spark_cli.cli.keychain_env_for_telegram_profile",
+                 return_value={"BOT_TOKEN": "qa-token", "TELEGRAM_RELAY_SECRET": "qa-relay"},
+             ):
+            env = module_runtime_env(gateway, "qa-bot")
+
+        self.assertEqual(env["BOT_TOKEN"], "qa-token")
+        self.assertEqual(env["TELEGRAM_RELAY_SECRET"], "qa-relay")
+
     def test_resolve_secret_input_can_read_environment_reference(self) -> None:
         with patch.dict(os.environ, {"SPARK_TEST_SECRET": "secret-value"}, clear=False):
             self.assertEqual(resolve_secret_input("@env:SPARK_TEST_SECRET"), "secret-value")
