@@ -1135,11 +1135,12 @@ def schedule_deferred_windows_purge(target: Path) -> None:
     temp_root = Path(os.environ.get("TEMP") or os.environ.get("TMP") or Path.home()).expanduser()
     temp_root.mkdir(parents=True, exist_ok=True)
     script_path = temp_root / f"spark-purge-home-{os.getpid()}.cmd"
+    safe_target = str(target).replace('"', '""')
     script_path.write_text(
         "\n".join(
             [
                 "@echo off",
-                f'set "SPARK_PURGE_TARGET={target}"',
+                f'set "SPARK_PURGE_TARGET={safe_target}"',
                 "timeout /t 2 /nobreak >nul",
                 'icacls "%SPARK_PURGE_TARGET%" /grant "%USERDOMAIN%\\%USERNAME%:(OI)(CI)F" /T /C >nul 2>nul',
                 "for /l %%i in (1,1,30) do (",
