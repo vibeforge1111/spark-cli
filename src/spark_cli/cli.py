@@ -16937,6 +16937,14 @@ def print_hosted_security_payload(payload: dict[str, Any]) -> None:
             print(f"      {check['repair']}")
 
 
+def cmd_release_gate(args: argparse.Namespace) -> int:
+    # Binding release gate (item 0.3, docs/33 §§1-4). Thin delegate: the machinery lives in
+    # spark_cli.release_gate so the pre-push hook can run it without importing this module.
+    from spark_cli import release_gate
+
+    return release_gate.main(list(args.release_gate_args))
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     if getattr(args, "registry_pins", False):
         payload = collect_registry_pin_drift_payload()
@@ -19656,6 +19664,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
             { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
+            { "command": "spark release-gate capture|check|hook-check|install-hooks", "use": "Bind the ship gate: persist verify --r30 captures into the ship artifact, validate per-check waivers, and refuse registry-pin/tag/installer pushes while the latest capture is red or stale." },
             { "command": "spark drift sentinel [--json|--dm-telegram]", "use": "Run the daily drift sentinel over registry pins, release-lane mirrors, OS compile, runtime health, and Harness vendor hashes." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
@@ -20082,6 +20091,13 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--specialization-loop", action="store_true", help="Verify Domain Chip Labs, Swarm, and specialization-path loop surfaces are discoverable")
     verify_parser.add_argument("--proof", action="store_true", help="With --specialization-loop, read canonical status packets without starting runs")
     verify_parser.set_defaults(func=cmd_verify)
+
+    release_gate_parser = subparsers.add_parser(
+        "release-gate",
+        help="Binding release gate: persist verify captures, validate waivers, refuse red-gate pushes (docs/33)",
+    )
+    release_gate_parser.add_argument("release_gate_args", nargs=argparse.REMAINDER)
+    release_gate_parser.set_defaults(func=cmd_release_gate)
 
     drift_parser = subparsers.add_parser("drift", help="Run read-only drift sentinels")
     drift_subparsers = drift_parser.add_subparsers(dest="drift_command", required=True)

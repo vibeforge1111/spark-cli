@@ -17443,6 +17443,762 @@ class SparkCliTests(unittest.TestCase):
             )
             self.assertEqual(Path(result.stdout.strip()), Path(tmp_dir))
 
+    # ------------------------------------------------------------------
+    # item 0.3 — binding release gate (docs/33 §§1-4; spark_cli.release_gate)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _release_gate_repo(tmp: Path) -> Path:
+        """A minimal repo root with a gate-map and one gate-code file."""
+        repo = tmp / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "gate.py").write_text("GATE = 1\n", encoding="utf-8")
+        (repo / "gate-map.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "spark-gate-map.v1",
+                    "gates": {
+                        "release_gate": {
+                            "gate_code": ["gate.py"],
+                            "evidence": ["evidence.json"],
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return repo
+
+    @staticmethod
+    def _release_gate_capture(
+        repo: Path,
+        artifacts: Path,
+        *,
+        ok: bool,
+        red_checks: list[str] | None = None,
+        release: str = "test-r31",
+        captured_at: str = "2026-07-02T12:00:00Z",
+    ) -> Path:
+        from spark_cli import release_gate
+
+        gate_map, error = release_gate.load_gate_map(repo)
+        assert gate_map is not None, error
+        tree = release_gate.gate_code_tree_hash(repo, gate_map)
+        fixtures = release_gate.evidence_tree_hash(repo, gate_map)
+        gates_table = [{"name": "verify_r30", "ok": ok, "detail": "test"}]
+        for name in red_checks or []:
+            gates_table.append({"name": name, "ok": False, "detail": "red for test"})
+        capture = {
+            "schema_version": release_gate.CAPTURE_SCHEMA_VERSION,
+            "provenance": "computed",
+            "captured_at": captured_at,
+            "release": release,
+            "overall_ok": ok and not red_checks,
+            "gates_table": gates_table,
+            "gate_code": {"tree_hash": tree["tree_hash"], "file_count": tree["file_count"]},
+            "fixtures": {"tree_hash": fixtures["tree_hash"], "file_count": fixtures["file_count"]},
+        }
+        train_dir = artifacts / release
+        train_dir.mkdir(parents=True, exist_ok=True)
+        path = train_dir / "release-gate-capture-2026-07-02T120000Z.json"
+        path.write_text(json.dumps(capture), encoding="utf-8")
+        return path
+
+    def test_release_gate_refuses_without_capture(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            verdict = release_gate.evaluate_release_gate(
+                repo_root=repo, artifacts_root=tmp / "artifacts"
+            )
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("no verify capture", verdict["reason"])
+
+    def test_release_gate_permits_green_capture(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            self._release_gate_capture(repo, artifacts, ok=True)
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertTrue(verdict["permitted"])
+            self.assertIn("green", verdict["reason"])
+
+    def test_release_gate_refuses_red_capture_without_waiver(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            self._release_gate_capture(repo, artifacts, ok=True, red_checks=["registry_pins"])
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("registry_pins", json.dumps(verdict["checks"]))
+
+    def test_release_gate_stale_after_gate_code_edit(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            self._release_gate_capture(repo, artifacts, ok=True)
+            (repo / "gate.py").write_text("GATE = 2  # relaxed mid-ship\n", encoding="utf-8")
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("stale", verdict["reason"])
+
+    def test_release_gate_valid_waiver_permits_red_capture(self) -> None:
+        from datetime import datetime, timezone
+
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            capture_path = self._release_gate_capture(
+                repo, artifacts, ok=True, red_checks=["registry_pins"]
+            )
+            (capture_path.parent / "waivers.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "check": "registry_pins",
+                            "release": "test-r31",
+                            "reason": "pin lags one commit; owner base verified by hand",
+                            "risk_accepted": "a stale pin could install the prior commit",
+                            "expiry": "2026-07-20",
+                            "signed_off_by": "the operator 2026-07-02",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            verdict = release_gate.evaluate_release_gate(
+                repo_root=repo,
+                artifacts_root=artifacts,
+                now=datetime(2026, 7, 3, tzinfo=timezone.utc),
+            )
+            self.assertTrue(verdict["permitted"])
+            self.assertIn("waived", verdict["reason"])
+
+    def test_release_gate_rejects_expired_wrong_release_and_extra_field_waivers(self) -> None:
+        from datetime import datetime, timezone
+
+        from spark_cli import release_gate
+
+        base_waiver = {
+            "check": "registry_pins",
+            "release": "test-r31",
+            "reason": "r",
+            "risk_accepted": "ra",
+            "expiry": "2026-07-20",
+            "signed_off_by": "the operator",
+        }
+        cases = [
+            {**base_waiver, "expiry": "2026-06-01"},  # expired counts as red (33 §2)
+            {**base_waiver, "release": "test-r30"},  # a waiver never carries forward
+            {**base_waiver, "blanket": True},  # additionalProperties: false (40 §3.6)
+            {**base_waiver, "expiry": "2026-09-30"},  # > 30 days out
+        ]
+        for waiver in cases:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp = Path(tmp_dir)
+                repo = self._release_gate_repo(tmp)
+                artifacts = tmp / "artifacts"
+                capture_path = self._release_gate_capture(
+                    repo, artifacts, ok=True, red_checks=["registry_pins"]
+                )
+                (capture_path.parent / "waivers.json").write_text(
+                    json.dumps([waiver]), encoding="utf-8"
+                )
+                verdict = release_gate.evaluate_release_gate(
+                    repo_root=repo,
+                    artifacts_root=artifacts,
+                    now=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                )
+                self.assertFalse(verdict["permitted"], f"waiver should not permit: {waiver}")
+
+    def test_release_gate_classify_push_detects_gated_actions(self) -> None:
+        from spark_cli import release_gate
+
+        diffs = {
+            "aaa1..bbb1": "registry.json\n",
+            "aaa2..bbb2": "scripts/install.sh\nREADME.md\n",
+            "aaa3..bbb3": "README.md\n",
+        }
+
+        def fake_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+            if "diff" in args:
+                return 0, diffs.get(args[-1], ""), ""
+            return 0, "", ""
+
+        # G1: registry.json touched (line format: <local_ref> <local_sha> <remote_ref> <remote_sha>)
+        result = release_gate.classify_push(
+            ["refs/heads/x bbb1 refs/heads/x aaa1"], repo_root=Path("."), git_runner=fake_git
+        )
+        self.assertTrue(result["gated"])
+        self.assertEqual(result["actions"][0]["kind"], "G1")
+        # G4: installer script touched
+        result = release_gate.classify_push(
+            ["refs/heads/x bbb2 refs/heads/x aaa2"], repo_root=Path("."), git_runner=fake_git
+        )
+        self.assertTrue(result["gated"])
+        self.assertEqual(result["actions"][0]["kind"], "G4")
+        # ungated: README only
+        result = release_gate.classify_push(
+            ["refs/heads/x bbb3 refs/heads/x aaa3"], repo_root=Path("."), git_runner=fake_git
+        )
+        self.assertFalse(result["gated"])
+        # G2: release tag push (no diff needed)
+        result = release_gate.classify_push(
+            ["refs/tags/r31 bbb4 refs/tags/r31 " + "0" * 40],
+            repo_root=Path("."),
+            git_runner=fake_git,
+        )
+        self.assertTrue(result["gated"])
+        self.assertEqual(result["actions"][0]["kind"], "G2")
+        # ref deletion is not a publication
+        result = release_gate.classify_push(
+            [f"refs/heads/x {'0' * 40} refs/heads/x aaa1"],
+            repo_root=Path("."),
+            git_runner=fake_git,
+        )
+        self.assertFalse(result["gated"])
+
+    def test_release_gate_classify_push_fails_closed_when_diff_unknowable(self) -> None:
+        from spark_cli import release_gate
+
+        def broken_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+            return 1, "", "boom"
+
+        result = release_gate.classify_push(
+            ["refs/heads/x bbb1 refs/heads/x aaa1"], repo_root=Path("."), git_runner=broken_git
+        )
+        self.assertTrue(result["gated"])
+        self.assertTrue(result["errors"])
+        kinds = {action["kind"] for action in result["actions"]}
+        self.assertEqual(kinds, {"G1", "G4"})
+
+    def test_release_gate_git_state_red_when_git_missing(self) -> None:
+        from spark_cli import release_gate
+
+        def no_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+            return 127, "", "command not found: git"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            state = release_gate.collect_git_state(
+                Path(tmp_dir),
+                modules_root=Path(tmp_dir) / "modules",
+                installed={},
+                git_runner=no_git,
+            )
+            self.assertFalse(state["ok"])
+            self.assertIn("not runnable", state["detail"])
+
+    def test_release_gate_chip_gate_error_is_red_row_not_absent(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            source = tmp / "modules" / "chip-x" / "source"
+            source.mkdir(parents=True)
+            (source / "spark.toml").write_text(
+                '[module]\nname = "chip-x"\n\n[healthcheck]\ncommand = "exit 2"\ntimeout_seconds = 5\n',
+                encoding="utf-8",
+            )
+
+            def fake_run(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                return 2, "", "argparse: invalid choice: 'evaluate-builtin'"
+
+            rows = release_gate.collect_chip_gates(
+                modules_root=tmp / "modules",
+                installed={"chip-x": {"kind": "chip-pack"}},
+                runner=fake_run,
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["name"], "chip_gate:chip-x")
+            self.assertFalse(rows[0]["ok"])
+            self.assertEqual(rows[0]["exit"], 2)
+
+    def test_release_gate_readiness_audit_fails_closed(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            # module absent -> red (fail closed, waivable)
+            row = release_gate.collect_readiness_audit(modules_root=tmp / "modules")
+            self.assertFalse(row["ok"])
+            # strict script that secretly carries --allow-incomplete -> red
+            source = tmp / "modules" / "spark-telegram-bot" / "source"
+            source.mkdir(parents=True)
+            (source / "package.json").write_text(
+                json.dumps(
+                    {"scripts": {"r30:loop-readiness:strict": "ts-node audit.ts --allow-incomplete"}}
+                ),
+                encoding="utf-8",
+            )
+            row = release_gate.collect_readiness_audit(modules_root=tmp / "modules")
+            self.assertFalse(row["ok"])
+            self.assertIn("--allow-incomplete", row["detail"])
+            # honest strict script passing -> green
+            (source / "package.json").write_text(
+                json.dumps({"scripts": {"r30:loop-readiness:strict": "ts-node audit.ts"}}),
+                encoding="utf-8",
+            )
+
+            def fake_npm(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                return 0, "ready 17/17", ""
+
+            row = release_gate.collect_readiness_audit(
+                modules_root=tmp / "modules", runner=fake_npm
+            )
+            self.assertTrue(row["ok"])
+
+    def test_release_gate_capture_writes_and_round_trips(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            modules = tmp / "modules"
+            source = modules / "spark-telegram-bot" / "source"
+            source.mkdir(parents=True)
+            (source / "package.json").write_text(
+                json.dumps({"scripts": {"r30:loop-readiness:strict": "ts-node audit.ts"}}),
+                encoding="utf-8",
+            )
+            installed_path = tmp / "installed.json"
+            installed_path.write_text("{}", encoding="utf-8")
+
+            def green_verify(_repo: Path) -> tuple[int, str, str]:
+                return (
+                    0,
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "release": "test-r31",
+                            "checks": [{"name": "registry_pins", "ok": True, "detail": "green"}],
+                        }
+                    ),
+                    "",
+                )
+
+            def fake_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                if "--version" in args:
+                    return 0, "git version 2.x", ""
+                if "--abbrev-ref" in args:
+                    return 0, "main", ""
+                if "rev-parse" in args:
+                    return 0, "a" * 40, ""
+                if "status" in args:
+                    return 0, "", ""
+                return 0, "", ""
+
+            def fake_cmd(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                return 0, "ok", ""
+
+            result = release_gate.write_release_gate_capture(
+                repo_root=repo,
+                artifacts_root=artifacts,
+                installed_path=installed_path,
+                modules_root=modules,
+                verify_runner=green_verify,
+                git_runner=fake_git,
+                command_runner=fake_cmd,
+            )
+            self.assertTrue(result["ok"], json.dumps(result["capture"]["gates_table"], indent=1))
+            capture_path = Path(result["capture_path"])
+            self.assertTrue(capture_path.is_file())
+            payload = json.loads(capture_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], release_gate.CAPTURE_SCHEMA_VERSION)
+            self.assertEqual(payload["provenance"], "computed")
+            self.assertTrue(payload["gate_code"]["tree_hash"])
+            # the capture it just wrote permits the gated actions
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertTrue(verdict["permitted"])
+
+            # and a red verify capture refuses them
+            def red_verify(_repo: Path) -> tuple[int, str, str]:
+                return (
+                    1,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "release": "test-r31",
+                            "checks": [{"name": "registry_pins", "ok": False, "detail": "red"}],
+                        }
+                    ),
+                    "",
+                )
+
+            result = release_gate.write_release_gate_capture(
+                repo_root=repo,
+                artifacts_root=artifacts,
+                installed_path=installed_path,
+                modules_root=modules,
+                verify_runner=red_verify,
+                git_runner=fake_git,
+                command_runner=fake_cmd,
+            )
+            self.assertFalse(result["ok"])
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+
+    def test_release_gate_stale_after_evidence_edit(self) -> None:
+        # bypass F2: a green capture must NOT keep permitting after registry.json (a registered
+        # fixture) changes — advancing a pin forces a fresh capture (33 §1 rule 1).
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            (repo / "evidence.json").write_text('{"pin": "aaaa"}\n', encoding="utf-8")
+            artifacts = tmp / "artifacts"
+            self._release_gate_capture(repo, artifacts, ok=True)
+            self.assertTrue(
+                release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)["permitted"]
+            )
+            (repo / "evidence.json").write_text('{"pin": "bbbb"}\n', encoding="utf-8")  # advance the pin
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("evidence changed", verdict["reason"])
+
+    def test_release_gate_classify_push_catches_merge_hidden_pin_advance(self) -> None:
+        # bypass F1: a pin advance carried into a fresh branch by a merge commit must still be G1.
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            remote = root / "remote.git"
+            repo = root / "repo"
+            env = dict(os.environ)
+            env.update(
+                {
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                }
+            )
+
+            def g(*args: str, cwd: Path = repo) -> str:
+                return subprocess.run(
+                    ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True, env=env
+                ).stdout.strip()
+
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, env=env)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+            (repo / "registry.json").write_text('{"pin": "aaaa"}\n', encoding="utf-8")
+            g("add", "-A")
+            g("commit", "-q", "-m", "init")
+            g("branch", "-M", "main")
+            g("remote", "add", "origin", str(remote))
+            g("push", "-q", "origin", "main")
+            # feature that advances the pin, pushed legitimately (origin/feature now exists)
+            g("checkout", "-q", "-b", "feature")
+            (repo / "registry.json").write_text('{"pin": "bbbb"}\n', encoding="utf-8")
+            g("add", "-A")
+            g("commit", "-q", "-m", "advance pin")
+            g("push", "-q", "origin", "feature")
+            feature_sha = g("rev-parse", "feature")
+            # fresh release branch that merges the (already-remote) feature
+            g("checkout", "-q", "-b", "release-r31", "main")
+            g("merge", "--no-ff", "-m", "merge feature", "feature")
+            tip = g("rev-parse", "release-r31")
+            g("fetch", "-q", "origin")  # populate remote-tracking refs
+            # simulate the pre-push stdin line for the NEW branch push (remote_sha = 0)
+            line = f"refs/heads/release-r31 {tip} refs/heads/release-r31 {'0' * 40}"
+            result = release_gate.classify_push([line], repo_root=repo)
+            self.assertTrue(result["gated"], f"merge-hidden pin advance escaped: {result}")
+            self.assertIn("G1", {a["kind"] for a in result["actions"]})
+            self.assertEqual(feature_sha, feature_sha)  # touch to keep name referenced
+
+    def test_release_gate_classify_push_broadened_release_tags(self) -> None:
+        from spark_cli import release_gate
+
+        def fake_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+            return 0, "", ""  # no new commits to scan for any of these tag pushes
+
+        zero = "0" * 40
+        for tag in ("r31", "r31rc1", "r31.1", "r31-hotfix", "r400"):
+            result = release_gate.classify_push(
+                [f"refs/tags/{tag} {'b' * 40} refs/tags/{tag} {zero}"],
+                repo_root=Path("."),
+                git_runner=fake_git,
+            )
+            self.assertTrue(result["gated"], f"{tag} should be a gated G2 tag")
+            self.assertIn("G2", {a["kind"] for a in result["actions"]})
+        # a non-release tag is NOT G2 by name (but would be G1/G4 if it advanced a pin — scanned)
+        result = release_gate.classify_push(
+            [f"refs/tags/nightly {'b' * 40} refs/tags/nightly {zero}"],
+            repo_root=Path("."),
+            git_runner=fake_git,
+        )
+        self.assertFalse(result["gated"])
+
+    def test_release_gate_capture_reddens_corrupt_installed_json(self) -> None:
+        # fail-open F1: a present-but-corrupt installed.json must redden a row, not silently
+        # drop every chip gate while overall_ok stays green.
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            installed_path = tmp / "installed.json"
+            installed_path.write_text("{ this is not json", encoding="utf-8")
+            source = tmp / "modules" / "spark-telegram-bot" / "source"
+            source.mkdir(parents=True)
+            (source / "package.json").write_text(
+                json.dumps({"scripts": {"r30:loop-readiness:strict": "ts-node audit.ts"}}),
+                encoding="utf-8",
+            )
+
+            def green_verify(_repo: Path) -> tuple[int, str, str]:
+                return 0, json.dumps({"ok": True, "release": "test-r31", "checks": []}), ""
+
+            def fake_git(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                if "--version" in args:
+                    return 0, "git version 2.x", ""
+                if "--abbrev-ref" in args:
+                    return 0, "main", ""
+                if "rev-parse" in args:
+                    return 0, "a" * 40, ""
+                return 0, "", ""
+
+            def fake_cmd(args: list[str], **_kwargs: Any) -> tuple[int, str, str]:
+                return 0, "ok", ""
+
+            result = release_gate.write_release_gate_capture(
+                repo_root=repo,
+                artifacts_root=artifacts,
+                installed_path=installed_path,
+                modules_root=tmp / "modules",
+                verify_runner=green_verify,
+                git_runner=fake_git,
+                command_runner=fake_cmd,
+            )
+            self.assertFalse(result["ok"], "corrupt installed.json must redden the capture")
+            names = {row["name"]: row for row in result["capture"]["gates_table"]}
+            self.assertIn("installed_registry", names)
+            self.assertFalse(names["installed_registry"]["ok"])
+
+    def test_release_gate_refuses_undeterminable_release(self) -> None:
+        # waiver F2: an unknown-release capture cannot be waived or shipped.
+        from datetime import datetime, timezone
+
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            capture_path = self._release_gate_capture(
+                repo, artifacts, ok=True, red_checks=["verify_r30"], release="unknown-release"
+            )
+            (capture_path.parent / "waivers.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "check": "verify_r30",
+                            "release": "unknown-release",
+                            "reason": "verify harness broke",
+                            "risk_accepted": "unknown",
+                            "expiry": "2026-07-20",
+                            "signed_off_by": "the operator",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            verdict = release_gate.evaluate_release_gate(
+                repo_root=repo,
+                artifacts_root=artifacts,
+                now=datetime(2026, 7, 3, tzinfo=timezone.utc),
+            )
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("undeterminable", verdict["reason"])
+
+    def test_release_gate_refuses_inconsistent_and_empty_captures(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            capture_path = self._release_gate_capture(repo, artifacts, ok=True)
+            payload = json.loads(capture_path.read_text(encoding="utf-8"))
+            # overall_ok false with zero red rows = internally inconsistent -> refuse
+            payload["overall_ok"] = False
+            capture_path.write_text(json.dumps(payload), encoding="utf-8")
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("inconsistent", verdict["reason"])
+            # an empty gates table verified nothing -> refuse
+            payload["overall_ok"] = True
+            payload["gates_table"] = []
+            capture_path.write_text(json.dumps(payload), encoding="utf-8")
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"])
+            self.assertIn("no gate results", verdict["reason"])
+
+    def test_release_gate_latest_capture_is_chronological_across_trains(self) -> None:
+        from spark_cli import release_gate
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            repo = self._release_gate_repo(tmp)
+            artifacts = tmp / "artifacts"
+            # older green capture in a lexicographically LATER train dir
+            old = self._release_gate_capture(repo, artifacts, ok=True, release="z-train")
+            old_renamed = old.parent / "release-gate-capture-2026-07-01T090000Z.json"
+            old.rename(old_renamed)
+            # newer RED capture in an earlier-named train dir
+            newer = self._release_gate_capture(
+                repo, artifacts, ok=True, red_checks=["registry_pins"], release="a-train"
+            )
+            newer_renamed = newer.parent / "release-gate-capture-2026-07-02T090000Z.json"
+            newer.rename(newer_renamed)
+            resolved = release_gate._resolve_latest_capture(artifacts)
+            self.assertEqual(resolved, newer_renamed)
+            verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
+            self.assertFalse(verdict["permitted"], "the chronologically newest capture (red) must govern")
+
+    def test_gate_evidence_separation_script_detects_co_edit(self) -> None:
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "harness_checks"
+            / "gate_evidence_separation.py"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir)
+            env = dict(os.environ)
+            env.update(
+                {
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                }
+            )
+
+            def git(*args: str) -> None:
+                subprocess.run(
+                    ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
+                )
+
+            git("init", "-q")
+            (repo / "gate-map.json").write_text(
+                json.dumps(
+                    {"gates": {"release_gate": {"gate_code": ["gate.py"], "evidence": ["evidence.json"]}}}
+                ),
+                encoding="utf-8",
+            )
+            (repo / "gate.py").write_text("GATE = 1\n", encoding="utf-8")
+            (repo / "evidence.json").write_text("{}\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "init")
+            # the d7fc1df pattern: relax the gate and its evidence together
+            (repo / "gate.py").write_text("GATE = 0\n", encoding="utf-8")
+            (repo / "evidence.json").write_text('{"relaxed": true}\n', encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "relax gate with its evidence")
+            result = subprocess.run(
+                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("d7fc1df", result.stdout)
+            # gate-only edit passes
+            (repo / "gate.py").write_text("GATE = 3\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "gate only")
+            result = subprocess.run(
+                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_release_policy_binding_gate_script_asserts_machinery(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script = repo_root / "scripts" / "harness_checks" / "release_policy_binding_gate.py"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo = Path(tmp_dir)
+            env = dict(os.environ)
+            env.update(
+                {
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                }
+            )
+
+            def git(*args: str) -> None:
+                subprocess.run(
+                    ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
+                )
+
+            # assemble a compliant machinery copy from the real files
+            (repo / "scripts" / "hooks").mkdir(parents=True)
+            (repo / "scripts" / "harness_checks").mkdir(parents=True)
+            (repo / "src" / "spark_cli").mkdir(parents=True)
+            shutil.copy(
+                repo_root / "scripts" / "hooks" / "pre-push",
+                repo / "scripts" / "hooks" / "pre-push",
+            )
+            shutil.copy(
+                repo_root / "scripts" / "harness_checks" / "gate_evidence_separation.py",
+                repo / "scripts" / "harness_checks" / "gate_evidence_separation.py",
+            )
+            shutil.copy(
+                repo_root / "src" / "spark_cli" / "release_gate.py",
+                repo / "src" / "spark_cli" / "release_gate.py",
+            )
+            (repo / "gate-map.json").write_text(
+                json.dumps(
+                    {
+                        "gates": {
+                            "release_gate": {
+                                "gate_code": ["src/spark_cli/release_gate.py"],
+                                "evidence": ["registry.json"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            git("init", "-q")
+            git("add", "-A")
+            git("commit", "-q", "-m", "machinery")
+            result = subprocess.run(
+                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            # a bypass edit to the hook fails the gate
+            hook = repo / "scripts" / "hooks" / "pre-push"
+            hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("marker", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
