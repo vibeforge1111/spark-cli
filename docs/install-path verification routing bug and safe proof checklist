@@ -1,0 +1,30 @@
+team : Sparky
+Spark Compete QA: From a clean Windows PowerShell, ask Spark for the fresh install path. Check whether every command is copyable, prerequisites are clear, and the before/after proof can be shared without raw paths, tokens, or full logs.
+
+
+Summary:
+Spark incorrectly routes Windows install-path verification prompts into unrelated responses, such as ideation or Memory Doctor output. Add an intent guard so setup-verification requests return a checklist with prerequisites, copyable commands, pass/fail checks, and safe proof rules.
+
+Bug:
+When the user asked:
+
+“From a clean Windows PowerShell, ask Spark for the fresh install path. Check whether every command is copyable, prerequisites are clear, and the before/after proof can be shared without raw paths, tokens, or full logs.”
+
+Spark answered with unrelated project ideation instead of a setup verification checklist.
+
+Later, when the user tried to continue the bug PR, Spark returned Memory Doctor diagnostics instead of continuing the bug packet.
+
+Expected:
+Spark should return:
+
+• prerequisites 
+• copyable Windows PowerShell commands 
+• pass/fail checks 
+• redaction rules 
+• safe before/after proof guidance 
+
+Actual:
+Spark returned:
+
+• unrelated ideation 
+• unrelated Memory
