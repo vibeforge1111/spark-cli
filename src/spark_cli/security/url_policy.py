@@ -43,10 +43,56 @@ def _parse_url(raw_url: str) -> urllib.parse.ParseResult:
 
 
 def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    cleaned = host.strip("[]")
     try:
-        return ipaddress.ip_address(host.strip("[]"))
+        return ipaddress.ip_address(cleaned)
+    except ValueError:
+        return _alternate_ipv4_address(cleaned)
+
+
+def _parse_ipv4_number(value: str) -> int | None:
+    if not value:
+        return None
+    try:
+        if value.lower().startswith("0x"):
+            return int(value[2:], 16)
+        if len(value) > 1 and value.startswith("0"):
+            return int(value[1:] or "0", 8)
+        return int(value, 10)
     except ValueError:
         return None
+
+
+def _alternate_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
+    if not host or not all(char in "0123456789abcdefABCDEFxX." for char in host):
+        return None
+    parts = host.split(".")
+    if len(parts) > 4 or any(part == "" for part in parts):
+        return None
+    numbers = [_parse_ipv4_number(part) for part in parts]
+    if any(number is None for number in numbers):
+        return None
+    octets: list[int]
+    if len(numbers) == 1:
+        value = numbers[0]
+        if value is None or value > 0xFFFFFFFF:
+            return None
+        return ipaddress.IPv4Address(value)
+    if len(numbers) == 2:
+        first, last = numbers
+        if first is None or last is None or first > 0xFF or last > 0xFFFFFF:
+            return None
+        octets = [first, (last >> 16) & 0xFF, (last >> 8) & 0xFF, last & 0xFF]
+    elif len(numbers) == 3:
+        first, second, last = numbers
+        if first is None or second is None or last is None or first > 0xFF or second > 0xFF or last > 0xFFFF:
+            return None
+        octets = [first, second, (last >> 8) & 0xFF, last & 0xFF]
+    else:
+        if any(number is None or number > 0xFF for number in numbers):
+            return None
+        octets = [int(number) for number in numbers]
+    return ipaddress.IPv4Address(bytes(octets))
 
 
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
