@@ -109,6 +109,25 @@ class AccessSetupTests(unittest.TestCase):
                 "still_approval_required",
             )
 
+    def test_access_setup_rejects_sensitive_configured_workspace_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            user_home = Path(tmpdir) / "home"
+            spark_home = user_home / ".spark"
+            sensitive_root = user_home / ".ssh"
+            with patch.dict(os.environ, {"HOME": str(user_home)}, clear=False):
+                exit_code, payload = self.run_access(
+                    "setup",
+                    spark_home=spark_home,
+                    env_overrides={"SPARK_WORKSPACE_ROOT": str(sensitive_root)},
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["workspace_root"], str(sensitive_root))
+            self.assertFalse(payload["workspace_preflight"]["writable"])
+            self.assertIn("denied write path", payload["workspace_preflight"]["detail"])
+            self.assertFalse((sensitive_root / "default").exists())
+
     def test_access_guide_is_plain_language_and_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             spark_home = Path(tmpdir) / "spark-home"
