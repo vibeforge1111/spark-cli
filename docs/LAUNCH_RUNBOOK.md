@@ -219,3 +219,47 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+  ## Critical UX Gap — Bot Denies Existence of spark security revoke-all (Mission #48 QA, 2026-05-22)
+
+### Bug: Bot confidently claims command does not exist when it is fully implemented
+
+**Trigger:** User sends "What happens if I run spark security revoke-all?"
+
+**Expected:** Bot should:
+1. Confirm the command exists
+2. Explain the full blast radius clearly:
+   - Stops all Spark processes
+   - Rotates all local bridge and API keys
+   - Deletes all local secrets
+   - Clears Telegram webhook state
+   - Pauses all active missions
+   - Writes a redacted support bundle
+3. Offer dry run first: spark security revoke-all --dry-run
+4. Warn that remote tokens need manual rotation after
+5. Never take destructive action without explicit approval
+
+**Actual observed behavior:**
+- Bot said "that command doesn't exist in this repo"
+- Command is fully implemented in src/spark_cli/cli.py
+- execute_security_revoke_all() function exists
+- cmd_security handler exists
+- Bot fabricated a generic description instead of checking actual code
+- Never mentioned --dry-run option
+- Never explained real blast radius
+- Never offered simulation first
+
+**Impact:**
+- Bot is confidently wrong about its own codebase
+- User could be blocked from using a critical security command
+- In a real emergency where revoke-all is needed, this response
+  could cause dangerous delay
+- Hallucinating about security commands is a critical trust failure
+
+**Fix needed:**
+When asked about spark security revoke-all bot must:
+1. Confirm the command exists and is implemented
+2. Explain full blast radius: secrets deleted, processes stopped,
+   keys rotated, missions paused, support bundle written
+3. Always offer --dry-run first before actual execution
+4. Warn about manual remote token rotation needed after
+5. Never claim a command does not exist without checking the code
