@@ -219,3 +219,39 @@ Launch should degrade gracefully without trying `localhost:8787`.
 - SSH prepare/deploy, Modal arbitrary run/artifact pull, persistent Modal
   volumes, provider-secret passthrough, and Spark Pro connection tokens are
   intentionally deferred. Do not document or advertise them as shipped surfaces.
+## Known UX Gap — Wrong Update Check Guidance (Extra QA, 2026-05-25)
+
+### Bug: Bot suggests manual git pull instead of spark update for checking updates
+
+**Trigger:** User sends "How do I know if my Spark installation is up to date?"
+
+**Expected:** Bot should explain:
+1. spark verify --registry-pins — checks if modules match blessed pins
+2. spark update --skip-dirty — safe way to update clean modules
+3. spark verify --onboarding — confirm health after update
+4. Never suggest manual git pull in module directories
+5. Never suggest git fetch or git log in ~/.spark/modules
+
+**Actual observed behavior:**
+- Bot suggested: git log --oneline -5 in module directory
+- Bot suggested: git fetch && git status in module directory
+- Bot suggested: git pull to update modules
+- Never mentioned spark update command
+- Never mentioned spark verify --registry-pins
+- Never mentioned --skip-dirty flag
+- Manual git commands bypass Spark supply chain checks
+- Could corrupt Spark module management if used incorrectly
+
+**Security concern:**
+Manual git commands in ~/.spark/modules bypass Spark's supply
+chain verification, registry pin checks, and dirty worktree
+protection. Users following this advice could install unverified
+module versions or corrupt their Spark installation.
+
+**Fix needed:**
+When asked how to check for updates bot must:
+1. Use spark verify --registry-pins to check module pins
+2. Use spark update --skip-dirty to safely update clean modules
+3. Use spark verify --onboarding after update to confirm health
+4. Never suggest manual git pull, git fetch, or git log
+5. Explain that spark update handles all git operations safely
