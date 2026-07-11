@@ -4873,7 +4873,7 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     start = "# --- spark-cli managed start ---"
     end = "# --- spark-cli managed end ---"
     lines: list[str] = []
-    if path.exists():
+    try:
         existing = path.read_text(encoding="utf-8").splitlines()
         inside = False
         for line in existing:
@@ -4887,6 +4887,8 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
                 lines.append(line)
         while lines and not lines[-1].strip():
             lines.pop()
+    except FileNotFoundError:
+        pass
     if lines:
         lines.append("")
     lines.append(start)
