@@ -56,11 +56,17 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
         return []
 
     errors: list[str] = []
-    parsed = _parse_url(value)
+    try:
+        parsed = _parse_url(value)
+    except ValueError as exc:
+        return [f"{label} is not a valid URL: {exc}."]
     if parsed.scheme not in {"http", "https"}:
         return [f"{label} uses unsupported URL scheme `{parsed.scheme}`."]
 
-    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    try:
+        host = (parsed.hostname or "").strip().lower().rstrip(".")
+    except ValueError as exc:
+        return [f"{label} is not a valid URL: {exc}."]
     if not host:
         return [f"{label} has a URL without a hostname."]
     if host in METADATA_HOSTS:
