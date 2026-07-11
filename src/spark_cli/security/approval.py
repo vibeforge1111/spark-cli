@@ -156,6 +156,7 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
     joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
+    third = lowered[2] if len(lowered) > 2 else ""
 
     bin_name = re.sub(r"\.(?:exe|cmd|bat)$", "", first.replace("\\", "/").rsplit("/", 1)[-1])
     shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "pwsh", "powershell"}
@@ -332,6 +333,9 @@ def approval_required_for_command(argv: list[str], context: CommandContext | Non
         or "--force-with-lease" in lowered
         or "-f" in lowered and second in {"push", "tag"}
         or second in {"rebase", "reset"}
+        or second == "update-ref"
+        or (second == "replace" and (len(lowered) == 2 or third not in {"-l", "--list", "list"}))
+        or (second == "notes" and third not in {"", "show", "list"})
     ):
         return _decision(
             parts,
