@@ -201,6 +201,8 @@ def validate_ssh_host(host: str) -> str:
         raise ValueError("SSH host is required.")
     if "://" in value or "/" in value or "\\" in value or "@" in value:
         raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
+    if ":" in value and _ssh_host_ip(value) is None:
+        raise ValueError("SSH host must not include a port; pass --port separately.")
     if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
         raise ValueError("SSH host contains unsupported characters.")
     if _is_metadata_host(value):
