@@ -1,5 +1,26 @@
 from __future__ import annotations
 
+
+
+def _atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Write text to disk atomically with an explicit fsync so a power loss
+    does not lose the most recent audit entries."""
+    import os as _os
+    import tempfile as _tempfile
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp_path = _tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with _os.fdopen(fd, "w", encoding=encoding) as handle:
+            handle.write(content)
+            handle.flush()
+            _os.fsync(handle.fileno())
+        _os.replace(raw_tmp_path, str(path))
+    except Exception:
+        try:
+            _os.unlink(raw_tmp_path)
+        except OSError:
+            pass
+        raise
 import json
 import time
 from pathlib import Path
