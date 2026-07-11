@@ -1,0 +1,77 @@
+{
+  "schema": "spark.r30.local_registry_candidate.v1",
+  "generated_at": "2026-07-11T02:45:28Z",
+  "status": "local_proof_only",
+  "publication_authority": false,
+  "registry_mutated": false,
+  "installer_mutated": false,
+  "public_points_baseline": 24409,
+  "points_policy": "append_verified_credit_without_replay_or_double_payment",
+  "cli": {
+    "hosted_r30_commit": "b2344a8c55c2f311e8904cbd95a90bba0c519b09",
+    "local_release_gate_base": "af68617281829f3c3385c4262cd473ff3beb3a72",
+    "registry_sha256": "148b429b1a6d752f99edf49c29e2622577be6c9d7e4b2f0ff0acdc2095663723",
+    "installer_manifest_sha256": "174929b3fff0fc42fb88423e0aa72e8cf89818865ff8dca328b51234d8853bcf"
+  },
+  "modules": {
+    "domain-chip-memory": {
+      "commit": "c4834fe8062fe72acc32ca3822f0118b70552069",
+      "proof": "910 owner tests; 215 integrated Researcher tests",
+      "publication_ref_required": true
+    },
+    "domain-chip-spark-qa-evidence-lane": {
+      "commit": "18be48260608b057d76cb5f03b24037403398e12",
+      "proof": "206 tests; fixture, evaluator, and watchtower gates",
+      "publication_ref_required": true
+    },
+    "spark-character": {
+      "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+      "proof": "143 tests and compileall",
+      "publication_ref_required": false
+    },
+    "spark-harness-core": {
+      "commit": "a78c5bb2137a30a3bd9a543fd5a7cfe662245abd",
+      "proof": "70 tests plus 11 subtests, build, schema and consumer conformance",
+      "publication_ref_required": false
+    },
+    "spark-intelligence-builder": {
+      "commit": "ca54194f1678546eae789b6365308dcbbc0d0fa5",
+      "proof": "owner convergence gates plus 52 cross-owner loop, attachment, and authority tests",
+      "publication_ref_required": true
+    },
+    "spark-researcher": {
+      "commit": "9ac089dd791c3601e28c3c1d58c0858853567d40",
+      "proof": "215 tests and compileall",
+      "publication_ref_required": false
+    },
+    "spark-skill-graphs": {
+      "commit": "5c7c357e43223ade2e4803a58ac405fbd0b09b0a",
+      "proof": "complete CI, 672 skills, 11 bundles, zero audit findings",
+      "publication_ref_required": true
+    },
+    "spark-telegram-bot": {
+      "commit": "c6ffb3608056e4c8315d360e7ce0850d69169559",
+      "proof": "108 discovered suites, build, 8/8 canary, line ratchet, audit",
+      "publication_ref_required": true
+    },
+    "spark-voice-comms": {
+      "commit": "7a4c0833cdea0ecd96b97b468cfac9e3c2be338d",
+      "proof": "132 tests, compileall, staged integrity",
+      "publication_ref_required": true
+    },
+    "spawner-ui": {
+      "commit": "c4e0a7517993337d55b7af870be46c81700796b7",
+      "proof": "161 suites and 1053 tests, check, build, audit, rendered UI",
+      "publication_ref_required": true
+    }
+  },
+  "gates_before_registry_mutation": [
+    "every publication_ref_required module has a pushed owner ref containing the exact candidate commit",
+    "runtime and installer provenance resolve those refs without local object fallback",
+    "supervised Spark runtime smoke is green",
+    "Telegram visual QA is green",
+    "user confirms the live Telegram behavior",
+    "points append packet passes duplicate and prior-payment checks"
+  ],
+  "next_action": "Validate these exact local objects and trees, then keep registry.json and installer bytes unchanged until the publication refs and live proof gates exist."
+}
