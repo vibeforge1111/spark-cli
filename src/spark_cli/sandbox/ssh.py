@@ -299,11 +299,11 @@ def save_ssh_targets(targets: dict[str, SshTarget], *, home: Path | None = None)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
-        os.replace(tmp_name, path)
         try:
-            path.chmod(0o600)
+            os.chmod(tmp_name, 0o600)
         except OSError:
             pass
+        os.replace(tmp_name, path)
     finally:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
