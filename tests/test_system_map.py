@@ -1947,6 +1947,9 @@ routes = []
             self.assertTrue(summary["ok"])
             self.assertEqual(summary["modules"], 1)
             self.assertEqual(system_map["setup"]["secret_key_count"], 1)
+            self.assertEqual(system_map["source_roots"]["desktop"], "[desktop]")
+            self.assertEqual(system_map["source_roots"]["spark_home"], "[spark-home]")
+            self.assertEqual(system_map["source_roots"]["registry"], "[registry]")
             self.assertTrue((out / "authority-view.json").exists())
             self.assertTrue((out / "capability-catalog.json").exists())
             self.assertTrue((out / "trace-index.json").exists())
@@ -1956,6 +1959,11 @@ routes = []
             self.assertTrue((out / "operating-cockpit.json").exists())
             self.assertNotIn("telegram.bot_token", output_text)
             self.assertNotIn("webhook_url", output_text)
+            self.assertNotIn(str(desktop), output_text)
+            self.assertNotIn(str(spark_home), output_text)
+            self.assertNotIn(str(registry), output_text)
+            self.assertIn("[desktop]", output_text)
+            self.assertIn("[spark-home]", output_text)
 
             capability_args = build_parser().parse_args(
                 [
