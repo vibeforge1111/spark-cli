@@ -956,6 +956,7 @@ def inspect_builder_request_id_overlap(builder_home: Path, request_ids: set[str]
             candidates = sorted(request_ids)[:_BUILDER_OVERLAP_PROBE_CAP]
             out["sampled_request_id_count"] = len(candidates)
             placeholders = ",".join("?" for _ in candidates)
+            # NOTE: f-string SQL with table/column interpolation. The identifiers come from hardcoded whitelists in this module; do not pass user input here.
             matched = conn.execute(
                 f"""
                 select count(distinct request_id)
