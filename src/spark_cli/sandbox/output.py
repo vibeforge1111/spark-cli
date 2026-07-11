@@ -10,7 +10,7 @@ DEFAULT_MAX_BYTES = 32_768
 DEFAULT_MAX_LINES = 200
 
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*=\s*([^\s]+)"),
+    re.compile(r"(?i)\b[A-Z0-9_-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*[:=]\s*([^\s,;]+)"),
     re.compile(r'(?i)"(?:apiKey|token|secret|password|passwd|accessToken|refreshToken)"\s*:\s*"([^"]+)"'),
     re.compile(r"(?i)--(?:api[-_]?key|token|secret|password|passwd)\s+([^\s]+)"),
     re.compile(r"(?i)\b(?:X-Api-Key|X-Auth-Token|Cookie|Set-Cookie)\s*[:=]\s*([^\r\n;]+)"),
