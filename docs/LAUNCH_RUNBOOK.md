@@ -124,7 +124,7 @@ Z.AI launch defaults:
 
 OpenAI launch default:
 
-- model: `gpt-5.5`
+- model: `gpt-5.6-sol`
 
 The installer stores cloud keys through the Spark secret backend. Generated
 module env files should contain secret references and non-secret metadata, not

@@ -3696,6 +3696,10 @@ def module_healthcheck_env(module: Module, profile: str | None = None) -> dict[s
     return env
 
 
+OPENAI_DEFAULT_MODEL = "gpt-5.6-sol"
+CODEX_DEFAULT_MODEL = "gpt-5.6-sol"
+
+
 LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "openrouter": {
         "api_key_secret": "llm.openrouter.api_key",
@@ -3758,7 +3762,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
         "base_url_default": "https://api.openai.com/v1",
         "model_arg": "openai_model",
         "model_env": "OPENAI_MODEL",
-        "model_default": "gpt-5.5",
+        "model_default": OPENAI_DEFAULT_MODEL,
         "bot_provider": "openai",
     },
     "anthropic": {
@@ -3795,7 +3799,7 @@ LLM_PROVIDER_ENV: dict[str, dict[str, str]] = {
     "codex": {
         "model_arg": "codex_model",
         "model_env": "CODEX_MODEL",
-        "model_default": "gpt-5.5",
+        "model_default": CODEX_DEFAULT_MODEL,
         "bot_provider": "codex",
     },
     "not_configured": {
@@ -3856,14 +3860,14 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
     "codex": {
         "lane": "paid/subscription",
         "best_for": "Best first pick if you already use OpenAI Codex or ChatGPT. Uses the OpenAI Codex CLI sign-in path instead of asking for an OpenAI API key.",
-        "recommended_models": ["gpt-5.5"],
+        "recommended_models": [CODEX_DEFAULT_MODEL],
         "getting_started": "Install OpenAI Codex CLI, sign in with `codex login`, then run `spark setup --llm-provider codex`.",
         "notes": "This is the OAuth-style route for OpenAI Codex and ChatGPT users. No OpenAI API key copy-paste is needed.",
     },
     "openai": {
         "lane": "api/paid",
         "best_for": "OpenAI API users who specifically want an API-key route instead of OpenAI Codex CLI sign-in.",
-        "recommended_models": ["gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"],
+        "recommended_models": [OPENAI_DEFAULT_MODEL, "gpt-5.6-terra", "gpt-5.6-luna"],
         "getting_started": "Create an OpenAI API key, then run `spark setup --llm-provider openai --openai-api-key <key>`.",
         "notes": "Most non-technical ChatGPT users should start with `codex`; this route is for API billing/accounts.",
     },
@@ -19541,7 +19545,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             ],
             "llm_examples": [
                 "spark setup",
-                "spark setup --llm-provider codex --codex-model gpt-5.5",
+                f"spark setup --llm-provider codex --codex-model {CODEX_DEFAULT_MODEL}",
                 "spark setup --llm-provider anthropic",
                 "spark setup --llm-provider zai --zai-api-key <ZAI_API_KEY>",
                 "spark setup --llm-provider kimi --kimi-api-key <KIMI_API_KEY>",
@@ -19549,7 +19553,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "spark setup --llm-provider huggingface --huggingface-api-key <HF_TOKEN> --huggingface-model <MODEL>",
                 "spark setup --llm-provider minimax --minimax-api-key <MINIMAX_API_KEY>",
                 "spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>",
-                "spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model gpt-5.5",
+                f"spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model {OPENAI_DEFAULT_MODEL}",
                 "spark setup --with-voice --elevenlabs-api-key @clipboard",
                 "spark setup --agent-llm-provider zai --mission-llm-provider codex",
                 "spark setup --chat-llm-provider openai --builder-llm-provider openai --memory-llm-provider ollama --mission-llm-provider minimax",
@@ -19972,7 +19976,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--zai-model", default="glm-5.1")
     setup_parser.add_argument("--openai-api-key", help="OpenAI API key, @clipboard, @env:NAME, or @file:path; optional for local OpenAI-compatible servers")
     setup_parser.add_argument("--openai-base-url", default="https://api.openai.com/v1", help="OpenAI-compatible base URL, for example https://api.openai.com/v1 or http://localhost:1234/v1 for LM Studio")
-    setup_parser.add_argument("--openai-model", default="gpt-5.5", help="OpenAI/OpenAI-compatible model name")
+    setup_parser.add_argument("--openai-model", default=OPENAI_DEFAULT_MODEL, help="OpenAI/OpenAI-compatible model name")
     setup_parser.add_argument("--anthropic-api-key", help="Anthropic Claude API key, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--anthropic-base-url", default="https://api.anthropic.com")
     setup_parser.add_argument("--anthropic-model", default="sonnet")
@@ -19993,7 +19997,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--elevenlabs-api-key", help="Optional ElevenLabs API key for Spark voice, @clipboard, @env:NAME, or @file:path")
     setup_parser.add_argument("--ollama-url", default="http://localhost:11434")
     setup_parser.add_argument("--ollama-model", default="llama3.2:3b")
-    setup_parser.add_argument("--codex-model", default="gpt-5.5")
+    setup_parser.add_argument("--codex-model", default=CODEX_DEFAULT_MODEL)
     setup_parser.set_defaults(func=cmd_setup)
 
     onboard_parser = subparsers.add_parser("onboard", help="Resume setup, start Spark, and open the first Telegram chat")

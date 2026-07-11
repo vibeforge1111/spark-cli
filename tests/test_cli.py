@@ -3136,7 +3136,7 @@ class SparkCliTests(unittest.TestCase):
             target = resolve_provider_test_target("chat", "codex")
         self.assertEqual(target["provider"], "codex")
         self.assertEqual(target["auth_mode"], "codex_oauth")
-        self.assertEqual(target["model"], "gpt-5.5")
+        self.assertEqual(target["model"], "gpt-5.6-sol")
         self.assertEqual(target["cli_path"], "codex")
 
     def test_provider_test_explicit_anthropic_uses_claude_oauth_defaults(self) -> None:
@@ -9832,9 +9832,11 @@ class SparkCliTests(unittest.TestCase):
         providers = {provider["id"]: provider for provider in payload["providers"]}
         self.assertEqual(payload["providers"][0]["id"], "codex")
         self.assertEqual(payload["providers"][2]["id"], "zai")
-        self.assertEqual(providers["openai"]["recommended_models"][0], "gpt-5.5")
+        self.assertEqual(providers["codex"]["recommended_models"][0], "gpt-5.6-sol")
+        self.assertEqual(providers["openai"]["recommended_models"][0], "gpt-5.6-sol")
         self.assertIn("kimi-k2.6", providers["kimi"]["recommended_models"])
-        self.assertIn("gpt-5.4-mini", providers["openai"]["recommended_models"])
+        self.assertIn("gpt-5.6-terra", providers["openai"]["recommended_models"])
+        self.assertIn("gpt-5.6-luna", providers["openai"]["recommended_models"])
         self.assertIn("opus", providers["anthropic"]["recommended_models"])
         self.assertIn("google/gemma-4-31B-it:fastest", providers["huggingface"]["recommended_models"])
         self.assertEqual(providers["lmstudio"]["lane"], "local/free after download")
@@ -9847,6 +9849,12 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+
+    def test_setup_defaults_new_openai_and_codex_installs_to_gpt_5_6_sol(self) -> None:
+        args = build_parser().parse_args(["setup"])
+
+        self.assertEqual(args.openai_model, "gpt-5.6-sol")
+        self.assertEqual(args.codex_model, "gpt-5.6-sol")
 
     def test_parser_accepts_codex_client_config_command(self) -> None:
         args = build_parser().parse_args(["providers", "codex", "--service-tier", "fast", "--reasoning-effort", "high"])
