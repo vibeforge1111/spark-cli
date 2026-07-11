@@ -526,7 +526,7 @@ class SparkCliTests(unittest.TestCase):
                 os.chdir(cwd_root)
                 with patch.dict(os.environ, {}, clear=True), \
                      patch("spark_cli.cli.__file__", str(package_root / "src" / "spark_cli" / "cli.py")):
-                    self.assertEqual(discover_repo_root(), package_root)
+                    self.assertEqual(discover_repo_root(), package_root.resolve())
             finally:
                 os.chdir(old_cwd)
 
@@ -671,7 +671,7 @@ class SparkCliTests(unittest.TestCase):
     def test_sandbox_output_path_stays_inside_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            self.assertEqual(resolve_safe_output_path("artifact.txt", root=root), root / "artifact.txt")
+            self.assertEqual(resolve_safe_output_path("artifact.txt", root=root), root.resolve() / "artifact.txt")
             with self.assertRaises(ValueError):
                 resolve_safe_output_path("../escape.txt", root=root)
             for value in ["CON", "aux.txt", "safe/COM1.log", "nested/lpt9/output.txt"]:
@@ -1967,7 +1967,7 @@ class SparkCliTests(unittest.TestCase):
             path = Path(tmp_dir) / "state.json"
             path.write_text('{"owned": true}\n', encoding="utf-8")
 
-            with patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda item: item == path):
+            with patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda item: item == Path(os.path.realpath(path))):
                 with self.assertRaises(SystemExit) as error:
                     atomic_write_json(path, {"ok": True})
 
@@ -1980,7 +1980,7 @@ class SparkCliTests(unittest.TestCase):
             env_path = Path(tmp_dir) / ".env"
             env_path.write_text("KEEP=1\n", encoding="utf-8")
 
-            with patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda item: item == env_path):
+            with patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda item: item == Path(os.path.realpath(env_path))):
                 with self.assertRaises(SystemExit) as error:
                     update_env_file(env_path, {"BOT_TOKEN": "abc"})
 
@@ -9335,9 +9335,9 @@ class SparkCliTests(unittest.TestCase):
     def test_write_denied_paths_include_sensitive_home_locations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
-            self.assertIn(home / ".spark" / "config" / "secrets.local.json", write_denied_paths(home))
-            self.assertIn(home / ".ssh", write_denied_prefixes(home))
-            self.assertIn(home / ".config" / "gh", write_denied_prefixes(home))
+            self.assertIn((home / ".spark" / "config" / "secrets.local.json").resolve(), write_denied_paths(home))
+            self.assertIn((home / ".ssh").resolve(), write_denied_prefixes(home))
+            self.assertIn((home / ".config" / "gh").resolve(), write_denied_prefixes(home))
 
     def test_path_is_write_denied_blocks_sensitive_home_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -12213,7 +12213,7 @@ class SparkCliTests(unittest.TestCase):
             "bundle": "telegram-starter",
             "secret_keys": ["telegram.bot_token", "telegram.admin_ids"],
             "builder_home": "C:/tmp/spark/state/spark-intelligence",
-            "telegram_profiles": {"spark-agi": {"relay_port": 8789}},
+            "telegram_profiles": {"spark-agi": {"relay_port": 8789, "autostart": True}},
         }
         installed = {name: {"path": f"C:/tmp/spark/modules/{name}"} for name in expected}
 
@@ -12256,6 +12256,7 @@ class SparkCliTests(unittest.TestCase):
             patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
             patch("spark_cli.cli.Path.exists", return_value=True), \
             patch("spark_cli.cli.resolve_bundle_names", return_value=expected), \
+            patch("spark_cli.cli.telegram_profile_has_startable_token", return_value=True), \
             patch("spark_cli.cli.pid_is_running", return_value=True):
             payload = collect_verify_payload()
         self.assertTrue(payload["ok"])
@@ -13178,9 +13179,18 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_r30_handoff_manifest_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_artifacts_handoff_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_cli_owner_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_action_packet", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_handoff_patch_apply_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-voice-comms", "ok": False}]}), \
-             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-26-r29", "ref": "spark-cli-public-installer-2026-06-26-r29"}}):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
@@ -13286,6 +13296,14 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.write_compiled_outputs", return_value={}), \
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
+             patch("spark_cli.cli.collect_r30_handoff_manifest_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_artifacts_handoff_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_cli_owner_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_action_packet", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_handoff_patch_apply_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
@@ -13415,6 +13433,9 @@ class SparkCliTests(unittest.TestCase):
              }), \
              patch("spark_cli.cli.collect_r30_handoff_manifest_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_local_runtime_artifacts_handoff_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_cli_owner_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_local_runtime_handoff_docs_status", return_value={"ok": True}), \
+             patch("spark_cli.cli.collect_r30_owner_action_packet", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_owner_handoff_patch_apply_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": False}), \
              patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": False}), \
@@ -13424,12 +13445,14 @@ class SparkCliTests(unittest.TestCase):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
-        self.assertTrue(checks["publication_order"]["ok"])
+        self.assertFalse(checks["publication_order"]["ok"])
         self.assertFalse(checks["publication_order"]["source_truth_ready"])
         self.assertEqual(
             checks["publication_order"]["source_truth_blockers"],
             ["r30_voice_registry_decision", "r30_builder_trace_lifecycle"],
         )
+        self.assertTrue(checks["publication_order"]["installer_pins_are_r30"])
+        self.assertIn("before source/registry truth is green", checks["publication_order"]["detail"])
 
     def test_r30_live_status_status_reports_unhealthy_modules(self) -> None:
         payload = collect_r30_live_status_status(

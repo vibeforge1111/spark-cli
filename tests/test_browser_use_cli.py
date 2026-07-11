@@ -229,7 +229,7 @@ class BrowserUseCliTests(unittest.TestCase):
             with patch("spark_cli.cli.Path.cwd", return_value=nested), \
                  patch("spark_cli.cli.__file__", str(installed_root / "src" / "spark_cli" / "cli.py")), \
                  patch.dict(os.environ, {}, clear=True):
-                self.assertEqual(cli.discover_repo_root(), installed_root)
+                self.assertEqual(cli.discover_repo_root(), installed_root.resolve())
 
     def test_open_returns_page_summary_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -1748,8 +1748,25 @@ def _path_is_reparse_point(path: Path) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
-def assert_no_linked_write_path(path: Path) -> None:
+def _trusted_platform_alias_path(path: Path) -> Path:
     expanded = path.expanduser()
+    if sys.platform != "darwin" or not expanded.is_absolute():
+        return expanded
+    raw = os.fspath(expanded)
+    for alias, canonical in (("/var", "/private/var"), ("/tmp", "/private/tmp"), ("/etc", "/private/etc")):
+        if raw == alias:
+            return Path(canonical)
+        prefix = alias + os.sep
+        if raw.startswith(prefix):
+            return Path(canonical) / raw[len(prefix):]
+    return expanded
+
+
+def assert_no_linked_write_path(path: Path) -> None:
+    # macOS exposes trusted top-level aliases such as /var -> /private/var. Normalize only
+    # those fixed OS aliases; do not resolve descendants, where a caller-controlled symlink
+    # must still fail closed.
+    expanded = _trusted_platform_alias_path(path)
     chain = [*reversed(expanded.parent.parents), expanded.parent]
     if expanded.exists() or expanded.is_symlink():
         chain.append(expanded)
