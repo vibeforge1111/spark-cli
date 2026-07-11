@@ -9201,7 +9201,7 @@ class SparkCliTests(unittest.TestCase):
              patch("sys.stdout", new_callable=StringIO):
             stop_module("spawner-ui", 12345)
 
-        run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True)
+        run.assert_called_once_with(["kill", "12345"], check=False, capture_output=True, timeout=10)
 
     def test_stop_module_waits_for_process_exit(self) -> None:
         # stop_module now does a liveness pre-check (os.kill(pid, 0)) before
@@ -9236,7 +9236,7 @@ class SparkCliTests(unittest.TestCase):
 
         killpg.assert_any_call(12345, signal.SIGTERM)
         if sigkill is None:
-            run.assert_called_once_with(["kill", "-9", "12345"], check=False, capture_output=True)
+            run.assert_called_once_with(["kill", "-9", "12345"], check=False, capture_output=True, timeout=10)
         else:
             self.assertEqual(killpg.call_count, 2)
             killpg.assert_any_call(12345, sigkill)

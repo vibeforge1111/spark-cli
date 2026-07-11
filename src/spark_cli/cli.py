@@ -11743,7 +11743,9 @@ def write_doctor_report(content: str, *, prefix: str = "spark-doctor") -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = output_dir / f"{prefix}-{stamp}.md"
-    path.write_text(content, encoding="utf-8")
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(content, encoding="utf-8")
+    tmp_path.rename(path)
     try:
         os.chmod(path, PRIVATE_FILE_MODE)
     except OSError:
@@ -15098,8 +15100,9 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=15,
             )
-        except FileNotFoundError:
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             return None
         if result.returncode != 0:
             return None
@@ -15118,8 +15121,9 @@ def listening_pid_for_tcp_port(port: int) -> int | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
         return None
@@ -15557,7 +15561,7 @@ def cmd_start_plain(args: argparse.Namespace) -> int:
 
 def stop_module(name: str, pid: int) -> None:
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True, timeout=30)
     else:
         try:
             os.kill(pid, 0)
@@ -15567,7 +15571,7 @@ def stop_module(name: str, pid: int) -> None:
         try:
             os.killpg(pid, signal.SIGTERM)
         except OSError:
-            subprocess.run(["kill", str(pid)], check=False, capture_output=True)
+            subprocess.run(["kill", str(pid)], check=False, capture_output=True, timeout=10)
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             if not pid_is_running(pid):
@@ -15576,12 +15580,12 @@ def stop_module(name: str, pid: int) -> None:
         else:
             sigkill = getattr(signal, "SIGKILL", None)
             if sigkill is None:
-                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+                subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True, timeout=10)
             else:
                 try:
                     os.killpg(pid, sigkill)
                 except OSError:
-                    subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True)
+                    subprocess.run(["kill", "-9", str(pid)], check=False, capture_output=True, timeout=10)
     print(f"Stopped {name} (pid {pid})")
 
 
