@@ -14106,10 +14106,6 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
 }
 
 
-def approval_enforcement_enabled() -> bool:
-    return str(os.environ.get("SPARK_APPROVAL_ENFORCE", "1")).strip().lower() not in {"0", "false", "no", "off"}
-
-
 def command_argv_for_approval(argv: list[str] | None) -> list[str]:
     return ["spark", *(list(argv) if argv is not None else sys.argv[1:])]
 
@@ -14137,8 +14133,6 @@ def approval_decision_would_enforce(decision: Any) -> bool:
 
 
 def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> int | None:
-    if not approval_enforcement_enabled():
-        return None
     context = approval_context_for_args(args)
     decision = approval_required_for_command(command_argv, context)
     if not should_enforce_approval(args, decision):

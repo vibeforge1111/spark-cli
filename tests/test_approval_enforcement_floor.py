@@ -3,17 +3,17 @@ from __future__ import annotations
 import os
 import unittest
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
-from spark_cli.cli import approval_enforcement_enabled, main
+import spark_cli.cli
+from spark_cli.cli import main
 
 
-class ApprovalEnforcementFreezeTests(unittest.TestCase):
-    def test_runtime_environment_mutation_cannot_disable_approval(self) -> None:
-        self.assertTrue(approval_enforcement_enabled())
-
-        with patch.dict(os.environ, {"SPARK_APPROVAL_ENFORCE": "0"}):
-            self.assertTrue(approval_enforcement_enabled())
+class ApprovalEnforcementFloorTests(unittest.TestCase):
+    def test_cli_approval_has_no_environment_bypass(self) -> None:
+        source = Path(spark_cli.cli.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("SPARK_APPROVAL_ENFORCE", source)
 
     def test_runtime_environment_mutation_cannot_bypass_secret_reveal_gate(self) -> None:
         with patch.dict(os.environ, {"SPARK_APPROVAL_ENFORCE": "0"}), \
