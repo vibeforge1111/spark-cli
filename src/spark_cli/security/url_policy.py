@@ -8,6 +8,7 @@ from dataclasses import dataclass
 METADATA_HOSTS = {
     "169.254.169.254",
     "169.254.170.2",
+    "fd00:ec2::254",
     "metadata.amazonaws.com",
     "metadata.azure.com",
     "metadata.google.internal",
@@ -43,9 +44,56 @@ def _parse_url(raw_url: str) -> urllib.parse.ParseResult:
 
 
 def _host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    candidate = host.strip("[]")
     try:
-        return ipaddress.ip_address(host.strip("[]"))
+        address = ipaddress.ip_address(candidate)
     except ValueError:
+        address = _legacy_ipv4_address(candidate)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def _legacy_ipv4_part(value: str) -> int | None:
+    try:
+        if value.lower().startswith("0x"):
+            return int(value[2:], 16)
+        if len(value) > 1 and value.startswith("0"):
+            return int(value[1:] or "0", 8)
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
+    if not host or not all(character in "0123456789abcdefABCDEFxX." for character in host):
+        return None
+    parts = host.split(".")
+    if len(parts) > 4 or any(not part for part in parts):
+        return None
+    numbers = [_legacy_ipv4_part(part) for part in parts]
+    if any(number is None for number in numbers):
+        return None
+    values = [int(number) for number in numbers if number is not None]
+    try:
+        if len(values) == 1:
+            if values[0] > 0xFFFFFFFF:
+                return None
+            packed = values[0]
+        elif len(values) == 2:
+            if values[0] > 0xFF or values[1] > 0xFFFFFF:
+                return None
+            packed = (values[0] << 24) | values[1]
+        elif len(values) == 3:
+            if values[0] > 0xFF or values[1] > 0xFF or values[2] > 0xFFFF:
+                return None
+            packed = (values[0] << 24) | (values[1] << 16) | values[2]
+        else:
+            if any(value > 0xFF for value in values):
+                return None
+            packed = (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | values[3]
+        return ipaddress.IPv4Address(packed)
+    except (ValueError, OverflowError):
         return None
 
 
