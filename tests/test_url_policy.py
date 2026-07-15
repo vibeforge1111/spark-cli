@@ -64,6 +64,10 @@ class UrlPolicyTests(unittest.TestCase):
         )
         self.assertTrue(any("local-only" in error for error in errors), errors)
 
+    def test_unresolved_environment_placeholder_is_not_treated_as_safe(self) -> None:
+        errors = validate_url_safety("${ATTACKER_URL}", label="module endpoint")
+        self.assertTrue(errors)
+
 
 if __name__ == "__main__":
     unittest.main()

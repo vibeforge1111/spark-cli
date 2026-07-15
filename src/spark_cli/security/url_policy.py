@@ -169,7 +169,7 @@ def validate_url_resolution(
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
     value = str(raw_url or "").strip()
-    if not value or value.startswith("${"):
+    if not value:
         return []
 
     errors: list[str] = []
