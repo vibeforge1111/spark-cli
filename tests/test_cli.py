@@ -26,6 +26,7 @@ from spark_cli.cli import (
     apply_setup_feature_aliases,
     atomic_write_json,
     ALLOW_INSECURE_FILE_SECRETS_ENV,
+    assert_no_linked_write_path,
     PRIVATE_FILE_MODE,
     build_module_repair_hints,
     build_llm_env,
@@ -1969,6 +1970,29 @@ class SparkCliTests(unittest.TestCase):
             self.assertIn("linked path", str(error.exception))
             self.assertEqual(load_json(target, {}), {"owned": True})
             self.assertFalse(list(root.glob(".state.json.*.tmp")))
+
+    def test_linked_write_guard_allows_verified_macos_root_alias(self) -> None:
+        with patch("spark_cli.cli.sys.platform", "darwin"), \
+             patch("spark_cli.cli.Path.is_symlink", side_effect=lambda path: path == Path("/var")), \
+             patch("spark_cli.cli.os.path.realpath", side_effect=lambda path: "/private/var" if path == "/var" else path), \
+             patch("spark_cli.cli._path_is_reparse_point", return_value=False):
+            assert_no_linked_write_path(Path("/var/folders/spark/state.json"))
+
+    def test_linked_write_guard_still_rejects_nested_symlink_under_platform_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            outside = root / "outside"
+            outside.mkdir()
+            linked = root / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(SystemExit):
+                assert_no_linked_write_path(linked / "state.json")
+
+    def test_linked_write_guard_does_not_trust_arbitrary_root_alias(self) -> None:
+        with patch("spark_cli.cli.sys.platform", "darwin"), \
+             patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda path: path == Path("/evil")):
+            with self.assertRaises(SystemExit):
+                assert_no_linked_write_path(Path("/evil/spark/state.json"))
 
     def test_atomic_write_json_refuses_reparse_point_leaf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

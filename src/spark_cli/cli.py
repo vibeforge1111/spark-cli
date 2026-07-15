@@ -1755,11 +1755,35 @@ def _path_is_reparse_point(path: Path) -> bool:
     return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
+MACOS_TRUSTED_ROOT_ALIASES = {
+    Path("/etc"): Path("/private/etc"),
+    Path("/tmp"): Path("/private/tmp"),
+    Path("/var"): Path("/private/var"),
+}
+
+
+def _canonical_trusted_platform_alias(path: Path) -> Path:
+    if sys.platform != "darwin" or not path.is_absolute() or len(path.parts) < 2:
+        return path
+    alias = Path(path.anchor) / path.parts[1]
+    expected = MACOS_TRUSTED_ROOT_ALIASES.get(alias)
+    if expected is None or not alias.is_symlink():
+        return path
+    try:
+        actual = Path(os.path.realpath(os.fspath(alias)))
+    except OSError:
+        return path
+    if actual != expected:
+        return path
+    return expected.joinpath(*path.parts[2:])
+
+
 def assert_no_linked_write_path(path: Path) -> None:
     expanded = path.expanduser()
-    chain = [*reversed(expanded.parent.parents), expanded.parent]
-    if expanded.exists() or expanded.is_symlink():
-        chain.append(expanded)
+    checked = _canonical_trusted_platform_alias(expanded)
+    chain = [*reversed(checked.parent.parents), checked.parent]
+    if checked.exists() or checked.is_symlink():
+        chain.append(checked)
     for item in chain:
         if not item.exists() and not item.is_symlink():
             continue
