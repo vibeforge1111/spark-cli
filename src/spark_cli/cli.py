@@ -53,6 +53,7 @@ from .security.approval import CommandContext, approval_required_for_command, pa
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.provider_transport import (
     open_pinned_provider_request as _open_pinned_provider_request,
+    read_llm_provider_json as _read_llm_provider_json,
     validated_llm_provider_endpoint as _validated_llm_provider_endpoint,
 )
 from .security.url_policy import (
@@ -14704,32 +14705,14 @@ def read_llm_provider_json(
     *,
     allow_local: bool,
 ) -> dict[str, Any]:
-    _parsed, address = _validated_llm_provider_endpoint(
-        request.full_url,
-        label=provider_label,
+    return _read_llm_provider_json(
+        request,
+        provider_label,
         allow_local=allow_local,
+        redact_sensitive=redact_sensitive_text,
+        endpoint_validator=_validated_llm_provider_endpoint,
+        request_opener=_open_pinned_provider_request,
     )
-    try:
-        response_body, status, reason = _open_pinned_provider_request(
-            request,
-            address=address,
-            timeout=60,
-        )
-    except (OSError, ssl.SSLError, TimeoutError) as exc:
-        detail = redact_sensitive_text(str(exc))
-        raise SystemExit(f"Could not reach {provider_label}: {detail}") from exc
-    if status < 200 or status >= 300:
-        body = redact_sensitive_text(response_body.decode("utf-8", errors="replace")).strip()
-        suffix = f": {body[:300]}" if body else ""
-        raise SystemExit(f"{provider_label} returned HTTP {status}: {reason}{suffix}")
-    raw = response_body.decode("utf-8")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
-    return payload
 
 
 def llm_cli_creationflags() -> int:

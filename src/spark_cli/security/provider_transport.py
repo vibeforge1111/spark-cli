@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import json
 import socket
 import ssl
 import urllib.parse
@@ -128,3 +129,40 @@ def open_pinned_provider_request(
         return payload, int(response.status), str(response.reason or "")
     finally:
         connection.close()
+
+
+def read_llm_provider_json(
+    request: urllib.request.Request,
+    provider_label: str,
+    *,
+    allow_local: bool,
+    redact_sensitive: Callable[[str], str],
+    endpoint_validator: Callable[..., tuple[urllib.parse.ParseResult, Address]] = validated_llm_provider_endpoint,
+    request_opener: Callable[..., tuple[bytes, int, str]] = open_pinned_provider_request,
+) -> dict[str, object]:
+    _parsed, address = endpoint_validator(
+        request.full_url,
+        label=provider_label,
+        allow_local=allow_local,
+    )
+    try:
+        response_body, status, reason = request_opener(
+            request,
+            address=address,
+            timeout=60,
+        )
+    except (OSError, ssl.SSLError, TimeoutError) as exc:
+        detail = redact_sensitive(str(exc))
+        raise SystemExit(f"Could not reach {provider_label}: {detail}") from exc
+    if status < 200 or status >= 300:
+        body = redact_sensitive(response_body.decode("utf-8", errors="replace")).strip()
+        suffix = f": {body[:300]}" if body else ""
+        raise SystemExit(f"{provider_label} returned HTTP {status}: {reason}{suffix}")
+    raw = response_body.decode("utf-8")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{provider_label} returned invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{provider_label} returned a JSON value instead of an object.")
+    return payload
