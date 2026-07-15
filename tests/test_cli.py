@@ -680,6 +680,13 @@ class SparkCliTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         resolve_safe_output_path(value, root=root)
 
+    def test_sandbox_output_path_preserves_lexical_root_after_canonical_safety_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            canonical = Path(tmp_dir).resolve()
+            lexical = Path(str(canonical).replace("/private/var/", "/var/", 1))
+            output = resolve_safe_output_path("artifact.txt", root=lexical)
+        self.assertEqual(output, lexical / "artifact.txt")
+
     def test_sandbox_output_path_rejects_windows_unsafe_characters(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -86,8 +86,8 @@ def discover_repo_root() -> Path:
     env_root = os.environ.get("SPARK_CLI_SOURCE_ROOT")
     candidates = []
     if env_root:
-        candidates.append(Path(env_root).expanduser())
-    package_root = Path(__file__).resolve().parents[2]
+        candidates.append(Path(os.path.abspath(os.fspath(Path(env_root).expanduser()))))
+    package_root = Path(os.path.abspath(os.fspath(Path(__file__).expanduser()))).parents[2]
     cwd = Path.cwd().resolve()
     candidates.extend([package_root, cwd, *cwd.parents])
     for candidate in candidates:
@@ -3158,11 +3158,11 @@ def resolve_policy_path(path: Path) -> Path:
 
 def policy_home_path(home: Path | None = None) -> Path:
     if home is not None:
-        return resolve_policy_path(home)
+        return home.expanduser()
     try:
-        return resolve_policy_path(Path.home())
+        return Path.home().expanduser()
     except RuntimeError:
-        return resolve_policy_path(SPARK_HOME.parent)
+        return SPARK_HOME.parent.expanduser()
 
 
 def policy_path_is_same_or_child(candidate: Path, parent: Path) -> bool:
@@ -3191,12 +3191,12 @@ def write_denied_prefixes(home: Path | None = None) -> list[Path]:
             value = os.environ.get(key)
             if value:
                 denied.append(path_type(value))
-    return [resolve_policy_path(path) for path in denied]
+    return denied
 
 
 def write_denied_paths(home: Path | None = None) -> list[Path]:
     home_path = policy_home_path(home)
-    return [resolve_policy_path(home_path / relative) for relative in WRITE_DENIED_HOME_PATHS]
+    return [home_path / relative for relative in WRITE_DENIED_HOME_PATHS]
 
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
