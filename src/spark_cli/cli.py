@@ -38,6 +38,7 @@ from xml.sax.saxutils import escape as xml_escape
 import tomllib
 
 from .env_files import normalize_env_file_value
+from .provider_auth import effective_provider_auth_mode
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
@@ -4349,33 +4350,6 @@ def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -
     return roles
 
 
-def effective_provider_auth_mode(
-    provider: str,
-    *,
-    configured_auth_mode: str = "not_configured",
-    api_key_configured: bool = False,
-    stored_secret_keys: set[str] | None = None,
-    base_url: str = "",
-) -> str:
-    """Resolve provider authentication from persisted and directly observed evidence."""
-    auth_mode = configured_auth_mode or "not_configured"
-    if auth_mode != "not_configured":
-        return auth_mode
-    spec = LLM_PROVIDER_ENV.get(provider, {})
-    api_key_secret = spec.get("api_key_secret")
-    if api_key_configured or (api_key_secret and api_key_secret in (stored_secret_keys or set())):
-        return "api_key"
-    if provider == "codex" and detect_codex_cli()["present"]:
-        return "codex_oauth"
-    if provider == "openai" and openai_base_url_kind(base_url) == "local":
-        return "local"
-    if provider == "anthropic" and detect_claude_code()["present"]:
-        return "claude_oauth"
-    if provider in {"lmstudio", "ollama"}:
-        return "local"
-    return "not_configured"
-
-
 def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
     if provider == "not_configured":
         return "not_configured"
@@ -4384,7 +4358,9 @@ def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
     return effective_provider_auth_mode(
         provider,
         api_key_configured=bool(api_key_env and env.get(api_key_env)),
-        base_url=env.get("OPENAI_BASE_URL", "") if provider == "openai" else "",
+        base_url_kind=openai_base_url_kind(env.get("OPENAI_BASE_URL")) if provider == "openai" else "default",
+        codex_cli_present=provider == "codex" and detect_codex_cli()["present"],
+        claude_cli_present=provider == "anthropic" and detect_claude_code()["present"],
     )
 
 
@@ -5965,12 +5941,16 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
             continue
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
         configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        provider_spec = LLM_PROVIDER_ENV.get(provider, {})
+        api_key_secret = provider_spec.get("api_key_secret")
         auth_mode = effective_provider_auth_mode(
             provider,
             configured_auth_mode=configured_auth_mode,
             api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
-            stored_secret_keys=stored_secret_keys,
-            base_url=str(state.get("base_url") or llm_state.get("base_url") or ""),
+            stored_secret_configured=bool(api_key_secret and api_key_secret in stored_secret_keys),
+            base_url_kind=openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")),
+            codex_cli_present=configured_auth_mode == "not_configured" and provider == "codex" and detect_codex_cli()["present"],
+            claude_cli_present=configured_auth_mode == "not_configured" and provider == "anthropic" and detect_claude_code()["present"],
         )
         role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
         role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
@@ -15039,12 +15019,15 @@ def provider_status_payload() -> dict[str, Any]:
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
         configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
         provider_spec = LLM_PROVIDER_ENV.get(provider, {})
+        api_key_secret = provider_spec.get("api_key_secret")
         auth_mode = effective_provider_auth_mode(
             provider,
             configured_auth_mode=configured_auth_mode,
             api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
-            stored_secret_keys=secret_keys,
-            base_url=str(state.get("base_url") or llm_state.get("base_url") or ""),
+            stored_secret_configured=bool(api_key_secret and api_key_secret in secret_keys),
+            base_url_kind=openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")),
+            codex_cli_present=configured_auth_mode == "not_configured" and provider == "codex" and detect_codex_cli()["present"],
+            claude_cli_present=configured_auth_mode == "not_configured" and provider == "anthropic" and detect_claude_code()["present"],
         )
         role_state = {
             "provider": provider,
