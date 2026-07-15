@@ -17,6 +17,7 @@ import secrets as py_secrets
 import shlex
 import shutil
 import signal
+import socket
 import ssl
 import stat
 import subprocess
@@ -40,7 +41,13 @@ from .env_files import normalize_env_file_value
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
-from .security.url_policy import UrlPolicy, validate_local_health_url, validate_url_safety
+from .security.url_policy import (
+    AddressResolver,
+    UrlPolicy,
+    validate_local_health_url,
+    validate_url_resolution,
+    validate_url_safety,
+)
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
@@ -12776,7 +12783,11 @@ def _endpoint_url_for_policy(raw_url: str) -> str:
     return normalized
 
 
-def endpoint_security_errors() -> list[str]:
+def endpoint_security_errors(
+    *,
+    resolve_dns: bool = False,
+    resolver: AddressResolver = socket.getaddrinfo,
+) -> list[str]:
     errors: list[str] = []
     provider_payload = provider_status_payload()
     urls: list[tuple[str, str]] = []
@@ -12795,13 +12806,12 @@ def endpoint_security_errors() -> list[str]:
 
     for label, raw_url in urls:
         errors.extend(_endpoint_url_hygiene_errors(raw_url, label=label))
-        errors.extend(
-            validate_url_safety(
-                _endpoint_url_for_policy(raw_url),
-                label=label,
-                policy=UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True),
-            )
-        )
+        policy = UrlPolicy(allow_local=True, allow_private_networks=False, require_https_for_remote=True)
+        normalized_url = _endpoint_url_for_policy(raw_url)
+        if resolve_dns:
+            errors.extend(validate_url_resolution(normalized_url, label=label, policy=policy, resolver=resolver))
+        else:
+            errors.extend(validate_url_safety(normalized_url, label=label, policy=policy))
     return errors
 
 
@@ -13054,7 +13064,7 @@ def collect_security_audit_payload(*, deep: bool = False, hosted: bool = False) 
         severity="medium",
     ))
 
-    endpoint_errors = endpoint_security_errors()
+    endpoint_errors = endpoint_security_errors(resolve_dns=deep)
     checks.append(security_check(
         "endpoint_safety",
         not endpoint_errors,

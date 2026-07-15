@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -3006,6 +3007,31 @@ class SparkCliTests(unittest.TestCase):
     def test_url_policy_can_block_local_targets_for_hosted_tools(self) -> None:
         errors = validate_url_safety("http://127.0.0.1:11434", label="hosted provider", policy=UrlPolicy(allow_local=False))
         self.assertTrue(any("local-only host" in error for error in errors))
+
+    def test_deep_endpoint_security_checks_every_dns_address(self) -> None:
+        provider_payload = {
+            "ok": True,
+            "roles": {
+                "chat": {
+                    "provider": "openai",
+                    "model": "x",
+                    "auth_mode": "api_key",
+                    "ready": True,
+                    "base_url": "https://mixed.example/v1",
+                }
+            },
+        }
+
+        def mixed_resolver(*_args: object) -> list[tuple[int, int, int, str, tuple[object, ...]]]:
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 0)),
+            ]
+
+        with patch("spark_cli.cli.provider_status_payload", return_value=provider_payload), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            errors = endpoint_security_errors(resolve_dns=True, resolver=mixed_resolver)
+        self.assertTrue(any("private network" in error for error in errors), errors)
 
     def test_provider_test_uses_configured_target_and_redacts_failures(self) -> None:
         with patch("spark_cli.cli.resolve_provider_test_target", return_value={
