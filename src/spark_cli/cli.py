@@ -4349,25 +4349,43 @@ def resolve_llm_roles(args: argparse.Namespace, secret_values: dict[str, str]) -
     return roles
 
 
-def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
-    if provider == "not_configured":
-        return "not_configured"
-    spec = LLM_PROVIDER_ENV[provider]
-    api_key_env = spec.get("api_key_env")
-    if api_key_env and env.get(api_key_env):
+def effective_provider_auth_mode(
+    provider: str,
+    *,
+    configured_auth_mode: str = "not_configured",
+    api_key_configured: bool = False,
+    stored_secret_keys: set[str] | None = None,
+    base_url: str = "",
+) -> str:
+    """Resolve provider authentication from persisted and directly observed evidence."""
+    auth_mode = configured_auth_mode or "not_configured"
+    if auth_mode != "not_configured":
+        return auth_mode
+    spec = LLM_PROVIDER_ENV.get(provider, {})
+    api_key_secret = spec.get("api_key_secret")
+    if api_key_configured or (api_key_secret and api_key_secret in (stored_secret_keys or set())):
         return "api_key"
     if provider == "codex" and detect_codex_cli()["present"]:
         return "codex_oauth"
-    if provider == "openai":
-        base_kind = openai_base_url_kind(env.get("OPENAI_BASE_URL"))
-        if base_kind == "local":
-            return "local"
-        return "not_configured"
+    if provider == "openai" and openai_base_url_kind(base_url) == "local":
+        return "local"
     if provider == "anthropic" and detect_claude_code()["present"]:
         return "claude_oauth"
     if provider in {"lmstudio", "ollama"}:
         return "local"
     return "not_configured"
+
+
+def provider_auth_mode(provider: str, env: dict[str, str]) -> str:
+    if provider == "not_configured":
+        return "not_configured"
+    spec = LLM_PROVIDER_ENV[provider]
+    api_key_env = spec.get("api_key_env")
+    return effective_provider_auth_mode(
+        provider,
+        api_key_configured=bool(api_key_env and env.get(api_key_env)),
+        base_url=env.get("OPENAI_BASE_URL", "") if provider == "openai" else "",
+    )
 
 
 def build_llm_env(args: argparse.Namespace, secret_values: dict[str, str]) -> tuple[str, dict[str, str]]:
@@ -5946,26 +5964,14 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
         if not isinstance(state, dict):
             continue
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
-        provider_spec = LLM_PROVIDER_ENV.get(provider, {})
-        api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in stored_secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
+        configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        auth_mode = effective_provider_auth_mode(
+            provider,
+            configured_auth_mode=configured_auth_mode,
+            api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
+            stored_secret_keys=stored_secret_keys,
+            base_url=str(state.get("base_url") or llm_state.get("base_url") or ""),
+        )
         role_label = "LLM provider" if role == "all" else f"LLM role `{role}`"
         role_flag = "--llm-provider" if role == "all" else f"--{role}-llm-provider"
         if provider == "not_configured":
@@ -15024,31 +15030,22 @@ def provider_status_payload() -> dict[str, Any]:
     if not isinstance(roles, dict):
         roles = {role: llm_state for role in LLM_ROLES}
     role_payload: dict[str, Any] = {}
+    codex_auth: dict[str, Any] | None = None
+    codex_client: dict[str, Any] | None = None
     for role in LLM_ROLES:
         state = roles.get(role, {})
         if not isinstance(state, dict):
             state = {}
         provider = str(state.get("provider") or llm_state.get("provider") or "not_configured")
-        auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
+        configured_auth_mode = str(state.get("auth_mode") or llm_state.get("auth_mode") or "not_configured")
         provider_spec = LLM_PROVIDER_ENV.get(provider, {})
-        api_key_secret = provider_spec.get("api_key_secret")
-        if auth_mode == "not_configured":
-            if bool(state.get("api_key_configured") or llm_state.get("api_key_configured")):
-                auth_mode = "api_key"
-            elif api_key_secret and api_key_secret in secret_keys:
-                auth_mode = "api_key"
-            elif provider == "codex" and detect_codex_cli()["present"]:
-                auth_mode = "codex_oauth"
-            elif provider == "openai":
-                base_kind = openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or ""))
-                if base_kind == "local":
-                    auth_mode = "local"
-                elif base_kind == "default" and detect_codex_cli()["present"]:
-                    auth_mode = "codex_oauth"
-            elif provider == "anthropic" and detect_claude_code()["present"]:
-                auth_mode = "claude_oauth"
-            elif provider == "ollama":
-                auth_mode = "local"
+        auth_mode = effective_provider_auth_mode(
+            provider,
+            configured_auth_mode=configured_auth_mode,
+            api_key_configured=bool(state.get("api_key_configured") or llm_state.get("api_key_configured")),
+            stored_secret_keys=secret_keys,
+            base_url=str(state.get("base_url") or llm_state.get("base_url") or ""),
+        )
         role_state = {
             "provider": provider,
             "bot_provider": state.get("bot_provider") or provider_spec.get("bot_provider"),
@@ -15058,12 +15055,18 @@ def provider_status_payload() -> dict[str, Any]:
             "ready": provider != "not_configured" and auth_mode != "not_configured",
         }
         if provider in {"codex", "openai"} and auth_mode == "codex_oauth":
-            codex_auth = codex_cli_auth_payload()
+            if codex_auth is None:
+                codex_auth = codex_cli_auth_payload()
             role_state["codex_auth"] = codex_auth
             if not codex_auth.get("ok"):
                 role_state["ready"] = False
-        if provider == "codex" and auth_mode == "codex_oauth":
-            role_state["codex_client"] = codex_client_config_payload()
+            if codex_client is None:
+                codex_client = codex_client_config_payload()
+            role_state["codex_client"] = codex_client
+            values = codex_client.get("values") if isinstance(codex_client.get("values"), dict) else {}
+            client_model = _safe_codex_client_value(values.get("model"))
+            if client_model:
+                role_state["model"] = client_model
         role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
     return {

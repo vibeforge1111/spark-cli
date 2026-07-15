@@ -12152,7 +12152,8 @@ class SparkCliTests(unittest.TestCase):
         }
         auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
         with patch("spark_cli.cli.load_json", return_value=setup_state), \
-             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload):
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value={"ok": True, "values": {"model": "gpt-5.5"}}):
             payload = provider_status_payload()
         self.assertFalse(payload["ok"])
         self.assertTrue(payload["roles"]["chat"]["ready"])
@@ -12213,7 +12214,8 @@ class SparkCliTests(unittest.TestCase):
         }
         auth_payload = {"ok": True, "exists": True, "source": "codex_cli_auth", "notes": []}
         with patch("spark_cli.cli.load_json", return_value=setup_state), \
-             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload):
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value=auth_payload), \
+             patch("spark_cli.cli.codex_client_config_payload", return_value={"ok": True, "values": {"model": "gpt-5.5"}}):
             payload = provider_status_payload()
         self.assertTrue(payload["ok"])
         for role in ("chat", "builder", "memory", "mission"):
