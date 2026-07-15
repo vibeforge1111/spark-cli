@@ -12333,6 +12333,7 @@ class SparkCliTests(unittest.TestCase):
             patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean", "findings": []}), \
             patch("spark_cli.cli.Path.exists", return_value=True), \
             patch("spark_cli.cli.resolve_bundle_names", return_value=expected), \
+            patch("spark_cli.cli.telegram_profile_has_startable_token", return_value=True), \
             patch("spark_cli.cli.pid_is_running", return_value=True):
             payload = collect_verify_payload()
         self.assertTrue(payload["ok"])
@@ -13257,7 +13258,8 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-voice-comms", "ok": False}]}), \
-             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-26-r29", "ref": "spark-cli-public-installer-2026-06-26-r29"}}):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
@@ -13277,8 +13279,6 @@ class SparkCliTests(unittest.TestCase):
             [
                 "publish_handoffs",
                 "owner_handoff_manifest",
-                "local_runtime_artifacts_handoff",
-                "r30_owner_handoff_patch_apply",
                 "release_lane",
                 "registry_pins",
             ],
@@ -13375,10 +13375,7 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(
             checks["publication_order"]["source_truth_blockers"],
             [
-                "publish_handoffs",
                 "owner_handoff_manifest",
-                "local_runtime_artifacts_handoff",
-                "r30_owner_handoff_patch_apply",
                 "release_lane",
                 "registry_pins",
             ],
@@ -13497,7 +13494,8 @@ class SparkCliTests(unittest.TestCase):
              patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": False}), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": True, "summary": "pins ok", "checks": []}), \
-             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}):
+             patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-26-r29", "ref": "spark-cli-public-installer-2026-06-26-r29"}}):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
