@@ -8777,6 +8777,45 @@ class Sandbox:
 
         self.assertEqual(args.live_command, "status")
 
+    def test_live_status_reports_unhealthy_module_count_through_main(self) -> None:
+        payload = {
+            "ok": False,
+            "modules": [
+                {"name": "spawner-ui", "healthy": False, "detail": "not ready"},
+                {"name": "spark-telegram-bot", "healthy": False, "detail": "not ready"},
+                {"name": "spark-character", "healthy": True, "detail": "ready"},
+                {"name": "spark-researcher", "healthy": None, "detail": "not checked"},
+                "malformed-module-record",
+            ],
+            "repair_hints": [],
+        }
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.collect_status_payload", return_value=payload), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["live", "status"]), 1)
+
+        self.assertIn("[FIX] Spark Live needs attention (2 module(s) unhealthy).", stdout.getvalue())
+
+    def test_live_status_does_not_count_unknown_or_malformed_health(self) -> None:
+        payload = {
+            "ok": False,
+            "modules": [
+                {"name": "spark-researcher", "healthy": None, "detail": "not checked"},
+                {"name": "spark-character", "healthy": "false", "detail": "invalid health shape"},
+                "malformed-module-record",
+            ],
+            "repair_hints": [],
+        }
+
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.collect_status_payload", return_value=payload), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["live", "status"]), 1)
+
+        self.assertIn("[FIX] Spark Live needs attention.", stdout.getvalue())
+        self.assertNotIn("module(s) unhealthy", stdout.getvalue())
+
     def test_live_run_starts_stack_and_follows_logs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, \
              patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
