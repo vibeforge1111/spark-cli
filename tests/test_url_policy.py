@@ -3,6 +3,11 @@ from __future__ import annotations
 import unittest
 
 import socket
+import threading
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 
 from spark_cli.security.url_policy import (
     UrlPolicy,
@@ -98,6 +103,41 @@ class UrlPolicyTests(unittest.TestCase):
     def test_local_health_policy_rejects_credentials_and_malformed_ports(self) -> None:
         self.assertTrue(validate_local_health_url("http://user:secret@127.0.0.1:8080/health"))
         self.assertTrue(validate_local_health_url("http://127.0.0.1:99999/health"))
+
+    def test_local_health_fetch_does_not_follow_redirects(self) -> None:
+        from spark_cli.cli import local_health_urlopen
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", "http://169.254.169.254/latest/meta-data/")
+                self.end_headers()
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/redirect")
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                local_health_urlopen(request, timeout=2)
+            self.assertEqual(raised.exception.code, 302)
+            raised.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_local_health_fetch_rejects_remote_target_before_opening(self) -> None:
+        from spark_cli.cli import local_health_urlopen
+
+        request = urllib.request.Request("http://169.254.169.254:80/latest/meta-data/")
+        with patch("spark_cli.cli.urllib.request.build_opener") as build_opener:
+            with self.assertRaises(urllib.error.URLError):
+                local_health_urlopen(request, timeout=2)
+        build_opener.assert_not_called()
 
 
 if __name__ == "__main__":

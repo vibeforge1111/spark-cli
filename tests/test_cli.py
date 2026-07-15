@@ -8404,7 +8404,7 @@ class SparkCliTests(unittest.TestCase):
             },
         )
 
-        with patch("spark_cli.cli.urllib.request.urlopen", side_effect=urllib.error.URLError(ConnectionRefusedError())), \
+        with patch("spark_cli.cli.local_health_urlopen", side_effect=urllib.error.URLError(ConnectionRefusedError())), \
              patch("spark_cli.cli.time.time", side_effect=[100.0, 100.5, 101.5]), \
              patch("spark_cli.cli.time.sleep", return_value=None):
             ready, detail = wait_for_ready_check(module)
@@ -8433,7 +8433,7 @@ class SparkCliTests(unittest.TestCase):
             def __exit__(self, *args: object) -> None:
                 return None
 
-        with patch("spark_cli.cli.urllib.request.urlopen", side_effect=[ConnectionResetError("reset"), ReadyResponse()]), \
+        with patch("spark_cli.cli.local_health_urlopen", side_effect=[ConnectionResetError("reset"), ReadyResponse()]), \
              patch("spark_cli.cli.time.time", side_effect=[100.0, 100.5, 101.5]), \
              patch("spark_cli.cli.time.sleep", return_value=None):
             ready, detail = wait_for_ready_check(module)
@@ -8456,7 +8456,7 @@ class SparkCliTests(unittest.TestCase):
             def poll(self) -> int:
                 return 127
 
-        with patch("spark_cli.cli.urllib.request.urlopen") as urlopen:
+        with patch("spark_cli.cli.local_health_urlopen") as urlopen:
             ready, detail = wait_for_ready_check(module, process=ExitedProcess())  # type: ignore[arg-type]
 
         self.assertFalse(ready)
@@ -8992,7 +8992,7 @@ class SparkCliTests(unittest.TestCase):
         )
 
         with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1", "SPARK_SPAWNER_PORT": "8080"}), \
-             patch("spark_cli.cli.urllib.request.urlopen", return_value=Response()), \
+             patch("spark_cli.cli.local_health_urlopen", return_value=Response()), \
              patch("spark_cli.cli.run_runtime_command") as run_runtime:
             result = evaluate_module_health(module)
 
@@ -9012,7 +9012,7 @@ class SparkCliTests(unittest.TestCase):
         )
 
         with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
-             patch("spark_cli.cli.urllib.request.urlopen", side_effect=urllib.error.URLError("down")), \
+             patch("spark_cli.cli.local_health_urlopen", side_effect=urllib.error.URLError("down")), \
              patch("spark_cli.cli.run_runtime_command") as run_runtime:
             result = evaluate_module_health(module)
 
@@ -9032,7 +9032,7 @@ class SparkCliTests(unittest.TestCase):
         )
 
         with patch("spark_cli.cli.module_runtime_env", return_value={"SPARK_LIVE_CONTAINER": "1"}), \
-             patch("spark_cli.cli.urllib.request.urlopen", side_effect=TimeoutError("slow")), \
+             patch("spark_cli.cli.local_health_urlopen", side_effect=TimeoutError("slow")), \
              patch("spark_cli.cli.run_runtime_command") as run_runtime:
             result = evaluate_module_health(module)
 
@@ -9053,7 +9053,7 @@ class SparkCliTests(unittest.TestCase):
 
         with patch("spark_cli.cli.module_runtime_env", return_value={}), \
              patch("spark_cli.cli.load_pids", return_value={}), \
-             patch("spark_cli.cli.urllib.request.urlopen") as urlopen, \
+             patch("spark_cli.cli.local_health_urlopen") as urlopen, \
              patch("spark_cli.cli.run_runtime_command") as run_runtime:
             result = evaluate_module_health(module)
 

@@ -40,7 +40,7 @@ from .env_files import normalize_env_file_value
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
-from .security.url_policy import UrlPolicy, validate_url_safety
+from .security.url_policy import UrlPolicy, validate_local_health_url, validate_url_safety
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
@@ -5711,7 +5711,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
         try:
             request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
-            with urllib.request.urlopen(request, timeout=ready_timeout_seconds(module)) as response:
+            with local_health_urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
         except (urllib.error.URLError, TimeoutError) as exc:
@@ -17403,7 +17403,7 @@ def wait_for_ready_check(
         if ready_check.startswith(("http://", "https://")):
             try:
                 request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
-                with urllib.request.urlopen(request, timeout=2) as response:
+                with local_health_urlopen(request, timeout=2) as response:
                     if 200 <= int(response.status) < 400:
                         return True, ready_check
                     last_error = f"ready check returned HTTP {response.status}"
@@ -17443,6 +17443,30 @@ def ready_check_headers(ready_check: str) -> dict[str, str]:
     if not key:
         return {}
     return {"x-spawner-ui-key": key, "x-api-key": key}
+
+
+class _RejectLocalHealthRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        file_pointer: Any,
+        code: int,
+        message: str,
+        headers: Any,
+        new_url: str,
+    ) -> None:
+        return None
+
+
+def local_health_urlopen(request: urllib.request.Request, *, timeout: int):
+    errors = validate_local_health_url(request.full_url)
+    if errors:
+        raise urllib.error.URLError(" ".join(errors))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _RejectLocalHealthRedirects(),
+    )
+    return opener.open(request, timeout=timeout)
 
 
 def direct_node_package_script_argv(command: str, cwd: Path) -> list[str] | None:
