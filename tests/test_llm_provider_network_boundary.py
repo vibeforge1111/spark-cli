@@ -149,3 +149,35 @@ def test_provider_redirect_is_reported_without_following_location() -> None:
             read_llm_provider_json(request, "LLM provider", allow_local=False)
 
     transport.assert_called_once()
+
+
+def test_provider_response_is_bounded_and_connection_is_closed() -> None:
+    request = urllib.request.Request("https://api.example.test/v1/chat/completions")
+    captured: dict[str, object] = {}
+
+    class OversizedResponse:
+        status = 200
+        reason = "OK"
+
+        def read(self, size: int = -1) -> bytes:
+            return b"x" * size
+
+    class FakeConnection:
+        def request(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def getresponse(self) -> OversizedResponse:
+            return OversizedResponse()
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    with pytest.raises(SystemExit, match="response exceeded"):
+        _open_pinned_provider_request(
+            request,
+            address="8.8.8.8",
+            timeout=60,
+            connection_factory=lambda *_args: FakeConnection(),
+        )
+
+    assert captured["closed"] is True
