@@ -78,7 +78,7 @@ def test_ollama_can_use_canonical_loopback_but_not_other_private_hosts() -> None
     assert parsed.hostname == "localhost"
     assert str(address) == "127.0.0.1"
 
-    with pytest.raises(SystemExit, match="private network"):
+    with pytest.raises(SystemExit, match="URL rejected"):
         _validated_llm_provider_endpoint(
             "http://ollama.internal:11434/api/chat",
             label="Ollama",

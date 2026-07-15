@@ -149,21 +149,38 @@ def validate_url_resolution(
     policy: UrlPolicy | None = None,
     resolver: AddressResolver = socket.getaddrinfo,
 ) -> list[str]:
+    _addresses, errors = resolve_url_addresses(
+        raw_url,
+        label=label,
+        policy=policy,
+        resolver=resolver,
+    )
+    return errors
+
+
+def resolve_url_addresses(
+    raw_url: str,
+    *,
+    label: str = "URL",
+    policy: UrlPolicy | None = None,
+    resolver: AddressResolver = socket.getaddrinfo,
+) -> tuple[tuple[Address, ...], list[str]]:
+    """Validate a URL and return the exact address set that passed policy."""
     active_policy = policy or UrlPolicy()
     errors = validate_url_safety(raw_url, label=label, policy=active_policy)
     if errors:
-        return errors
+        return (), errors
     parsed = _parse_url(str(raw_url or "").strip())
     host = (parsed.hostname or "").strip().lower().rstrip(".")
     try:
         addresses = resolve_host_addresses(host, resolver=resolver)
     except (socket.gaierror, OSError, ValueError):
-        return [f"{label} hostname `{host}` could not be resolved safely."]
+        return (), [f"{label} hostname `{host}` could not be resolved safely."]
     if not addresses:
-        return [f"{label} hostname `{host}` did not resolve to an IP address."]
+        return (), [f"{label} hostname `{host}` did not resolve to an IP address."]
     for address in addresses:
         errors.extend(_address_safety_errors(address, host=host, label=label, policy=active_policy))
-    return list(dict.fromkeys(errors))
+    return addresses, list(dict.fromkeys(errors))
 
 
 def validate_local_health_url(raw_url: str, *, label: str = "health check URL") -> list[str]:

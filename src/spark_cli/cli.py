@@ -51,6 +51,10 @@ from .secret_storage_notice import warn_insecure_file_secret_storage
 from .secret_help import SECRET_BACKEND_HELP, SECRET_ID_DELETE_HELP, SECRET_ID_GET_HELP, SECRET_ID_SET_HELP
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
+from .security.provider_transport import (
+    open_pinned_provider_request as _open_pinned_provider_request,
+    validated_llm_provider_endpoint as _validated_llm_provider_endpoint,
+)
 from .security.url_policy import (
     AddressResolver,
     UrlPolicy,
@@ -14658,7 +14662,7 @@ def openai_compatible_chat_completion(target: dict[str, Any], prompt: str) -> st
         },
         method="POST",
     )
-    payload = read_llm_provider_json(request, "LLM provider")
+    payload = read_llm_provider_json(request, "LLM provider", allow_local=False)
     choices = payload.get("choices")
     if not choices:
         raise SystemExit("LLM provider returned no choices.")
@@ -14686,7 +14690,7 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    payload = read_llm_provider_json(request, "Ollama")
+    payload = read_llm_provider_json(request, "Ollama", allow_local=True)
     message = payload.get("message") if isinstance(payload, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if not content:
@@ -14694,19 +14698,31 @@ def ollama_chat_completion(target: dict[str, Any], prompt: str) -> str:
     return str(content)
 
 
-def read_llm_provider_json(request: urllib.request.Request, provider_label: str) -> dict[str, Any]:
+def read_llm_provider_json(
+    request: urllib.request.Request,
+    provider_label: str,
+    *,
+    allow_local: bool,
+) -> dict[str, Any]:
+    _parsed, address = _validated_llm_provider_endpoint(
+        request.full_url,
+        label=provider_label,
+        allow_local=allow_local,
+    )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            raw = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = redact_sensitive_text(exc.read().decode("utf-8", errors="replace")).strip()
+        response_body, status, reason = _open_pinned_provider_request(
+            request,
+            address=address,
+            timeout=60,
+        )
+    except (OSError, ssl.SSLError, TimeoutError) as exc:
+        detail = redact_sensitive_text(str(exc))
+        raise SystemExit(f"Could not reach {provider_label}: {detail}") from exc
+    if status < 200 or status >= 300:
+        body = redact_sensitive_text(response_body.decode("utf-8", errors="replace")).strip()
         suffix = f": {body[:300]}" if body else ""
-        raise SystemExit(f"{provider_label} returned HTTP {exc.code}: {exc.reason}{suffix}") from exc
-    except urllib.error.URLError as exc:
-        reason = redact_sensitive_text(str(exc.reason))
-        raise SystemExit(f"Could not reach {provider_label}: {reason}") from exc
-    except TimeoutError as exc:
-        raise SystemExit(f"Timed out while reaching {provider_label}.") from exc
+        raise SystemExit(f"{provider_label} returned HTTP {status}: {reason}{suffix}")
+    raw = response_body.decode("utf-8")
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
