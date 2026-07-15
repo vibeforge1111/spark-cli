@@ -4,7 +4,13 @@ import unittest
 
 import socket
 
-from spark_cli.security.url_policy import UrlPolicy, resolve_host_addresses, validate_url_resolution, validate_url_safety
+from spark_cli.security.url_policy import (
+    UrlPolicy,
+    resolve_host_addresses,
+    validate_local_health_url,
+    validate_url_resolution,
+    validate_url_safety,
+)
 
 
 class UrlPolicyTests(unittest.TestCase):
@@ -67,6 +73,31 @@ class UrlPolicyTests(unittest.TestCase):
     def test_unresolved_environment_placeholder_is_not_treated_as_safe(self) -> None:
         errors = validate_url_safety("${ATTACKER_URL}", label="module endpoint")
         self.assertTrue(errors)
+
+    def test_local_health_policy_accepts_only_explicit_loopback_targets(self) -> None:
+        for url in (
+            "http://127.0.0.1:3333/api/health/live",
+            "http://localhost:8080/health",
+            "https://[::1]:8443/health",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(validate_local_health_url(url), [])
+
+    def test_local_health_policy_rejects_remote_private_and_alias_targets(self) -> None:
+        for url in (
+            "https://example.com:443/health",
+            "http://10.0.0.8:8080/health",
+            "http://169.254.169.254:80/latest/meta-data",
+            "http://service.internal:8080/health",
+            "http://0177.0.0.1:8080/health",
+            "http://127.0.0.1/health",
+        ):
+            with self.subTest(url=url):
+                self.assertTrue(validate_local_health_url(url))
+
+    def test_local_health_policy_rejects_credentials_and_malformed_ports(self) -> None:
+        self.assertTrue(validate_local_health_url("http://user:secret@127.0.0.1:8080/health"))
+        self.assertTrue(validate_local_health_url("http://127.0.0.1:99999/health"))
 
 
 if __name__ == "__main__":

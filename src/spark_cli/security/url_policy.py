@@ -166,6 +166,30 @@ def validate_url_resolution(
     return list(dict.fromkeys(errors))
 
 
+def validate_local_health_url(raw_url: str, *, label: str = "health check URL") -> list[str]:
+    value = str(raw_url or "").strip()
+    if not value:
+        return [f"{label} is empty."]
+    try:
+        parsed = urllib.parse.urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return [f"{label} is malformed."]
+    if parsed.scheme not in {"http", "https"}:
+        return [f"{label} must use HTTP or HTTPS."]
+    if parsed.username is not None or parsed.password is not None:
+        return [f"{label} must not contain URL credentials."]
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return [f"{label} has no hostname."]
+    if port is None:
+        return [f"{label} must declare an explicit loopback port."]
+    canonical_literal = _normalized_address(host.strip("[]"))
+    if host != "localhost" and (canonical_literal is None or not canonical_literal.is_loopback):
+        return [f"{label} must target a canonical loopback address or `localhost`, not `{host}`."]
+    return []
+
+
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
     value = str(raw_url or "").strip()
