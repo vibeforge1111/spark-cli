@@ -1418,7 +1418,7 @@ def schedule_deferred_windows_purge(target: Path) -> None:
         "\n".join(
             [
                 "@echo off",
-                f'set "SPARK_PURGE_TARGET={target}"',
+                "if not defined SPARK_PURGE_TARGET exit /b 1",
                 "timeout /t 2 /nobreak >nul",
                 'icacls "%SPARK_PURGE_TARGET%" /grant "%USERDOMAIN%\\%USERNAME%:(OI)(CI)F" /T /C >nul 2>nul',
                 "for /l %%i in (1,1,30) do (",
@@ -1439,8 +1439,8 @@ def schedule_deferred_windows_purge(target: Path) -> None:
         | getattr(subprocess, "DETACHED_PROCESS", 0)
     )
     subprocess.Popen(
-        ["cmd.exe", "/c", str(script_path)],
-        close_fds=True,
+        ["cmd.exe", "/d", "/c", str(script_path)],
+        env={**os.environ, "SPARK_PURGE_TARGET": str(target)}, close_fds=True,
         creationflags=creationflags,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

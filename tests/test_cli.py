@@ -7431,7 +7431,7 @@ class Sandbox:
             scripts = list(temp_root.glob("spark-purge-home-*.cmd"))
             self.assertEqual(len(scripts), 1)
             script = scripts[0].read_text(encoding="utf-8")
-            self.assertIn(str(target), script)
+            self.assertNotIn(str(target), script)
             self.assertIn("icacls", script)
             self.assertIn("rmdir /s /q", script)
             self.assertNotIn("tasklist", script)
