@@ -1784,6 +1784,8 @@ def assert_no_linked_write_path(path: Path) -> None:
     chain = [*reversed(checked.parent.parents), checked.parent]
     if checked.exists() or checked.is_symlink():
         chain.append(checked)
+    if expanded != checked and (expanded.exists() or expanded.is_symlink()):
+        chain.append(expanded)
     for item in chain:
         if not item.exists() and not item.is_symlink():
             continue

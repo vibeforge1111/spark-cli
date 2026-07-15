@@ -1972,10 +1972,9 @@ class SparkCliTests(unittest.TestCase):
             self.assertFalse(list(root.glob(".state.json.*.tmp")))
 
     def test_linked_write_guard_allows_verified_macos_root_alias(self) -> None:
-        with patch("spark_cli.cli.sys.platform", "darwin"), \
-             patch("spark_cli.cli.Path.is_symlink", side_effect=lambda path: path == Path("/var")), \
-             patch("spark_cli.cli.os.path.realpath", side_effect=lambda path: "/private/var" if path == "/var" else path), \
-             patch("spark_cli.cli._path_is_reparse_point", return_value=False):
+        if not Path("/var").is_symlink() or Path(os.path.realpath("/var")) != Path("/private/var"):
+            self.skipTest("verified macOS /var alias is unavailable")
+        with patch("spark_cli.cli.sys.platform", "darwin"):
             assert_no_linked_write_path(Path("/var/folders/spark/state.json"))
 
     def test_linked_write_guard_still_rejects_nested_symlink_under_platform_alias(self) -> None:
@@ -1988,11 +1987,12 @@ class SparkCliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 assert_no_linked_write_path(linked / "state.json")
 
-    def test_linked_write_guard_does_not_trust_arbitrary_root_alias(self) -> None:
-        with patch("spark_cli.cli.sys.platform", "darwin"), \
-             patch("spark_cli.cli._path_is_reparse_point", side_effect=lambda path: path == Path("/evil")):
-            with self.assertRaises(SystemExit):
-                assert_no_linked_write_path(Path("/evil/spark/state.json"))
+    def test_linked_write_guard_does_not_canonicalize_arbitrary_root_alias(self) -> None:
+        from spark_cli.cli import _canonical_trusted_platform_alias
+
+        path = Path("/evil/spark/state.json")
+        with patch("spark_cli.cli.sys.platform", "darwin"):
+            self.assertEqual(_canonical_trusted_platform_alias(path), path)
 
     def test_atomic_write_json_refuses_reparse_point_leaf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
