@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -97,6 +99,73 @@ def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
         return None
 
 
+Address = ipaddress.IPv4Address | ipaddress.IPv6Address
+AddressResolver = Callable[..., list[tuple[int, int, int, str, tuple[object, ...]]]]
+
+
+def _normalized_address(value: str) -> Address | None:
+    try:
+        address = ipaddress.ip_address(value.split("%", 1)[0])
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def resolve_host_addresses(host: str, *, resolver: AddressResolver = socket.getaddrinfo) -> tuple[Address, ...]:
+    literal = _host_ip(host)
+    if literal is not None:
+        return (literal,)
+    records = resolver(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    addresses: list[Address] = []
+    seen: set[str] = set()
+    for _family, _kind, _protocol, _canonical_name, socket_address in records:
+        if not socket_address:
+            continue
+        address = _normalized_address(str(socket_address[0]))
+        if address is None or str(address) in seen:
+            continue
+        seen.add(str(address))
+        addresses.append(address)
+    return tuple(addresses)
+
+
+def _address_safety_errors(address: Address, *, host: str, label: str, policy: UrlPolicy) -> list[str]:
+    errors: list[str] = []
+    if address.is_loopback and not policy.allow_local:
+        errors.append(f"{label} points at local-only host `{host}`.")
+    if address.is_unspecified or address.is_multicast or address.is_link_local:
+        errors.append(f"{label} points at unsafe network address `{host}`.")
+    elif address.is_private and not address.is_loopback and not policy.allow_private_networks:
+        errors.append(f"{label} points at private network address `{host}`.")
+    return errors
+
+
+def validate_url_resolution(
+    raw_url: str,
+    *,
+    label: str = "URL",
+    policy: UrlPolicy | None = None,
+    resolver: AddressResolver = socket.getaddrinfo,
+) -> list[str]:
+    active_policy = policy or UrlPolicy()
+    errors = validate_url_safety(raw_url, label=label, policy=active_policy)
+    if errors:
+        return errors
+    parsed = _parse_url(str(raw_url or "").strip())
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    try:
+        addresses = resolve_host_addresses(host, resolver=resolver)
+    except (socket.gaierror, OSError, ValueError):
+        return [f"{label} hostname `{host}` could not be resolved safely."]
+    if not addresses:
+        return [f"{label} hostname `{host}` did not resolve to an IP address."]
+    for address in addresses:
+        errors.extend(_address_safety_errors(address, host=host, label=label, policy=active_policy))
+    return list(dict.fromkeys(errors))
+
+
 def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy | None = None) -> list[str]:
     active_policy = policy or UrlPolicy()
     value = str(raw_url or "").strip()
@@ -121,10 +190,7 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
     if is_local and not active_policy.allow_local:
         errors.append(f"{label} points at local-only host `{host}`.")
     if ip is not None:
-        if ip.is_unspecified or ip.is_multicast or ip.is_link_local:
-            errors.append(f"{label} points at unsafe network address `{host}`.")
-        elif ip.is_private and not ip.is_loopback and not active_policy.allow_private_networks:
-            errors.append(f"{label} points at private network address `{host}`.")
+        errors.extend(_address_safety_errors(ip, host=host, label=label, policy=active_policy))
     if active_policy.require_https_for_remote and not is_local and parsed.scheme != "https":
         errors.append(f"{label} uses non-HTTPS remote endpoint `{value}`.")
     return errors
