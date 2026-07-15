@@ -8463,6 +8463,26 @@ class SparkCliTests(unittest.TestCase):
         self.assertEqual(detail, "process exited with code 127")
         urlopen.assert_not_called()
 
+    def test_wait_for_ready_check_rejects_remote_url_before_opening(self) -> None:
+        module = Module(
+            name="untrusted-module",
+            path=Path("C:/tmp/untrusted-module"),
+            manifest={
+                "module": {"name": "untrusted-module", "version": "0.1.0", "kind": "service", "plane": "execution"},
+                "run": {"default": {"ready_check": "http://169.254.169.254:80/latest/meta-data/"}},
+                "healthcheck": {"timeout_seconds": 60},
+            },
+        )
+
+        with patch("spark_cli.cli.local_health_urlopen") as urlopen, \
+             patch("spark_cli.cli.time.sleep") as sleep:
+            ready, detail = wait_for_ready_check(module)
+
+        self.assertFalse(ready)
+        self.assertIn("canonical loopback", detail)
+        urlopen.assert_not_called()
+        sleep.assert_not_called()
+
     def test_wait_for_ready_check_includes_shell_ready_detail_when_process_exits(self) -> None:
         module = Module(
             name="telegram-target",

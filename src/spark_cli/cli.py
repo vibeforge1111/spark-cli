@@ -17382,6 +17382,11 @@ def wait_for_ready_check(
             time.sleep(0.2)
         return True, "process is running"
 
+    if ready_check.startswith(("http://", "https://")):
+        url_errors = validate_local_health_url(ready_check, label=f"{module.name} ready check URL")
+        if url_errors:
+            return False, " ".join(url_errors)
+
     deadline = time.time() + timeout_seconds
     last_error = "ready check did not pass before timeout"
     while time.time() < deadline:
