@@ -1475,11 +1475,11 @@ class Sandbox:
                 home=home,
             )
             probe_hash = ssh_smoke_probe_hash()
-            remote_path = f"/tmp/spark-sandbox-smoke-odyssey-vps-{probe_hash[:12]}.sh"
+            remote_path = "/tmp/spark-sandbox-smoke-odyssey-vps-0123456789abcdef0123456789abcdef/probe.sh"
             cleanup_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, home=home)[-1]
             keep_command = ssh_smoke_execute_argv(target, remote_path, probe_hash, keep_debug_files=True, home=home)[-1]
             self.assertIn("trap cleanup EXIT", cleanup_command)
-            self.assertIn("rm -f", cleanup_command)
+            self.assertIn("rm -rf --", cleanup_command)
             self.assertIn("sha256sum", cleanup_command)
             self.assertIn("SPARK_SSH_DEBUG_FILE", keep_command)
             self.assertNotIn("trap cleanup EXIT", keep_command)
@@ -1508,7 +1508,7 @@ class Sandbox:
                 payload = run_ssh_smoke_probe(target, home=home)
             self.assertTrue(payload["ok"])
             self.assertEqual(run.call_count, 2)
-            self.assertIn("cat > /tmp/spark-sandbox-smoke-odyssey-vps-", run.call_args_list[0].args[0][-1])
+            self.assertIn("mkdir -m 700", run.call_args_list[0].args[0][-1])
             self.assertIn("trap cleanup EXIT", run.call_args_list[1].args[0][-1])
             self.assertNotIn("OPENAI_API_KEY", run.call_args_list[0].kwargs["env"])
             self.assertNotIn("sk-" + "1234567890abcdef", payload["output"]["text"])

@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -649,15 +650,35 @@ def ssh_smoke_probe_hash(probe_content: str = SSH_SMOKE_PROBE) -> str:
     return hashlib.sha256(probe_content.encode("utf-8")).hexdigest()
 
 
-def ssh_smoke_remote_path(target: SshTarget, probe_hash: str) -> str:
+def ssh_smoke_remote_path(target: SshTarget, probe_hash: str, *, nonce: str | None = None) -> str:
     safe_name = validate_target_name(target.name)
     if not re.fullmatch(r"[0-9a-f]{64}", probe_hash):
         raise ValueError("SSH smoke probe hash must be a SHA-256 hex digest.")
-    return f"/tmp/spark-sandbox-smoke-{safe_name}-{probe_hash[:12]}.sh"
+    safe_nonce = nonce or secrets.token_hex(16)
+    if not re.fullmatch(r"[0-9a-f]{32}", safe_nonce):
+        raise ValueError("SSH smoke nonce must be a 128-bit lowercase hex token.")
+    return f"/tmp/spark-sandbox-smoke-{safe_name}-{safe_nonce}/probe.sh"
+
+
+def ssh_smoke_remote_dir(target: SshTarget, remote_path: str) -> str:
+    safe_name = validate_target_name(target.name)
+    pattern = rf"(/tmp/spark-sandbox-smoke-{re.escape(safe_name)}-[0-9a-f]{{32}})/probe\.sh"
+    match = re.fullmatch(pattern, remote_path)
+    if match is None:
+        raise ValueError("SSH smoke remote path is outside its private probe directory.")
+    return match.group(1)
 
 
 def ssh_smoke_upload_argv(target: SshTarget, remote_path: str, *, home: Path | None = None) -> list[str]:
-    return [*build_ssh_base_argv(target, home=home), f"umask 077; cat > {shlex.quote(remote_path)}"]
+    remote_dir = ssh_smoke_remote_dir(target, remote_path)
+    command = (
+        f"dir={shlex.quote(remote_dir)}; file={shlex.quote(remote_path)}; umask 077; "
+        "if ! mkdir -m 700 -- \"$dir\"; then "
+        "printf 'SPARK_SSH_REMOTE_DIR_EXISTS %s\\n' \"$dir\"; exit 73; fi; "
+        "cleanup_upload(){ rm -rf -- \"$dir\"; }; trap cleanup_upload EXIT HUP INT TERM; "
+        "cat > \"$file\" || exit $?; trap - EXIT HUP INT TERM"
+    )
+    return [*build_ssh_base_argv(target, home=home), command]
 
 
 def ssh_smoke_execute_argv(
@@ -668,15 +689,17 @@ def ssh_smoke_execute_argv(
     keep_debug_files: bool = False,
     home: Path | None = None,
 ) -> list[str]:
+    remote_dir = ssh_smoke_remote_dir(target, remote_path)
     quoted_path = shlex.quote(remote_path)
+    quoted_dir = shlex.quote(remote_dir)
     quoted_hash = shlex.quote(probe_hash)
     cleanup = (
         "printf 'SPARK_SSH_DEBUG_FILE=%s\\n' \"$file\""
         if keep_debug_files
-        else "cleanup(){ rm -f \"$file\"; }; trap cleanup EXIT"
+        else "cleanup(){ rm -rf -- \"$dir\"; }; trap cleanup EXIT"
     )
     command = (
-        f"file={quoted_path}; expected={quoted_hash}; {cleanup}; "
+        f"dir={quoted_dir}; file={quoted_path}; expected={quoted_hash}; {cleanup}; "
         "actual=$(sha256sum \"$file\" | awk '{print $1}'); "
         "if [ \"$actual\" != \"$expected\" ]; then "
         "printf 'SPARK_SSH_HASH_MISMATCH expected=%s actual=%s\\n' \"$expected\" \"$actual\"; "

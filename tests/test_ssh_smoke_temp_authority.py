@@ -41,6 +41,8 @@ def test_upload_atomically_claims_private_directory() -> None:
     assert "mkdir -m 700 -- \"$dir\"" in command
     assert "SPARK_SSH_REMOTE_DIR_EXISTS" in command
     assert "umask 077" in command
+    assert "trap cleanup_upload EXIT HUP INT TERM" in command
+    assert "trap - EXIT HUP INT TERM" in command
     assert "cat > \"$file\"" in command
 
 
