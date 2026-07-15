@@ -8951,6 +8951,50 @@ class Sandbox:
         self.assertEqual(requirements["telegram.bot_token"]["env_var"], "BOT_TOKEN")
         self.assertEqual(requirements["telegram.admin_ids"]["env_var"], "ADMIN_TELEGRAM_IDS")
 
+    def test_collect_secret_requirements_default_required_is_order_independent(self) -> None:
+        def module(name: str, definition: dict[str, Any]) -> Module:
+            return Module(
+                name=name,
+                path=Path(f"C:/tmp/{name}"),
+                manifest={
+                    "module": {"name": name, "version": "1.0.0", "kind": "service", "plane": "runtime"},
+                    "needs": {"secrets": ["shared.api_key"]},
+                    "secrets": {"shared_api_key": definition},
+                },
+            )
+
+        optional = module("optional-consumer", {"prompt": "Shared key", "required": False})
+        default_required = module("default-consumer", {"prompt": "Shared key"})
+
+        self.assertTrue(collect_secret_requirements([optional, default_required])["shared.api_key"]["required"])
+        self.assertTrue(collect_secret_requirements([default_required, optional])["shared.api_key"]["required"])
+        self.assertFalse(collect_secret_requirements([optional, optional])["shared.api_key"]["required"])
+
+    def test_collect_secret_values_fails_closed_when_later_module_omits_required(self) -> None:
+        optional = Module(
+            name="optional-consumer",
+            path=Path("C:/tmp/optional-consumer"),
+            manifest={
+                "module": {"name": "optional-consumer", "version": "1.0.0", "kind": "service", "plane": "runtime"},
+                "needs": {"secrets": ["shared.api_key"]},
+                "secrets": {"shared_api_key": {"prompt": "Shared key", "required": False}},
+            },
+        )
+        default_required = Module(
+            name="default-consumer",
+            path=Path("C:/tmp/default-consumer"),
+            manifest={
+                "module": {"name": "default-consumer", "version": "1.0.0", "kind": "service", "plane": "runtime"},
+                "needs": {"secrets": ["shared.api_key"]},
+                "secrets": {"shared_api_key": {"prompt": "Shared key"}},
+            },
+        )
+
+        with patch("spark_cli.cli.fetch_secret", return_value=None), \
+             patch("spark_cli.cli.fetch_generated_secret_value", return_value=None), \
+             self.assertRaisesRegex(SystemExit, "Missing required secrets: shared.api_key"):
+            collect_secret_values(Namespace(secret=None), [optional, default_required], interactive=False)
+
     def test_collect_secret_values_accepts_generic_secret_flags(self) -> None:
         module = Module(
             name="spark-telegram-bot",
