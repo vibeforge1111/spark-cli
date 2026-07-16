@@ -105,3 +105,28 @@ def test_posix_hardening_reports_chmod_failure_without_reflecting_path(
     assert str(target) not in warning
     assert "private-path" not in warning
     assert "secret-value" not in warning
+
+
+def test_state_directory_hardening_warns_once_without_reflecting_paths(
+    tmp_path: Path, capsys: object
+) -> None:
+    spark_home = tmp_path / "private-spark-home"
+    paths = {
+        "SPARK_HOME": spark_home,
+        "STATE_DIR": spark_home / "state",
+        "CONFIG_DIR": spark_home / "config",
+        "MODULE_CONFIG_DIR": spark_home / "config" / "modules",
+        "LOG_DIR": spark_home / "logs",
+    }
+
+    with (
+        patch.multiple(cli, **paths),
+        patch("spark_cli.cli.os.chmod", side_effect=OSError("private-path secret-value")),
+    ):
+        cli.ensure_state_dirs()
+
+    warning = capsys.readouterr().err  # type: ignore[attr-defined]
+    assert warning == cli.STATE_DIRECTORY_HARDENING_WARNING
+    assert str(spark_home) not in warning
+    assert "private-path" not in warning
+    assert "secret-value" not in warning
