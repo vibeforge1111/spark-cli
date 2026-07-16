@@ -41,7 +41,7 @@ import tomllib
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
-from .secret_listing import render_stored_secret_listing
+from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import (
@@ -20160,6 +20160,10 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
 
 def cmd_secrets_get(args: argparse.Namespace) -> int:
     value = fetch_secret(args.secret_id)
+    if bool(getattr(args, "json", False)):
+        is_set = value is not None
+        print(render_secret_presence(args.secret_id, is_set=is_set))
+        return 0 if is_set else 1
     if value is None:
         raise SystemExit(f"No value stored for {args.secret_id}.")
     if args.reveal:
@@ -21405,7 +21409,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
     secrets_get_parser.add_argument("secret_id")
-    secrets_get_parser.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_output = secrets_get_parser.add_mutually_exclusive_group()
+    secrets_get_output.add_argument("--reveal", action="store_true", help="Print the full value")
+    secrets_get_output.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit value-free secret presence as structured JSON",
+    )
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")

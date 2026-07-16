@@ -18,3 +18,15 @@ def render_stored_secret_listing(index: dict[str, str], *, json_output: bool) ->
     lines = [f"{len(items)} {noun} stored:"]
     lines.extend(f"  {secret_id}\t[{backend}]" for secret_id, backend in items)
     return "\n".join(lines)
+
+
+def render_secret_presence(secret_id: str, *, is_set: bool) -> str:
+    return json.dumps(
+        {
+            "ok": is_set,
+            "secret_id": secret_id,
+            "set": is_set,
+            "masked_value": "***" if is_set else None,
+        },
+        indent=2,
+    )
