@@ -192,6 +192,7 @@ from spark_cli.cli import (
     extract_telegram_bot_token,
     INSTALL_PROGRESS_PATH,
     INSECURE_FILE_SECRET_PREFIX,
+    LLM_ROLES,
     is_blessed_registry_entry,
     load_install_progress,
     record_install_failure,
@@ -13157,6 +13158,31 @@ class Sandbox:
             "LLM role `mission` is not configured. Run `spark setup --mission-llm-provider codex` for OpenAI Codex sign-in, or choose anthropic, zai, kimi, openrouter, huggingface, minimax, lmstudio, ollama, or openai.",
             payload["repair_hints"],
         )
+
+    def test_provider_status_payload_reports_typed_unconfigured_roles_for_clean_home(self) -> None:
+        with patch("spark_cli.cli.load_json", return_value={}):
+            payload = provider_status_payload()
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["configured"])
+        self.assertEqual(set(payload["roles"]), set(LLM_ROLES))
+        for role_state in payload["roles"].values():
+            self.assertEqual(
+                role_state,
+                {
+                    "provider": "not_configured",
+                    "bot_provider": "none",
+                    "model": "",
+                    "auth_mode": "not_configured",
+                    "base_url": "",
+                    "ready": False,
+                },
+            )
+        self.assertIn(
+            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider.",
+            payload["repair_hints"],
+        )
+        for role in LLM_ROLES:
+            self.assertTrue(any(f"LLM role `{role}` is not configured" in hint for hint in payload["repair_hints"]))
 
     def test_provider_status_payload_reports_minimax_secret_readiness(self) -> None:
         setup_state = {
