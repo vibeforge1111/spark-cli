@@ -1782,20 +1782,19 @@ def validate_new_telegram_bot_tokens(args: argparse.Namespace, secret_values: di
 
 def delete_secret(secret_id: str) -> bool:
     index = load_secrets_index()
-    backend = index.pop(secret_id, None)
+    backend = index.get(secret_id)
     removed = False
     if backend == "keychain" and HAS_KEYRING:
-        try:
-            _keyring.delete_password(KEYCHAIN_SERVICE, keychain_account(secret_id))
-            removed = True
-        except Exception:
-            pass
+        accounts = [keychain_account(secret_id)]
         if default_home_uses_legacy_keychain():
+            if secret_id not in accounts:
+                accounts.append(secret_id)
+        removed = True
+        for account in accounts:
             try:
-                _keyring.delete_password(KEYCHAIN_SERVICE, secret_id)
-                removed = True
+                _keyring.delete_password(KEYCHAIN_SERVICE, account)
             except Exception:
-                pass
+                removed = False
     if backend == "file":
         file_secrets = load_json(SECRETS_FILE_PATH, {})
         if secret_id in file_secrets:
@@ -1803,7 +1802,8 @@ def delete_secret(secret_id: str) -> bool:
             save_json(SECRETS_FILE_PATH, file_secrets)
             harden_secret_file(SECRETS_FILE_PATH)
             removed = True
-    if backend is not None:
+    if removed:
+        index.pop(secret_id, None)
         save_secrets_index(index)
     return removed
 
