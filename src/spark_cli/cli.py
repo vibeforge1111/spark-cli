@@ -15600,17 +15600,38 @@ def provider_catalog_payload() -> dict[str, Any]:
     }
 
 
+def unconfigured_provider_role_payload() -> dict[str, Any]:
+    provider = "not_configured"
+    provider_spec = LLM_PROVIDER_ENV[provider]
+    return {
+        "provider": provider,
+        "bot_provider": provider_spec["bot_provider"],
+        "model": "",
+        "auth_mode": provider,
+        "base_url": "",
+        "ready": False,
+    }
+
+
 def provider_status_payload() -> dict[str, Any]:
     setup_state = load_json(CONFIG_PATH, {})
     llm_state = setup_state.get("llm") if isinstance(setup_state, dict) else None
     secret_keys = set(setup_state.get("secret_keys", [])) if isinstance(setup_state, dict) else set()
     if not isinstance(llm_state, dict):
+        role_payload = {role: unconfigured_provider_role_payload() for role in LLM_ROLES}
+        repair_hints = [
+            "No LLM provider is configured. Run `spark setup` to choose an Agent provider and Mission provider.",
+            *build_llm_repair_hints(
+                {"provider": "not_configured", "roles": role_payload},
+                secret_keys=secret_keys,
+            ),
+        ]
         return {
             "ok": False,
             "configured": False,
             "summary": "No LLM provider is configured.",
-            "roles": {},
-            "repair_hints": ["Run `spark setup --llm-provider openai` or `spark setup --llm-provider codex` to choose a provider."],
+            "roles": role_payload,
+            "repair_hints": repair_hints,
         }
     roles = llm_state.get("roles")
     if not isinstance(roles, dict):
