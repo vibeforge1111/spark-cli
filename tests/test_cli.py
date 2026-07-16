@@ -1040,6 +1040,31 @@ class Sandbox:
                 with self.assertRaises(ValueError):
                     validate_ssh_host(host)
 
+    def test_ssh_target_validation_rejects_loopback_and_link_local_forms(self) -> None:
+        for host in [
+            "localhost",
+            "localhost.",
+            "localhost.localdomain",
+            "ip6-localhost",
+            "ip6-loopback",
+            "127.0.0.1",
+            "127.1",
+            "2130706433",
+            "0177.0.0.1",
+            "::1",
+            "::ffff:127.0.0.1",
+            "169.254.1.2",
+            "0251.0376.1.2",
+            "fe80::1",
+        ]:
+            with self.subTest(host=host):
+                with self.assertRaises(ValueError):
+                    validate_ssh_host(host)
+
+        for host in ["10.0.0.2", "192.168.1.2", "203.0.113.10", "example.test"]:
+            with self.subTest(allowed_host=host):
+                self.assertEqual(validate_ssh_host(host), host)
+
     def test_ssh_remote_workspace_rejects_shelly_paths(self) -> None:
         self.assertEqual(validate_remote_workspace("~/spark-live"), "~/spark-live")
         self.assertEqual(validate_remote_workspace("/opt/spark_live-1"), "/opt/spark_live-1")
