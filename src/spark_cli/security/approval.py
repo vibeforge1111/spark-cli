@@ -101,6 +101,161 @@ def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
 
 
+def _command_word(value: str) -> str:
+    normalized = value.strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
+    normalized = normalized.lstrip("&|;(")
+    match = re.match(r"[a-z][a-z0-9_-]*", normalized)
+    if not match:
+        return ""
+    word = match.group(0)
+    return word.removesuffix(".exe")
+
+
+def _has_remote_download_execution(parts: list[str]) -> bool:
+    words = [_command_word(part) for part in parts]
+    if not words:
+        return False
+    downloaders = {"curl", "wget", "iwr", "irm", "invoke-webrequest", "invoke-restmethod"}
+    pipeline_executors = {
+        "bash",
+        "sh",
+        "zsh",
+        "dash",
+        "ksh",
+        "iex",
+        "invoke-expression",
+        "powershell",
+        "pwsh",
+        "python",
+        "python2",
+        "python3",
+        "node",
+        "ruby",
+        "perl",
+    }
+    expression_executors = {"iex", "invoke-expression"}
+    if words[0] in expression_executors and any(word in downloaders for word in words[1:]):
+        return True
+    if words[0] not in downloaders:
+        return False
+    for index, part in enumerate(parts[1:], start=1):
+        if part not in {"|", "|&"}:
+            continue
+        if any(word in pipeline_executors for word in words[index + 1 :]):
+            return True
+    return False
+
+
+def _has_network_upload_option(command: str, parts: list[str]) -> bool:
+    curl_long_options = {
+        "--data",
+        "--data-ascii",
+        "--data-binary",
+        "--data-raw",
+        "--data-urlencode",
+        "--form",
+        "--form-string",
+        "--json",
+        "--post-data",
+        "--post-file",
+        "--upload-file",
+    }
+    wget_long_options = {
+        "--body-data",
+        "--body-file",
+        "--post-data",
+        "--post-file",
+        "--upload-file",
+    }
+    long_options = curl_long_options if command == "curl" else wget_long_options
+    for part in parts[1:]:
+        lowered = part.lower()
+        if lowered in long_options or any(lowered.startswith(f"{option}=") for option in long_options):
+            return True
+        if command == "curl" and part.startswith("-") and not part.startswith("--"):
+            if any(flag in part[1:] for flag in {"F", "T", "d"}):
+                return True
+    return False
+
+
+def _extract_privileged_command(parts: list[str]) -> list[str] | None:
+    if not parts:
+        return None
+    wrapper = _command_word(parts[0])
+    if wrapper == "gosu":
+        return parts[2:] if len(parts) > 2 and not parts[1].startswith("-") else None
+    if wrapper == "su":
+        for index, part in enumerate(parts[1:], start=1):
+            if part in {"-c", "--command"}:
+                return parse_command_text(parts[index + 1]) if index + 1 < len(parts) else None
+            if part.startswith("--command="):
+                return parse_command_text(part.split("=", 1)[1])
+        return None
+
+    option_values = {
+        "sudo": {"-C", "-D", "-g", "-h", "-p", "-R", "-r", "-t", "-T", "-u", "--chdir", "--group", "--host", "--prompt", "--role", "--type", "--user"},
+        "doas": {"-a", "-C", "-u"},
+        "pkexec": {"--user"},
+        "run0": {"--chdir", "--description", "--gid", "--nice", "--property", "--setenv", "--slice", "--unit", "--user"},
+    }
+    no_value_options = {
+        "sudo": {"-A", "-b", "-E", "-H", "-K", "-k", "-n", "-P", "-S", "-V", "-v", "--askpass", "--background", "--help", "--non-interactive", "--preserve-env", "--remove-timestamp", "--reset-timestamp", "--set-home", "--stdin", "--validate", "--version"},
+        "doas": {"-L", "-n", "-s"},
+        "pkexec": {"--disable-internal-agent", "--help", "--keep-cwd", "--version"},
+        "run0": {"--background", "--help", "--pipe", "--pty", "--quiet", "--version"},
+    }
+    if wrapper not in option_values:
+        return None
+    index = 1
+    while index < len(parts):
+        part = parts[index]
+        if not part.startswith("-") or part == "-":
+            return parts[index:]
+        if part in no_value_options[wrapper]:
+            index += 1
+            continue
+        if part in option_values[wrapper]:
+            if index + 1 >= len(parts):
+                return None
+            index += 2
+            continue
+        if part.startswith("--") and any(part.startswith(f"{option}=") for option in option_values[wrapper] if option.startswith("--")):
+            index += 1
+            continue
+        if len(part) > 2 and part[:2] in option_values[wrapper] and not part.startswith("--"):
+            index += 1
+            continue
+        return None
+    return None
+
+
+def _nested_privilege_decision(parts: list[str], context: CommandContext) -> ApprovalDecision:
+    nested_parts = _extract_privileged_command(parts)
+    if nested_parts:
+        nested = approval_required_for_command(nested_parts, context)
+        if nested.requires_approval:
+            risk_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+            risk: ApprovalRisk = nested.risk if risk_order[nested.risk] >= risk_order["high"] else "high"
+            return _decision(
+                parts,
+                context,
+                nested.action_class,
+                risk,
+                f"Command runs through a privilege-elevation wrapper. {nested.reason}",
+                target_display=nested.target_display,
+                confirmation_phrase=nested.confirmation_phrase,
+            )
+    return _decision(
+        parts,
+        context,
+        "identity_access_mutation",
+        "high",
+        "Command runs through a privilege-elevation wrapper whose inner authority is not independently safe.",
+        target_display=_command_word(parts[0]) if parts else "privilege wrapper",
+        confirmation_phrase="approve privilege escalation",
+    )
+
+
 def _decision(
     argv: list[str],
     context: CommandContext,
@@ -232,19 +387,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
                         confirmation_phrase="approve remote code execution",
                     )
 
-    if first in {"sudo", "doas"}:
-        nested = approval_required_for_command(parts[1:], ctx) if len(parts) > 1 else None
-        if nested and nested.requires_approval:
-            return nested
-        return _decision(
-            parts,
-            ctx,
-            "identity_access_mutation",
-            "high",
-            "Command runs through a privilege-elevation wrapper.",
-            target_display=" ".join(parts[:3]),
-            confirmation_phrase="approve privilege escalation",
-        )
+    if bin_name in {"sudo", "doas", "pkexec", "run0", "gosu", "su"}:
+        return _nested_privilege_decision(parts, ctx)
 
     if first == "env":
         index = 1
@@ -411,10 +555,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve docker credential change",
         )
 
-    if first in {"curl", "wget", "iwr", "invoke-webrequest"} and re.search(
-        r"\b(?:bash|sh|powershell|pwsh|iex|invoke-expression|python|node)\b",
-        joined,
-    ):
+    if _has_remote_download_execution(parts):
         return _decision(
             parts,
             ctx,
@@ -574,13 +715,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
         )
-    if first in {"curl", "wget"} and (
-        _contains_any(
-            lowered,
-            {"--upload-file", "--form", "--data", "--data-binary", "--data-raw", "--data-urlencode"},
-        )
-        or _contains_any(parts, {"-F", "-T"})
-    ):
+    if bin_name in {"curl", "wget"} and _has_network_upload_option(bin_name, parts):
         return _decision(
             parts,
             ctx,
