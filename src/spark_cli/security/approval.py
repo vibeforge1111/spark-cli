@@ -99,6 +99,27 @@ INVALID_COMMAND_REASON = "Command input could not be validated as an ordered seq
 SENSITIVE_ENV_NAME_PATTERN = re.compile(
     r"(?i)(?:^|[_-])(?:token|secret|api[_-]?key|password|passwd|credential|auth)(?:$|[_-])"
 )
+SPARK_SETUP_CREDENTIAL_OPTIONS = frozenset(
+    {
+        "--secret",
+        "--telegram-relay-secret",
+        "--zai-api-key",
+        "--openai-api-key",
+        "--anthropic-api-key",
+        "--openrouter-api-key",
+        "--kimi-api-key",
+        "--huggingface-api-key",
+        "--minimax-api-key",
+        "--elevenlabs-api-key",
+    }
+)
+SPARK_IDENTITY_ACCESS_OPTIONS = frozenset(
+    {
+        "--access",
+        "--admin-telegram-ids",
+        "--bot-token",
+    }
+)
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -143,6 +164,10 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
         ):
             return True
     return False
+
+
+def _has_option(parts: list[str], option_names: frozenset[str]) -> bool:
+    return any(part.lower().split("=", 1)[0] in option_names for part in parts)
 
 
 def _is_env_assignment(value: str) -> bool:
@@ -946,6 +971,27 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     if first == "spark" and lowered[1:3] == ["providers", "status"]:
         return _decision(parts, ctx, "none", "none", "`spark providers status` is read-only.")
 
+    if first == "spark" and second == "setup" and _has_option(parts, SPARK_IDENTITY_ACCESS_OPTIONS):
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Setup arguments can change Telegram identity or operator access configuration.",
+            target_display="spark setup",
+            confirmation_phrase="approve access change",
+        )
+    if first == "spark" and second == "setup" and _has_option(parts, SPARK_SETUP_CREDENTIAL_OPTIONS):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "Setup arguments can store, rotate, or overwrite Spark credentials.",
+            target_display="spark setup",
+            confirmation_phrase="approve secret change",
+        )
+
     if first == "spark" and second == "uninstall" and "--purge-home" in lowered:
         return _decision(
             parts,
@@ -1351,9 +1397,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
 
     if first == "spark" and (
         second == "telegram"
-        or ("--admin-telegram-ids" in lowered)
-        or ("--bot-token" in lowered)
-        or ("--access" in lowered)
+        or _has_option(parts, SPARK_IDENTITY_ACCESS_OPTIONS)
     ):
         return _decision(
             parts,
