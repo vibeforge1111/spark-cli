@@ -12158,6 +12158,48 @@ class Sandbox:
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.assertEqual(tail_log_lines(Path(tmp_dir) / "missing.log", 50), [])
 
+    def test_tail_log_lines_bounds_large_zero_line_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = Path(tmp_dir) / "process.log"
+            log_path.write_text("".join(f"line-{index:04d}\n" for index in range(500)), encoding="utf-8")
+            with patch("spark_cli.cli.MAX_LOG_TAIL_BYTES", 1024, create=True):
+                lines = tail_log_lines(log_path, 0)
+
+        self.assertLessEqual(len("".join(lines).encode("utf-8")), 1024)
+        self.assertEqual(lines[-1], "line-0499\n")
+
+    def test_append_process_log_reclaims_first_oversized_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "logs"
+            log_path = log_dir / "spark-telegram-bot" / "process.log"
+            log_path.parent.mkdir(parents=True)
+            log_path.write_bytes(b"old-line\n" * 512)
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_BYTES", 1024, create=True), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_ENTRY_BYTES", 256, create=True), \
+                 patch("spark_cli.cli.timestamp_now", return_value="2026-07-16T12:00:00Z"):
+                append_process_log("spark-telegram-bot", "new-line")
+
+            retained_bytes = sum(path.stat().st_size for path in log_path.parent.glob("process.log*"))
+
+        self.assertLessEqual(retained_bytes, 1024)
+
+    def test_append_process_log_bounds_single_large_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_dir = Path(tmp_dir) / "logs"
+            with patch("spark_cli.cli.LOG_DIR", log_dir), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_BYTES", 1024, create=True), \
+                 patch("spark_cli.cli.MAX_PROCESS_LOG_ENTRY_BYTES", 256, create=True), \
+                 patch("spark_cli.cli.timestamp_now", return_value="2026-07-16T12:00:00Z"):
+                append_process_log("spark-telegram-bot", "X" * 4096)
+
+            log_path = log_dir / "spark-telegram-bot" / "process.log"
+            contents = log_path.read_bytes()
+
+        self.assertLessEqual(len(contents), 1024)
+        self.assertIn(b"[spark-cli 2026-07-16T12:00:00Z]", contents)
+        self.assertIn(b"[truncated]", contents)
+
     def test_module_log_path_points_under_spark_log_dir(self) -> None:
         path = module_log_path("spark-telegram-bot")
         self.assertEqual(path.name, "process.log")
