@@ -910,10 +910,10 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
 
-    first = lowered[0]
+    first = _command_word(parts[0])
     second = lowered[1] if len(lowered) > 1 else ""
 
-    bin_name = re.sub(r"\.(?:exe|cmd|bat)$", "", first.replace("\\", "/").rsplit("/", 1)[-1])
+    bin_name = first
     shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "pwsh", "powershell"}
     language_interpreters = {"python", "python2", "python3", "node", "ruby", "perl"}
 
