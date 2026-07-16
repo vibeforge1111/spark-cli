@@ -2016,6 +2016,61 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_reads_installed_spawner_and_browser_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            spawner_root = spark_home / "modules" / "spawner-ui" / "source"
+            browser_root = spark_home / "modules" / "spark-browser-extension" / "source"
+            desktop.mkdir()
+
+            spawner_lanes = spawner_root / "src" / "lib" / "server" / "access-execution-lanes.ts"
+            spawner_actions = spawner_root / "src" / "lib" / "server" / "access-execution-actions.ts"
+            browser_constants = browser_root / "src" / "protocol" / "constants.js"
+            for path in (spawner_lanes, spawner_actions, browser_constants):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            spawner_lanes.write_text(
+                "export type AccessExecutionLaneId = 'spark_workspace' | 'level5_operator';\n"
+                "export type AccessRunPolicy = 'auto_safe' | 'explicit_opt_in';\n",
+                encoding="utf-8",
+            )
+            spawner_actions.write_text(
+                """
+export const ACCESS_EXECUTION_ACTIONS = {
+  level5_enable: {
+    id: 'level5_enable',
+    laneId: 'level5_operator',
+    displayCommand: 'spark access setup --level 5 --enable-high-agency',
+    runPolicy: 'explicit_opt_in',
+    confirmation: 'Enable whole-computer operator mode',
+  }
+};
+""",
+                encoding="utf-8",
+            )
+            browser_constants.write_text(
+                """
+export const RISK_CLASSES = { READ_ONLY: "read_only", HIGH_RISK_ACTION: "high_risk_action" };
+export const APPROVAL_MODES = { NOT_REQUIRED: "not_required", ASK_ONCE: "ask_once" };
+export const HOOK_DEFINITIONS = {
+  status: { risk_class: RISK_CLASSES.READ_ONLY, approval_mode: APPROVAL_MODES.NOT_REQUIRED },
+  click: { risk_class: RISK_CLASSES.HIGH_RISK_ACTION, approval_mode: APPROVAL_MODES.ASK_ONCE }
+};
+""",
+                encoding="utf-8",
+            )
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        spawner = view["spawner_execution_policy"]
+        browser = view["browser_authority"]
+        self.assertEqual(spawner["lane_ids"], ["spark_workspace", "level5_operator"])
+        self.assertEqual(spawner["confirmation_gated_action_count"], 1)
+        self.assertTrue(spawner["sources"]["actions"]["exists"])
+        self.assertEqual(browser["risk_class_counts"], {"high_risk_action": 1, "read_only": 1})
+        self.assertTrue(browser["sources"]["constants"]["exists"])
+
     def test_authority_view_uses_running_cli_source_when_cli_module_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
