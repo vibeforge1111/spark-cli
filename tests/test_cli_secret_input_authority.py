@@ -51,15 +51,25 @@ def test_telegram_validation_rejects_non_object_response_without_token_reflectio
     assert token not in str(raised.value)
 
 
-def test_secrets_index_rejects_non_object_state_instead_of_discarding_it() -> None:
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (["telegram.bot_token"], "Secrets index must be a JSON object. Nothing was changed."),
+        ({"telegram.bot_token": {}}, "Secrets index contains an invalid secret-storage entry. Nothing was changed."),
+    ],
+)
+def test_secrets_index_rejects_invalid_state_instead_of_discarding_it(
+    payload: object,
+    message: str,
+) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         index_path = Path(tmp_dir) / "secrets_index.json"
-        index_path.write_text(json.dumps(["telegram.bot_token"]), encoding="utf-8")
+        index_path.write_text(json.dumps(payload), encoding="utf-8")
         with patch("spark_cli.cli.SECRETS_INDEX_PATH", index_path):
             with pytest.raises(SystemExit) as raised:
                 load_secrets_index()
 
-    assert str(raised.value) == "Secrets index must be a JSON object. Nothing was changed."
+    assert str(raised.value) == message
 
 
 @pytest.mark.parametrize("function", [module_secret_env_bindings, split_secret_bindings])

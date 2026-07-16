@@ -9,7 +9,9 @@ def validated_secrets_index(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         raise SystemExit("Secrets index must be a JSON object. Nothing was changed.")
     if any(
-        not isinstance(secret_id, str) or backend not in {"file", "keychain"}
+        not isinstance(secret_id, str)
+        or not isinstance(backend, str)
+        or backend not in {"file", "keychain"}
         for secret_id, backend in value.items()
     ):
         raise SystemExit("Secrets index contains an invalid secret-storage entry. Nothing was changed.")

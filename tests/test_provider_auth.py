@@ -35,7 +35,8 @@ class ProviderAuthTruthTests(unittest.TestCase):
         }
         with patch("spark_cli.cli.load_json", return_value=setup_state), \
              patch("spark_cli.cli.detect_codex_cli", return_value={"present": True, "path": "codex"}), \
-             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True}):
+             patch("spark_cli.cli.codex_cli_auth_payload", return_value={"ok": True}), \
+             patch("spark_cli.cli.fetch_secret", return_value=None):
             status_payload = provider_status_payload()
             test_payload = provider_test_payload(role="chat")
 

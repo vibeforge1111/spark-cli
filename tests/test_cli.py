@@ -9060,7 +9060,7 @@ class Sandbox:
                 "testerthebester": {"relay_port": 8788},
             },
         }
-        with patch("spark_cli.cli.load_json", return_value=setup_state):
+        with patch("spark_cli.cli.load_json", return_value=setup_state), patch("spark_cli.cli.fetch_secret", return_value=None):
             envs = build_module_envs(
                 Args(),
                 {
@@ -9223,7 +9223,7 @@ class Sandbox:
                     "qa": {"webhook_url": "http://127.0.0.1:8790/spawner-events"},
                 }
             },
-        ):
+        ), patch("spark_cli.cli.fetch_secret", return_value=None):
             envs = build_module_envs(
                 Args(),
                 {
