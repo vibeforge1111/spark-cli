@@ -8417,6 +8417,21 @@ class Sandbox:
         self.assertEqual(live_args.target, "telegram-starter")
         follow.assert_called_once_with(lines=5)
 
+    def test_live_run_preserves_start_failure_without_false_running_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+             patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
+            args = build_parser().parse_args(["live", "run", "--lines", "5"])
+            stdout = StringIO()
+            with patch("spark_cli.cli.cmd_start", return_value=7) as start, \
+                 patch("spark_cli.cli.follow_live_logs") as follow, \
+                 redirect_stdout(stdout):
+                self.assertEqual(cmd_live(args), 7)
+
+        live_args = start.call_args.args[0]
+        self.assertEqual(live_args.target, "telegram-starter")
+        follow.assert_not_called()
+        self.assertNotIn("Spark Live is running", stdout.getvalue())
+
     def test_live_run_external_ingress_targets_spawner_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, \
              patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
