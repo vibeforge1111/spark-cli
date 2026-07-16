@@ -3850,7 +3850,7 @@ class Sandbox:
 
             class Args:
                 profile = "qa-bot"
-                bot_token = "profile-token"
+                bot_token = "123456:profile_token_abcdefghijkl"
                 admin_telegram_ids = "222"
                 telegram_relay_port = 8792
 
@@ -3882,7 +3882,7 @@ class Sandbox:
         self.assertEqual(setup_state["telegram_profiles"]["qa-bot"]["relay_port"], 8792)
         self.assertEqual(setup_state["primary_telegram_profile"], "qa-bot")
         self.assertEqual(setup_state["telegram_profiles"]["qa-bot"]["telegram_username"], "qa_bot")
-        self.assertEqual(stored_token, "profile-token")
+        self.assertEqual(stored_token, "123456:profile_token_abcdefghijkl")
 
     def test_telegram_profile_identity_guard_rejects_token_for_wrong_bot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -11572,15 +11572,18 @@ class Sandbox:
                 return b'{"ok": true, "result": {"username": "spark_test_bot"}}'
 
         with patch("spark_cli.cli.urllib.request.urlopen", return_value=FakeResponse()) as urlopen_mock:
-            result = validate_telegram_bot_token("123456:valid-token", secret_id="telegram.bot_token")
+            result = validate_telegram_bot_token(
+                "123456:valid_token_abcdefghijkl",
+                secret_id="telegram.bot_token",
+            )
 
         self.assertEqual(result["username"], "spark_test_bot")
-        self.assertIn("/bot123456:valid-token/getMe", urlopen_mock.call_args.args[0])
+        self.assertIn("/bot123456:valid_token_abcdefghijkl/getMe", urlopen_mock.call_args.args[0])
 
         with patch(
             "spark_cli.cli.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(
-                "https://api.telegram.org/bot123456:bad-token/getMe",
+                "https://api.telegram.org/bot123456:bad_token_abcdefghijkl/getMe",
                 401,
                 "Unauthorized",
                 {},
@@ -11588,20 +11591,28 @@ class Sandbox:
             ),
         ):
             with self.assertRaises(SystemExit) as error:
-                validate_telegram_bot_token("123456:bad-token", secret_id="telegram.bot_token")
+                validate_telegram_bot_token(
+                    "123456:bad_token_abcdefghijkl",
+                    secret_id="telegram.bot_token",
+                )
         self.assertIn("Telegram rejected the bot token", str(error.exception))
         self.assertNotIn("123456:bad-token", str(error.exception))
 
     def test_validate_telegram_bot_token_redacts_token_from_transport_error_detail(self) -> None:
         with patch(
             "spark_cli.cli.urllib.request.urlopen",
-            side_effect=urllib.error.URLError("https://api.telegram.org/bot123456:secret-token/getMe connection failed"),
+            side_effect=urllib.error.URLError(
+                "https://api.telegram.org/bot123456:secret_token_abcdefghijkl/getMe connection failed"
+            ),
         ):
             with self.assertRaises(SystemExit) as error:
-                validate_telegram_bot_token("123456:secret-token", secret_id="telegram.bot_token")
+                validate_telegram_bot_token(
+                    "123456:secret_token_abcdefghijkl",
+                    secret_id="telegram.bot_token",
+                )
         message = str(error.exception)
         self.assertIn("URLError", message)
-        self.assertNotIn("123456:secret-token", message)
+        self.assertNotIn("123456:secret_token_abcdefghijkl", message)
         self.assertIn("[REDACTED]", message)
 
     def test_validate_new_telegram_bot_tokens_skips_unchanged_tokens_and_supports_offline_bypass(self) -> None:
@@ -11618,16 +11629,19 @@ class Sandbox:
                  patch("spark_cli.cli.SECRETS_FILE_PATH", file_path), \
                  patch("spark_cli.cli.keychain_available", return_value=False), \
                  patch.dict(os.environ, {ALLOW_INSECURE_FILE_SECRETS_ENV: "1"}):
-                store_secret("telegram.bot_token", "old-token", preferred="keychain")
+                store_secret("telegram.bot_token", "123456:old_token_abcdefghijkl", preferred="keychain")
                 with patch("spark_cli.cli.validate_telegram_bot_token") as validate_mock:
                     validate_new_telegram_bot_tokens(
                         Args(),
                         {
-                            "telegram.bot_token": "old-token",
-                            "telegram.profiles.primary.bot_token": "new-token",
+                            "telegram.bot_token": "123456:old_token_abcdefghijkl",
+                            "telegram.profiles.primary.bot_token": "654321:new_token_abcdefghijkl",
                         },
                     )
-                validate_mock.assert_called_once_with("new-token", secret_id="telegram.profiles.primary.bot_token")
+                validate_mock.assert_called_once_with(
+                    "654321:new_token_abcdefghijkl",
+                    secret_id="telegram.profiles.primary.bot_token",
+                )
 
                 with patch("spark_cli.cli.validate_telegram_bot_token") as validate_mock:
                     validate_new_telegram_bot_tokens(OfflineArgs(), {"telegram.bot_token": "offline-token"})
