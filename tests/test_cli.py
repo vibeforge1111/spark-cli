@@ -12717,7 +12717,9 @@ class Sandbox:
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["bot_token"]["ok"])
         self.assertIn("Telegram rejected it", checks["bot_token"]["detail"])
-        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token @clipboard")
+        self.assertIn("--bot-token", checks["bot_token"]["repair"])
+        self.assertIn("@clipboard", checks["bot_token"]["repair"])
+        self.assertNotIn("<BOTFATHER_TOKEN>", checks["bot_token"]["repair"])
 
     def test_autostart_profile_missing_profile_uses_clipboard_for_bot_token(self) -> None:
         args = build_parser().parse_args(["autostart", "profile", "qa-bot", "on"])

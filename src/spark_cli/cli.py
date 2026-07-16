@@ -8311,7 +8311,7 @@ def collect_status_payload() -> dict[str, Any]:
     ok = all(item["healthy"] is not False for item in module_results) and not repair_hints
     payload = {
         "ok": ok,
-        "summary": "Spark CLI spike status",
+        "summary": "Spark runtime status",
         "telegram_ingress_owner": setup_state.get("telegram_ingress_owner"),
         "llm": setup_state.get("llm"),
         "telegram_profiles": telegram_profile_runtime_status(setup_state, tracked_pids),
@@ -14922,7 +14922,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
                 if token_recorded and token_rejected
                 else "Telegram bot token is missing."
             ),
-            "repair": "spark setup --bot-token <BOTFATHER_TOKEN>",
+            "repair": "spark setup --bot-token @clipboard",
         }
     )
     checks.append(
@@ -19366,7 +19366,7 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
         print("Configure it first with:")
-        print(f"  spark setup --profile {profile} --bot-token <BOTFATHER_TOKEN>")
+        print(f"  spark setup --profile {profile} --bot-token @clipboard")
         return 1
     profiles[profile]["autostart"] = enabled
     save_json(CONFIG_PATH, setup_state)
@@ -20401,7 +20401,7 @@ def _wrap_subgroup_help(group_parser: argparse.ArgumentParser, subcommands: list
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI spike")
+    parser = argparse.ArgumentParser(prog="spark", description="Spark installer and operator CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
@@ -20787,9 +20787,20 @@ def build_parser() -> argparse.ArgumentParser:
     security_audit_parser.set_defaults(func=cmd_security)
     security_revoke_parser = security_subparsers.add_parser(
         "revoke-all",
-        help="Panic button: stop Spark, rotate local control keys, remove local secrets, and write a support bundle",
+        help="Plan or run full local credential revocation; start with --dry-run to review the changes",
+        description=(
+            "Plan or run Spark's full local credential revocation response. "
+            "Start with --dry-run to review what Spark will stop, remove, and rotate."
+        ),
     )
-    security_revoke_parser.add_argument("--dry-run", action="store_true", help="Report what would change without mutating local state")
+    security_revoke_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Report the planned stops, secret removals, key rotations, mission pauses, "
+            "and support bundle without mutating local state"
+        ),
+    )
     security_revoke_parser.add_argument("--include-logs", action="store_true", help="Include redacted logs in the support bundle")
     security_revoke_parser.add_argument("--json", action="store_true")
     security_revoke_parser.set_defaults(func=cmd_security)
