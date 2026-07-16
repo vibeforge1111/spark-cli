@@ -3983,7 +3983,7 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
         "lane": "api/paid",
         "best_for": "OpenAI API users who specifically want an API-key route instead of OpenAI Codex CLI sign-in.",
         "recommended_models": ["gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"],
-        "getting_started": "Create an OpenAI API key, then run `spark setup --llm-provider openai --openai-api-key <key>`.",
+        "getting_started": "Create and copy an OpenAI API key, then run `spark setup --llm-provider openai`; type @clipboard when Spark asks.",
         "notes": "Most non-technical ChatGPT users should start with `codex`; this route is for API billing/accounts.",
     },
     "anthropic": {
@@ -3997,35 +3997,35 @@ LLM_PROVIDER_GUIDANCE: dict[str, dict[str, Any]] = {
         "lane": "api/paid gateway",
         "best_for": "Trying many commercial/open models behind one API key.",
         "recommended_models": ["openai/gpt-5.5", "anthropic/claude-sonnet-4"],
-        "getting_started": "Create an OpenRouter key, then run `spark setup --llm-provider openrouter --openrouter-api-key <key>`.",
+        "getting_started": "Create and copy an OpenRouter key, then run `spark setup --llm-provider openrouter`; type @clipboard when Spark asks.",
         "notes": "Good if you want one billing/gateway surface and model fallback experiments.",
     },
     "zai": {
         "lane": "api/paid",
         "best_for": "Strong API-key path for users who already have Z.AI GLM access and want one provider for Agent and Mission.",
         "recommended_models": ["glm-5.1"],
-        "getting_started": "Create a Z.AI GLM key, then run `spark setup --llm-provider zai --zai-api-key <key>`.",
+        "getting_started": "Create and copy a Z.AI GLM key, then run `spark setup --llm-provider zai`; type @clipboard when Spark asks.",
         "notes": "Good default when you already have a Z.AI GLM key. Spark keeps this explicit so old Ollama/local settings cannot hijack the route.",
     },
     "kimi": {
         "lane": "api/paid",
         "best_for": "Moonshot/Kimi users who want an OpenAI-compatible Kimi route for Agent and Mission.",
         "recommended_models": ["kimi-k2.6", "moonshot-v1-128k"],
-        "getting_started": "Create a Moonshot/Kimi key, then run `spark setup --llm-provider kimi --kimi-api-key <key>`.",
+        "getting_started": "Create and copy a Moonshot/Kimi key, then run `spark setup --llm-provider kimi`; type @clipboard when Spark asks.",
         "notes": "Uses Moonshot's OpenAI-compatible endpoint at https://api.moonshot.ai/v1. You can override the model with --kimi-model.",
     },
     "minimax": {
         "lane": "api/paid",
         "best_for": "MiniMax users who already have a MiniMax API key and want an OpenAI-compatible route.",
         "recommended_models": ["MiniMax-M2.7"],
-        "getting_started": "Create a MiniMax key, then run `spark setup --llm-provider minimax --minimax-api-key <key>`.",
+        "getting_started": "Create and copy a MiniMax key, then run `spark setup --llm-provider minimax`; type @clipboard when Spark asks.",
         "notes": "Best as a choose-your-provider route, not a forced default.",
     },
     "huggingface": {
         "lane": "api/token gateway",
         "best_for": "Trying hosted open models through Hugging Face's OpenAI-compatible router.",
         "recommended_models": ["google/gemma-4-26B-A4B-it:fastest", "google/gemma-4-31B-it:fastest"],
-        "getting_started": "Create a Hugging Face token, then run `spark setup --llm-provider huggingface --huggingface-api-key <key>`.",
+        "getting_started": "Create and copy a Hugging Face token, then run `spark setup --llm-provider huggingface`; type @clipboard when Spark asks.",
         "notes": "Gemma 4 26B is the chat default; 31B is the heavier mission recommendation.",
     },
     "lmstudio": {
@@ -6063,19 +6063,26 @@ def build_llm_repair_hints(llm_state: dict[str, Any], *, secret_keys: set[str] |
         elif provider in {"zai", "kimi", "minimax", "openrouter", "huggingface"} and auth_mode == "not_configured":
             label = LLM_PROVIDER_LABELS.get(provider, provider)
             hints.append(
-                f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider} --{provider}-api-key <key>`."
+                f"{role_label} uses {label} but is missing an API key. Re-run `spark setup {role_flag} {provider}`; "
+                "Spark will prompt securely, and you can type @clipboard when asked."
             )
         elif provider == "anthropic" and auth_mode == "not_configured":
             hints.append(
-                f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic --anthropic-api-key <key>`."
+                f"{role_label} uses Anthropic Claude but neither Anthropic Claude Code nor ANTHROPIC_API_KEY is configured. "
+                f"Run `claude` to sign in so Spark can call `claude -p`, or rerun `spark setup {role_flag} anthropic`; "
+                "Spark will prompt securely, and you can type @clipboard when asked."
             )
         elif provider == "openai" and auth_mode == "not_configured" and openai_base_url_kind(str(state.get("base_url") or llm_state.get("base_url") or "")) == "remote_custom":
             hints.append(
-                f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. Re-run `spark setup {role_flag} openai --openai-api-key <key> --openai-base-url <url>`."
+                f"{role_label} uses a custom OpenAI-compatible endpoint but is missing an API key. "
+                f"Re-run `spark setup {role_flag} openai --openai-base-url <url>`; Spark will prompt securely, "
+                "and you can type @clipboard when asked."
             )
         elif provider == "openai" and auth_mode == "not_configured":
             hints.append(
-                f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai --openai-api-key <key>`, or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
+                f"{role_label} uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup {role_flag} openai`; "
+                "Spark will prompt securely, and you can type @clipboard when asked. "
+                f"Or use `spark setup {role_flag} codex` for OpenAI Codex sign-in."
             )
         elif provider == "codex" and auth_mode == "not_configured":
             hints.append(
@@ -15212,6 +15219,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
 def provider_catalog_payload() -> dict[str, Any]:
     codex = detect_codex_cli()
     claude = detect_claude_code()
+    prompted_secret_entry = "Copy the key, run setup, then type @clipboard when Spark asks."
     return {
         "ok": True,
         "providers": [
@@ -15221,7 +15229,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider openai --openai-api-key <key>",
+                "setup": "spark setup --llm-provider openai",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "codex",
@@ -15245,7 +15254,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider openrouter --openrouter-api-key <key> --openrouter-model <model>",
+                "setup": "spark setup --llm-provider openrouter --openrouter-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "zai",
@@ -15253,7 +15263,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider zai --zai-api-key <key>",
+                "setup": "spark setup --llm-provider zai",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "kimi",
@@ -15261,7 +15272,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory", "mission"],
-                "setup": "spark setup --llm-provider kimi --kimi-api-key <key> --kimi-model <model>",
+                "setup": "spark setup --llm-provider kimi --kimi-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "huggingface",
@@ -15269,7 +15281,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "memory"],
-                "setup": "spark setup --llm-provider huggingface --huggingface-api-key <key> --huggingface-model <model>",
+                "setup": "spark setup --llm-provider huggingface --huggingface-model <model>",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "lmstudio",
@@ -15285,7 +15298,8 @@ def provider_catalog_payload() -> dict[str, Any]:
                 "auth": ["api_key"],
                 "oauth_available": False,
                 "recommended_for": ["chat", "builder", "mission"],
-                "setup": "spark setup --llm-provider minimax --minimax-api-key <key>",
+                "setup": "spark setup --llm-provider minimax",
+                "secret_entry": prompted_secret_entry,
             },
             {
                 "id": "ollama",
@@ -15445,6 +15459,8 @@ def cmd_providers(args: argparse.Namespace) -> int:
             oauth = "available" if provider["oauth_available"] else "not detected"
             print(f"{provider['id']:<10} {provider['label']:<16} auth={auth}; oauth={oauth}")
             print(f"           setup: {provider['setup']}")
+            if provider.get("secret_entry"):
+                print(f"           secret: {provider['secret_entry']}")
         return 0
     if args.providers_command == "status":
         payload = provider_status_payload()
@@ -15533,8 +15549,9 @@ def print_llm_provider_recommendations(payload: dict[str, Any]) -> None:
     print("  Anthropic Claude subscription: spark setup --llm-provider anthropic")
     print('     Verify first with:          claude -p "hello"')
     print("")
-    print("  Z.AI GLM API route:            spark setup --llm-provider zai --zai-api-key <key>")
-    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi --kimi-api-key <key>")
+    print("  Z.AI GLM API route:            spark setup --llm-provider zai")
+    print("  Kimi/Moonshot API route:       spark setup --llm-provider kimi")
+    print("     Copy the key first, then type @clipboard when Spark asks.")
     print("  Local/private desktop route:   spark setup --llm-provider lmstudio")
     print("  Local/private terminal:        spark setup --llm-provider ollama")
     print("")
@@ -19875,14 +19892,14 @@ def onboarding_guide_payload() -> dict[str, Any]:
                 "spark setup",
                 "spark setup --llm-provider codex --codex-model gpt-5.5",
                 "spark setup --llm-provider anthropic",
-                "spark setup --llm-provider zai --zai-api-key <ZAI_API_KEY>",
-                "spark setup --llm-provider kimi --kimi-api-key <KIMI_API_KEY>",
-                "spark setup --llm-provider openrouter --openrouter-api-key <OPENROUTER_API_KEY> --openrouter-model <MODEL>",
-                "spark setup --llm-provider huggingface --huggingface-api-key <HF_TOKEN> --huggingface-model <MODEL>",
-                "spark setup --llm-provider minimax --minimax-api-key <MINIMAX_API_KEY>",
+                "spark setup --llm-provider zai",
+                "spark setup --llm-provider kimi",
+                "spark setup --llm-provider openrouter --openrouter-model <MODEL>",
+                "spark setup --llm-provider huggingface --huggingface-model <MODEL>",
+                "spark setup --llm-provider minimax",
                 "spark setup --llm-provider ollama --ollama-url http://localhost:11434 --ollama-model <MODEL>",
-                "spark setup --llm-provider openai --openai-api-key <OPENAI_API_KEY> --openai-model gpt-5.5",
-                "spark setup --with-voice --elevenlabs-api-key @clipboard",
+                "spark setup --llm-provider openai --openai-model gpt-5.5",
+                "spark setup --with-voice",
                 "spark setup --agent-llm-provider zai --mission-llm-provider codex",
                 "spark setup --chat-llm-provider openai --builder-llm-provider openai --memory-llm-provider ollama --mission-llm-provider minimax",
             ],
@@ -19939,7 +19956,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             "Use named profiles when you want one or more Telegram bots on the same Spark install.",
             "Each profile gets its own bot token, local relay port, pid, and log file.",
             "Profiles still share the same local Builder, memory, LLM roles, and Spawner unless you intentionally split those later.",
-            "Example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "PowerShell example: spark setup --profile qa-bot --bot-token '@clipboard' --admin-telegram-ids <YOUR_TELEGRAM_ID>",
+            "macOS/Linux example: spark setup --profile qa-bot --bot-token @clipboard --admin-telegram-ids <YOUR_TELEGRAM_ID>",
             "Then run: spark start spark-telegram-bot --profile qa-bot",
         ],
         "access_levels": [
@@ -20831,7 +20849,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
     secrets_set_parser.add_argument("secret_id")
-    secrets_set_parser.add_argument("--value", help="Pass the value directly (otherwise prompted or read from stdin)")
+    secrets_set_parser.add_argument(
+        "--value",
+        help=(
+            "omit --value to paste securely when prompted; advanced input supports @clipboard, @env:NAME, or "
+            "@file:path (in PowerShell, quote '@clipboard')"
+        ),
+    )
     secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
