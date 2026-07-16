@@ -38,6 +38,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 import tomllib
 
+from .command_summary import sanitize_command_line, select_failure_summary
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
 from .provider_secrets import redaction_followup, resolve_provider_secret_env, store_provider_secrets, strip_provider_secret_values
@@ -8300,7 +8301,7 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
     stdout = result.stdout or ""
     stderr = result.stderr or ""
     for raw_line in (stdout + "\n" + stderr).splitlines():
-        line = raw_line.strip()
+        line = sanitize_command_line(raw_line.strip(), redact_shareable_text)
         if not line:
             continue
         if line.startswith("> "):
@@ -8341,7 +8342,7 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
                 f"{len(shadow) if isinstance(shadow, list) else 0} shadow adapters"
             )
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))[:200]
-    return lines[-1]
+    return select_failure_summary(lines)
 
 
 def collect_status_payload() -> dict[str, Any]:
