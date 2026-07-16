@@ -133,6 +133,83 @@ class AwsAuthorityTests(unittest.TestCase):
         self.assert_blocked(["aws", "--region", "us-east-1", "ecr", "get-login-password"], "credential_mutation", "critical", "approve aws credential reveal")
         self.assert_allowed(["aws", "ecr", "describe-repositories"])
 
+    def test_extended_aws_service_mutation_matrix(self) -> None:
+        cases = (
+            (["aws", "batch", "submit-job"], "remote_code_execution", "high", "approve batch job change"),
+            (["aws", "batch", "delete-job-queue"], "external_publish", "critical", "approve batch job change"),
+            (["aws", "stepfunctions", "start-execution"], "remote_code_execution", "high", "approve step functions change"),
+            (["aws", "stepfunctions", "stop-execution"], "external_publish", "critical", "approve step functions change"),
+            (["aws", "states", "update-state-machine"], "external_publish", "high", "approve step functions change"),
+            (["aws", "events", "put-events"], "external_publish", "high", "approve eventbridge change"),
+            (["aws", "events", "delete-rule"], "external_publish", "critical", "approve eventbridge change"),
+            (["aws", "sqs", "send-message"], "external_publish", "high", "approve sqs change"),
+            (["aws", "sqs", "purge-queue"], "external_publish", "critical", "approve sqs change"),
+            (["aws", "sns", "publish"], "external_publish", "high", "approve sns change"),
+            (["aws", "sns", "unsubscribe"], "external_publish", "critical", "approve sns change"),
+            (["aws", "secretsmanager", "create-secret"], "credential_mutation", "high", "approve secretsmanager change"),
+            (["aws", "secretsmanager", "delete-secret"], "credential_mutation", "critical", "approve secretsmanager change"),
+            (["aws", "ssm", "put-parameter"], "credential_mutation", "high", "approve ssm parameter change"),
+            (["aws", "ssm", "delete-parameter"], "credential_mutation", "critical", "approve ssm parameter change"),
+            (["aws", "kms", "create-key"], "credential_mutation", "high", "approve kms change"),
+            (["aws", "kms", "decrypt"], "credential_mutation", "critical", "approve kms change"),
+            (["aws", "acm", "request-certificate"], "credential_mutation", "high", "approve acm change"),
+            (["aws", "acm", "export-certificate"], "credential_mutation", "critical", "approve acm change"),
+            (["aws", "sts", "assume-role"], "credential_mutation", "critical", "approve aws credential reveal"),
+            (["aws", "--profile", "prod", "route53", "change-resource-record-sets"], "external_publish", "high", "approve route53 change"),
+            (["aws", "route53", "delete-hosted-zone"], "external_publish", "critical", "approve route53 change"),
+            (["aws", "cloudfront", "update-distribution"], "external_publish", "high", "approve cloudfront change"),
+            (["aws", "cloudfront", "delete-distribution"], "external_publish", "critical", "approve cloudfront change"),
+            (["aws", "apigatewayv2", "create-api"], "external_publish", "high", "approve api gateway change"),
+            (["aws", "apigateway", "delete-rest-api"], "external_publish", "critical", "approve api gateway change"),
+            (["aws", "cognito-idp", "admin-create-user"], "identity_access_mutation", "high", "approve cognito access change"),
+            (["aws", "cognito-identity", "set-identity-pool-roles"], "identity_access_mutation", "critical", "approve cognito access change"),
+            (["aws", "dynamodb", "put-item"], "external_publish", "high", "approve dynamodb change"),
+            (["aws", "dynamodb", "delete-table"], "external_publish", "critical", "approve dynamodb change"),
+            (["aws", "logs", "put-log-events"], "external_publish", "high", "approve cloudwatch logs change"),
+            (["aws", "logs", "delete-log-group"], "external_publish", "critical", "approve cloudwatch logs change"),
+            (["aws", "cloudwatch", "put-metric-data"], "external_publish", "high", "approve cloudwatch change"),
+            (["aws", "cloudwatch", "delete-alarms"], "external_publish", "critical", "approve cloudwatch change"),
+            (["aws", "cloudtrail", "start-logging"], "external_publish", "high", "approve cloudtrail change"),
+            (["aws", "cloudtrail", "stop-logging"], "external_publish", "critical", "approve cloudtrail change"),
+            (["aws", "configservice", "put-config-rule"], "external_publish", "high", "approve aws config change"),
+            (["aws", "configservice", "stop-configuration-recorder"], "external_publish", "critical", "approve aws config change"),
+            (["aws", "guardduty", "enable-organization-admin-account"], "external_publish", "high", "approve guardduty change"),
+            (["aws", "guardduty", "disable-organization-admin-account"], "external_publish", "critical", "approve guardduty change"),
+            (["aws", "wafv2", "update-web-acl"], "external_publish", "high", "approve wafv2 change"),
+            (["aws", "wafv2", "delete-web-acl"], "external_publish", "critical", "approve wafv2 change"),
+        )
+        for command, action, risk, phrase in cases:
+            with self.subTest(command=command):
+                self.assert_blocked(command, action, risk, phrase)
+
+    def test_extended_aws_service_reports_remain_open(self) -> None:
+        cases = (
+            ["aws", "batch", "describe-jobs"],
+            ["aws", "stepfunctions", "get-execution-history"],
+            ["aws", "events", "list-rules"],
+            ["aws", "sqs", "get-queue-attributes"],
+            ["aws", "sns", "list-topics"],
+            ["aws", "secretsmanager", "describe-secret"],
+            ["aws", "ssm", "describe-parameters"],
+            ["aws", "kms", "describe-key"],
+            ["aws", "acm", "describe-certificate"],
+            ["aws", "sts", "get-caller-identity"],
+            ["aws", "route53", "list-hosted-zones"],
+            ["aws", "cloudfront", "get-distribution"],
+            ["aws", "apigatewayv2", "get-apis"],
+            ["aws", "cognito-idp", "list-users"],
+            ["aws", "dynamodb", "describe-table"],
+            ["aws", "logs", "filter-log-events"],
+            ["aws", "cloudwatch", "get-metric-data"],
+            ["aws", "cloudtrail", "get-trail-status"],
+            ["aws", "configservice", "describe-configuration-recorders"],
+            ["aws", "guardduty", "get-detector"],
+            ["aws", "wafv2", "list-web-acls"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                self.assert_allowed(command)
+
 
 if __name__ == "__main__":
     unittest.main()
