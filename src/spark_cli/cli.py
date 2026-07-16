@@ -12647,18 +12647,59 @@ def local_secret_file_permission_errors(paths: list[Path] | None = None) -> list
     return errors
 
 
+def effective_generated_module_env_value(
+    generated_env: dict[str, str],
+    key: str,
+    *,
+    legacy_generated_key: str | None = None,
+) -> str:
+    """Mirror module_runtime_env precedence for one non-keychain control value."""
+    if key in generated_env:
+        return str(generated_env[key]).strip()
+    if legacy_generated_key and legacy_generated_key in generated_env:
+        return str(generated_env[legacy_generated_key]).strip()
+    return (os.environ.get(key) or "").strip()
+
+
+def spawner_bind_host_is_exposed(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    if normalized in {"", "localhost", "127.0.0.1", "::1", "[::1]"}:
+        return False
+    if normalized == "*":
+        return True
+    candidate = normalized
+    if candidate.startswith("[") and "]" in candidate:
+        candidate = candidate[1 : candidate.index("]")]
+    candidate = candidate.split("%", 1)[0]
+    try:
+        return not ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        # A non-localhost name may resolve beyond loopback. Audit it as exposed
+        # rather than claiming a local-only control surface without DNS proof.
+        return True
+
+
 def local_control_surface_errors() -> list[str]:
     errors: list[str] = []
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
-    spawner_host = (spawner_env.get("SPARK_SPAWNER_HOST") or spawner_env.get("HOST") or "").strip()
-    allowed_hosts = [host.strip() for host in (spawner_env.get("SPARK_ALLOWED_HOSTS") or "").split(",") if host.strip()]
-    public_bind = spawner_host in {"0.0.0.0", "::"} or bool(allowed_hosts)
+    spawner_host = effective_generated_module_env_value(
+        spawner_env,
+        "SPARK_SPAWNER_HOST",
+        legacy_generated_key="HOST",
+    )
+    allowed_hosts = [
+        host.strip()
+        for host in effective_generated_module_env_value(spawner_env, "SPARK_ALLOWED_HOSTS").split(",")
+        if host.strip()
+    ]
+    exposed_bind = spawner_bind_host_is_exposed(spawner_host)
+    public_bind = exposed_bind or bool(allowed_hosts)
     if public_bind:
         errors.extend(hosted_allowed_host_errors(allowed_hosts))
-        if not allowed_hosts:
-            errors.append("Spawner appears publicly bound but SPARK_ALLOWED_HOSTS is not configured.")
-        ui_key = spawner_env.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_UI_API_KEY") or ""
-        bridge_key = spawner_env.get("SPARK_BRIDGE_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY") or ""
+        if exposed_bind and not allowed_hosts:
+            errors.append(f"Spawner appears publicly bound to {spawner_host!r} but SPARK_ALLOWED_HOSTS is not configured.")
+        ui_key = effective_generated_module_env_value(spawner_env, "SPARK_UI_API_KEY")
+        bridge_key = effective_generated_module_env_value(spawner_env, "SPARK_BRIDGE_API_KEY")
         errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
     return errors
 
