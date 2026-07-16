@@ -40,6 +40,7 @@ import tomllib
 
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
+from .provider_secrets import redaction_followup, resolve_provider_secret_env, store_provider_secrets, strip_provider_secret_values
 from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
@@ -3997,6 +3998,7 @@ def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, 
             env.pop("BOT_TOKEN", None)
             env.pop("TELEGRAM_BOT_TOKEN", None)
         env.update(profile_env)
+        env.update(resolve_provider_secret_env(env, LLM_PROVIDER_ENV, fetch_secret))
     return write_boundary_env(env)
 
 
@@ -4802,7 +4804,6 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
     primary_relay_port = telegram_profile_relay_port(setup_state, primary_profile)
-
     gateway_env = {
         "BOT_TOKEN": secret_values.get("telegram.bot_token", ""),
         "ADMIN_TELEGRAM_IDS": secret_values.get("telegram.admin_ids", ""),
@@ -4885,7 +4886,6 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         gateway_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
         spawner_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
         builder_env["SPARK_GOVERNOR_HMAC_KEY"] = hmac_key
-
     return {
         gateway.name: gateway_env,
         spawner.name: spawner_env,
@@ -4897,7 +4897,6 @@ def should_preserve_level5_guardrails(module_name: str) -> bool:
     if module_name not in {"spawner-ui", "spark-telegram-bot"}:
         return False
     from .sandbox.access import LEVEL5_ENV, level5_guardrails_configured_by_audit
-
     existing = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
     already_enabled = all(existing.get(key) == value for key, value in LEVEL5_ENV.items())
     return already_enabled or level5_guardrails_configured_by_audit(home=SPARK_HOME)
@@ -4907,7 +4906,6 @@ def preserve_level5_guardrails(module_name: str, env_values: dict[str, str]) -> 
     if not should_preserve_level5_guardrails(module_name):
         return env_values
     from .sandbox.access import LEVEL5_ENV
-
     return {**env_values, **LEVEL5_ENV}
 
 
@@ -7672,6 +7670,7 @@ def write_setup_runtime_config(
     generated_envs = build_module_envs(args, modules, secret_values)
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
+        env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)
         env_values = preserve_level5_guardrails(module.name, env_values)
         generated_path = generated_module_env_path(module)
         write_generated_env(generated_path, env_values)
@@ -8149,6 +8148,7 @@ def persist_keychain_secrets(bundle: list[Module], secret_values: dict[str, str]
             backend = store_secret(secret_id, value, preferred="keychain")
             report[secret_id] = backend
             seen.add(secret_id)
+    report.update(store_provider_secrets(secret_values, LLM_PROVIDER_ENV, store_secret, skip=seen))
     for secret_id, value in secret_values.items():
         if secret_id in seen or not secret_id.startswith("telegram.profiles.") or not value:
             continue
@@ -15520,10 +15520,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
                     print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
-            print("")
-            print("Next:")
-            print("  spark verify --deep")
-            return 0
+            followup_code, followup_lines = redaction_followup(collect_secret_surface_payload())
+            print("\n".join(followup_lines))
+            return followup_code
 
         payload = collect_secret_surface_payload()
         if args.json:
