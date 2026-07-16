@@ -41,7 +41,7 @@ import tomllib
 from .command_summary import sanitize_command_line, select_failure_summary
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
-from .provider_secrets import redaction_followup, resolve_provider_secret_env, store_provider_secrets, strip_provider_secret_values
+from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
 from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
@@ -3999,7 +3999,7 @@ def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, 
             env.pop("BOT_TOKEN", None)
             env.pop("TELEGRAM_BOT_TOKEN", None)
         env.update(profile_env)
-        env.update(resolve_provider_secret_env(env, LLM_PROVIDER_ENV, fetch_secret))
+    env.update(resolve_runtime_provider_secret_env(module.name, env, LLM_PROVIDER_ENV, fetch_secret))
     return write_boundary_env(env)
 
 

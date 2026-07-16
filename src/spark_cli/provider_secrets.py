@@ -1,10 +1,32 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Set
 from typing import Any
 
 
 ProviderSpecs = Mapping[str, Mapping[str, str]]
+DEFAULT_PROVIDER_KEYS = frozenset(
+    {
+        "LLM_PROVIDER",
+        "SPARK_LLM_PROVIDER",
+        "SPARK_CHAT_LLM_PROVIDER",
+        "SPARK_BUILDER_LLM_PROVIDER",
+        "SPARK_MEMORY_LLM_PROVIDER",
+        "SPARK_MISSION_LLM_PROVIDER",
+    }
+)
+RUNTIME_PROVIDER_KEYS = {
+    "spark-telegram-bot": DEFAULT_PROVIDER_KEYS,
+    "spawner-ui": frozenset(
+        {
+            "SPARK_MISSION_LLM_PROVIDER",
+            "SPARK_MISSION_LLM_BOT_PROVIDER",
+            "DEFAULT_MISSION_PROVIDER",
+            "SPARK_BOT_DEFAULT_PROVIDER",
+            "BOT_DEFAULT_PROVIDER",
+        }
+    ),
+}
 
 
 def provider_secret_env_names(specs: ProviderSpecs) -> set[str]:
@@ -41,15 +63,8 @@ def store_provider_secrets(
     return report
 
 
-def selected_provider_names(env: Mapping[str, str]) -> set[str]:
-    keys = {
-        "LLM_PROVIDER",
-        "SPARK_LLM_PROVIDER",
-        "SPARK_CHAT_LLM_PROVIDER",
-        "SPARK_BUILDER_LLM_PROVIDER",
-        "SPARK_MEMORY_LLM_PROVIDER",
-        "SPARK_MISSION_LLM_PROVIDER",
-    }
+def selected_provider_names(env: Mapping[str, str], keys: Set[str] | None = None) -> set[str]:
+    keys = DEFAULT_PROVIDER_KEYS if keys is None else keys
     return {str(env.get(key) or "").strip().lower() for key in keys if env.get(key)}
 
 
@@ -57,9 +72,11 @@ def resolve_provider_secret_env(
     env: Mapping[str, str],
     specs: ProviderSpecs,
     fetch_secret: Callable[[str], Any],
+    *,
+    provider_keys: Set[str] | None = None,
 ) -> dict[str, str]:
     resolved: dict[str, str] = {}
-    for provider in sorted(selected_provider_names(env)):
+    for provider in sorted(selected_provider_names(env, provider_keys)):
         spec = specs.get(provider)
         if not spec:
             continue
@@ -71,6 +88,18 @@ def resolve_provider_secret_env(
         if value:
             resolved[env_name] = str(value)
     return resolved
+
+
+def resolve_runtime_provider_secret_env(
+    module_name: str,
+    env: Mapping[str, str],
+    specs: ProviderSpecs,
+    fetch_secret: Callable[[str], Any],
+) -> dict[str, str]:
+    provider_keys = RUNTIME_PROVIDER_KEYS.get(module_name)
+    if provider_keys is None:
+        return {}
+    return resolve_provider_secret_env(env, specs, fetch_secret, provider_keys=provider_keys)
 
 
 def redaction_followup(payload: Mapping[str, Any]) -> tuple[int, list[str]]:
