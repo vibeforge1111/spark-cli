@@ -455,6 +455,7 @@ install_uv() {
   need_cmd tar
   if ! has_checksum_tool; then
     echo "Missing required checksum command: sha256sum or shasum" >&2
+    checksum_repair_hint >&2
     exit 1
   fi
   local uv_platform asset expected actual tools_dir uv_dir archive extract_dir uv_bin
@@ -624,6 +625,28 @@ has_checksum_tool() {
   command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
 }
 
+checksum_repair_hint() {
+  case "$(uname -s 2>/dev/null || printf 'unknown')" in
+    Linux)
+      if command -v apt-get >/dev/null 2>&1; then
+        printf '%s\n' "Repair: sudo apt-get install coreutils"
+      elif command -v dnf >/dev/null 2>&1; then
+        printf '%s\n' "Repair: sudo dnf install coreutils"
+      elif command -v apk >/dev/null 2>&1; then
+        printf '%s\n' "Repair: sudo apk add coreutils"
+      else
+        printf '%s\n' "Repair: use your package manager to install a package that provides sha256sum or shasum, then rerun this installer."
+      fi
+      ;;
+    Darwin)
+      printf '%s\n' "Repair: restore /usr/bin/shasum from your macOS installation, or install a package that provides shasum and put it on PATH, then rerun this installer."
+      ;;
+    *)
+      printf '%s\n' "Repair: install a package that provides sha256sum or shasum and put it on PATH, then rerun this installer."
+      ;;
+  esac
+}
+
 has_existing_install() {
   [ -e "$SPARK_PREFIX/bin/spark" ] || [ -e "$SPARK_PREFIX/tools/spark-cli" ] || [ -e "$SPARK_PREFIX/config" ] || [ -e "$SPARK_PREFIX/state" ]
 }
@@ -649,6 +672,7 @@ preflight() {
   need_cmd tar
   if ! has_checksum_tool; then
     echo "Missing required checksum command: sha256sum or shasum" >&2
+    checksum_repair_hint >&2
     exit 1
   fi
   log "OS/platform: $(uname -s) $(uname -m) -> $SPARK_NODE_PLATFORM"
