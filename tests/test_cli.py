@@ -2413,11 +2413,18 @@ class Sandbox:
             target = Path(tmp_dir) / "new-module"
             created = scaffold_module_files(target, "new-module", "python", "Demo module")
             names = sorted(path.name for path in created)
-            self.assertEqual(names, [".gitignore", "README.md", "spark.toml"])
+            self.assertEqual(names, [".gitignore", "AGENTS.md", "README.md", "spark.toml"])
             gitignore = (target / ".gitignore").read_text(encoding="utf-8")
             self.assertIn("__pycache__/", gitignore)
             readme = (target / "README.md").read_text(encoding="utf-8")
             self.assertIn("# new-module", readme)
+            agents = (target / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("# new-module Agent Ruleset", agents)
+            self.assertIn("Demo module", agents)
+            self.assertIn("`spark.toml` is the source of truth", agents)
+            self.assertIn("Claims describe capability; they do not grant permission", agents)
+            self.assertIn("python -c \"print('ok')\"", agents)
+            self.assertNotIn("record_config_mutation", agents)
             # Ensure the scaffold is installable by the CLI's own loader.
             from spark_cli.cli import load_module
             loaded = load_module(target)
