@@ -12189,7 +12189,10 @@ def delete_revoke_all_secrets(secret_ids: Iterable[str], *, dry_run: bool = Fals
 def spawner_state_dir_for_revoke_all() -> Path:
     spawner_env = read_generated_env(MODULE_CONFIG_DIR / "spawner-ui.env")
     raw = spawner_env.get("SPAWNER_STATE_DIR") or str(STATE_DIR / "spawner-ui")
-    return Path(raw).expanduser()
+    candidate = Path(raw).expanduser().resolve()
+    if not candidate.is_relative_to(SPARK_HOME.resolve()):
+        raise SystemExit("SPAWNER_STATE_DIR resolves outside Spark home; refusing security revoke-all state access.")
+    return candidate
 
 
 def load_json_best_effort(path: Path, default: Any) -> Any:
