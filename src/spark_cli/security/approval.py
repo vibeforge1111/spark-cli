@@ -64,7 +64,7 @@ class OutboundTransferAction:
     target: str
 
 
-PublishKind = Literal["source", "package", "image", "chart", "hosted", "database"]
+PublishKind = Literal["source", "package", "image", "chart", "hosted", "database", "infrastructure"]
 
 
 @dataclass(frozen=True)
@@ -540,12 +540,13 @@ EXTERNAL_PUBLISH_PREFIX_RULES = (
     ExternalPublishRule(frozenset({"helm"}), ("push",), "chart"),
     ExternalPublishRule(frozenset({"helm"}), ("chart", "push"), "chart"),
     ExternalPublishRule(frozenset({"prisma"}), ("migrate", "deploy"), "database"),
+    ExternalPublishRule(frozenset({"npx"}), ("prisma", "migrate", "deploy"), "database"),
     ExternalPublishRule(frozenset({"firebase", "netlify"}), ("deploy",), "hosted"),
     ExternalPublishRule(frozenset({"wrangler"}), ("deploy",), "hosted"),
     ExternalPublishRule(frozenset({"wrangler"}), ("publish",), "hosted"),
     ExternalPublishRule(frozenset({"gh"}), ("release", "create"), "source"),
 )
-HOSTED_DEPLOY_EXECUTABLES = frozenset({"flyctl", "railway", "serverless", "vercel"})
+HOSTED_DEPLOY_EXECUTABLES = frozenset({"flyctl", "railway", "serverless", "sls", "vercel"})
 CLOUD_MUTATION_EXECUTABLES = frozenset({"az", "gcloud", "supabase"})
 
 
@@ -607,6 +608,21 @@ def _parse_external_publish_segment(parts: list[str]) -> ExternalPublishAction |
         or bool(arguments and arguments[0] == "deploy")
     ):
         return ExternalPublishAction(kind="hosted", executable=executable, action="deploy")
+
+    if executable == "az" and (
+        _prefix_matches(arguments, ("functionapp", "deployment", "source"))
+        or (len(arguments) > 2 and arguments[0] == "deployment" and "create" in arguments[2:])
+    ):
+        return ExternalPublishAction(kind="hosted", executable=executable, action="deployment")
+
+    if executable == "kubectl" and (
+        _prefix_matches(arguments, ("rollout", "restart"))
+        or bool(arguments and arguments[0] in {"annotate", "cordon", "drain", "label", "patch", "scale"})
+    ):
+        return ExternalPublishAction(kind="infrastructure", executable=executable, action=arguments[0])
+
+    if executable == "pulumi" and arguments and arguments[0] == "import":
+        return ExternalPublishAction(kind="infrastructure", executable=executable, action="import")
 
     if executable in CLOUD_MUTATION_EXECUTABLES:
         action = next((argument for argument in arguments if argument in {"deploy", "push", "up"}), "")
@@ -1144,7 +1160,11 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
         )
     external_publish = _parse_external_publish_action(parts)
     if external_publish is not None:
-        hosted = external_publish.kind == "hosted"
+        confirmation_phrases = {
+            "database": "approve database migration",
+            "hosted": "approve hosted deploy",
+            "infrastructure": "approve infrastructure change",
+        }
         return _decision(
             parts,
             ctx,
@@ -1152,7 +1172,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "high",
             "Command can publish artifacts or mutate a remote deployment outside this machine.",
             target_display=f"{external_publish.executable} {external_publish.action}".strip(),
-            confirmation_phrase="approve hosted deploy" if hosted else "approve publish",
+            confirmation_phrase=confirmation_phrases.get(external_publish.kind, "approve publish"),
         )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
