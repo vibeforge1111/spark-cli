@@ -757,7 +757,7 @@ class SparkCliTests(unittest.TestCase):
             "access": "status, guide, setup, disable-level5",
             "sandbox": "status, docker, ssh, modal",
             "approval": "status, classify",
-            "telegram": "connect",
+            "telegram": "status, connect",
             "autostart": "status, install, on, uninstall, off, profile",
             "config": "get, set, unset, list",
             "secrets": "list, set, get, delete",
