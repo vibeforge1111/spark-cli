@@ -3951,14 +3951,12 @@ def spark_builder_home() -> Path:
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
     lines = [f"{key}={value}" for key, value in values.items()]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     # Generated module env files hold control-plane keys (SPARK_BRIDGE_API_KEY,
     # SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
-    # owner-only (break ACL inheritance) so a workspace-write sandbox worker cannot
-    # read the keys that gate mission execution. Same helper that protects
-    # secrets.local.json; no-op-safe on every platform.
-    harden_secret_file(path)
+    # owner-only from the first byte and replace them atomically so a reader never
+    # observes a partial file. The helper also refuses linked write paths and breaks
+    # inherited ACL access on Windows.
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
@@ -14317,21 +14315,40 @@ def update_toml_top_level_scalars(content: str, updates: dict[str, str]) -> str:
 def atomic_write_text(path: Path, content: str) -> None:
     assert_no_linked_write_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
+    temp_path: Path | None = None
+    temp_fd: int | None = None
     try:
-        temp_path.write_text(content, encoding="utf-8")
-        try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
+        )
+        for _attempt in range(32):
+            temp_path = path.with_name(
+                f".{path.name}.{os.getpid()}.{py_secrets.token_hex(16)}.tmp"
+            )
+            try:
+                temp_fd = os.open(temp_path, flags, PRIVATE_FILE_MODE)
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None or temp_path is None:
+            raise FileExistsError("Could not claim a unique private temporary file.")
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, path)
-        try:
-            os.chmod(path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
+        temp_path = None
+        harden_secret_file(path)
     finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
         try:
-            if temp_path.exists():
+            if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
         except OSError:
             pass
