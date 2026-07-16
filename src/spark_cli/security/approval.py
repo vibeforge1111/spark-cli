@@ -6,6 +6,7 @@ import shlex
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .aws_authority import decide_aws_authority
 from .container_authority import decide_container_authority
 from .credential_authority import decide_credential_authority
 from .git_authority import decide_git_authority
@@ -840,6 +841,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
         return kubernetes_decision
     if infrastructure_decision := decide_infrastructure_authority(raw_parts, ctx, _decision):
         return infrastructure_decision
+    if aws_decision := decide_aws_authority(raw_parts, ctx, _decision):
+        return aws_decision
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):

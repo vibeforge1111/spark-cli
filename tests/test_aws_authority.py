@@ -106,7 +106,7 @@ class AwsAuthorityTests(unittest.TestCase):
         self.assert_blocked(["aws", "s3", "rb", "s3://example-bucket", "--force"], "external_publish", "critical", "approve s3 storage change")
         self.assert_blocked(["aws", "s3api", "put-object", "--bucket", "example-bucket"], "external_publish", "high", "approve s3 storage change")
         self.assert_blocked(["aws", "s3api", "put-bucket-policy", "--bucket", "example-bucket"], "external_publish", "critical", "approve s3 storage change")
-        self.assert_blocked(["aws", "s3", "cp", "report.txt", "s3://example-bucket/report.txt"], "external_publish", "high", "approve outbound transfer")
+        self.assert_blocked(["aws", "s3", "cp", "report.txt", "s3://example-bucket/report.txt"], "network_exfiltration", "medium", "approve network upload")
         self.assert_allowed(["aws", "s3", "cp", "s3://example-bucket/report.txt", "report.txt"])
         self.assert_allowed(["aws", "s3api", "head-object", "--bucket", "example-bucket"])
 
