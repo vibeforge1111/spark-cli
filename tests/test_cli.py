@@ -17254,6 +17254,45 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("SPARK_SETUP_OPTIONAL_ON_UPGRADE=1", script)
         self.assertIn("spark_cli.cli", script)
 
+    @unittest.skipIf(os.name == "nt", "install.sh helper proof requires a POSIX shell")
+    def test_install_script_checksum_repair_hints_match_recognized_tools(self) -> None:
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash is not available")
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
+
+        def hint(os_name: str, package_manager: str = "") -> str:
+            manager_function = f"{package_manager}() {{ :; }};" if package_manager else "PATH=/nonexistent;"
+            result = subprocess.run(
+                [
+                    bash,
+                    "-c",
+                    (
+                        "eval \"$(sed '/^main \"\\$@\"$/d' \"$SCRIPT\")\"; "
+                        f"uname() {{ printf '%s\\n' {os_name!r}; }}; "
+                        f"{manager_function} checksum_repair_hint"
+                    ),
+                ],
+                env={**os.environ, "SCRIPT": str(script_path)},
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.strip()
+
+        self.assertIn("sudo apt-get install coreutils", hint("Linux", "apt-get"))
+        self.assertIn("sudo dnf install coreutils", hint("Linux", "dnf"))
+        self.assertIn("sudo apk add coreutils", hint("Linux", "apk"))
+        self.assertIn("provides sha256sum or shasum", hint("Linux"))
+        macos = hint("Darwin")
+        self.assertIn("/usr/bin/shasum", macos)
+        self.assertNotIn("gsha256sum", macos)
+
+        script = script_path.read_text(encoding="utf-8")
+        self.assertEqual(script.count("checksum_repair_hint >&2"), 2)
+
     @unittest.skipIf(os.name == "nt", "install.sh dry run requires a POSIX shell")
     def test_install_script_dry_run_reflects_bundle_voice_and_autostart(self) -> None:
         bash = shutil.which("bash")
