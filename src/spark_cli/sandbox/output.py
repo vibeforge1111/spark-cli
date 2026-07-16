@@ -14,12 +14,23 @@ FULL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*=\s*([^\s]+)"),
-    re.compile(r'(?i)"(?:apiKey|token|secret|password|passwd|accessToken|refreshToken)"\s*:\s*"([^"]+)"'),
+    re.compile(
+        r'(?i)"(?:apiKey|api[_-]?key|token|secret|password|passwd|accessToken|access[_-]?token|'
+        r'refreshToken|refresh[_-]?token|clientSecret|client[_-]?secret)"\s*:\s*"([^"]+)"'
+    ),
+    re.compile(
+        r"(?i)'(?:apiKey|api[_-]?key|token|secret|password|passwd|accessToken|access[_-]?token|"
+        r"refreshToken|refresh[_-]?token|clientSecret|client[_-]?secret)'\s*:\s*'([^']+)'"
+    ),
+    re.compile(
+        r"(?i)(?<![A-Z0-9_\"'])\b(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?KEY|"
+        r"SECRET(?:[_-][A-Z0-9]+)*|TOKEN|PASSWORD|PASSWD)\b\s*[:=]\s*([^\s,;]+)"
+    ),
     re.compile(r"(?i)--(?:api[-_]?key|token|secret|password|passwd)\s+([^\s]+)"),
     re.compile(r"(?i)\b(?:X-Api-Key|X-Auth-Token|Cookie|Set-Cookie)\s*[:=]\s*([^\r\n;]+)"),
     re.compile(r"(?i)Authorization\s*[:=]\s*Basic\s+([A-Za-z0-9._\-+=/]+)"),
     re.compile(r"(?i)Authorization\s*[:=]\s*Bearer\s+([A-Za-z0-9._~+/\-]+=*)"),
+    re.compile(r"(?i)Authorization\s*[:=]\s*(?:Token|ApiKey|Api-Key|OAuth)\s+([^\r\n,;]+)"),
     re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:([^@\s/]+)@"),
     re.compile(r"(?i)([?&](?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|sig|signature)=)([^&#\s]+)"),
     re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._~+/\-]{18,}=*)"),
