@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .git_authority import decide_git_authority
 from .host_authority import decide_host_authority
 from .wrapper_policy import (
     DYNAMIC_LOADER_ENV_NAMES,
@@ -917,7 +918,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve unvalidated command",
         )
 
-    parts = [part for part in argv if part != "--"]
+    raw_parts = list(argv)
+    parts = [part for part in raw_parts if part != "--"]
     if INVALID_COMMAND_TOKEN in parts:
         return _decision(
             [INVALID_COMMAND_TOKEN],
@@ -1159,23 +1161,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase=f"approve file write {target}".strip().lower()[:80] if target else "approve file write",
         )
 
-    if first == "git" and (
-        "filter-repo" in lowered
-        or "filter-branch" in lowered
-        or "--force" in lowered
-        or "--force-with-lease" in lowered
-        or "-f" in lowered and second in {"push", "tag"}
-        or second in {"rebase", "reset"}
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "git_history_mutation",
-            "critical",
-            "Command can rewrite published history or discard local work.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve git history mutation",
-        )
+    if git_decision := decide_git_authority(raw_parts, ctx, _decision):
+        return git_decision
 
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
