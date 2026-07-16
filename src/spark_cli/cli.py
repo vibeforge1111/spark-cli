@@ -1518,7 +1518,15 @@ def default_home_uses_legacy_keychain() -> bool:
 
 
 def load_secrets_index() -> dict[str, str]:
-    return load_json(SECRETS_INDEX_PATH, {})
+    index = load_json(SECRETS_INDEX_PATH, {})
+    if not isinstance(index, dict):
+        raise SystemExit("Secrets index must be a JSON object. Nothing was changed.")
+    if any(
+        not isinstance(secret_id, str) or backend not in {"file", "keychain"}
+        for secret_id, backend in index.items()
+    ):
+        raise SystemExit("Secrets index contains an invalid secret-storage entry. Nothing was changed.")
+    return index
 
 
 def save_secrets_index(index: dict[str, str]) -> None:
@@ -1636,12 +1644,20 @@ def windows_current_user_grantee() -> str:
     return ""
 
 
-def harden_secret_file(path: Path) -> None:
+def harden_secret_file(path: Any) -> None:
+    if isinstance(path, bool) or not isinstance(path, (str, os.PathLike)):
+        raise SystemExit("Secret file hardening requires a valid filesystem path.")
     try:
-        os.chmod(path, 0o600)
+        normalized_path = Path(path)
+    except (TypeError, ValueError):
+        raise SystemExit("Secret file hardening requires a valid filesystem path.") from None
+    if not os.fspath(path) or normalized_path == Path("."):
+        raise SystemExit("Secret file hardening requires a valid filesystem path.")
+    try:
+        os.chmod(normalized_path, 0o600)
     except OSError:
         pass
-    if os.name != "nt" or not path.exists():
+    if os.name != "nt" or not normalized_path.exists():
         return
     grantee = windows_current_user_grantee()
     if not grantee:
@@ -1651,7 +1667,7 @@ def harden_secret_file(path: Path) -> None:
         return
     try:
         subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{grantee}:F"],
+            ["icacls", str(normalized_path), "/inheritance:r", "/grant:r", f"{grantee}:F"],
             check=False,
             capture_output=True,
             text=True,
@@ -1712,7 +1728,9 @@ def fetch_secret(secret_id: str) -> str | None:
     return None
 
 
-def is_telegram_bot_token_secret(secret_id: str) -> bool:
+def is_telegram_bot_token_secret(secret_id: Any) -> bool:
+    if not isinstance(secret_id, str):
+        return False
     return secret_id == "telegram.bot_token" or (
         secret_id.startswith("telegram.profiles.") and secret_id.endswith(".bot_token")
     )
@@ -1750,6 +1768,8 @@ def validate_telegram_bot_token(token: str, *, secret_id: str = "telegram.bot_to
             + (f" ({safe_detail})" if safe_detail else "")
             + ". Nothing was changed. Check the network, then retry; use --skip-telegram-token-check only for offline development."
         )
+    if not isinstance(payload, dict):
+        raise SystemExit("Telegram returned an unexpected token-validation response. Nothing was changed.")
     if not payload.get("ok"):
         description = str(payload.get("description") or "token rejected")
         raise SystemExit(
@@ -1811,6 +1831,8 @@ def list_stored_secrets() -> dict[str, str]:
 
 def module_secret_env_bindings(module: Module) -> list[dict[str, str]]:
     """Return env_var bindings for secrets the module declares in [needs.secrets]."""
+    if not isinstance(module, Module) or not isinstance(module.manifest, dict):
+        raise SystemExit("Secret binding resolution requires a valid module manifest.")
     bindings: list[dict[str, str]] = []
     for secret_id in module.needed_secrets:
         definition = module.resolve_secret_definition(secret_id)
@@ -2844,8 +2866,10 @@ def read_clipboard_text() -> str:
     )
 
 
-def extract_telegram_bot_token(value: str) -> str:
+def extract_telegram_bot_token(value: Any) -> str:
     """Return a Telegram bot token, tolerating copied BotFather surrounding text."""
+    if not isinstance(value, str):
+        raise SystemExit("Telegram bot token input must be text. Nothing was changed.")
     stripped = value.strip().strip("\"'")
     if TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(stripped):
         return stripped
