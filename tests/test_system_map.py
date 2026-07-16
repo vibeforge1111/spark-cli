@@ -2826,6 +2826,7 @@ routes = []
             authority_summary = json.loads(authority_stdout.getvalue())
 
             self.assertEqual(authority_exit_code, 0)
+            self.assertIs(authority_summary["ok"], True)
             self.assertEqual(authority_summary["schema_version"], "spark.os_authority.summary.v0")
             self.assertIn("guardrail_summary", authority_summary)
 
@@ -2848,6 +2849,7 @@ routes = []
             trace_summary = json.loads(trace_stdout.getvalue())
 
             self.assertEqual(trace_exit_code, 0)
+            self.assertIs(trace_summary["ok"], True)
             self.assertEqual(trace_summary["schema_version"], "spark.os_trace.summary.v0")
             self.assertIn("cross_system_trace", trace_summary)
 
@@ -2870,6 +2872,7 @@ routes = []
             memory_summary = json.loads(memory_stdout.getvalue())
 
             self.assertEqual(memory_exit_code, 0)
+            self.assertIs(memory_summary["ok"], True)
             self.assertEqual(memory_summary["schema_version"], "spark.os_memory.summary.v0")
             self.assertIn("movement_counts", memory_summary)
 
