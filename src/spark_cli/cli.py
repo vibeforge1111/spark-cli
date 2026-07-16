@@ -11266,8 +11266,8 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
                 continue
             verdict_status = str(verdict.get("status") or "unknown")
             proof_verdict_status_counts[verdict_status] = proof_verdict_status_counts.get(verdict_status, 0) + 1
-
     payload = {
+        "ok": True,
         "schema_version": "spark.os_capabilities.summary.v0",
         "generated_at": catalog.get("generated_at"),
         "card_count": len(cards),
@@ -11283,7 +11283,6 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     print("Spark OS capabilities")
     print(f"- cards: {payload['card_count']}")
     for surface, count in payload["surface_counts"].items():
@@ -11886,6 +11885,7 @@ def print_plain_specialization_loop_doctor(payload: dict[str, Any]) -> None:
 
 def collect_support_bundle_payload(*, include_logs: bool = False, log_lines: int = 120) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "ok": True,
         "created_at": timestamp_now(),
         "spark_home": public_local_path_ref(SPARK_HOME),
         "status": collect_status_payload(),
