@@ -208,6 +208,7 @@ from spark_cli.cli import (
     openai_compatible_chat_completion,
     OPENAI_COMPAT_HTTP_USER_AGENT,
     provider_status_payload,
+    provider_catalog_payload,
     provider_recommendations_payload,
     provider_test_payload,
     expand_spark_home_placeholder,
@@ -6734,6 +6735,11 @@ class Sandbox:
         self.assertIn("Provider control", output)
         self.assertIn("agent: Telegram chat, runtime reasoning, memory synthesis, and recall.", output)
         self.assertIn("spark setup --llm-provider openai", output)
+        self.assertNotIn("--openai-api-key", output)
+        self.assertNotIn("<OPENAI_API_KEY>", output)
+        self.assertIn("type @clipboard when Spark asks", output)
+        self.assertIn("PowerShell example: spark setup --profile qa-bot --bot-token '@clipboard'", output)
+        self.assertIn("macOS/Linux example: spark setup --profile qa-bot --bot-token @clipboard", output)
         self.assertIn("--agent-llm-provider zai", output)
         self.assertIn("OpenAI Codex", output)
         self.assertIn("Kimi/Moonshot", output)
@@ -6779,6 +6785,12 @@ class Sandbox:
             [item["role"] for item in payload["setup"]["llm_roles"]],
             ["default", "agent", "mission"],
         )
+        examples = "\n".join(payload["setup"]["llm_examples"])
+        self.assertNotIn("--openai-api-key", examples)
+        self.assertNotIn("<OPENAI_API_KEY>", examples)
+        profiles = "\n".join(payload["multi_bot_profiles"])
+        self.assertIn("--bot-token '@clipboard'", profiles)
+        self.assertIn("--bot-token @clipboard", profiles)
         operator_commands = {item["command"] for item in payload["operator_commands"]}
         self.assertIn("spark fix autostart", operator_commands)
         self.assertIn("spark fix spawner", operator_commands)
@@ -9985,6 +9997,16 @@ class Sandbox:
             else:
                 self.assertTrue(stored.startswith(INSECURE_FILE_SECRET_PREFIX))
 
+    def test_secrets_set_help_keeps_direct_secrets_out_of_the_default_path(self) -> None:
+        with patch("sys.stdout", new_callable=StringIO) as stdout, self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["secrets", "set", "--help"])
+        self.assertEqual(raised.exception.code, 0)
+        output = stdout.getvalue()
+        self.assertIn("omit --value to paste securely when prompted", output)
+        self.assertIn("@clipboard", output)
+        self.assertIn("PowerShell", output)
+        self.assertNotIn("Pass the value directly", output)
+
     def test_prompt_for_secret_uses_visible_input_for_admin_ids(self) -> None:
         with patch("builtins.input", return_value="123,456"), \
              patch("spark_cli.cli.getpass.getpass") as getpass_mock:
@@ -10166,6 +10188,11 @@ class Sandbox:
         self.assertIn("opus", providers["anthropic"]["recommended_models"])
         self.assertIn("google/gemma-4-31B-it:fastest", providers["huggingface"]["recommended_models"])
         self.assertEqual(providers["lmstudio"]["lane"], "local/free after download")
+        for provider_id in ("openai", "openrouter", "zai", "kimi", "huggingface", "minimax"):
+            guidance = providers[provider_id]["getting_started"]
+            self.assertNotIn("-api-key", guidance)
+            self.assertNotIn("<key>", guidance)
+            self.assertIn("type @clipboard when Spark asks", guidance)
 
     def test_cmd_providers_recommend_prints_normie_paths(self) -> None:
         args = build_parser().parse_args(["providers", "recommend"])
@@ -10175,6 +10202,22 @@ class Sandbox:
         self.assertIn("OpenAI Codex subscription", output)
         self.assertIn("Local/private desktop route", output)
         self.assertIn("spark setup --llm-provider lmstudio", output)
+        self.assertNotIn("--zai-api-key", output)
+        self.assertNotIn("--kimi-api-key", output)
+        self.assertNotIn("<key>", output)
+        self.assertIn("type @clipboard when Spark asks", output)
+
+    def test_provider_catalog_uses_prompted_secret_entry_without_shell_specific_arguments(self) -> None:
+        payload = provider_catalog_payload()
+        providers = {provider["id"]: provider for provider in payload["providers"]}
+        for provider_id in ("openai", "openrouter", "zai", "kimi", "huggingface", "minimax"):
+            provider = providers[provider_id]
+            self.assertNotIn("-api-key", provider["setup"])
+            self.assertNotIn("<key>", provider["setup"])
+            self.assertEqual(
+                provider["secret_entry"],
+                "Copy the key, run setup, then type @clipboard when Spark asks.",
+            )
 
     def test_parser_accepts_codex_client_config_command(self) -> None:
         args = build_parser().parse_args(["providers", "codex", "--service-tier", "fast", "--reasoning-effort", "high"])
@@ -12200,7 +12243,10 @@ class Sandbox:
             [],
             {"llm": {"provider": "zai", "api_key_configured": False}},
         )
-        self.assertIn("LLM provider uses Z.AI GLM but is missing an API key. Re-run `spark setup --llm-provider zai --zai-api-key <key>`.", hints)
+        self.assertIn(
+            "LLM provider uses Z.AI GLM but is missing an API key. Re-run `spark setup --llm-provider zai`; Spark will prompt securely, and you can type @clipboard when asked.",
+            hints,
+        )
 
     def test_build_status_repair_hints_reports_missing_starter_runtime_process(self) -> None:
         spawner = Module(
@@ -12255,7 +12301,7 @@ class Sandbox:
                 {"llm": {"provider": "openai", "api_key_configured": False, "auth_mode": "not_configured"}},
             )
         self.assertIn(
-            "LLM provider uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup --llm-provider openai --openai-api-key <key>`, or use `spark setup --llm-provider codex` for OpenAI Codex sign-in.",
+            "LLM provider uses OpenAI API but OPENAI_API_KEY is not configured. Rerun `spark setup --llm-provider openai`; Spark will prompt securely, and you can type @clipboard when asked. Or use `spark setup --llm-provider codex` for OpenAI Codex sign-in.",
             hints,
         )
 
