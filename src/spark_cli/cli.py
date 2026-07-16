@@ -1568,63 +1568,72 @@ def allow_insecure_file_secrets() -> bool:
     return value in {"1", "true", "yes"}
 
 
+SECRET_FILE_HARDENING_TIMEOUT_SECONDS = 10
+SECRET_FILE_HARDENING_WARNING = (
+    "spark-cli: could not enforce owner-only permissions for a local secret file; "
+    "inspect local access before continuing.\n"
+)
+
+
 def windows_current_user_grantee() -> str:
     """Resolve a stable icacls grantee for the current user.
 
-    Prefer the account name from %USERNAME%; when it is empty (services, some
-    sandboxes) fall back to the current-user SID, which icacls accepts as
-    `*S-1-...`. An empty grantee would otherwise produce a malformed `:F` token
-    that makes icacls fail or, worse, grant nothing while breaking inheritance."""
-    username = (os.environ.get("USERNAME") or "").strip()
-    if username:
-        return username
-    try:
-        login = (getpass.getuser() or "").strip()
-    except Exception:
-        login = ""
-    if login:
-        return login
+    Prefer the OS-reported SID, which is not selected through the process
+    environment and which icacls accepts as `*S-1-...`. A bounded OS login name
+    is a compatibility fallback. Returning an empty grantee is safer than
+    constructing a malformed or attacker-selected grant token.
+    """
     try:
         whoami = subprocess.run(
             ["whoami", "/user", "/fo", "csv", "/nh"],
             check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
+            timeout=SECRET_FILE_HARDENING_TIMEOUT_SECONDS,
         )
-        if whoami.returncode == 0:
-            # CSV row: "DOMAIN\\user","S-1-5-21-..."
-            parts = [field.strip().strip('"') for field in whoami.stdout.strip().splitlines()[-1].split(",")]
-            sid = next((field for field in parts if field.startswith("S-1-")), "")
-            if sid:
-                return f"*{sid}"
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
+        whoami = None
+    if whoami is not None and whoami.returncode == 0 and isinstance(whoami.stdout, str):
+        sid = re.search(r"(?<![A-Za-z0-9-])(S-1-\d+(?:-\d+)+)(?![A-Za-z0-9-])", whoami.stdout)
+        if sid:
+            return f"*{sid.group(1)}"
+    try:
+        return (os.getlogin() or "").strip()
+    except (OSError, ValueError):
         pass
     return ""
 
 
 def harden_secret_file(path: Any) -> None:
     normalized_path = secret_input_authority.normalized_secret_file_path(path)
+    failed = False
     try:
         os.chmod(normalized_path, 0o600)
     except OSError:
-        pass
+        failed = True
     if os.name != "nt" or not normalized_path.exists():
+        if failed:
+            sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
         return
     grantee = windows_current_user_grantee()
     if not grantee:
-        # Could not resolve a grantee; skip the grant rather than emit a malformed
-        # `:F` token. Inheritance is intentionally left intact in this case so the
-        # file does not become inaccessible to its owner.
+        sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
         return
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["icacls", str(normalized_path), "/inheritance:r", "/grant:r", f"{grantee}:F"],
             check=False,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=SECRET_FILE_HARDENING_TIMEOUT_SECONDS,
         )
-    except OSError:
-        pass
+    except (OSError, subprocess.TimeoutExpired):
+        failed = True
+    else:
+        failed = failed or result.returncode != 0
+    if failed:
+        sys.stderr.write(SECRET_FILE_HARDENING_WARNING)
 
 
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
