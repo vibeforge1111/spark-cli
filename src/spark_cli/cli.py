@@ -40,7 +40,7 @@ import tomllib
 
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
-from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
+from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
@@ -3560,7 +3560,7 @@ def write_boundary_env(base: dict[str, str]) -> dict[str, str]:
 
 def shell_command_env(*, filtered: bool = False) -> dict[str, str]:
     env = safe_parent_env() if filtered else os.environ.copy()
-    managed_node_dir = SPARK_HOME / "tools" / "node-v22.18.0-win-x64"
+    managed_node_dir = managed_node_windows_dir(SPARK_HOME)
     if os.name == "nt" and managed_node_dir.exists():
         env["PATH"] = str(managed_node_dir) + os.pathsep + env.get("PATH", "")
     python_path = sys.executable if os.path.exists(sys.executable) else resolve_runtime_binary("python")

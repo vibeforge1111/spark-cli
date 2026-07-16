@@ -6,7 +6,7 @@
     "src/spark_cli/cli.py": 21623,
     "src/spark_cli/security/approval.py": 1577,
     "src/spark_cli/system_map.py": 6377,
-    "tests/test_cli.py": 19116,
+    "tests/test_cli.py": 19123,
     "tests/test_system_map.py": 2878
   }
 }

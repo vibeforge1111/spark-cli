@@ -10657,15 +10657,22 @@ class Sandbox:
             managed_node.mkdir(parents=True)
             node_exe = managed_node / "node.exe"
             npm_cmd = managed_node / "npm.cmd"
+            npm_cli = managed_node / "node_modules" / "npm" / "bin" / "npm-cli.js"
+            npm_cli.parent.mkdir(parents=True)
             node_exe.write_text("", encoding="utf-8")
             npm_cmd.write_text("", encoding="utf-8")
+            npm_cli.write_text("", encoding="utf-8")
 
             with patch.dict(os.environ, {"SPARK_HOME": str(spark_home)}, clear=False), \
                  patch("spark_cli.runtime_policy.os.name", "nt"), \
                  patch("spark_cli.runtime_policy.Path", type(spark_home)), \
-                 patch("spark_cli.runtime_policy.shutil.which", return_value=None):
+                patch("spark_cli.runtime_policy.shutil.which", return_value=None):
                 self.assertEqual(resolve_runtime_executable("node"), str(node_exe))
                 self.assertEqual(resolve_runtime_executable("npm"), str(npm_cmd))
+                self.assertEqual(
+                    runtime_command_argv("npm run health:runtime"),
+                    [str(node_exe), str(npm_cli), "run", "health:runtime"],
+                )
 
     def test_runtime_command_argv_allowlists_runtime_tools(self) -> None:
         self.assertEqual(runtime_command_argv("python -m spark_researcher.cli status")[:3], [str(Path(sys.executable)), "-m", "spark_researcher.cli"])
