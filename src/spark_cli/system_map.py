@@ -317,7 +317,11 @@ def read_toml(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def as_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
 
 
 def as_dict(value: Any) -> dict[str, Any]:
