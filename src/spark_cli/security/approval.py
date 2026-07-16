@@ -49,6 +49,8 @@ class ApprovalDecision:
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
+INVALID_COMMAND_TOKEN = "<spark-invalid-command>"
+INVALID_COMMAND_REASON = "Command input could not be validated as an ordered sequence of text tokens."
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -127,16 +129,50 @@ def _decision(
     )
 
 
-def parse_command_text(command: str) -> list[str]:
+def parse_command_text(command: object) -> list[str]:
+    if not isinstance(command, str):
+        return [INVALID_COMMAND_TOKEN]
     try:
         return shlex.split(command, posix=True)
     except ValueError:
         return command.split()
 
 
-def approval_required_for_command(argv: list[str], context: CommandContext | None = None) -> ApprovalDecision:
-    ctx = context or CommandContext()
+def approval_required_for_command(argv: object, context: CommandContext | None = None) -> ApprovalDecision:
+    if context is None:
+        ctx = CommandContext()
+    elif isinstance(context, CommandContext):
+        ctx = context
+    else:
+        return _decision(
+            [INVALID_COMMAND_TOKEN],
+            CommandContext(surface="invalid-context", hosted=True, non_interactive=True),
+            "remote_code_execution",
+            "high",
+            INVALID_COMMAND_REASON,
+            confirmation_phrase="approve unvalidated command",
+        )
+
+    if not isinstance(argv, (list, tuple)) or not all(isinstance(part, str) for part in argv):
+        return _decision(
+            [INVALID_COMMAND_TOKEN],
+            ctx,
+            "remote_code_execution",
+            "high",
+            INVALID_COMMAND_REASON,
+            confirmation_phrase="approve unvalidated command",
+        )
+
     parts = [part for part in argv if part != "--"]
+    if INVALID_COMMAND_TOKEN in parts:
+        return _decision(
+            [INVALID_COMMAND_TOKEN],
+            ctx,
+            "remote_code_execution",
+            "high",
+            INVALID_COMMAND_REASON,
+            confirmation_phrase="approve unvalidated command",
+        )
     lowered = _lower_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
