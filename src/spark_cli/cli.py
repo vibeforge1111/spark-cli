@@ -42,6 +42,7 @@ from .command_summary import sanitize_command_line, select_failure_summary
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
 from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
+from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
 from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
@@ -15754,13 +15755,13 @@ def provider_status_payload() -> dict[str, Any]:
                 secret_keys=secret_keys,
             ),
         ]
-        return {
+        return with_configuration_readiness_scope({
             "ok": False,
             "configured": False,
             "summary": "No LLM provider is configured.",
             "roles": role_payload,
             "repair_hints": repair_hints,
-        }
+        })
     roles = llm_state.get("roles")
     if not isinstance(roles, dict):
         roles = {role: llm_state for role in LLM_ROLES}
@@ -15807,13 +15808,13 @@ def provider_status_payload() -> dict[str, Any]:
                 role_state["model"] = client_model
         role_payload[role] = role_state
     repair_hints = build_llm_repair_hints({"provider": llm_state.get("provider"), "roles": role_payload})
-    return {
+    return with_configuration_readiness_scope({
         "ok": not repair_hints,
         "configured": bool(llm_state.get("provider") and llm_state.get("provider") != "not_configured"),
         "summary": "Spark LLM provider roles",
         "roles": role_payload,
         "repair_hints": repair_hints,
-    }
+    })
 
 
 def resolve_provider_test_target(role: str, provider: str | None = None) -> dict[str, Any]:
@@ -15936,10 +15937,10 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(payload, indent=2))
             return 0 if payload["ok"] else 1
-        print(payload["summary"])
+        print(render_provider_status_heading(payload["summary"]))
         for role in LLM_ROLES:
             state = payload["roles"].get(role, {})
-            marker = "[OK]" if state.get("ready") else "[FIX]"
+            marker = "[READY]" if state.get("ready") else "[FIX]"
             print(
                 f"{marker} {role:<7} provider={state.get('provider', 'not_configured')} "
                 f"model={state.get('model') or 'not configured'} auth={state.get('auth_mode', 'not_configured')}"
