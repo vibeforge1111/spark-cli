@@ -2038,6 +2038,43 @@ class Sandbox:
                 decision = approval_required_for_command(command, CommandContext(non_interactive=True))
                 self.assertFalse(decision.requires_approval)
 
+    def test_approval_classifier_preserves_infrastructure_publication_donor_intent(self) -> None:
+        mutations = (
+            ["az", "functionapp", "deployment", "source", "config-zip", "--name", "spark-fn", "--src", "app.zip"],
+            ["az", "deployment", "group", "create", "--resource-group", "spark", "--template-file", "main.bicep"],
+            ["supabase", "functions", "deploy", "api"],
+            ["sls", "deploy", "--stage", "prod"],
+            ["npx", "prisma", "migrate", "deploy"],
+            ["alembic", "upgrade", "head"],
+            ["kubectl", "rollout", "restart", "deployment/spark-live"],
+            ["kubectl", "scale", "deployment/spark-live", "--replicas", "3"],
+            ["kubectl", "patch", "deployment", "spark-live", "-p", "{}"],
+            ["pulumi", "import", "aws:s3/bucket:Bucket", "logs", "bucket-name"],
+        )
+        for command in mutations:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_keeps_infrastructure_inspection_safe(self) -> None:
+        inspections = (
+            ["az", "account", "show"],
+            ["supabase", "status"],
+            ["sls", "info"],
+            ["npx", "prisma", "db", "pull"],
+            ["alembic", "current"],
+            ["kubectl", "get", "pods"],
+            ["pulumi", "preview"],
+            ["pulumi", "stack", "output"],
+        )
+        for command in inspections:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
