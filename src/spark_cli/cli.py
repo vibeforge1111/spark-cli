@@ -19975,11 +19975,14 @@ def coerce_config_value(raw: str) -> Any:
         return json.loads(raw)
     except (TypeError, ValueError):
         return raw
-
-
 def cmd_config_get(args: argparse.Namespace) -> int:
     value = dotted_get(load_user_config(), args.key, default=CONFIG_MISSING)
-    if value is CONFIG_MISSING:
+    missing = value is CONFIG_MISSING
+    if bool(getattr(args, "json", False)):
+        payload = {"ok": not missing, "key": args.key, "value": None if missing else value, "set": not missing}
+        print(json.dumps(payload, indent=2))
+        return 1 if missing else 0
+    if missing:
         print(f"{args.key} is not set")
         return 1
     if isinstance(value, (dict, list)):
@@ -19989,8 +19992,6 @@ def cmd_config_get(args: argparse.Namespace) -> int:
     else:
         print(value)
     return 0
-
-
 def cmd_config_set(args: argparse.Namespace) -> int:
     config = load_user_config()
     value = coerce_config_value(args.value)
@@ -20002,8 +20003,6 @@ def cmd_config_set(args: argparse.Namespace) -> int:
     save_user_config(config)
     print(f"Set {args.key} = {json.dumps(value)}")
     return 0
-
-
 def cmd_config_unset(args: argparse.Namespace) -> int:
     config = load_user_config()
     try:
@@ -21549,6 +21548,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_get_parser = config_sub.add_parser("get", help="Print a config value by dotted key")
     config_get_parser.add_argument("key")
+    config_get_parser.add_argument("--json", action="store_true", help="Emit the value as structured JSON")
     config_get_parser.set_defaults(func=cmd_config_get)
 
     config_set_parser = config_sub.add_parser("set", help="Set a config value; JSON-parses value if possible")
