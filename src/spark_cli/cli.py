@@ -57,6 +57,7 @@ from .security.url_policy import (
     validate_url_resolution,
     validate_url_safety,
 )
+from .state_hardening import STATE_DIRECTORY_HARDENING_WARNING, ensure_private_directories
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 from .telegram_fix_health import resolve_telegram_fix_health
 
@@ -1313,12 +1314,7 @@ def remove_module_clone(name: str) -> None:
 
 
 def ensure_state_dirs() -> None:
-    for path in (SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR):
-        path.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(path, 0o700)
-        except OSError:
-            pass
+    ensure_private_directories((SPARK_HOME, STATE_DIR, CONFIG_DIR, MODULE_CONFIG_DIR, LOG_DIR))
 
 
 def keychain_available() -> bool:

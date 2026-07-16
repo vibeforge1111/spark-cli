@@ -121,7 +121,7 @@ def test_state_directory_hardening_warns_once_without_reflecting_paths(
 
     with (
         patch.multiple(cli, **paths),
-        patch("spark_cli.cli.os.chmod", side_effect=OSError("private-path secret-value")),
+        patch("spark_cli.state_hardening.os.chmod", side_effect=OSError("private-path secret-value")),
     ):
         cli.ensure_state_dirs()
 
