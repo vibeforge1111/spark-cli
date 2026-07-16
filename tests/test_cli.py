@@ -345,7 +345,7 @@ from spark_cli.cli import (
     linux_root_filesystem_read_only,
     mountinfo_mountpoints,
 )
-from spark_cli.security.approval import CommandContext, approval_required_for_command
+from spark_cli.security.approval import CommandContext, approval_required_for_command, parse_command_text
 from spark_cli.security.url_policy import UrlPolicy, validate_url_safety
 from spark_cli.sandbox.audit import sandbox_audit_path, sandbox_audit_ref, write_audit_event
 from spark_cli.sandbox.capabilities import (
@@ -1545,6 +1545,51 @@ class Sandbox:
         decision = approval_required_for_command(["spark", "status"], CommandContext())
         self.assertFalse(decision.requires_approval)
         self.assertEqual(decision.action_class, "none")
+
+    def test_approval_classifier_fails_closed_for_malformed_command_inputs(self) -> None:
+        decisions = []
+        invalid_commands = [None, {"rm": "-rf"}, {"rm", "-rf", "/"}, ["rm", None, "/"]]
+        for command in invalid_commands:
+            with self.subTest(command_type=type(command).__name__):
+                decision = approval_required_for_command(
+                    command,
+                    CommandContext(non_interactive=True),
+                )
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertNotIn("rm", decision.reason.lower())
+                decisions.append(decision)
+        self.assertEqual(len({decision.command_digest for decision in decisions}), 1)
+
+    def test_approval_classifier_accepts_ordered_string_tuple_without_losing_semantics(self) -> None:
+        decision = approval_required_for_command(
+            ("rm", "-rf", "/tmp/spark-test"),
+            CommandContext(non_interactive=True),
+        )
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "destructive_filesystem")
+        self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_fails_closed_for_invalid_context(self) -> None:
+        decision = approval_required_for_command(["spark", "status"], object())
+        self.assertTrue(decision.requires_approval)
+        self.assertEqual(decision.action_class, "remote_code_execution")
+        self.assertEqual(decision.approval_mode, "blocked")
+        self.assertEqual(decision.surface, "invalid-context")
+
+    def test_parse_command_text_marks_non_text_input_for_fail_closed_classification(self) -> None:
+        for command in (None, 7, ["spark", "status"]):
+            with self.subTest(command_type=type(command).__name__):
+                parsed = parse_command_text(command)
+                self.assertEqual(len(parsed), 1)
+                decision = approval_required_for_command(
+                    parsed,
+                    CommandContext(non_interactive=True),
+                )
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.approval_mode, "blocked")
 
     def test_approval_classifier_allows_autostart_status(self) -> None:
         decision = approval_required_for_command(["spark", "autostart", "status"], CommandContext(non_interactive=True))
