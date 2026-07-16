@@ -41,7 +41,7 @@ import tomllib
 from .env_files import normalize_env_file_value
 from .provider_auth import effective_provider_auth_mode
 from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
-from .security.approval import CommandContext, approval_required_for_command
+from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import (
     AddressResolver,
@@ -13599,6 +13599,8 @@ def cmd_approval(args: argparse.Namespace) -> int:
         command = command[1:]
     if not command:
         raise SystemExit("Usage: spark approval classify -- <command>")
+    if len(command) == 1:
+        command = parse_command_text(command[0])
     decision = approval_required_for_command(
         command,
         CommandContext(

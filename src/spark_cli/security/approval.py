@@ -752,7 +752,7 @@ def parse_command_text(command: object) -> list[str]:
     try:
         return shlex.split(command, posix=True)
     except ValueError:
-        return command.split()
+        return [INVALID_COMMAND_TOKEN]
 
 
 def approval_required_for_command(argv: object, context: CommandContext | None = None) -> ApprovalDecision:
