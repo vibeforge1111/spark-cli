@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-from spark_cli.cli import collect_telegram_fix_payload
+from spark_cli.cli import build_parser, collect_telegram_fix_payload
 
 
 class TelegramFixHealthTruthTests(TestCase):
@@ -88,3 +90,21 @@ class TelegramFixHealthTruthTests(TestCase):
         self.assertEqual(check["level"], "error")
         self.assertEqual(check["detail"], "Telegram Bot API getMe timed out.")
         self.assertEqual(payload["route_context"]["health_evidence"], "fresh_degraded")
+
+    def test_human_surface_marks_unverified_health_as_warning(self) -> None:
+        payload = self._payload(
+            secret_keys=["telegram.profiles.primary.bot_token", "telegram.admin_ids"],
+            detail=(
+                "Could not load telegram.profiles.primary.bot_token. "
+                "Run this from an approved Spark secret session."
+            ),
+        )
+        args = build_parser().parse_args(["fix", "telegram"])
+
+        with patch("spark_cli.cli.collect_telegram_fix_payload", return_value=payload), \
+             redirect_stdout(StringIO()) as stdout:
+            code = args.func(args)
+
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] telegram_module_health: Live Telegram health could not be verified", stdout.getvalue())
+        self.assertNotIn("[OK] telegram_module_health", stdout.getvalue())

@@ -54,6 +54,7 @@ from .security.url_policy import (
     validate_url_safety,
 )
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
+from .telegram_fix_health import resolve_telegram_fix_health
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -15081,8 +15082,9 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
     }
     telegram_result = modules_by_name.get("spark-telegram-bot")
     pids = status_payload.get("tracked_pids") if isinstance(status_payload.get("tracked_pids"), dict) else {}
-    telegram_pid = pids.get("spark-telegram-bot") if isinstance(pids, dict) else None
-
+    module_health, process_record, token_recorded = resolve_telegram_fix_health(
+        telegram_result, pids, tracked_process_keys_for_module(pids, "spark-telegram-bot"), pid_is_running, secret_keys, telegram_profile_secret_id(primary_telegram_profile(setup_state), "bot_token"))
+    process_running = process_record is not None
     env_values = read_generated_env(MODULE_CONFIG_DIR / "spark-telegram-bot.env")
     builder_env = read_generated_env(MODULE_CONFIG_DIR / "spark-intelligence-builder.env")
     llm_state = status_payload.get("llm") if isinstance(status_payload.get("llm"), dict) else {}
@@ -15107,13 +15109,10 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
     checks.append(
         {
             "name": "telegram_module_health",
-            "ok": bool(telegram_result and telegram_result.get("healthy") is True),
-            "detail": telegram_result.get("detail") if telegram_result else "spark-telegram-bot is not installed.",
-            "repair": "spark status",
+            **module_health,
         }
     )
     telegram_detail = str(telegram_result.get("detail", "")) if isinstance(telegram_result, dict) else ""
-    token_recorded = "telegram.bot_token" in secret_keys
     token_rejected = "telegram rejected bot_token" in telegram_detail.lower()
     checks.append(
         {
@@ -15167,17 +15166,6 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
             "repair": " ".join(llm_hints) if llm_hints else "",
         }
     )
-    process_running = False
-    process_record: dict[str, Any] | None = None
-    if isinstance(pids, dict):
-        for process_key in tracked_process_keys_for_module(pids, "spark-telegram-bot"):
-            candidate = pids.get(process_key)
-            if not isinstance(candidate, dict):
-                continue
-            if pid_is_running(int(candidate.get("pid", 0))):
-                process_record = candidate
-                process_running = True
-                break
     process_detail = (
         f"spark-telegram-bot is running under Spark supervision (pid {process_record.get('pid')})."
         if process_running and isinstance(process_record, dict)
@@ -15223,6 +15211,11 @@ def build_fix_route_context(target: str, payload: dict[str, Any]) -> dict[str, A
         for check in checks
         if isinstance(check, dict) and not bool(check.get("ok"))
     ]
+    failed_levels = {
+        str(check.get("level") or "error")
+        for check in checks
+        if isinstance(check, dict) and not bool(check.get("ok"))
+    }
     target_labels = {
         "telegram": "telegram_runtime",
         "spawner": "spawner_ui",
@@ -15265,7 +15258,13 @@ def build_fix_route_context(target: str, payload: dict[str, Any]) -> dict[str, A
         "reversibility": "reversible",
         "repair_target": target_labels.get(target, "spark_runtime"),
         "repair_scope": scope_labels.get(target, "local_repair_guidance"),
-        "health_evidence": "fresh_healthy" if ok else "fresh_degraded",
+        "health_evidence": (
+            "fresh_healthy"
+            if ok
+            else "fresh_unverified"
+            if failed_levels == {"warning"}
+            else "fresh_degraded"
+        ),
         "source_status": "present",
         "freshness": "current_turn",
         "joined_sources": ["spark-cli.fix", "spark-cli.status"],
@@ -15615,7 +15614,7 @@ def cmd_fix(args: argparse.Namespace) -> int:
     print(("Spark Telegram is ready." if payload.get("ok") else "Spark Telegram needs attention.") if getattr(args, "status_view", False) else payload["summary"])
     print("")
     for check in payload["checks"]:
-        marker = "[OK]" if check["ok"] else "[FIX]"
+        marker = "[OK]" if check["ok"] else "[WARN]" if check.get("level") == "warning" else "[FIX]"
         print(f"{marker} {check['name']}: {check['detail']}")
         if not check["ok"] and check.get("repair"):
             print(f"      {check['repair']}")
