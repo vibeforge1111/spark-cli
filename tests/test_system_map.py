@@ -14,6 +14,7 @@ from pathlib import Path
 from spark_cli.cli import build_parser
 from spark_cli.system_map import (
     CONTRACT_FILE_HINTS,
+    CORE_REPOS,
     build_authority_view,
     build_capability_catalog,
     build_memory_movement_index,
@@ -49,6 +50,7 @@ from spark_cli.system_map import (
     parse_branch_status,
     read_json,
     read_toml,
+    repo_owner_surface,
     run_git,
     safe_builder_event_value,
     summarize_memory_run_artifacts,
@@ -344,6 +346,18 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(row["repo"], "local-spawner-fork")
         self.assertEqual(row["repo_dir"], "local-spawner-fork")
         self.assertEqual(row["module_ids"], ["spawner-ui"])
+
+    def test_character_and_researcher_have_exact_core_owner_surfaces(self) -> None:
+        self.assertIn("spark-character", CORE_REPOS)
+        self.assertIn("spark-researcher", CORE_REPOS)
+        self.assertEqual(
+            repo_owner_surface("spark-character"),
+            "persona, voice consistency, scoring, and opt-in character evolution runtime",
+        )
+        self.assertEqual(
+            repo_owner_surface("spark-researcher"),
+            "research, advisory, memory packet, and bounded domain-chip authoring runtime",
+        )
 
     def test_spark_skill_manifest_schema_is_bounded_untrusted_contract(self) -> None:
         schema_path = Path(__file__).resolve().parents[1] / "schemas" / "spark-skill-manifest.v1.schema.json"
