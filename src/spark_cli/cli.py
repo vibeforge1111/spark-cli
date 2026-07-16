@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import base64
 import ctypes
+import errno
 import getpass
 import hashlib
 import importlib.util
@@ -10893,13 +10894,70 @@ def cmd_drift(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def os_compile_write_error_code(error: OSError) -> str:
+    if error.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+        return "output_not_writable"
+    if error.errno in {errno.ENOSPC, getattr(errno, "EDQUOT", -1)}:
+        return "storage_full"
+    if error.errno in {errno.ENOENT, errno.ENOTDIR}:
+        return "output_path_unavailable"
+    if error.errno in {errno.ENAMETOOLONG, errno.EINVAL}:
+        return "output_path_invalid"
+    return "output_write_failed"
+
+
+def os_compile_output_ref(out_dir: Path) -> str:
+    reference = public_local_path_ref(out_dir)
+    if reference in {"<spark-home>", "<spark-cli>"}:
+        return reference
+    if reference.startswith(("<spark-home>/", "<spark-cli>/")):
+        return reference
+    return "<requested-output>"
+
+
+def os_compile_write_failure_payload(out_dir: Path, error: OSError) -> dict[str, Any]:
+    error_code = os_compile_write_error_code(error)
+    repairs = {
+        "output_not_writable": "Rerun with `spark os compile --out <writable-directory>` or repair permissions for the selected output directory.",
+        "storage_full": "Free storage or rerun with `spark os compile --out <writable-directory>` on a volume with available space.",
+        "output_path_unavailable": "Create a writable parent directory or rerun with `spark os compile --out <writable-directory>`.",
+        "output_path_invalid": "Choose a shorter valid path and rerun with `spark os compile --out <writable-directory>`.",
+        "output_write_failed": "Rerun with `spark os compile --out <writable-directory>`; if it still fails, inspect directory and filesystem health locally.",
+    }
+    return {
+        "ok": False,
+        "schema_version": "spark.os_compile.write_failure.v1",
+        "summary": "Spark OS compile could not finish writing outputs.",
+        "error_code": error_code,
+        "output": os_compile_output_ref(out_dir),
+        "partial_outputs_possible": True,
+        "repair": repairs[error_code],
+        "boundary": (
+            "The operating-system error text is not reflected. Existing or partially written output files are preserved; "
+            "rerun the full compile after repairing the destination."
+        ),
+    }
+
+
 def cmd_os_compile(args: argparse.Namespace) -> int:
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
     out_dir = Path(args.out).expanduser()
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
-    written = write_compiled_outputs(out_dir, compiled)
+    try:
+        written = write_compiled_outputs(out_dir, compiled)
+    except OSError as error:
+        failure = os_compile_write_failure_payload(out_dir, error)
+        if args.json:
+            print(json.dumps(failure, indent=2))
+        else:
+            summary_text = str(failure["summary"]).removesuffix(".")
+            print(f"[FIX] {summary_text} ({failure['error_code']}).")
+            print(f"Output: {failure['output']}")
+            print(f"Repair: {failure['repair']}")
+            print(f"Partial-output notice: {failure['boundary']}")
+        return 1
     summary = compile_summary(compiled, written)
     repo_board = summary.get("repo_board") if isinstance(summary.get("repo_board"), dict) else {}
     dirty_repo_count = int(repo_board.get("dirty_repo_count") or 0)

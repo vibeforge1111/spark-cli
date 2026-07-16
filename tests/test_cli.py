@@ -4668,9 +4668,22 @@ class Sandbox:
         text = stdout.getvalue()
         self.assertIn("[FIX] Spark OS compile could not finish writing outputs (storage_full).", text)
         self.assertIn("Partial-output notice:", text)
-        self.assertIn("free storage", text)
+        self.assertIn("free storage", text.lower())
         self.assertNotIn("private-project-name", text)
         self.assertNotIn("Traceback", text)
+
+    def test_os_compile_failure_identifies_only_the_trusted_spark_home_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / "spark-home"
+            output_dir = spark_home / "state" / "system-map"
+            args = build_parser().parse_args(["os", "compile", "--json", "--out", str(output_dir)])
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                 patch("spark_cli.cli.compile_system_map", return_value={}), \
+                 patch("spark_cli.cli.write_compiled_outputs", side_effect=PermissionError(errno.EACCES, "denied")), \
+                 patch("sys.stdout", new_callable=StringIO) as stdout:
+                self.assertEqual(args.func(args), 1)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["output"], "<spark-home>/state/system-map")
 
     def test_os_compile_does_not_mislabel_compile_read_failure_as_write_failure(self) -> None:
         args = build_parser().parse_args(["os", "compile", "--json"])
