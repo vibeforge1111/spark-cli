@@ -2698,6 +2698,20 @@ class Sandbox:
         self.assertIn("<spark-home>/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
         self.assertNotIn("~/.spark/config/secrets.local.json", checks["secret_file_permissions"]["repair"])
 
+    def test_security_audit_runtime_failure_without_hints_never_claims_clean_health(self) -> None:
+        with patch("spark_cli.cli.collect_secret_surface_payload", return_value={"ok": True, "detail": "clean"}), \
+             patch("spark_cli.cli.provider_status_payload", return_value={"ok": True, "summary": "providers ready"}), \
+             patch("spark_cli.cli.read_generated_env", return_value={"TELEGRAM_GATEWAY_MODE": "polling"}), \
+             patch("spark_cli.cli.collect_status_payload", return_value={"ok": False, "repair_hints": []}):
+            payload = collect_security_audit_payload()
+
+        runtime = {check["name"]: check for check in payload["checks"]}["runtime_health"]
+        self.assertFalse(runtime["ok"])
+        self.assertIn("did not pass", runtime["detail"])
+        self.assertIn("no repair guidance", runtime["detail"])
+        self.assertNotIn("clean", runtime["detail"].lower())
+        self.assertNotIn("not running", runtime["detail"].lower())
+
     def test_support_bundle_sets_private_file_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, \
              patch("spark_cli.cli.SPARK_HOME", Path(tmp_dir)), \
