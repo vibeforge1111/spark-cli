@@ -168,7 +168,7 @@ def _cloud_command(parts: list[str]) -> CloudCommand | None:
             return CloudCommand("aws", "", "", ())
         operation, arguments = _first_positional(remainder, AWS_GLOBAL_VALUE_OPTIONS)
         return CloudCommand("aws", service, operation, arguments)
-    if executable == "cdk":
+    if executable in {"aws-cdk", "cdk"}:
         operation, arguments = _locate_word(parts[1:], CDK_COMMANDS, CDK_GLOBAL_VALUE_OPTIONS)
         return CloudCommand("cdk", "cdk", operation, arguments)
     if executable == "sam":
@@ -184,7 +184,7 @@ def _authority(
 
 
 def _is_read_only(operation: str) -> bool:
-    return operation in {"help", "version"} or operation.startswith(READ_ONLY_PREFIXES)
+    return operation in {"help", "ls", "version"} or operation.startswith(READ_ONLY_PREFIXES)
 
 
 def _configure_authority(command: CloudCommand) -> AwsAuthority | None:
