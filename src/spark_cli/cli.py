@@ -2550,26 +2550,7 @@ def collect_registry_pin_drift_payload(
 
 
 def atomic_write_json(path: Path, payload: Any) -> None:
-    assert_no_linked_write_path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.{py_secrets.token_hex(4)}.tmp")
-    try:
-        temp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        try:
-            os.chmod(temp_path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-        os.replace(temp_path, path)
-        try:
-            os.chmod(path, PRIVATE_FILE_MODE)
-        except OSError:
-            pass
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
 
 
 def save_json(path: Path, payload: Any) -> None:
