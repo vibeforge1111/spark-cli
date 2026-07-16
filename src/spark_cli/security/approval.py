@@ -64,6 +64,23 @@ class OutboundTransferAction:
     target: str
 
 
+PublishKind = Literal["source", "package", "image", "chart", "hosted", "database"]
+
+
+@dataclass(frozen=True)
+class ExternalPublishAction:
+    kind: PublishKind
+    executable: str
+    action: str
+
+
+@dataclass(frozen=True)
+class ExternalPublishRule:
+    executables: frozenset[str]
+    prefix: tuple[str, ...]
+    kind: PublishKind
+
+
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
@@ -511,6 +528,102 @@ def _parse_outbound_transfer(parts: list[str]) -> OutboundTransferAction | None:
     return observed
 
 
+EXTERNAL_PUBLISH_PREFIX_RULES = (
+    ExternalPublishRule(frozenset({"git"}), ("push",), "source"),
+    ExternalPublishRule(frozenset({"npm", "pnpm", "yarn"}), ("publish",), "package"),
+    ExternalPublishRule(frozenset({"twine"}), ("upload",), "package"),
+    ExternalPublishRule(frozenset({"cargo"}), ("publish",), "package"),
+    ExternalPublishRule(frozenset({"gem"}), ("push",), "package"),
+    ExternalPublishRule(frozenset({"nuget"}), ("push",), "package"),
+    ExternalPublishRule(frozenset({"dotnet"}), ("nuget", "push"), "package"),
+    ExternalPublishRule(frozenset({"docker", "podman"}), ("push",), "image"),
+    ExternalPublishRule(frozenset({"helm"}), ("push",), "chart"),
+    ExternalPublishRule(frozenset({"helm"}), ("chart", "push"), "chart"),
+    ExternalPublishRule(frozenset({"prisma"}), ("migrate", "deploy"), "database"),
+    ExternalPublishRule(frozenset({"firebase", "netlify"}), ("deploy",), "hosted"),
+    ExternalPublishRule(frozenset({"wrangler"}), ("deploy",), "hosted"),
+    ExternalPublishRule(frozenset({"wrangler"}), ("publish",), "hosted"),
+    ExternalPublishRule(frozenset({"gh"}), ("release", "create"), "source"),
+)
+HOSTED_DEPLOY_EXECUTABLES = frozenset({"flyctl", "railway", "serverless", "vercel"})
+CLOUD_MUTATION_EXECUTABLES = frozenset({"az", "gcloud", "supabase"})
+
+
+def _prefix_matches(arguments: list[str], prefix: tuple[str, ...]) -> bool:
+    return tuple(arguments[: len(prefix)]) == prefix
+
+
+def _gradle_publish_task(arguments: list[str]) -> str:
+    for argument in arguments:
+        if argument.startswith("-"):
+            continue
+        task = argument.rsplit(":", 1)[-1]
+        if task in {"publish", "publishplugins"}:
+            return task
+        if task.startswith("publish") and task.endswith("repository") and "localrepository" not in task:
+            return task
+    return ""
+
+
+def _parse_external_publish_segment(parts: list[str]) -> ExternalPublishAction | None:
+    if not parts:
+        return None
+    executable = _command_word(parts[0])
+    arguments = _lower_parts(parts[1:])
+
+    for rule in EXTERNAL_PUBLISH_PREFIX_RULES:
+        if executable in rule.executables and _prefix_matches(arguments, rule.prefix):
+            return ExternalPublishAction(
+                kind=rule.kind,
+                executable=executable,
+                action=" ".join(rule.prefix),
+            )
+
+    if executable in {"py", "python", "python2", "python3"} and _prefix_matches(
+        arguments, ("-m", "twine", "upload")
+    ):
+        return ExternalPublishAction(kind="package", executable=executable, action="twine upload")
+
+    if executable in {"mvn", "mvnw"}:
+        goal = next((argument for argument in arguments if argument == "deploy" or argument.startswith("deploy:")), "")
+        if goal:
+            return ExternalPublishAction(kind="package", executable=executable, action=goal)
+
+    if executable in {"gradle", "gradlew"}:
+        task = _gradle_publish_task(arguments)
+        if task:
+            return ExternalPublishAction(kind="package", executable=executable, action=task)
+
+    if executable == "alembic" and arguments and arguments[0] in {"downgrade", "upgrade"}:
+        return ExternalPublishAction(kind="database", executable=executable, action=arguments[0])
+
+    if executable in HOSTED_DEPLOY_EXECUTABLES:
+        action = next((argument for argument in arguments if argument in {"deploy", "redeploy", "up"}), "")
+        if action:
+            return ExternalPublishAction(kind="hosted", executable=executable, action=action)
+
+    if executable == "gcloud" and (
+        any(_prefix_matches(arguments, prefix) for prefix in (("app", "deploy"), ("functions", "deploy"), ("run", "deploy")))
+        or bool(arguments and arguments[0] == "deploy")
+    ):
+        return ExternalPublishAction(kind="hosted", executable=executable, action="deploy")
+
+    if executable in CLOUD_MUTATION_EXECUTABLES:
+        action = next((argument for argument in arguments if argument in {"deploy", "push", "up"}), "")
+        if action:
+            return ExternalPublishAction(kind="hosted", executable=executable, action=action)
+
+    return None
+
+
+def _parse_external_publish_action(parts: list[str]) -> ExternalPublishAction | None:
+    for segment in _shell_command_segments(parts):
+        action = _parse_external_publish_segment(segment)
+        if action is not None:
+            return action
+    return None
+
+
 def _extract_privileged_command(parts: list[str]) -> list[str] | None:
     if not parts:
         return None
@@ -665,7 +778,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
 
-    joined = " ".join(lowered)
     first = lowered[0]
     second = lowered[1] if len(lowered) > 1 else ""
 
@@ -996,16 +1108,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve container privilege",
         )
 
-    if first in {"railway", "vercel", "flyctl", "serverless"} and _contains_any(lowered, {"up", "deploy", "redeploy"}):
-        return _decision(
-            parts,
-            ctx,
-            "external_publish",
-            "high",
-            "Command can publish or redeploy hosted infrastructure.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve hosted deploy",
-        )
     if first in {"railway", "vercel", "flyctl"} and _contains_any(lowered, {"variables", "env", "secret", "secrets"}):
         return _decision(
             parts,
@@ -1040,28 +1142,17 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve infrastructure change",
         )
-    if (
-        (first == "git" and second == "push")
-        or (first in {"npm", "pnpm", "yarn"} and second == "publish")
-        or (first == "twine" and second == "upload")
-        or (first == "cargo" and second == "publish")
-        or (first == "gem" and second == "push")
-        or (first == "nuget" and second == "push")
-        or (first == "helm" and second == "push")
-        or (first == "docker" and second == "push")
-        or (first == "prisma" and lowered[1:3] == ["migrate", "deploy"])
-        or (first == "alembic" and second in {"upgrade", "downgrade"})
-        or (first in {"az", "gcloud", "supabase"} and _contains_any(lowered, {"deploy", "push", "up"}))
-        or joined.startswith("gh release create")
-    ):
+    external_publish = _parse_external_publish_action(parts)
+    if external_publish is not None:
+        hosted = external_publish.kind == "hosted"
         return _decision(
             parts,
             ctx,
             "external_publish",
             "high",
-            "Command can publish code, packages, releases, or tags outside this machine.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve publish",
+            "Command can publish artifacts or mutate a remote deployment outside this machine.",
+            target_display=f"{external_publish.executable} {external_publish.action}".strip(),
+            confirmation_phrase="approve hosted deploy" if hosted else "approve publish",
         )
 
     if first == "spark" and lowered[1:3] == ["autostart", "status"]:
