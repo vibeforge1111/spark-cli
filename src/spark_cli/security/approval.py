@@ -81,6 +81,16 @@ class ExternalPublishRule:
     kind: PublishKind
 
 
+SshActionKind = Literal["inspection", "remote_access", "invalid"]
+
+
+@dataclass(frozen=True)
+class SshAction:
+    kind: SshActionKind
+    destination: str = ""
+    has_remote_command: bool = False
+
+
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
@@ -259,6 +269,63 @@ def _has_remote_download_execution(parts: list[str]) -> bool:
         if any(word in pipeline_executors for word in words[index + 1 :]):
             return True
     return False
+
+
+SSH_VALUE_OPTIONS = frozenset(
+    {"-b", "-B", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-P", "-p", "-Q", "-R", "-S", "-W", "-w"}
+)
+SSH_FLAG_OPTION_CHARS = frozenset("46AaCfGgKkMNnqsTtVvXxYy")
+
+
+def _parse_ssh_action(parts: list[str]) -> SshAction | None:
+    if not parts or _command_word(parts[0]) != "ssh":
+        return None
+    if parts[1:] == ["-V"]:
+        return SshAction(kind="inspection")
+    if len(parts) == 3 and parts[1] == "-Q" and parts[2] and not parts[2].startswith("-"):
+        return SshAction(kind="inspection")
+
+    index = 1
+    config_only = False
+    options_done = False
+    while index < len(parts):
+        part = parts[index]
+        if not options_done and part == "--":
+            options_done = True
+            index += 1
+            continue
+        if options_done or not part.startswith("-"):
+            break
+        if part == "-" or part.startswith("--"):
+            return SshAction(kind="invalid")
+        if part in SSH_VALUE_OPTIONS:
+            if index + 1 >= len(parts) or not parts[index + 1]:
+                return SshAction(kind="invalid")
+            index += 2
+            continue
+        option = part[:2]
+        if option in SSH_VALUE_OPTIONS and len(part) > 2:
+            index += 1
+            continue
+        flags = part[1:]
+        if not flags or any(flag not in SSH_FLAG_OPTION_CHARS for flag in flags):
+            return SshAction(kind="invalid")
+        config_only = config_only or "G" in flags
+        index += 1
+
+    if index >= len(parts) or not parts[index] or parts[index] == "-":
+        return SshAction(kind="invalid")
+    destination = parts[index]
+    has_remote_command = index + 1 < len(parts)
+    if config_only:
+        if has_remote_command:
+            return SshAction(kind="invalid", destination=destination, has_remote_command=True)
+        return SshAction(kind="inspection", destination=destination)
+    return SshAction(
+        kind="remote_access",
+        destination=destination,
+        has_remote_command=has_remote_command,
+    )
 
 
 def _has_network_upload_option(command: str, parts: list[str]) -> bool:
@@ -1073,6 +1140,26 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Docker command can store, change, or remove registry credentials.",
             target_display=f"docker {second}",
             confirmation_phrase="approve docker credential change",
+        )
+
+    ssh_action = _parse_ssh_action(parts)
+    if ssh_action is not None:
+        if ssh_action.kind == "inspection":
+            return _decision(parts, ctx, "none", "none", "SSH command is a local metadata inspection.")
+        if ssh_action.kind == "invalid":
+            reason = "SSH command grammar could not be validated safely."
+        elif ssh_action.has_remote_command:
+            reason = "SSH command can execute instructions on a remote host."
+        else:
+            reason = "SSH command can open an interactive command session on a remote host."
+        return _decision(
+            parts,
+            ctx,
+            "remote_code_execution",
+            "high",
+            reason,
+            target_display=ssh_action.destination,
+            confirmation_phrase="approve ssh remote access",
         )
 
     if _has_remote_download_execution(parts):
