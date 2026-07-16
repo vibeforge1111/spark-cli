@@ -11347,7 +11347,6 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     print("Spark OS authority")
     print(f"- default access level: {payload['default_access_level']}")
     print(f"- default sandbox lane: {payload['default_sandbox_lane']}")
@@ -11429,7 +11428,6 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     cross_system = payload["cross_system_trace"]
     print("Spark OS trace")
     print(f"- Builder events: {payload['builder_event_count']}")
@@ -11496,7 +11494,6 @@ def cmd_os_memory(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0
-
     print("Spark OS memory movement")
     print(f"- status: {payload['status']}")
     print(f"- rows: {payload['row_count']}")

@@ -2824,7 +2824,6 @@ routes = []
             with redirect_stdout(authority_stdout):
                 authority_exit_code = authority_args.func(authority_args)
             authority_summary = json.loads(authority_stdout.getvalue())
-
             self.assertEqual(authority_exit_code, 0)
             self.assertIs(authority_summary["ok"], True)
             self.assertEqual(authority_summary["schema_version"], "spark.os_authority.summary.v0")
@@ -2847,7 +2846,6 @@ routes = []
             with redirect_stdout(trace_stdout):
                 trace_exit_code = trace_args.func(trace_args)
             trace_summary = json.loads(trace_stdout.getvalue())
-
             self.assertEqual(trace_exit_code, 0)
             self.assertIs(trace_summary["ok"], True)
             self.assertEqual(trace_summary["schema_version"], "spark.os_trace.summary.v0")
@@ -2870,7 +2868,6 @@ routes = []
             with redirect_stdout(memory_stdout):
                 memory_exit_code = memory_args.func(memory_args)
             memory_summary = json.loads(memory_stdout.getvalue())
-
             self.assertEqual(memory_exit_code, 0)
             self.assertIs(memory_summary["ok"], True)
             self.assertEqual(memory_summary["schema_version"], "spark.os_memory.summary.v0")
