@@ -709,9 +709,17 @@ def is_hosted_git_shorthand(value: str) -> bool:
 
 def normalize_git_url(source: str) -> str:
     value = source.strip()
+    if not value:
+        raise SystemExit("Invalid git source: a non-empty URL is required.")
+    if value.startswith("-"):
+        raise SystemExit("Invalid git source: option-like URLs are not allowed.")
     if is_hosted_git_shorthand(value):
         return f"https://{value}"
     return value
+
+
+def git_ls_remote_command(source: str, *refs: str) -> list[str]:
+    return git_command("ls-remote", "--", normalize_git_url(source), *refs)
 
 
 def infer_module_name_from_url(url: str) -> str:
@@ -1055,7 +1063,7 @@ def clone_module_source(
         return target
     try:
         result = subprocess.run(
-            git_command("clone", "--depth=1", url, str(target)),
+            git_command("clone", "--depth=1", "--", url, str(target)),
             capture_output=True,
             text=True,
         )
@@ -2415,7 +2423,7 @@ def resolve_remote_git_ref(source: str, ref: str = "HEAD") -> str:
     is_tag_ref = remote_ref.startswith("refs/tags/") and not remote_ref.endswith("^{}")
     lookup_ref = f"{remote_ref}^{{}}" if is_tag_ref else remote_ref
     lookup_refs = [lookup_ref, remote_ref] if lookup_ref != remote_ref else [remote_ref]
-    command = git_command("ls-remote", normalize_git_url(source), *lookup_refs)
+    command = git_ls_remote_command(source, *lookup_refs)
     last_timeout: subprocess.TimeoutExpired | None = None
     for _attempt in range(REMOTE_GIT_REF_ATTEMPTS):
         try:
@@ -8519,7 +8527,7 @@ def collect_r30_voice_remote_ref_audit(handoff_manifest: dict[str, Any]) -> dict
         }
     try:
         result = subprocess.run(
-            git_command("ls-remote", normalize_git_url(R30_VOICE_REPO_URL), *refs_to_query),
+            git_ls_remote_command(R30_VOICE_REPO_URL, *refs_to_query),
             check=False,
             capture_output=True,
             text=True,
@@ -9410,7 +9418,7 @@ def collect_r30_owner_ref_remote_audit(manifest_rows: list[dict[str, Any]]) -> d
             continue
         try:
             result = subprocess.run(
-                git_command("ls-remote", normalize_git_url(source), *refs_to_query),
+                git_ls_remote_command(source, *refs_to_query),
                 check=False,
                 capture_output=True,
                 text=True,

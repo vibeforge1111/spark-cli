@@ -42,13 +42,14 @@ def test_ls_remote_command_owns_separator_and_source_normalization() -> None:
 
 def test_no_ls_remote_call_site_bypasses_central_argument_authority() -> None:
     tree = ast.parse((ROOT / "src" / "spark_cli" / "cli.py").read_text(encoding="utf-8"))
-    bypasses: list[int] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id != "git_command" or not node.args:
-            continue
-        first = node.args[0]
-        if isinstance(first, ast.Constant) and first.value == "ls-remote":
-            bypasses.append(node.lineno)
-    assert bypasses == []
+    owners: list[str] = []
+    for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id != "git_command" or not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and first.value == "ls-remote":
+                owners.append(function.name)
+    assert owners == ["git_ls_remote_command"]
