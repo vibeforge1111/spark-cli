@@ -2862,6 +2862,146 @@ def secret_file_path_inside_spark_home(secret_path: Path, spark_home: Path = SPA
         return False
 
 
+MAX_SECRET_FILE_BYTES = 1024 * 1024
+SECRET_FILE_READ_ERROR = "Secret file could not be read safely from SPARK_HOME."
+
+
+def _resolved_secret_file_parts(
+    secret_path: Path,
+    spark_home: Path,
+) -> tuple[Path, tuple[str, ...], tuple[int, int]]:
+    try:
+        root = spark_home.expanduser().resolve(strict=True)
+        candidate = secret_path.expanduser()
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        resolved = candidate.resolve(strict=True)
+        relative = resolved.relative_to(root)
+        root_metadata = root.stat()
+    except (OSError, RuntimeError, ValueError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    if not relative.parts:
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    return root, relative.parts, (root_metadata.st_dev, root_metadata.st_ino)
+
+
+def _read_bounded_secret_fd(fd: int) -> str:
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_SECRET_FILE_BYTES:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        chunks: list[bytes] = []
+        remaining = MAX_SECRET_FILE_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > MAX_SECRET_FILE_BYTES:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        return payload.decode("utf-8").strip()
+    except SystemExit:
+        raise
+    except (OSError, UnicodeError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+
+
+def _read_secret_file_posix(
+    root: Path,
+    relative_parts: tuple[str, ...],
+    expected_root_identity: tuple[int, int],
+) -> str:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    if not nofollow or not directory or os.open not in os.supports_dir_fd:
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    base_flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    directory_fds: list[int] = []
+    file_fd: int | None = None
+    try:
+        directory_fds.append(os.open(root, base_flags | directory))
+        opened_root = os.fstat(directory_fds[-1])
+        if (opened_root.st_dev, opened_root.st_ino) != expected_root_identity:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        for part in relative_parts[:-1]:
+            directory_fds.append(os.open(part, base_flags | directory, dir_fd=directory_fds[-1]))
+        file_fd = os.open(relative_parts[-1], base_flags, dir_fd=directory_fds[-1])
+        return _read_bounded_secret_fd(file_fd)
+    except SystemExit:
+        raise
+    except OSError:
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        for directory_fd in reversed(directory_fds):
+            os.close(directory_fd)
+
+
+def _windows_final_path_for_fd(fd: int) -> Path:
+    try:
+        import msvcrt  # type: ignore
+
+        handle = msvcrt.get_osfhandle(fd)
+        kernel32 = ctypes.windll.kernel32
+        final_path = kernel32.GetFinalPathNameByHandleW
+        final_path.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong]
+        final_path.restype = ctypes.c_ulong
+        native_handle = ctypes.c_void_p(handle)
+        size = final_path(native_handle, None, 0, 0)
+        if not size:
+            raise OSError("GetFinalPathNameByHandleW failed")
+        buffer = ctypes.create_unicode_buffer(size + 1)
+        written = final_path(native_handle, buffer, len(buffer), 0)
+        if not written or written >= len(buffer):
+            raise OSError("GetFinalPathNameByHandleW returned an invalid path")
+        value = buffer.value
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+        return Path(value)
+    except (AttributeError, ImportError, OSError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+
+
+def _read_secret_file_windows(root: Path, relative_parts: tuple[str, ...]) -> str:
+    candidate = root.joinpath(*relative_parts)
+    chain = [root]
+    current = root
+    for part in relative_parts:
+        current = current / part
+        chain.append(current)
+    if any(_path_is_reparse_point(item) for item in chain):
+        raise SystemExit(SECRET_FILE_READ_ERROR)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+    fd: int | None = None
+    try:
+        fd = os.open(candidate, flags)
+        opened_path = _windows_final_path_for_fd(fd)
+        opened_text = os.path.normcase(os.path.normpath(str(opened_path)))
+        root_text = os.path.normcase(os.path.normpath(str(root)))
+        if os.path.commonpath([opened_text, root_text]) != root_text:
+            raise SystemExit(SECRET_FILE_READ_ERROR)
+        return _read_bounded_secret_fd(fd)
+    except SystemExit:
+        raise
+    except (OSError, ValueError):
+        raise SystemExit(SECRET_FILE_READ_ERROR) from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def read_secret_file_inside_spark_home(secret_path: Path, spark_home: Path = SPARK_HOME) -> str:
+    root, relative_parts, root_identity = _resolved_secret_file_parts(secret_path, spark_home)
+    if os.name == "nt":
+        return _read_secret_file_windows(root, relative_parts)
+    return _read_secret_file_posix(root, relative_parts, root_identity)
+
+
 def resolve_secret_input(value: str) -> str:
     stripped = value.strip()
     if stripped.lower() == "@clipboard":
@@ -2881,10 +3021,7 @@ def resolve_secret_input(value: str) -> str:
         path = Path(secret_path)
         if not secret_file_path_inside_spark_home(path, SPARK_HOME):
             raise SystemExit("Invalid secret reference: @file: paths must stay inside SPARK_HOME.")
-        try:
-            return path.expanduser().read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise SystemExit(f"Could not read secret file {secret_path}: {exc}") from exc
+        return read_secret_file_inside_spark_home(path, SPARK_HOME)
     return value
 
 
