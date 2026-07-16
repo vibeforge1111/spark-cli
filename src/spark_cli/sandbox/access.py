@@ -102,9 +102,10 @@ def write_env_file(path: Path, values: dict[str, str]) -> None:
     # and imports this access module lazily from its command handlers.
     from ..cli import atomic_write_text
 
+    sanitized = {key: value.replace("\n", "").replace("\r", "") for key, value in values.items()}
     atomic_write_text(
         path,
-        "\n".join(f"{key}={value}" for key, value in values.items()) + "\n",
+        "\n".join(f"{key}={value}" for key, value in sanitized.items()) + "\n",
     )
 
 

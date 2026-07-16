@@ -11,6 +11,7 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m
+      - /home/spark:rw,nosuid,size=128m
     volumes:
       - ./spark-data:/data/spark
     ports:

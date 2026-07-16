@@ -196,7 +196,11 @@ case "$provider" in
     require_env OPENAI_API_KEY
     export CODEX_HOME="${CODEX_HOME:-${SPARK_HOME:-/data/spark}/codex}"
     mkdir -p "$CODEX_HOME"
-    printenv OPENAI_API_KEY | codex login --with-api-key >/dev/null
+    codex_login_file="$(mktemp "${TMPDIR:-/tmp}/spark-codex-key.XXXXXX")"
+    chmod 600 "$codex_login_file"
+    printf '%s' "$OPENAI_API_KEY" > "$codex_login_file"
+    codex login --with-api-key < "$codex_login_file" >/dev/null
+    rm -f "$codex_login_file"
     ;;
   lmstudio)
     setup_args+=(--lmstudio-base-url "${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}" --lmstudio-model "${LMSTUDIO_MODEL:-local-model}")

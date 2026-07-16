@@ -2,46 +2,48 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "906592e2bb025ef485c6320339f714433714c9b6",
+      "commit": "9ac089dd791c3601e28c3c1d58c0858853567d40",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "906592e2bb025ef485c6320339f714433714c9b6",
-        "verify_ref": "refs/tags/spark-ship-2026-06-22",
-        "canonical_head": "906592e2bb025ef485c6320339f714433714c9b6",
-        "runtime_mirror_head": "906592e2bb025ef485c6320339f714433714c9b6",
+        "commit": "9ac089dd791c3601e28c3c1d58c0858853567d40",
+        "verify_ref": "refs/tags/spark-ship-2026-06-26",
+        "canonical_head": "9ac089dd791c3601e28c3c1d58c0858853567d40",
+        "runtime_mirror_head": "9ac089dd791c3601e28c3c1d58c0858853567d40",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-22T00:00:00Z",
+        "validated_at": "2026-06-26T00:00:00Z",
         "evidence": [
+          "2026-06-26 r29 cut: pinned to immutable ship tag spark-ship-2026-06-26 at merged HEAD 9ac089dd791c (community-PR adoption squash-merged)",
           "2026-06-22 r28 cut: pinned to immutable ship tag spark-ship-2026-06-22 (was moving refs/heads/main)",
           "SPDX decision: MIT",
           "focused pytest: 31/31",
           "canonical Harness Core memory-write binding guard preserved"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-22"
+      "verify_ref": "refs/tags/spark-ship-2026-06-26"
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+      "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
-        "verify_ref": "refs/tags/spark-ship-2026-06-22",
-        "canonical_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
-        "runtime_mirror_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+        "verify_ref": "refs/tags/spark-ship-2026-06-26",
+        "canonical_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+        "runtime_mirror_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-22T00:00:00Z",
+        "validated_at": "2026-06-26T00:00:00Z",
         "evidence": [
+          "2026-06-26 r29 cut: pinned to immutable ship tag spark-ship-2026-06-26 at merged HEAD 8cad27624c4b (community-PR adoption squash-merged)",
           "2026-06-22 r28 cut: pinned to immutable ship tag spark-ship-2026-06-22 (PII-scrubbed)",
           "SPDX decision: MIT",
           "focused pytest tests/test_search_adapter.py: 19/19",
@@ -49,7 +51,7 @@
           "spark-cli-public-installer-2026-06-10-r27 tag preserves the live audited pin while master moves independently"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-22"
+      "verify_ref": "refs/tags/spark-ship-2026-06-26"
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
