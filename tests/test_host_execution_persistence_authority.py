@@ -27,6 +27,7 @@ class HostExecutionPersistenceAuthorityTests(unittest.TestCase):
             ["ssh-add", "-d", "/tmp/id_rsa"],
             ["ssh-add", "-x"],
             ["ssh-add", "-X"],
+            ["ssh-add", "-l", "-D"],
         ):
             with self.subTest(command=command):
                 self.assert_blocked(command, "credential_mutation", "high", "approve ssh agent credential change")

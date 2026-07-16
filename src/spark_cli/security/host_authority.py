@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 HostActionClass = Literal["destructive_filesystem", "identity_access_mutation", "process_autostart_mutation", "remote_code_execution"]
 HostRisk = Literal["high", "critical"]
+PIP_EXECUTABLE_PATTERN = re.compile(r"pip(?:\d+(?:\.\d+)*)?$")
+PYTHON_EXECUTABLE_PATTERN = re.compile(r"python(?:\d+(?:\.\d+)*)?$")
 
 
 @dataclass(frozen=True)
@@ -82,11 +84,155 @@ def _ip_action(parts: list[str]) -> tuple[str, str]:
     return "", ""
 
 
+def _package_install(words: list[str]) -> bool:
+    executable = words[0]
+    if PIP_EXECUTABLE_PATTERN.fullmatch(executable) and words[1:2] == ["install"]:
+        return True
+    if (executable == "py" or PYTHON_EXECUTABLE_PATTERN.fullmatch(executable)) and words[1:4] == ["-m", "pip", "install"]:
+        return True
+    if executable == "uv" and words[1:3] in (["pip", "install"], ["tool", "install"]):
+        return True
+    if executable in {"npm", "pnpm", "bun"} and len(words) > 1 and words[1] in {"add", "ci", "i", "install"}:
+        return True
+    return executable in {"yarn", "poetry", "pipenv"} and len(words) > 1 and words[1] in {"add", "install"}
+
+
+def _package_runner(words: list[str]) -> bool:
+    executable = words[0]
+    return (
+        executable == "uvx"
+        or executable == "pipx"
+        and words[1:2] == ["run"]
+        or executable == "uv"
+        and words[1:3] == ["tool", "run"]
+    )
+
+
+def _targets_device_path(parts: list[str]) -> bool:
+    return any(
+        re.search(r"(?i)(?:^|=)(?:/dev/(?:disk|sd|xvd|nvme|mapper/)|\\\\\.\\physicaldrive)", part)
+        for part in parts
+    )
+
+
+def _disk_destruction(executable: str, lowered: list[str]) -> bool:
+    arguments = lowered[1:]
+    if executable.startswith("mkfs"):
+        return True
+    if executable in {"fdisk", "gdisk", "sfdisk"}:
+        return _targets_device_path(arguments) and not any(part in {"-l", "--list"} for part in arguments)
+    if executable == "parted":
+        return _targets_device_path(arguments) and any(
+            part in {"mklabel", "mkpart", "resizepart", "rm"} for part in arguments
+        )
+    if executable == "diskutil":
+        return lowered[1:2] and lowered[1] in {"erasedisk", "erasevolume", "partitiondisk"}
+    return executable == "dd" and any(
+        part.startswith("of=") and _targets_device_path([part.split("=", 1)[1]]) for part in arguments
+    )
+
+
+def _tar_runs_command(lowered: list[str]) -> bool:
+    return any(
+        part == "--to-command"
+        or part.startswith("--to-command=")
+        or part.startswith("--checkpoint-action=exec=")
+        for part in lowered[1:]
+    )
+
+
+def _deno_runs_with_authority(lowered: list[str]) -> bool:
+    if lowered[1:2] != ["run"]:
+        return False
+    return any(
+        re.match(r"(?i)^(?:https?://|jsr:|npm:)", part)
+        or part == "-a"
+        or part.startswith("--allow-")
+        for part in lowered[2:]
+    )
+
+
 def _parse_segment(parts: list[str]) -> HostAuthority | None:
     if not parts:
         return None
     executable = _command_word(parts[0])
     lowered = [part.lower() for part in parts]
+    words = [executable, *lowered[1:]]
+
+    if _package_install(words):
+        return _authority(
+            "remote_code_execution",
+            "high",
+            "Package installation can fetch packages and run lifecycle or setup code.",
+            "package install",
+            "approve package install",
+        )
+
+    if _package_runner(words):
+        return _authority(
+            "remote_code_execution",
+            "high",
+            "An ephemeral package runner can download package code and execute it.",
+            "package runner",
+            "approve package runner execution",
+        )
+
+    if executable in {"chmod", "chgrp", "chown"}:
+        target = next((part for part in reversed(parts[1:]) if not part.startswith("-")), executable)
+        return _authority(
+            "destructive_filesystem",
+            "high",
+            "Permission or ownership changes can expose data or change who controls execution.",
+            target,
+            "approve permission change",
+        )
+
+    if _disk_destruction(executable, lowered):
+        return _authority(
+            "destructive_filesystem",
+            "critical",
+            "The command can erase, format, repartition, or overwrite disk or device data.",
+            " ".join(parts[:4]),
+            "approve disk destruction",
+        )
+
+    if executable in {"shred", "srm", "wipe"} and not any(
+        part in {"-h", "--help", "--version"} for part in lowered[1:]
+    ):
+        return _authority(
+            "destructive_filesystem",
+            "critical",
+            "The command can securely overwrite or remove local files.",
+            " ".join(parts[:3]),
+            "approve file wipe",
+        )
+
+    if executable == "tar" and _tar_runs_command(lowered):
+        return _authority(
+            "remote_code_execution",
+            "high",
+            "Tar can execute another command while processing archive entries.",
+            "tar command execution",
+            "approve tar execution",
+        )
+
+    if executable == "pm2" and len(lowered) > 1 and lowered[1] in {"resurrect", "save", "startup", "unstartup"}:
+        return _authority(
+            "process_autostart_mutation",
+            "high",
+            "PM2 can install startup hooks or persist process resurrection state.",
+            " ".join(parts[:2]),
+            "approve pm2 startup change",
+        )
+
+    if executable == "deno" and _deno_runs_with_authority(lowered):
+        return _authority(
+            "remote_code_execution",
+            "high",
+            "Deno can fetch remote code or run code with explicit runtime permissions.",
+            " ".join(parts[:4]),
+            "approve deno execution",
+        )
 
     if executable == "dd":
         target = next((part.split("=", 1)[1] for part in parts[1:] if part.lower().startswith("of=") and part.split("=", 1)[1]), "")

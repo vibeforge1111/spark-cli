@@ -222,6 +222,37 @@ def parse_credential_authority(parts: list[str]) -> CredentialAuthority | None:
     command_words = [executable, *[part.lower() for part in parts[1:]]]
     bounded_arguments = _before_separator(arguments)
 
+    if executable == "ssh-add":
+        if arguments in (["-l"], ["-L"]):
+            return None
+        return _authority(
+            "credential_mutation",
+            "high",
+            "ssh-add can add, remove, lock, or unlock SSH agent identities.",
+            "ssh-add",
+            "approve ssh agent credential change",
+        )
+
+    private_key_generation = (
+        executable == "age-keygen"
+        or (
+            executable == "openssl"
+            and (
+                command_words[1:2] in (["genrsa"], ["genpkey"])
+                or (command_words[1:2] == ["ecparam"] and "-genkey" in command_words[2:])
+                or (command_words[1:2] == ["req"] and "-newkey" in command_words[2:])
+            )
+        )
+    )
+    if private_key_generation:
+        return _authority(
+            "credential_mutation",
+            "high",
+            "The command can generate a new private-key credential.",
+            "private key generation",
+            "approve private key generation",
+        )
+
     if _matches_prefix(command_words, CLOUD_TOKEN_REVEALS):
         return _authority(
             "credential_mutation",

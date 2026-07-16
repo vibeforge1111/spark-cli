@@ -838,6 +838,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
         return infrastructure_decision
     if aws_decision := decide_aws_authority(raw_parts, ctx, _decision):
         return aws_decision
+    if host_decision := decide_host_authority(raw_parts, ctx, _decision):
+        return host_decision
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
@@ -851,18 +853,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Command can delete local files or directories.",
             target_display=target,
             confirmation_phrase=f"delete {target}".strip().lower()[:80] if target else "approve delete",
-        )
-
-    if first in {"chmod", "chown"}:
-        target = _target_after(parts, {"chmod", "chown"})
-        return _decision(
-            parts,
-            ctx,
-            "destructive_filesystem",
-            "high",
-            "Command can change file permissions or ownership, which may enable privilege escalation.",
-            target_display=target or parts[0],
-            confirmation_phrase=f"approve {parts[0]} {target}".strip().lower()[:80] if target else f"approve {parts[0]}",
         )
 
     # curl/wget that writes downloaded content to disk. wget writes to the local
@@ -1206,6 +1196,4 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display="spark verify --deep",
             confirmation_phrase="approve deep verification",
         )
-    if host_decision := decide_host_authority(parts, ctx, _decision):
-        return host_decision
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
