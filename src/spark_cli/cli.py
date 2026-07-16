@@ -1336,7 +1336,11 @@ def keychain_available() -> bool:
         return False
     try:
         _keyring.get_password(KEYCHAIN_SERVICE, "__spark_probe__")
-    except Exception:
+    except Exception as error:
+        sys.stderr.write(
+            "spark-cli: system store availability check failed "
+            f"(error type: {type(error).__name__}); file fallback may be used.\n"
+        )
         return False
     return True
 
