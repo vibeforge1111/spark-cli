@@ -5233,6 +5233,25 @@ class Sandbox:
             self.assertIn("BOT_TOKEN=abc", env_path.read_text(encoding="utf-8"))
             self.assertEqual(list(Path(tmp_dir).glob(".env.*.tmp")), [])
 
+    def test_update_env_file_claims_private_exclusive_temp_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / ".env"
+            with patch("spark_cli.cli.os.open", wraps=os.open) as opened:
+                update_env_file(env_path, {"BOT_TOKEN": "synthetic"})
+            mode = env_path.stat().st_mode & 0o777
+
+        private_claims = [
+            call
+            for call in opened.call_args_list
+            if len(call.args) >= 3
+            and call.args[1] & os.O_CREAT
+            and call.args[1] & os.O_EXCL
+            and call.args[2] == PRIVATE_FILE_MODE
+        ]
+        self.assertTrue(private_claims)
+        if os.name != "nt":
+            self.assertEqual(mode, PRIVATE_FILE_MODE)
+
     def test_resolve_install_target_prefers_registry_module_name(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         resolved = resolve_install_target("spark-telegram-bot", {"spark-telegram-bot": gateway})

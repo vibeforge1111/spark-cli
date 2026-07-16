@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from spark_cli.cli import build_parser, cmd_access, print_access_payload
 from spark_cli.cli import cmd_sandbox
-from spark_cli.sandbox.access import _parse_utc_timestamp, read_env_file
+from spark_cli.sandbox.access import _parse_utc_timestamp, read_env_file, write_env_file
 from spark_cli.sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
 
 
@@ -40,6 +40,25 @@ DOCKER_READY = {
 
 
 class AccessSetupTests(unittest.TestCase):
+    def test_level5_env_writer_claims_private_exclusive_temp_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "spawner-ui.env"
+            with patch("spark_cli.cli.os.open", wraps=os.open) as opened:
+                write_env_file(env_path, {"SPARK_CODEX_SANDBOX": "danger-full-access"})
+            mode = env_path.stat().st_mode & 0o777
+
+        private_claims = [
+            call
+            for call in opened.call_args_list
+            if len(call.args) >= 3
+            and call.args[1] & os.O_CREAT
+            and call.args[1] & os.O_EXCL
+            and call.args[2] == 0o600
+        ]
+        self.assertTrue(private_claims)
+        if os.name != "nt":
+            self.assertEqual(mode, 0o600)
+
     def test_read_env_file_trims_values_and_matching_outer_quotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env_path = Path(tmpdir) / "module.env"
