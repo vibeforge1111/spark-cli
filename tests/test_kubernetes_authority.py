@@ -46,6 +46,12 @@ class KubernetesAuthorityTests(unittest.TestCase):
             "high",
             "approve kubernetes credential change",
         )
+        self.assert_blocked(
+            ["kubectl", "config", "delete-user", "retired-user"],
+            "credential_mutation",
+            "high",
+            "approve kubernetes credential change",
+        )
         for command in (
             ["kubectl", "config", "use-context", "prod"],
             ["kubectl", "config", "set-cluster", "prod", "--server", "https://example.test"],
@@ -89,6 +95,12 @@ class KubernetesAuthorityTests(unittest.TestCase):
                     "high",
                     "approve helm registry credential change",
                 )
+        self.assert_blocked(
+            ["helm", "repo", "add", "private", "https://charts.example.test", "--username", "demo", "--password", "redacted"],
+            "credential_mutation",
+            "high",
+            "approve helm repo credential change",
+        )
         self.assert_allowed(["helm", "repo", "list"])
 
     def test_kubectl_workload_mutations(self) -> None:
