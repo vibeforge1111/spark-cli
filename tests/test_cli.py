@@ -1967,6 +1967,23 @@ class Sandbox:
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_marks_privileged_shell_launches_critical(self) -> None:
+        cases = (
+            ["sudo", "bash"],
+            ["sudo", "-i"],
+            ["sudo", "-s"],
+            ["doas", "sh"],
+            ["doas", "-s"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "identity_access_mutation")
+                self.assertEqual(decision.risk, "critical")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve privileged shell")
+
     def test_approval_classifier_fails_closed_for_unresolved_privilege_wrapper(self) -> None:
         for command in (["sudo"], ["sudo", "--unknown-option", "spark", "status"], ["su", "root"]):
             with self.subTest(command=command):
