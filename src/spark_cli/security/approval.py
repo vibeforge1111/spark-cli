@@ -10,6 +10,7 @@ from .container_authority import decide_container_authority
 from .credential_authority import decide_credential_authority
 from .git_authority import decide_git_authority
 from .host_authority import decide_host_authority
+from .kubernetes_authority import decide_kubernetes_authority
 from .network_authority import decide_network_authority, decide_ssh_tunnel_authority, network_upload_option
 from .wrapper_policy import (
     DYNAMIC_LOADER_ENV_NAMES,
@@ -834,6 +835,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
 
     if container_decision := decide_container_authority(raw_parts, ctx, _decision):
         return container_decision
+    if kubernetes_decision := decide_kubernetes_authority(raw_parts, ctx, _decision):
+        return kubernetes_decision
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
@@ -1000,20 +1003,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve aws credential reveal",
         )
 
-    if first == "kubectl" and (
-        (lowered[1:3] == ["config", "view"] and "--raw" in lowered)
-        or (len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"})
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "critical",
-            "Kubernetes command can reveal cluster secrets or raw kubeconfig credentials.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve kubernetes secret read",
-        )
-
     if network_decision := decide_ssh_tunnel_authority(raw_parts, ctx, _decision):
         return network_decision
 
@@ -1141,7 +1130,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display=" ".join(parts[:5]),
             confirmation_phrase="approve github mutation",
         )
-    if first in {"kubectl", "helm", "terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
+    if first in {"terraform", "pulumi"} and _contains_any(lowered, {"apply", "delete", "destroy", "upgrade", "install", "up"}):
         return _decision(
             parts,
             ctx,
