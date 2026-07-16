@@ -3,10 +3,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from argparse import Namespace
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from spark_cli.cli import Module, module_runtime_env, persist_keychain_secrets, read_generated_env, write_setup_runtime_config
+from spark_cli.cli import Module, main, module_runtime_env, persist_keychain_secrets, read_generated_env, write_setup_runtime_config
 
 
 def gateway_module(root: Path) -> Module:
@@ -88,6 +90,33 @@ class CliProviderSecretPersistenceTests(unittest.TestCase):
         self.assertEqual(runtime["KIMI_API_KEY"], "stored-kimi-key")
         self.assertNotIn("OPENAI_API_KEY", runtime)
         self.assertNotEqual(runtime["KIMI_API_KEY"], "stale-plaintext")
+
+    def test_log_redaction_does_not_claim_generated_config_is_repaired(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            config_dir = root / "config" / "modules"
+            log_dir = root / "logs"
+            config_dir.mkdir(parents=True)
+            log_dir.mkdir()
+            config_path = config_dir / "spark-telegram-bot.env"
+            config_path.write_text("KIMI_API_KEY=plaintext-key\n", encoding="utf-8")
+            (log_dir / "runtime.log").write_text(
+                "BOT_TOKEN=1234567890:AAabcdefghijklmnopqrstuvwxyz1234567890\n",
+                encoding="utf-8",
+            )
+            stdout = StringIO()
+            with patch.multiple("spark_cli.cli", MODULE_CONFIG_DIR=config_dir, LOG_DIR=log_dir), \
+                 patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+                 redirect_stdout(stdout):
+                exit_code = main(["fix", "secrets", "--redact-logs"])
+            persisted_config = config_path.read_text(encoding="utf-8")
+
+        rendered = stdout.getvalue()
+        self.assertEqual(exit_code, 1)
+        self.assertIn("generated config still needs attention", rendered.lower())
+        self.assertIn("spark setup", rendered)
+        self.assertNotIn("Next:\n  spark verify --deep", rendered)
+        self.assertEqual(persisted_config, "KIMI_API_KEY=plaintext-key\n")
 
 
 if __name__ == "__main__":
