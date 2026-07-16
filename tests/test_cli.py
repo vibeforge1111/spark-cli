@@ -301,6 +301,7 @@ from spark_cli.cli import (
     write_doctor_report,
     write_denied_paths,
     write_denied_prefixes,
+    write_generated_env,
     write_support_bundle,
     windows_service_creationflags,
     resolve_bundle_names,
@@ -9961,6 +9962,33 @@ class Sandbox:
             env_path = Path(tmp_dir) / "module.env"
             env_path.write_text("# comment\n\nA=1\nB=two=three\n", encoding="utf-8")
             self.assertEqual(read_generated_env(env_path), {"A": "1", "B": "two=three"})
+
+    def test_write_generated_env_is_private_and_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / "module.env"
+
+            write_generated_env(env_path, {"TOKEN": "secret", "MODE": "local"})
+
+            self.assertEqual(env_path.read_text(encoding="utf-8"), "TOKEN=secret\nMODE=local\n")
+            self.assertFalse(list(Path(tmp_dir).glob(".module.env.*.tmp")))
+            if os.name != "nt":
+                self.assertEqual(env_path.stat().st_mode & 0o777, PRIVATE_FILE_MODE)
+
+    def test_write_generated_env_refuses_linked_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            victim = root / "victim.env"
+            victim.write_text("KEEP=1\n", encoding="utf-8")
+            env_path = root / "module.env"
+            try:
+                env_path.symlink_to(victim)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unavailable")
+
+            with self.assertRaises(SystemExit):
+                write_generated_env(env_path, {"TOKEN": "secret"})
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "KEEP=1\n")
 
     def test_read_generated_env_trims_values_and_matching_outer_quotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
