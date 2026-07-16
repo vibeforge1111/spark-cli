@@ -14209,8 +14209,8 @@ def redact_shareable_text(value: str) -> str:
     redacted = redacted.replace("~/.spark", "<spark-home>")
     redacted = redacted.replace("~\\.spark", "<spark-home>")
     redacted = re.sub(r"(?i)\b[A-Z]:[\\/]Users[\\/][^\\/\s]+", "%USERPROFILE%", redacted)
-    redacted = re.sub(r"(?i)\b/Users/[^/\s]+", "$HOME", redacted)
-    redacted = re.sub(r"(?i)\b/home/[^/\s]+", "$HOME", redacted)
+    redacted = re.sub(r"(?i)/Users/[^/\s]+", "$HOME", redacted)
+    redacted = re.sub(r"(?i)/home/[^/\s]+", "$HOME", redacted)
     redacted = re.sub(
         r"(?i)\b(Telegram(?:\s+admin)?\s+ID|Admin\s+ID|ALLOWED_TELEGRAM_IDS)(\s*[:=]\s*)(\d{5,16})\b",
         lambda match: f"{match.group(1)}{match.group(2)}[TELEGRAM_ID_REDACTED]",

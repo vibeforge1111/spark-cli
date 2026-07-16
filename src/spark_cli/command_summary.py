@@ -18,7 +18,7 @@ CARET_LINE_RE = re.compile(r"^[\s~^]+$")
 
 def sanitize_command_line(line: str, shareable: Callable[[str], str]) -> str:
     """Remove terminal controls and private values before a command result is summarized."""
-    return shareable(redact_sandbox_text(strip_terminal_controls(line)))
+    return redact_sandbox_text(shareable(strip_terminal_controls(line)))
 
 
 def select_failure_summary(lines: Iterable[str]) -> str:
