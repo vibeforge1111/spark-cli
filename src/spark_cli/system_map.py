@@ -28,7 +28,6 @@ OPERATING_COCKPIT_SCHEMA = "spark.operating_cockpit.compiled.v0"
 DUPLICATE_TRUTHS_SCHEMA = "spark.duplicate_truths.compiled.v0"
 
 SPARK_REPO_NAME_HINTS = ("spark", "domain-chip", "spawner-ui")
-
 CONTRACT_FILE_HINTS = (
     "docs/AGENT_OPERATING_CONTEXT_AND_DRIFT_CONTROL.md",
     "docs/SPARK_UPGRADE_LEDGER.yaml",
@@ -6141,9 +6140,7 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any], *, validate_
         "operating_cockpit": out_dir / "operating-cockpit.json",
         "gaps": out_dir / "gaps.md",
     }
-    if validate_path is not None:
-        for path in paths.values():
-            validate_path(path)
+    tuple(map(validate_path, paths.values())) if validate_path is not None else ()
     write_json(paths["system_map"], system_map)
     write_json(paths["authority_view"], compiled["authority_view"])
     write_json(paths["capability_catalog"], compiled["capability_catalog"])
