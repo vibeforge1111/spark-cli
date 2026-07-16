@@ -51,6 +51,9 @@ SECRET_LIKE_PATTERN = re.compile(
 )
 INVALID_COMMAND_TOKEN = "<spark-invalid-command>"
 INVALID_COMMAND_REASON = "Command input could not be validated as an ordered sequence of text tokens."
+SENSITIVE_ENV_NAME_PATTERN = re.compile(
+    r"(?i)(?:^|[_-])(?:token|secret|api[_-]?key|password|passwd|credential|auth)(?:$|[_-])"
+)
 
 
 def _digest_command(argv: list[str]) -> str:
@@ -99,6 +102,15 @@ def _has_option_value(parts: list[str], option_names: set[str], suspicious_value
 
 def _is_env_assignment(value: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*", value))
+
+
+def _looks_like_sensitive_env_name(value: str) -> bool:
+    return bool(SENSITIVE_ENV_NAME_PATTERN.search(value))
+
+
+def _looks_like_npm_auth_key(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in {"_authtoken", "auth-token", "auth_token"})
 
 
 def _command_word(value: str) -> str:
@@ -495,8 +507,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
         )
 
     if first in {"printenv", "set"} and (
-        len(lowered) == 1
-        or any(re.search(r"(?i)(token|secret|password|api[_-]?key|credential)", part) for part in lowered[1:])
+        len(lowered) == 1 or any(_looks_like_sensitive_env_name(part) for part in parts[1:])
     ):
         return _decision(
             parts,
@@ -519,39 +530,99 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve github token reveal",
         )
 
-    if first == "aws" and (
-        lowered[1:3] in [["secretsmanager", "get-secret-value"], ["ssm", "get-parameter"]]
-        or ("configure" in lowered and "get" in lowered and any("secret" in part or "key" in part for part in lowered))
+    if first == "npm" and (
+        second == "token"
+        or (
+            second == "config"
+            and len(lowered) > 3
+            and lowered[2] in {"get", "set", "delete", "rm", "remove"}
+            and _looks_like_npm_auth_key(parts[3])
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "npm command can reveal, create, revoke, or change registry authentication tokens.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve npm token access",
+        )
+
+    if (
+        (first == "gcloud" and lowered[1:3] == ["auth", "print-access-token"])
+        or (first == "az" and lowered[1:3] == ["account", "get-access-token"])
     ):
         return _decision(
             parts,
             ctx,
             "credential_mutation",
             "critical",
-            "AWS command can reveal cloud secrets or decrypted parameters.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve cloud secret reveal",
+            "Cloud CLI command can reveal a live access token.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve cloud token reveal",
         )
 
-    if first == "kubectl" and len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"}:
+    if first == "aws" and (
+        lowered[1:3] in [["secretsmanager", "get-secret-value"], ["ssm", "get-parameter"]]
+        or lowered[1:3] in [["ecr", "get-login-password"], ["sts", "get-session-token"]]
+        or (
+            lowered[1:3] == ["configure", "get"]
+            and len(lowered) > 3
+            and any(marker in lowered[3] for marker in {"secret_access_key", "session_token", "security_token"})
+        )
+    ):
         return _decision(
             parts,
             ctx,
             "credential_mutation",
             "critical",
-            "Kubernetes command can reveal cluster secrets.",
+            "AWS command can reveal cloud secrets, registry passwords, or session credentials.",
             target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve kubernetes secret reveal",
+            confirmation_phrase="approve aws credential reveal",
         )
 
-    if first == "docker" and second == "login":
+    if first == "kubectl" and (
+        (lowered[1:3] == ["config", "view"] and "--raw" in lowered)
+        or (len(lowered) > 2 and lowered[1] in {"get", "describe"} and lowered[2] in {"secret", "secrets"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Kubernetes command can reveal cluster secrets or raw kubeconfig credentials.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve kubernetes secret read",
+        )
+
+    if (
+        (first == "op" and (second == "read" or lowered[1:3] == ["item", "get"]))
+        or (first == "pass" and second in {"show", "otp"})
+        or (
+            first == "security"
+            and second in {"find-generic-password", "find-internet-password"}
+            and "-w" in lowered
+        )
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Password-manager command can reveal stored secret values.",
+            target_display=" ".join(parts[:3]),
+            confirmation_phrase="approve password reveal",
+        )
+
+    if first == "docker" and second in {"login", "logout"}:
         return _decision(
             parts,
             ctx,
             "credential_mutation",
             "high",
-            "Docker command can store or change registry credentials.",
-            target_display="docker login",
+            "Docker command can store, change, or remove registry credentials.",
+            target_display=f"docker {second}",
             confirmation_phrase="approve docker credential change",
         )
 
