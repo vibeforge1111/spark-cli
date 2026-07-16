@@ -9,6 +9,10 @@ CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 DEFAULT_MAX_BYTES = 32_768
 DEFAULT_MAX_LINES = 200
 
+FULL_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?<![A-Za-z0-9_])(?:bot)?\d{6,}:[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"),
+)
+
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*=\s*([^\s]+)"),
     re.compile(r'(?i)"(?:apiKey|token|secret|password|passwd|accessToken|refreshToken)"\s*:\s*"([^"]+)"'),
@@ -69,6 +73,8 @@ def _mask_secret(value: str) -> str:
 
 def redact_sandbox_text(text: str) -> str:
     redacted = text
+    for pattern in FULL_SECRET_PATTERNS:
+        redacted = pattern.sub("[REDACTED]", redacted)
     for pattern in SECRET_PATTERNS:
         def replace(match: re.Match[str]) -> str:
             if match.lastindex:

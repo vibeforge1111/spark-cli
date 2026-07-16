@@ -1456,8 +1456,22 @@ def inspect_file_metadata(path: Path) -> dict[str, Any]:
     return out
 
 
+SAFE_SHORT_SECRET_KEY = (
+    r"(?:api[_ -]?key|token|secret|password|passwd|passphrase|private[_ -]?key|credential|"
+    r"auth[_ -]?code|access[_ -]?key)"
+)
+SAFE_SHORT_JSON_SECRET_RE = re.compile(
+    rf"(?i)([\"']{SAFE_SHORT_SECRET_KEY}[\"']\s*:\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;}}]+)"
+)
+SAFE_SHORT_NAMED_SECRET_RE = re.compile(
+    rf"(?i)(\b{SAFE_SHORT_SECRET_KEY}\b(?:\s*(?:=|:)\s*|\s+))(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;}}]+)"
+)
+
+
 def safe_short_string(value: str, limit: int = 240) -> str:
-    cleaned = re.sub(r"(?i)(api[_-]?key|token|secret)([=:\s]+)(\S+)", r"\1\2[redacted]", value.strip())
+    cleaned = value.strip()
+    cleaned = SAFE_SHORT_JSON_SECRET_RE.sub(r"\1[redacted]", cleaned)
+    cleaned = SAFE_SHORT_NAMED_SECRET_RE.sub(r"\1[redacted]", cleaned)
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."

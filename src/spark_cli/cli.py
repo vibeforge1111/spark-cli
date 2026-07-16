@@ -2839,7 +2839,7 @@ def extract_telegram_bot_token(value: str) -> str:
         return matches[0]
     if len(matches) > 1:
         raise SystemExit("Found more than one Telegram bot token. Copy or paste only the token for the bot you want to connect.")
-    return stripped
+    raise SystemExit("That does not look like a Telegram bot token. Copy the token from BotFather and try again.")
 
 
 def telegram_token_repair_command(secret_id: str) -> str:
