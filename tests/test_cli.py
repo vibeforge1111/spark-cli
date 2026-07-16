@@ -117,6 +117,7 @@ from spark_cli.cli import (
     delete_secret,
     execute_security_revoke_all,
     pause_revoke_all_missions,
+    spawner_state_dir_for_revoke_all,
     fetch_secret,
     infer_module_name_from_url,
     initial_follow_log_lines,
@@ -2951,6 +2952,39 @@ class Sandbox:
         self.assertFalse(payload["sharing_manifest"]["uploaded"])
         self.assertNotIn("1234567890:AA", encoded)
         self.assertNotIn("Alice", encoded)
+
+    def test_revoke_all_spawner_state_stays_inside_spark_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            spark_home = root / "spark"
+            state_dir = spark_home / "state" / "spawner-ui"
+            config_dir = spark_home / "config" / "modules"
+            state_dir.mkdir(parents=True)
+            config_dir.mkdir(parents=True)
+            with patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                 patch("spark_cli.cli.STATE_DIR", spark_home / "state"), \
+                 patch("spark_cli.cli.MODULE_CONFIG_DIR", config_dir), \
+                 patch("spark_cli.cli.read_generated_env", return_value={"SPAWNER_STATE_DIR": str(state_dir)}):
+                self.assertEqual(spawner_state_dir_for_revoke_all(), state_dir.resolve())
+
+    def test_revoke_all_spawner_state_rejects_sibling_prefix_and_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            spark_home = root / "spark"
+            config_dir = spark_home / "config" / "modules"
+            outside = root / "spark-backup"
+            config_dir.mkdir(parents=True)
+            outside.mkdir()
+            link = spark_home / "state-link"
+            link.symlink_to(outside, target_is_directory=True)
+            for candidate in (outside, link):
+                with self.subTest(candidate=candidate), \
+                     patch("spark_cli.cli.SPARK_HOME", spark_home), \
+                     patch("spark_cli.cli.STATE_DIR", spark_home / "state"), \
+                     patch("spark_cli.cli.MODULE_CONFIG_DIR", config_dir), \
+                     patch("spark_cli.cli.read_generated_env", return_value={"SPAWNER_STATE_DIR": str(candidate)}):
+                    with self.assertRaisesRegex(SystemExit, "outside Spark home"):
+                        spawner_state_dir_for_revoke_all()
 
     def test_security_revoke_all_rotates_keys_deletes_secrets_and_pauses_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
