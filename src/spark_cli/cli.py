@@ -3363,12 +3363,24 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
     temp_path: Path | None = None
     temp_fd: int | None = None
     try:
-        temp_fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
         )
-        temp_path = Path(temp_name)
+        for _attempt in range(32):
+            temp_path = path.with_name(
+                f".{path.name}.{os.getpid()}.{py_secrets.token_hex(16)}.tmp"
+            )
+            try:
+                temp_fd = os.open(temp_path, flags, PRIVATE_FILE_MODE)
+                break
+            except FileExistsError:
+                continue
+        if temp_fd is None:
+            raise FileExistsError("Could not claim a unique runtime-shim temporary file.")
         with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
             temp_fd = None
             handle.write(content)
