@@ -1640,6 +1640,39 @@ class Sandbox:
         self.assertTrue(decision.requires_approval)
         self.assertEqual(decision.action_class, "process_autostart_mutation")
 
+    def test_approval_classifier_allows_single_typed_os_startup_inspections(self) -> None:
+        cases = [
+            [r"C:\Windows\System32\reg.exe", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"],
+            ["schtasks.exe", "/query", "/tn", "Spark Telegram Agent"],
+            ["systemctl", "--user", "status", "spark-telegram-agent.service", "--no-pager"],
+            ["systemctl", "is-enabled", "spark-telegram-agent.service"],
+            ["systemctl", "list-unit-files", "--type=service"],
+            ["launchctl", "list"],
+            ["launchctl", "print", "gui/501/ai.sparkswarm.spark-telegram-agent"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+                self.assertEqual(decision.action_class, "none")
+
+    def test_approval_classifier_never_grants_inspection_for_mixed_or_composed_actions(self) -> None:
+        cases = [
+            ["schtasks", "/query", "/create", "/tn", "Spark", "/tr", "spark start"],
+            ["schtasks", "/change", "/query", "/tn", "Spark", "/disable"],
+            ["systemctl", "--user", "enable", "spark-telegram-agent.service"],
+            ["systemctl", "--host", "remote", "status", "spark.service"],
+            [r"C:\Windows\System32\reg.exe", "add", r"HKCU\Software\Spark"],
+            ["launchctl", "list", "|", "launchctl", "load", "agent.plist"],
+            ["bash", "-lc", "systemctl status spark.service; systemctl enable spark.service"],
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "process_autostart_mutation")
+                self.assertEqual(decision.approval_mode, "blocked")
+
     def test_approval_classifier_blocks_level5_access_mutation_non_interactively(self) -> None:
         decision = approval_required_for_command(
             ["spark", "access", "setup", "--level", "5", "--enable-high-agency"],
