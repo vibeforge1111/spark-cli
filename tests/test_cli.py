@@ -3097,6 +3097,7 @@ class Sandbox:
                  patch("spark_cli.cli.collect_security_audit_payload", return_value={"ok": True}), \
                  patch("spark_cli.cli.LOG_DIR", log_dir):
                 payload = collect_support_bundle_payload(include_logs=True, log_lines=5)
+        self.assertIs(payload["ok"], True)
         encoded = json.dumps(payload)
         self.assertIn("local_review_first", encoded)
         self.assertEqual(payload["spark_home"], "<spark-home>")
@@ -3105,7 +3106,6 @@ class Sandbox:
         self.assertFalse(payload["sharing_manifest"]["uploaded"])
         self.assertNotIn("1234567890:AA", encoded)
         self.assertNotIn("Alice", encoded)
-
     def test_revoke_all_spawner_state_stays_inside_spark_home(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

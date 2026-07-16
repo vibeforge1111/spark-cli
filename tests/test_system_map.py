@@ -2797,8 +2797,8 @@ routes = []
             with redirect_stdout(capability_stdout):
                 capability_exit_code = capability_args.func(capability_args)
             capability_summary = json.loads(capability_stdout.getvalue())
-
             self.assertEqual(capability_exit_code, 0)
+            self.assertIs(capability_summary["ok"], True)
             self.assertEqual(capability_summary["schema_version"], "spark.os_capabilities.summary.v0")
             # A module that declares provides_capabilities now surfaces one
             # synthetic, explicitly-untrusted card (wave3 capability-cards
