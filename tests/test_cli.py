@@ -1787,6 +1787,52 @@ class Sandbox:
                 decision = approval_required_for_command(command, CommandContext())
                 self.assertFalse(decision.requires_approval)
 
+    def test_approval_classifier_flags_typed_ssh_remote_access(self) -> None:
+        cases = (
+            (["ssh", "deploy@example.test", "systemctl", "restart", "spark-live"], "deploy@example.test"),
+            (["ssh", "-i", "~/.ssh/spark_key", "deploy@example.test", "sudo", "journalctl", "-u", "spark"], "deploy@example.test"),
+            (["/usr/bin/ssh", "-p2222", "deploy@example.test"], "deploy@example.test"),
+            (["ssh", "-vv", "--", "deploy@example.test", "-remote-command"], "deploy@example.test"),
+            (["ssh", "-o", "ProxyCommand=nc %h %p", "deploy@example.test"], "deploy@example.test"),
+        )
+        for command, target in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh remote access")
+                self.assertEqual(decision.target_display, target)
+
+    def test_approval_classifier_allows_typed_ssh_local_inspections(self) -> None:
+        cases = (
+            ["ssh", "-V"],
+            ["ssh", "-Q", "cipher"],
+            ["ssh", "-G", "-p", "2222", "deploy@example.test"],
+            ["ssh", "-G", "-oBatchMode=yes", "deploy@example.test"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
+    def test_approval_classifier_fails_closed_for_malformed_ssh_grammar(self) -> None:
+        cases = (
+            ["ssh"],
+            ["ssh", "-i"],
+            ["ssh", "--unknown-option", "deploy@example.test"],
+            ["ssh", "-G", "deploy@example.test", "unexpected-command"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "remote_code_execution")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, "approve ssh remote access")
+
     def test_approval_classifier_does_not_treat_curl_fail_or_telnet_option_as_upload(self) -> None:
         for command in (
             ["curl", "-f", "https://example.test/health"],
