@@ -3584,6 +3584,22 @@ class Sandbox:
         self.assertEqual(parser.parse_args(["providers", "test", "--role", "memory"]).providers_command, "test")
         self.assertEqual(parser.parse_args(["fix", "spawner"]).target, "spawner")
 
+    def test_operator_help_describes_the_runtime_without_spike_language(self) -> None:
+        parser = build_parser()
+        self.assertIn("Spark installer and operator CLI", parser.description)
+        self.assertNotIn("spike", parser.description.lower())
+
+    def test_security_revoke_all_help_recommends_a_dry_run_first(self) -> None:
+        with patch("sys.stdout", new_callable=StringIO) as stdout, self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["security", "revoke-all", "--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        normalized = " ".join(stdout.getvalue().split()).lower()
+        self.assertIn("start with --dry-run", normalized)
+        self.assertIn("without mutating local state", normalized)
+        self.assertIn("secret removals", normalized)
+        self.assertNotIn("panic button", normalized)
+
     def test_resolve_llm_doctor_target_uses_configured_builder_api_key(self) -> None:
         setup_state = {
             "llm": {
@@ -11984,6 +12000,7 @@ class Sandbox:
                  patch("spark_cli.cli.build_status_repair_hints", return_value=[]):
                 payload = collect_status_payload()
 
+            self.assertEqual(payload["summary"], "Spark runtime status")
             self.assertEqual(payload["config_dir"], "<spark-home>/config")
             installed = payload["modules"][0]["installed"]
             self.assertEqual(installed["path"], "<spark-home>/modules/spawner-ui/source")
@@ -12700,7 +12717,17 @@ class Sandbox:
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["bot_token"]["ok"])
         self.assertIn("Telegram rejected it", checks["bot_token"]["detail"])
-        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token <BOTFATHER_TOKEN>")
+        self.assertEqual(checks["bot_token"]["repair"], "spark setup --bot-token @clipboard")
+
+    def test_autostart_profile_missing_profile_uses_clipboard_for_bot_token(self) -> None:
+        args = build_parser().parse_args(["autostart", "profile", "qa-bot", "on"])
+        with patch("spark_cli.cli.load_json", return_value={"telegram_profiles": {}}), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+
+        output = stdout.getvalue()
+        self.assertIn("spark setup --profile qa-bot --bot-token @clipboard", output)
+        self.assertNotIn("<BOTFATHER_TOKEN>", output)
 
     def test_collect_telegram_fix_payload_reports_polling_conflict_from_logs(self) -> None:
         status_payload = {
