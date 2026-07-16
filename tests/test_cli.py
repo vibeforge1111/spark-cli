@@ -10729,6 +10729,36 @@ class Sandbox:
             self.assertEqual(origin, stale)
             self.assertTrue(partial.exists())
 
+    def test_clone_module_source_rejects_ambiguous_partial_origin_without_mutation(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commit = self._pinned_resume_fixture(tmp)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", str(bare)], check=True)
+            subprocess.run(
+                ["git", "-C", str(partial), "config", "--add", "remote.origin.url", str(tmp / "other.git")],
+                check=True,
+            )
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home), self.assertRaisesRegex(
+                SystemExit,
+                "origin does not match",
+            ):
+                clone_module_source("git-demo", str(bare), commit=commit)
+
+            urls = subprocess.run(
+                ["git", "-C", str(partial), "remote", "get-url", "--all", "origin"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            self.assertEqual(urls, [str(bare), str(tmp / "other.git")])
+
     def test_clone_module_source_preserves_partial_checkout_with_user_files(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git not available on PATH")
@@ -11133,9 +11163,22 @@ class Sandbox:
         self.assertIn("--allow-rollback", stdout.getvalue())
 
     def test_git_command_enables_long_paths_for_registry_clones(self) -> None:
+        disabled_hooks_path = "NUL" if os.name == "nt" else "/dev/null"
         self.assertEqual(
             git_command("clone", "--depth=1", "https://example.test/repo.git", "target"),
-            ["git", "-c", "core.longpaths=true", "clone", "--depth=1", "https://example.test/repo.git", "target"],
+            [
+                "git",
+                "-c",
+                "core.longpaths=true",
+                "-c",
+                f"core.hooksPath={disabled_hooks_path}",
+                "-c",
+                "protocol.ext.allow=never",
+                "clone",
+                "--depth=1",
+                "https://example.test/repo.git",
+                "target",
+            ],
         )
 
     def test_long_path_aware_prefixes_windows_paths(self) -> None:

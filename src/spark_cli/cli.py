@@ -724,7 +724,17 @@ def clone_target_for_module(name: str) -> Path:
 
 
 def git_command(*args: str) -> list[str]:
-    return ["git", "-c", "core.longpaths=true", *args]
+    disabled_hooks_path = "NUL" if os.name == "nt" else "/dev/null"
+    return [
+        "git",
+        "-c",
+        "core.longpaths=true",
+        "-c",
+        f"core.hooksPath={disabled_hooks_path}",
+        "-c",
+        "protocol.ext.allow=never",
+        *args,
+    ]
 
 
 def validate_commit_pin(commit: str | None) -> str | None:
@@ -860,7 +870,8 @@ class ReportOnlyModuleProvenanceVerifier:
 
 def is_orphan_clone(target: Path) -> bool:
     """A clone dir that has a .git but no spark.toml is an incomplete/interrupted
-    clone (the manifest is checked out last). Safe to remove and re-clone."""
+    clone (the manifest is checked out last). Callers decide whether it is safe
+    to resume, preserve, or explicitly clean."""
     return target.is_dir() and (target / ".git").exists() and not (target / "spark.toml").exists()
 
 
@@ -873,6 +884,92 @@ def remove_orphan_clone(target: Path) -> None:
             shutil.rmtree(target, ignore_errors=True)
     except OSError:
         pass
+
+
+def normalized_remote_locator(value: str) -> str:
+    """Normalize local repository paths without weakening URL identity checks."""
+    locator = value.strip()
+    if "://" in locator or locator.startswith("git@"):
+        return locator
+    return str(Path(locator).expanduser().resolve(strict=False))
+
+
+def prepare_pinned_clone_resume(name: str, target: Path, url: str) -> bool:
+    """Verify that an interrupted pinned checkout is safe to resume in place."""
+    git_dir = target / ".git"
+    guidance = "Move the partial checkout aside and retry."
+    if target.is_symlink() or git_dir.is_symlink() or not git_dir.is_dir():
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: linked git metadata is not trusted. {guidance}"
+        )
+
+    head = subprocess.run(
+        git_command("-C", str(target), "rev-parse", "--verify", "HEAD"),
+        capture_output=True,
+        text=True,
+    )
+    if head.returncode == 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: partial checkout already has a commit. {guidance}"
+        )
+
+    status = subprocess.run(
+        git_command("-C", str(target), "status", "--porcelain", "--untracked-files=all"),
+        capture_output=True,
+        text=True,
+    )
+    if status.returncode != 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: git metadata could not be verified. {guidance}"
+        )
+    if status.stdout.strip():
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: partial checkout contains files. {guidance}"
+        )
+
+    remotes = subprocess.run(
+        git_command("-C", str(target), "remote"),
+        capture_output=True,
+        text=True,
+    )
+    if remotes.returncode != 0:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: remote configuration could not be verified. {guidance}"
+        )
+    remote_names = [remote.strip() for remote in remotes.stdout.splitlines() if remote.strip()]
+    if not remote_names:
+        run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+        return True
+    if remote_names != ["origin"]:
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: remote configuration is not trusted. {guidance}"
+        )
+
+    origin = subprocess.run(
+        git_command("-C", str(target), "remote", "get-url", "--all", "origin"),
+        capture_output=True,
+        text=True,
+    )
+    push_origin = subprocess.run(
+        git_command("-C", str(target), "remote", "get-url", "--push", "--all", "origin"),
+        capture_output=True,
+        text=True,
+    )
+    fetch_urls = [value for value in origin.stdout.splitlines() if value.strip()]
+    push_urls = [value for value in push_origin.stdout.splitlines() if value.strip()]
+    expected = normalized_remote_locator(url)
+    if (
+        origin.returncode != 0
+        or push_origin.returncode != 0
+        or len(fetch_urls) != 1
+        or len(push_urls) != 1
+        or normalized_remote_locator(fetch_urls[0]) != expected
+        or normalized_remote_locator(push_urls[0]) != expected
+    ):
+        raise SystemExit(
+            f"Cannot resume pinned clone for {name}: existing origin does not match the registry source. {guidance}"
+        )
+    return True
 
 
 def scan_orphan_module_clones() -> list[Path]:
@@ -902,8 +999,9 @@ def clone_module_source(
     allow_dirty_runtime: bool = False,
 ) -> Path:
     target = clone_target_for_module(name)
+    url = normalize_git_url(source)
+    pinned_commit = validate_commit_pin(commit)
     if (target / "spark.toml").exists() and (target / ".git").exists():
-        pinned_commit = validate_commit_pin(commit)
         if pinned_commit:
             resolved = subprocess.run(
                 git_command("-C", str(target), "rev-parse", "HEAD"),
@@ -923,31 +1021,35 @@ def clone_module_source(
             )
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    # Resumable installs: a prior clone that was interrupted leaves a .git but no
-    # spark.toml (partial fetch/checkout). Treat that as an orphan and re-clone it
-    # cleanly rather than aborting the whole install. A non-git directory is still
-    # refused -- that could be unrelated user data we must not delete.
-    if target.exists():
-        if (target / ".git").exists():
+    # A pinned partial checkout is resumed only after its metadata, worktree, and
+    # registry origin are verified. Unpinned installs retain the legacy clean
+    # re-clone behavior. A non-git directory is always preserved.
+    resuming_existing = False
+    if target.exists() or target.is_symlink():
+        if pinned_commit:
+            resuming_existing = prepare_pinned_clone_resume(name, target, url)
+        elif (target / ".git").exists():
             remove_orphan_clone(target)
         else:
             raise SystemExit(
                 f"Cannot clone {name}: {target} exists but is not a git checkout. Remove it first "
                 f"(manual fallback: rm -rf {target})."
             )
-    url = normalize_git_url(source)
-    pinned_commit = validate_commit_pin(commit)
-    # Any failure during the pinned clone leaves a partial target on disk; delete it
-    # before re-raising so the next install attempt is not blocked by an orphan.
+    # A fresh failed clone is disposable; a verified pre-existing partial checkout
+    # is retained so an interrupted fetch can be retried without losing evidence.
     if pinned_commit:
         try:
-            target.mkdir(parents=True, exist_ok=True)
-            run_git_or_exit(name, ["-C", str(target), "init", "-q"])
-            run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
+            if not resuming_existing:
+                target.mkdir(parents=True, exist_ok=True)
+                run_git_or_exit(name, ["-C", str(target), "init", "-q"])
+                run_git_or_exit(name, ["-C", str(target), "remote", "add", "origin", url])
             run_git_or_exit(name, ["-C", str(target), "fetch", "--depth=1", "origin", pinned_commit])
             verify_pinned_commit(name, target, pinned_commit, require_signed_commit=require_signed_commit)
-        except BaseException:
-            remove_orphan_clone(target)
+            if not (target / "spark.toml").is_file():
+                raise SystemExit(f"Pinned clone for {name} does not contain a spark.toml manifest.")
+        except (Exception, SystemExit):
+            if not resuming_existing:
+                remove_orphan_clone(target)
             raise
         return target
     try:
