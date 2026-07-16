@@ -1791,6 +1791,56 @@ class Sandbox:
         self.assertEqual(decision.action_class, "credential_mutation")
         self.assertEqual(decision.confirmation_phrase, "approve hosted secret change")
 
+    def test_approval_classifier_flags_credential_read_and_registry_auth_commands(self) -> None:
+        cases = (
+            (["gh", "auth", "token"], "critical", "approve github token reveal"),
+            (["npm", "token", "list"], "high", "approve npm token access"),
+            (["npm", "config", "get", "//registry.npmjs.org/:_authToken"], "high", "approve npm token access"),
+            (["docker", "login", "ghcr.io"], "high", "approve docker credential change"),
+            (["docker", "logout", "ghcr.io"], "high", "approve docker credential change"),
+            (["gcloud", "auth", "print-access-token"], "critical", "approve cloud token reveal"),
+            (["az", "account", "get-access-token"], "critical", "approve cloud token reveal"),
+            (["aws", "ecr", "get-login-password"], "critical", "approve aws credential reveal"),
+            (["aws", "configure", "get", "aws_session_token"], "critical", "approve aws credential reveal"),
+            (["aws", "sts", "get-session-token"], "critical", "approve aws credential reveal"),
+            (["kubectl", "config", "view", "--raw"], "critical", "approve kubernetes secret read"),
+            (["kubectl", "get", "secret", "app-token", "-o", "yaml"], "critical", "approve kubernetes secret read"),
+            (["op", "read", "op://Private/GitHub/token"], "critical", "approve password reveal"),
+            (["op", "item", "get", "GitHub token", "--fields", "password"], "critical", "approve password reveal"),
+            (["pass", "show", "github/token"], "critical", "approve password reveal"),
+            (["security", "find-generic-password", "-a", "spark", "-w"], "critical", "approve password reveal"),
+            (["env"], "high", "approve environment reveal"),
+            (["printenv", "TELEGRAM_BOT_TOKEN"], "high", "approve environment reveal"),
+        )
+        for command, risk, phrase in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "credential_mutation")
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+                self.assertEqual(decision.confirmation_phrase, phrase)
+
+    def test_approval_classifier_allows_adjacent_noncredential_inspection(self) -> None:
+        cases = (
+            ["npm", "config", "get", "registry"],
+            ["docker", "info"],
+            ["gcloud", "auth", "list"],
+            ["az", "account", "show"],
+            ["aws", "sts", "get-caller-identity"],
+            ["kubectl", "config", "view"],
+            ["op", "item", "list"],
+            ["pass", "ls"],
+            ["security", "find-generic-password", "-a", "spark"],
+            ["printenv", "AUTHOR"],
+            ["printenv", "PATH"],
+            ["env", "SAFE_NAME=value", "true"],
+        )
+        for command in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_enforcement_covers_publish_deploy_and_privileged_actions(self) -> None:
         cases = [
             (["npm", "publish"], CommandContext(), "external_publish"),
