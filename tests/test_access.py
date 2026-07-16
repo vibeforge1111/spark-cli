@@ -762,7 +762,7 @@ class AccessSetupTests(unittest.TestCase):
         self.assertIn("--cap-drop", run_args)
         self.assertIn("ALL", run_args)
         self.assertIn("no-new-privileges", run_args)
-        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", run_args)
+        self.assertIn("/sandbox:rw,noexec,nosuid,uid=1000,gid=1000,size=512m", run_args)
         self.assertNotIn("/var/run/docker.sock", " ".join(run_args))
         self.assertEqual(payload["checks"][0]["repair"], "")
 
@@ -816,9 +816,9 @@ class AccessSetupTests(unittest.TestCase):
 
         self.assertIn("PositionalBinding=$false", ps1)
         self.assertIn("ValueFromRemainingArguments", ps1)
-        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", ps1)
-        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", sh)
-        self.assertIn("/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m", workflow)
+        self.assertIn("/sandbox:rw,noexec,nosuid,uid=1000,gid=1000,size=512m", ps1)
+        self.assertIn("/sandbox:rw,noexec,nosuid,uid=1000,gid=1000,size=512m", sh)
+        self.assertIn("/sandbox:rw,noexec,nosuid,uid=1000,gid=1000,size=512m", workflow)
         self.assertIn("--network \"${network}\"", sh)
         for script in (ps1, sh):
             self.assertNotIn("/var/run/docker.sock", script)
