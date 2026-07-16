@@ -2820,7 +2820,9 @@ def maybe_offer_first_message_repair(result: dict[str, Any], interactive: bool) 
 def read_clipboard_text() -> str:
     commands: list[list[str]] = []
     if sys.platform == "win32":
-        commands.append(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"])
+        utf8_clipboard = "$OutputEncoding = [Console]::OutputEncoding = " \
+            "[System.Text.UTF8Encoding]::new($false); Get-Clipboard -Raw"
+        commands.append(["powershell", "-NoProfile", "-Command", utf8_clipboard])
     elif sys.platform == "darwin":
         commands.append(["pbpaste"])
     else:
@@ -2836,9 +2838,15 @@ def read_clipboard_text() -> str:
                 commands.append([path])
 
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        try:
+            result = subprocess.run(command, capture_output=True, text=False, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
         if result.returncode == 0:
-            value = result.stdout.strip()
+            try:
+                value = result.stdout.decode("utf-8").strip()
+            except (AttributeError, UnicodeDecodeError):
+                continue
             if value:
                 return value
     raise SystemExit(
