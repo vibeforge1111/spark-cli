@@ -14129,7 +14129,7 @@ def approval_context_for_args(args: argparse.Namespace) -> CommandContext:
 
 
 def should_enforce_approval(args: argparse.Namespace, decision: Any) -> bool:
-    if getattr(args, "command", "") == "approval":
+    if getattr(args, "approval_command", None) is not None or getattr(args, "telegram_command", None) == "status":
         return False
     return approval_decision_would_enforce(decision)
 
