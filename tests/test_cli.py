@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import hashlib
 import json
@@ -4634,6 +4635,50 @@ class Sandbox:
             )
             resolved = resolve_install_target(str(repo_path), {})
             self.assertEqual(resolved.name, "test-module")
+
+    def test_os_compile_json_reports_bounded_permission_failure_without_reflection(self) -> None:
+        secret = "sk-live-os-compile-secret"
+        output_dir = Path("/tmp") / f"private-{secret}"
+        args = build_parser().parse_args(["os", "compile", "--json", "--out", str(output_dir)])
+        failure = PermissionError(errno.EACCES, f"permission denied api_key={secret}", str(output_dir / "system-map.json"))
+        with patch("spark_cli.cli.compile_system_map", return_value={}), \
+             patch("spark_cli.cli.write_compiled_outputs", side_effect=failure), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        text = stdout.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(payload["schema_version"], "spark.os_compile.write_failure.v1")
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error_code"], "output_not_writable")
+        self.assertEqual(payload["output"], "<requested-output>")
+        self.assertTrue(payload["partial_outputs_possible"])
+        self.assertIn("--out <writable-directory>", payload["repair"])
+        self.assertNotIn(secret, text)
+        self.assertNotIn(str(output_dir), text)
+        self.assertNotIn("permission denied", text.lower())
+        self.assertNotIn("Traceback", text)
+
+    def test_os_compile_text_classifies_storage_full_without_reflecting_error(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--out", "/tmp/spark-map"])
+        failure = OSError(errno.ENOSPC, "disk full near private-project-name")
+        with patch("spark_cli.cli.compile_system_map", return_value={}), \
+             patch("spark_cli.cli.write_compiled_outputs", side_effect=failure), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 1)
+        text = stdout.getvalue()
+        self.assertIn("[FIX] Spark OS compile could not finish writing outputs (storage_full).", text)
+        self.assertIn("Partial-output notice:", text)
+        self.assertIn("free storage", text)
+        self.assertNotIn("private-project-name", text)
+        self.assertNotIn("Traceback", text)
+
+    def test_os_compile_does_not_mislabel_compile_read_failure_as_write_failure(self) -> None:
+        args = build_parser().parse_args(["os", "compile", "--json"])
+        with patch("spark_cli.cli.compile_system_map", side_effect=PermissionError("source metadata denied")), \
+             patch("spark_cli.cli.write_compiled_outputs") as write:
+            with self.assertRaisesRegex(PermissionError, "source metadata denied"):
+                args.func(args)
+        write.assert_not_called()
 
     def test_os_compile_strict_fails_on_dirty_repo_count(self) -> None:
         args = build_parser().parse_args(["os", "compile", "--strict", "--json"])
