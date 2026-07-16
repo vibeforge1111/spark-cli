@@ -13217,7 +13217,38 @@ def cmd_security(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_approval_status_payload() -> dict[str, Any]:
+    enforcement_enabled = approval_enforcement_enabled()
+    return {
+        "ok": True,
+        "classifier_mode": "report_only",
+        "execution_mode": "enforced" if enforcement_enabled else "disabled_by_operator",
+        "enforcement_enabled": enforcement_enabled,
+        "default_enabled": True,
+        "enforcement_source": "SPARK_APPROVAL_ENFORCE",
+        "enforcement_note": (
+            "Sensitive command execution is approval-enforced by default."
+            if enforcement_enabled
+            else "The operator explicitly disabled sensitive command enforcement for this process environment."
+        ),
+        "classify_usage": "spark approval classify -- <command>",
+        "next": "Use classify to inspect a decision; keep execution enforcement enabled for normal operation.",
+    }
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
+    if args.approval_command == "status":
+        payload = collect_approval_status_payload()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark approval status")
+        print(f"Classifier: {payload['classifier_mode']}")
+        print(f"Execution: {payload['execution_mode']}")
+        print(payload["enforcement_note"])
+        print(f"Classify: {payload['classify_usage']}")
+        print(f"Next: {payload['next']}")
+        return 0
     if args.approval_command != "classify":
         raise SystemExit(f"Unknown approval command: {args.approval_command}")
     command = list(args.command or [])
@@ -13336,6 +13367,62 @@ def cmd_access(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def collect_sandbox_status_payload() -> dict[str, Any]:
+    from .sandbox.docker import collect_docker_doctor_payload
+    from .sandbox.modal import collect_modal_doctor_payload
+    from .sandbox.ssh import list_ssh_targets
+
+    docker_ready = bool(collect_docker_doctor_payload(timeout=4).get("ok"))
+    modal_ready = bool(collect_modal_doctor_payload().get("ok"))
+    ssh_count = 0
+    ssh_state = "not_configured"
+    ssh_detail = "No SSH targets are configured."
+    degraded = False
+    try:
+        ssh_count = len(list_ssh_targets())
+        if ssh_count:
+            ssh_state = "configured"
+            ssh_detail = f"{ssh_count} SSH target(s) configured; run SSH doctor before use."
+    except ValueError:
+        degraded = True
+        ssh_state = "degraded"
+        ssh_detail = "SSH target store is unreadable."
+
+    usable_sandbox = docker_ready or modal_ready
+    recommended_lane = "docker" if docker_ready else "modal" if modal_ready else "workspace"
+    return {
+        "ok": True,
+        "mode": "read_only_local_status",
+        "usable_sandbox": usable_sandbox,
+        "degraded": degraded,
+        "recommended_lane": recommended_lane,
+        "backends": [
+            {
+                "backend": "docker",
+                "state": "ready" if docker_ready else "not_ready",
+                "ready": docker_ready,
+                "detail": "Docker doctor is ready." if docker_ready else "Docker is optional and not ready.",
+            },
+            {
+                "backend": "modal",
+                "state": "ready" if modal_ready else "not_ready",
+                "ready": modal_ready,
+                "detail": "Modal doctor is ready." if modal_ready else "Modal is optional and not ready.",
+            },
+            {
+                "backend": "ssh",
+                "state": ssh_state,
+                "ready": False,
+                "target_count": ssh_count,
+                "detail": ssh_detail,
+            },
+        ],
+        "next": (
+            "Run the selected lane's doctor before a smoke. SSH targets are never called ready from configuration alone."
+        ),
+    }
+
+
 def cmd_sandbox(args: argparse.Namespace) -> int:
     from .sandbox.capabilities import CapabilityManifest
     from .sandbox.docker import collect_docker_doctor_payload, collect_docker_smoke_payload
@@ -13351,6 +13438,18 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     )
 
     backend = getattr(args, "sandbox_backend", "") or "unknown"
+    if backend == "status":
+        payload = collect_sandbox_status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+            return 0
+        print("Spark sandbox status")
+        print(f"Recommended lane: {payload['recommended_lane']}")
+        for lane in payload["backends"]:
+            state = str(lane["state"]).upper()
+            print(f"  [{state}] {lane['backend']}: {lane['detail']}")
+        print(payload["next"])
+        return 0
     command = getattr(args, f"{backend}_command", "") or "unknown"
     if backend == "ssh" and command in {"add", "list", "remove", "doctor", "trust", "smoke"}:
         try:
@@ -19716,8 +19815,8 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark browser-use status|install|probe|open|screenshot|task", "use": "Inspect, prove, and use the browser-use adapter for browser evidence and task loops." },
             { "command": "spark recommend llms|providers", "use": "Recommend Spark setup choices." },
             { "command": "spark security audit", "use": "Audit local security posture." },
-            { "command": "spark sandbox docker|ssh|modal", "use": "Run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
-            { "command": "spark approval classify -- <command>", "use": "Classify whether a command requires approval." },
+            { "command": "spark sandbox status|docker|ssh|modal", "use": "Summarize sandbox lane readiness, run Docker doctor/no-secret smoke, manage SSH targets and host-key trust, and run explicit no-secret Modal smoke." },
+            { "command": "spark approval status|classify -- <command>", "use": "Show execution-enforcement truth or inspect a report-only command classification." },
             { "command": "spark telegram connect [profile]", "use": "Connect or rotate a Telegram bot profile token." },
             { "command": "spark update [target]", "use": "Refresh installed modules from current source paths." },
             { "command": "spark uninstall [target]", "use": "Remove installed modules and generated config." },
@@ -20276,6 +20375,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sandbox_parser = subparsers.add_parser("sandbox", help="Manage optional Docker, SSH, and Modal sandbox checks")
     sandbox_subparsers = sandbox_parser.add_subparsers(dest="sandbox_backend", required=True)
+    sandbox_status_parser = sandbox_subparsers.add_parser("status", help="Summarize local sandbox lane readiness without starting one")
+    sandbox_status_parser.add_argument("--json", action="store_true")
+    sandbox_status_parser.set_defaults(func=cmd_sandbox)
     sandbox_docker_parser = sandbox_subparsers.add_parser("docker", help="Run Docker sandbox readiness checks")
     sandbox_docker_subparsers = sandbox_docker_parser.add_subparsers(dest="docker_command", required=True)
     sandbox_docker_doctor_parser = sandbox_docker_subparsers.add_parser("doctor", help="Run Docker diagnostics")
@@ -20335,10 +20437,13 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox_modal_smoke_parser = sandbox_modal_subparsers.add_parser("smoke", help="Run Modal no-secret smoke")
     sandbox_modal_smoke_parser.add_argument("--json", action="store_true")
     sandbox_modal_smoke_parser.set_defaults(func=cmd_sandbox)
-    _wrap_subgroup_help(sandbox_parser, ["docker", "ssh", "modal"])
+    _wrap_subgroup_help(sandbox_parser, ["status", "docker", "ssh", "modal"])
 
     approval_parser = subparsers.add_parser("approval", help="Classify sensitive Spark actions before enforcement")
     approval_subparsers = approval_parser.add_subparsers(dest="approval_command", required=True)
+    approval_status_parser = approval_subparsers.add_parser("status", help="Show classifier and execution-enforcement truth")
+    approval_status_parser.add_argument("--json", action="store_true")
+    approval_status_parser.set_defaults(func=cmd_approval)
     approval_classify_parser = approval_subparsers.add_parser("classify", help="Report whether a command should require approval")
     approval_classify_parser.add_argument("--json", action="store_true")
     approval_classify_parser.add_argument("--hosted", action="store_true", help="Classify as a hosted/VPS action")
@@ -20346,7 +20451,7 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("--non-interactive", action="store_true", help="Classify as a non-interactive call")
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
-    _wrap_subgroup_help(approval_parser, ["classify"])
+    _wrap_subgroup_help(approval_parser, ["status", "classify"])
 
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
