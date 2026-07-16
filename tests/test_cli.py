@@ -12717,18 +12717,19 @@ class Sandbox:
         checks = {check["name"]: check for check in payload["checks"]}
         self.assertFalse(checks["bot_token"]["ok"])
         self.assertIn("Telegram rejected it", checks["bot_token"]["detail"])
-        self.assertIn("--bot-token", checks["bot_token"]["repair"])
-        self.assertIn("@clipboard", checks["bot_token"]["repair"])
+        self.assertEqual(checks["bot_token"]["repair"], "spark telegram connect")
+        self.assertNotIn("--bot-token", checks["bot_token"]["repair"])
         self.assertNotIn("<BOTFATHER_TOKEN>", checks["bot_token"]["repair"])
 
-    def test_autostart_profile_missing_profile_uses_clipboard_for_bot_token(self) -> None:
+    def test_autostart_profile_missing_profile_uses_secure_connect_prompt(self) -> None:
         args = build_parser().parse_args(["autostart", "profile", "qa-bot", "on"])
         with patch("spark_cli.cli.load_json", return_value={"telegram_profiles": {}}), \
              patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 1)
 
         output = stdout.getvalue()
-        self.assertIn("spark setup --profile qa-bot --bot-token @clipboard", output)
+        self.assertIn("spark telegram connect qa-bot", output)
+        self.assertNotIn("--bot-token", output)
         self.assertNotIn("<BOTFATHER_TOKEN>", output)
 
     def test_collect_telegram_fix_payload_reports_polling_conflict_from_logs(self) -> None:

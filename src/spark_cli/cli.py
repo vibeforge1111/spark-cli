@@ -14922,7 +14922,7 @@ def collect_telegram_fix_payload() -> dict[str, Any]:
                 if token_recorded and token_rejected
                 else "Telegram bot token is missing."
             ),
-            "repair": "spark setup --bot-token @clipboard",
+            "repair": telegram_token_repair_command("telegram.bot_token"),
         }
     )
     checks.append(
@@ -19366,7 +19366,7 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     if not isinstance(profiles, dict) or profile not in profiles or not isinstance(profiles.get(profile), dict):
         print(f"Telegram profile is not configured: {profile}")
         print("Configure it first with:")
-        print(f"  spark setup --profile {profile} --bot-token @clipboard")
+        print(f"  spark telegram connect {profile}")
         return 1
     profiles[profile]["autostart"] = enabled
     save_json(CONFIG_PATH, setup_state)
