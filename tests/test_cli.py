@@ -3338,7 +3338,7 @@ class Sandbox:
             "auth_mode": "codex_oauth",
             "cli_path": "codex",
         }
-        with patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+        with patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=str(Path.cwd())):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
@@ -3349,6 +3349,8 @@ class Sandbox:
         self.assertIn("--ephemeral", command)
         self.assertNotIn("--ask-for-approval", command)
         self.assertIn("gpt-5.5", command)
+        self.assertEqual(run_mock.call_args.kwargs["provider_label"], "Codex")
+        self.assertEqual(run_mock.call_args.kwargs["timeout_seconds"], 90)
 
     def test_provider_test_can_call_claude_oauth_cli(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -3364,7 +3366,7 @@ class Sandbox:
             "auth_mode": "claude_oauth",
             "cli_path": "claude",
         }
-        with patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+        with patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=str(Path.cwd())):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
@@ -3372,6 +3374,8 @@ class Sandbox:
         self.assertEqual(command[:3], ["claude", "-p", "--output-format"])
         self.assertIn("--model", command)
         self.assertIn("sonnet", command)
+        self.assertEqual(run_mock.call_args.kwargs["provider_label"], "Claude")
+        self.assertEqual(run_mock.call_args.kwargs["timeout_seconds"], 90)
 
     def test_provider_test_wraps_windows_claude_powershell_shim(self) -> None:
         cwd = os.getcwd()
@@ -3389,7 +3393,7 @@ class Sandbox:
             "cli_path": r"C:\nvm\nodejs\claude.ps1",
         }
         with patch("spark_cli.cli.os.name", "nt"), \
-             patch("spark_cli.cli.subprocess.run", return_value=completed) as run_mock, \
+             patch("spark_cli.cli.run_llm_cli_probe_command", return_value=completed) as run_mock, \
              patch("spark_cli.cli.llm_cli_cwd", return_value=cwd):
             response = call_llm_doctor(target, "Reply with exactly PING_OK. No extra words.")
         self.assertEqual(response, "PING_OK")
