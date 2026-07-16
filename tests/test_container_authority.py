@@ -80,7 +80,7 @@ class ContainerAuthorityTests(unittest.TestCase):
             ["podman", "logout", "registry.example.test"],
         ):
             with self.subTest(command=command):
-                self.assert_blocked(command, "credential_mutation", "high", "approve container credential change")
+                self.assert_blocked(command, "credential_mutation", "high", "approve docker credential change")
         self.assert_allowed(["podman", "info"])
 
     def test_approval_classifier_flags_podman_image_push(self) -> None:

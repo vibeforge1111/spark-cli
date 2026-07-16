@@ -6,6 +6,7 @@ import shlex
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .container_authority import decide_container_authority
 from .credential_authority import decide_credential_authority
 from .git_authority import decide_git_authority
 from .host_authority import decide_host_authority
@@ -155,28 +156,6 @@ def _target_after(parts: list[str], command_names: set[str]) -> str:
                 if not candidate.startswith("-"):
                     return candidate
     return ""
-
-
-def _has_option_value(parts: list[str], option_names: set[str], suspicious_values: set[str]) -> bool:
-    lowered = _lower_parts(parts)
-    for index, part in enumerate(lowered):
-        value = ""
-        if "=" in part:
-            name, value = part.split("=", 1)
-            if name not in option_names:
-                continue
-        elif part in option_names and index + 1 < len(lowered):
-            value = lowered[index + 1]
-        else:
-            continue
-        normalized = value.replace("\\", "/").rstrip("/")
-        if (
-            normalized in suspicious_values
-            or any(normalized.startswith(item.rstrip("/") + "/") for item in suspicious_values)
-            or any(f"source={item}" in normalized or f"src={item}" in normalized or f"{item}:" in normalized for item in suspicious_values)
-        ):
-            return True
-    return False
 
 
 def _has_option(parts: list[str], option_names: frozenset[str]) -> bool:
@@ -853,6 +832,9 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="uninstall all modules",
         )
 
+    if container_decision := decide_container_authority(raw_parts, ctx, _decision):
+        return container_decision
+
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
         recursive_or_force = _contains_any(lowered, {"-rf", "-fr", "-r", "--recursive", "-recurse", "-force", "/s"})
@@ -1032,17 +1014,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             confirmation_phrase="approve kubernetes secret read",
         )
 
-    if first == "docker" and second in {"login", "logout"}:
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "high",
-            "Docker command can store, change, or remove registry credentials.",
-            target_display=f"docker {second}",
-            confirmation_phrase="approve docker credential change",
-        )
-
     if network_decision := decide_ssh_tunnel_authority(raw_parts, ctx, _decision):
         return network_decision
 
@@ -1097,35 +1068,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Git submodule commands can add or fetch executable code from another repository.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve submodule code fetch",
-        )
-
-    if first == "docker" and (
-        "--privileged" in lowered
-        or "--network=host" in lowered
-        or ("--network" in lowered and "host" in lowered)
-        or _has_option_value(lowered, {"-v", "--volume", "--mount"}, {"/", "/root", "/home", "/users", "/var/run/docker.sock"})
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "container_privilege_escalation",
-            "critical",
-            "Docker command can expose the host, Docker socket, host network, or privileged container capabilities.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve container privilege",
-        )
-
-    if (first == "docker" and second == "exec") or (
-        first == "docker" and lowered[1:3] == ["container", "exec"]
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "container_privilege_escalation",
-            "high",
-            "docker exec runs a command inside a running container, which may carry elevated privileges or host-mounted paths.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve container exec",
         )
 
     if first == "nsenter":
