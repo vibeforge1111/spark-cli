@@ -2373,6 +2373,16 @@ class Sandbox:
         access_command.assert_not_called()
         self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
 
+    def test_main_blocks_deep_verify_in_non_interactive_shell(self) -> None:
+        with patch("spark_cli.cli.ensure_state_dirs"), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+             patch("spark_cli.cli.cmd_verify", return_value=0) as verify_command, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(main(["verify", "--deep"]), 2)
+        verify_command.assert_not_called()
+        self.assertIn("Spark blocked a sensitive action", stdout.getvalue())
+        self.assertIn("Class: high_cost_execution", stdout.getvalue())
+
     def test_main_blocks_setup_default_autostart_in_non_interactive_shell(self) -> None:
         with patch("spark_cli.cli.ensure_state_dirs"), \
              patch("spark_cli.cli.stdin_is_tty", return_value=False), \
