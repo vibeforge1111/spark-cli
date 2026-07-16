@@ -51,6 +51,7 @@ class AwsAuthorityTests(unittest.TestCase):
 
     def test_cdk_executes_apps_and_mutates_infrastructure(self) -> None:
         self.assert_blocked(["cdk", "deploy", "SparkStack"], "external_publish", "high", "approve cdk infrastructure change")
+        self.assert_blocked(["aws-cdk", "deploy", "SparkStack"], "external_publish", "high", "approve cdk infrastructure change")
         self.assert_blocked(["cdk", "destroy", "SparkStack"], "external_publish", "critical", "approve cdk infrastructure change")
         self.assert_blocked(["cdk", "bootstrap"], "external_publish", "high", "approve cdk infrastructure change")
         for command in (["cdk", "synth"], ["cdk", "diff"], ["cdk", "--app", "python app.py", "list"]):
@@ -108,6 +109,7 @@ class AwsAuthorityTests(unittest.TestCase):
         self.assert_blocked(["aws", "s3api", "put-bucket-policy", "--bucket", "example-bucket"], "external_publish", "critical", "approve s3 storage change")
         self.assert_blocked(["aws", "s3", "cp", "report.txt", "s3://example-bucket/report.txt"], "network_exfiltration", "medium", "approve network upload")
         self.assert_allowed(["aws", "s3", "cp", "s3://example-bucket/report.txt", "report.txt"])
+        self.assert_allowed(["aws", "s3", "ls", "s3://example-bucket"])
         self.assert_allowed(["aws", "s3api", "head-object", "--bucket", "example-bucket"])
 
     def test_rds_database_authority(self) -> None:
