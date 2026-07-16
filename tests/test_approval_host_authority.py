@@ -58,6 +58,7 @@ class HostAuthorityApprovalTests(TestCase):
     def test_firewall_kernel_and_network_mutations_are_gated(self) -> None:
         for command, risk in (
             (["iptables", "-F"], "critical"),
+            (["iptables", "-v", "-A", "INPUT", "-j", "ACCEPT"], "critical"),
             (["ip6tables", "-A", "INPUT", "-j", "ACCEPT"], "critical"),
             (["iptables-restore", "/tmp/rules"], "critical"),
             (["nft", "flush", "ruleset"], "critical"),
@@ -79,6 +80,7 @@ class HostAuthorityApprovalTests(TestCase):
             ["nc", "-vz", "example.test", "443"],
             ["socat", "TCP-LISTEN:9000", "TCP:127.0.0.1:9001"],
             ["iptables", "-L"],
+            ["iptables", "-V"],
             ["iptables-save"],
             ["nft", "list", "ruleset"],
             ["ufw", "status"],

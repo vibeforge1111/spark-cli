@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .host_authority import parse_host_authority
 from .wrapper_policy import (
     DYNAMIC_LOADER_ENV_NAMES,
     PROCESS_SCHEDULER_WRAPPERS,
@@ -1621,6 +1622,18 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Deep verification can start live provider or mission smoke tests.",
             target_display="spark verify --deep",
             confirmation_phrase="approve deep verification",
+        )
+
+    host_authority = parse_host_authority(parts)
+    if host_authority is not None:
+        return _decision(
+            parts,
+            ctx,
+            host_authority.action_class,
+            host_authority.risk,
+            host_authority.reason,
+            target_display=host_authority.target_display,
+            confirmation_phrase=host_authority.confirmation_phrase,
         )
 
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
