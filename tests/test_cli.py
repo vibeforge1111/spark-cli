@@ -1701,6 +1701,53 @@ class Sandbox:
         decision = approval_required_for_command(["spark", "setup", "--no-autostart"], CommandContext())
         self.assertFalse(decision.requires_approval)
 
+    def test_approval_classifier_flags_all_setup_credential_and_identity_options(self) -> None:
+        setup_options = {
+            "--secret",
+            "--bot-token",
+            "--admin-telegram-ids",
+            "--telegram-relay-secret",
+            "--zai-api-key",
+            "--openai-api-key",
+            "--anthropic-api-key",
+            "--openrouter-api-key",
+            "--kimi-api-key",
+            "--huggingface-api-key",
+            "--minimax-api-key",
+            "--elevenlabs-api-key",
+        }
+        for option in sorted(setup_options):
+            for command in (
+                ["spark", "setup", "--no-autostart", option, "synthetic-secret-value"],
+                ["spark", "setup", "--no-autostart", f"{option}=synthetic-secret-value"],
+            ):
+                with self.subTest(option=option, command=command):
+                    decision = approval_required_for_command(
+                        command,
+                        CommandContext(non_interactive=True),
+                    )
+                    self.assertTrue(decision.requires_approval)
+                    expected_class = (
+                        "identity_access_mutation"
+                        if option in {"--bot-token", "--admin-telegram-ids"}
+                        else "credential_mutation"
+                    )
+                    expected_phrase = (
+                        "approve access change"
+                        if expected_class == "identity_access_mutation"
+                        else "approve secret change"
+                    )
+                    self.assertEqual(decision.action_class, expected_class)
+                    self.assertEqual(decision.risk, "high")
+                    self.assertEqual(decision.approval_mode, "blocked")
+                    self.assertEqual(decision.confirmation_phrase, expected_phrase)
+
+        harmless = approval_required_for_command(
+            ["spark", "setup", "--no-autostart", "--openai-model", "local-model"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertFalse(harmless.requires_approval)
+
     def test_approval_classifier_flags_destructive_delete(self) -> None:
         decision = approval_required_for_command(["rm", "-rf", "/tmp/spark-test"], CommandContext())
         self.assertTrue(decision.requires_approval)
