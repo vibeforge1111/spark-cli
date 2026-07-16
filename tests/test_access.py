@@ -783,7 +783,30 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["command"], "smoke")
-        collect.assert_called_once_with(build=False, image="spark-test:local", network=False)
+        collect.assert_called_once_with(build=False, image="spark-test:local", network=False, timeout=180)
+
+    def test_sandbox_docker_smoke_cli_passes_bounded_custom_timeout(self) -> None:
+        args = build_parser().parse_args(
+            ["sandbox", "docker", "smoke", "--timeout", "37", "--no-build", "--json"]
+        )
+        stdout = StringIO()
+        with patch("spark_cli.sandbox.docker.collect_docker_smoke_payload", return_value={
+            "ok": True,
+            "backend": "docker",
+            "command": "smoke",
+            "checks": [],
+            "capabilities": {},
+            "next": "done",
+        }) as collect, redirect_stdout(stdout):
+            self.assertEqual(cmd_sandbox(args), 0)
+
+        collect.assert_called_once_with(build=False, image=None, network=False, timeout=37)
+
+    def test_sandbox_docker_smoke_cli_rejects_nonpositive_timeout(self) -> None:
+        parser = build_parser()
+        for value in ("0", "-1"):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                parser.parse_args(["sandbox", "docker", "smoke", "--timeout", value])
 
     def test_docker_sandbox_wrappers_pass_args_and_create_writable_sandbox_tmpfs(self) -> None:
         repo = Path(__file__).resolve().parents[1]
