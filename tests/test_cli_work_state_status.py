@@ -6,10 +6,39 @@ from contextlib import redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from spark_cli.cli import build_parser
+from spark_cli.cli import build_parser, main
 
 
 class CliWorkStateStatusTests(unittest.TestCase):
+    def test_top_level_telegram_status_is_not_treated_as_identity_mutation(self) -> None:
+        payload = {
+            "ok": True,
+            "summary": "Spark Telegram repair",
+            "checks": [{"name": "telegram process", "ok": True, "detail": "running", "repair": ""}],
+            "status_repair_hints": [],
+            "next_commands": ["spark status"],
+        }
+        with patch("spark_cli.cli.collect_telegram_fix_payload", return_value=payload), \
+             patch("spark_cli.cli.stdin_is_tty", return_value=False):
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main(["telegram", "status", "--json"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout.getvalue()), payload)
+
+    def test_top_level_approval_classify_remains_report_only_for_destructive_input(self) -> None:
+        with patch("spark_cli.cli.stdin_is_tty", return_value=False):
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main(["approval", "classify", "--json", "--", "rm", "-rf", "/"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["mode"], "report_only")
+        self.assertEqual(payload["decision"]["action_class"], "destructive_filesystem")
+
     def test_autostart_status_json_uses_typed_health_contract(self) -> None:
         payload = {
             "ok": False,
