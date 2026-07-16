@@ -61,13 +61,13 @@ class InfrastructureAuthorityTests(unittest.TestCase):
             ["terraform", "state", "pull"],
             ["terraform", "state", "show", "aws_db_instance.spark"],
             ["terraform", "show", "terraform.tfstate"],
+            ["terraform", "show", "plan.out"],
             ["terraform", "output", "-raw", "api_token"],
             ["terraform", "output", "-json"],
         ):
             with self.subTest(command=command):
                 self.assert_blocked(command, "credential_mutation", "critical", "approve terraform secret read")
         self.assert_allowed(["terraform", "state", "list"])
-        self.assert_allowed(["terraform", "show", "plan.out"])
 
     def test_pulumi_credentials_and_stack_routing(self) -> None:
         for command in (

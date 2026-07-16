@@ -10,6 +10,7 @@ from .container_authority import decide_container_authority
 from .credential_authority import decide_credential_authority
 from .git_authority import decide_git_authority
 from .host_authority import decide_host_authority
+from .infrastructure_authority import decide_infrastructure_authority
 from .kubernetes_authority import decide_kubernetes_authority
 from .network_authority import decide_network_authority, decide_ssh_tunnel_authority, network_upload_option
 from .wrapper_policy import (
@@ -837,6 +838,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
         return container_decision
     if kubernetes_decision := decide_kubernetes_authority(raw_parts, ctx, _decision):
         return kubernetes_decision
+    if infrastructure_decision := decide_infrastructure_authority(raw_parts, ctx, _decision):
+        return infrastructure_decision
 
     destructive_bins = {"rm", "rmdir", "del", "remove-item", "erase"}
     if first in destructive_bins or _contains_any(lowered, destructive_bins):
