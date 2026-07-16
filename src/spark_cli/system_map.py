@@ -9,7 +9,7 @@ import subprocess
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import tomllib
 
@@ -6128,7 +6128,7 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str, str]:
+def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any], *, validate_path: Callable[[Path], None] | None = None) -> dict[str, str]:
     system_map = as_dict(compiled["system_map"])
     paths = {
         "system_map": out_dir / "system-map.json",
@@ -6141,6 +6141,9 @@ def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any]) -> dict[str,
         "operating_cockpit": out_dir / "operating-cockpit.json",
         "gaps": out_dir / "gaps.md",
     }
+    if validate_path is not None:
+        for path in paths.values():
+            validate_path(path)
     write_json(paths["system_map"], system_map)
     write_json(paths["authority_view"], compiled["authority_view"])
     write_json(paths["capability_catalog"], compiled["capability_catalog"])

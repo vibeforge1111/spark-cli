@@ -11168,7 +11168,7 @@ def cmd_os_compile(args: argparse.Namespace) -> int:
     out_dir = Path(args.out).expanduser()
     compiled = compile_system_map(desktop=desktop, spark_home=spark_home, registry_path=registry_path)
     try:
-        written = write_compiled_outputs(out_dir, compiled)
+        written = write_compiled_outputs(out_dir, compiled, validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="system-map output"))
     except OSError as error:
         failure = os_compile_write_failure_payload(out_dir, error)
         if args.json:
@@ -15012,8 +15012,8 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
     prompt = render_llm_doctor_prompt(context)
     if getattr(args, "prompt_out", None):
         prompt_path = Path(args.prompt_out).expanduser()
-        prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text(prompt, encoding="utf-8")
+        require_write_allowed(prompt_path, safe_root=spark_write_safe_root(), subject="doctor prompt output")
+        atomic_write_text(prompt_path, prompt)
         print("Wrote redacted Spark Doctor prompt.")
         return 0
     try:
@@ -15061,8 +15061,8 @@ def cmd_doctor_llm(args: argparse.Namespace) -> int:
         upstream_out = getattr(args, "upstream_out", None)
         if upstream_out:
             upstream_path = Path(upstream_out).expanduser()
-            upstream_path.parent.mkdir(parents=True, exist_ok=True)
-            upstream_path.write_text(upstream, encoding="utf-8")
+            require_write_allowed(upstream_path, safe_root=spark_write_safe_root(), subject="doctor upstream output")
+            atomic_write_text(upstream_path, upstream)
         else:
             upstream_path = write_doctor_report(upstream, prefix="spark-upstream-pr-candidate")
         print("Saved sanitized upstream PR candidate.")
