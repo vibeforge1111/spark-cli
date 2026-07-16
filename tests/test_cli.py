@@ -7221,6 +7221,15 @@ class Sandbox:
         self.assertNotIn("spark setup --chat-llm-provider", output)
         self.assertNotIn("Run another Telegram bot", output)
 
+    def test_guide_accepts_and_reports_a_topic(self) -> None:
+        args = build_parser().parse_args(["guide", "install", "--json"])
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["selected_topic"], "install")
+        self.assertIn("spark install <target>", {item["command"] for item in payload["command_reference"]})
+
     def test_first_run_transcripts_keep_simple_onboarding_path(self) -> None:
         root = Path(__file__).resolve().parents[1]
         scripts = {
@@ -17184,6 +17193,23 @@ class Sandbox:
         self.assertIn("Hosted release freshness:", output)
         self.assertIn("[OK] published: spark-cli-public-installer-r16 @ abc123", output)
         self.assertIn("verified: 2026-05-25T06:30:00Z", output)
+
+    def test_verify_hosted_installers_alone_runs_installer_integrity(self) -> None:
+        args = build_parser().parse_args(["verify", "--hosted-installers", "--json"])
+        payload = {
+            "ok": True,
+            "summary": "Spark installer integrity verification",
+            "manifest": "scripts/installer-manifest.json",
+            "checks": [],
+        }
+        with patch("spark_cli.cli.collect_installer_integrity_payload", return_value=payload) as collect_mock, \
+             patch("spark_cli.cli.collect_verify_payload") as deep_verify, \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.assertEqual(args.func(args), 0)
+
+        collect_mock.assert_called_once_with(hosted=True)
+        deep_verify.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue())["summary"], "Spark installer integrity verification")
 
     def test_verify_hosted_reports_security_payload(self) -> None:
         args = build_parser().parse_args(["verify", "--hosted", "--json"])
