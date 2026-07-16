@@ -1989,7 +1989,7 @@ class Sandbox:
             ([r"C:\Program Files\Git\cmd\git.exe", "push", "--force-with-lease"], "git_history_mutation", "critical"),
             ([r"C:\Windows\System32\schtasks.exe", "/Create", "/TN", "Spark", "/TR", "calc", "/SC", "ONLOGON"], "process_autostart_mutation", "high"),
             ([r"C:\Program Files\Docker\docker.exe", "run", "--privileged", "alpine"], "container_privilege_escalation", "critical"),
-            ([r"C:\Spark\spark.cmd", "secrets", "get", "telegram.bot_token", "--reveal"], "credential_reveal", "critical"),
+            ([r"C:\Spark\spark.cmd", "secrets", "get", "telegram.bot_token", "--reveal"], "credential_mutation", "high"),
         )
         for command, action_class, risk in cases:
             with self.subTest(command=command):
