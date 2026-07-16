@@ -32,6 +32,19 @@ class CloudCommand:
     arguments: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class AwsServicePolicy:
+    action_class: AwsActionClass
+    reason: str
+    confirmation_phrase: str
+    mutation_prefixes: tuple[str, ...] = ()
+    mutation_operations: frozenset[str] = frozenset()
+    critical_prefixes: tuple[str, ...] = ()
+    critical_operations: frozenset[str] = frozenset()
+    remote_prefixes: tuple[str, ...] = ()
+    remote_operations: frozenset[str] = frozenset()
+
+
 AWS_SERVICES = frozenset(
     {
         "acm", "apigateway", "apigatewayv2", "batch", "cloudformation", "cloudfront", "cloudtrail",
@@ -114,6 +127,172 @@ SERVICE_CRITICAL_OPERATIONS = {
         {"batch-delete-image", "delete-repository", "delete-repository-policy", "put-lifecycle-policy", "set-repository-policy"}
     ),
     "ecr-public": frozenset({"batch-delete-image", "delete-repository", "delete-repository-policy", "set-repository-policy"}),
+}
+STEP_FUNCTIONS_POLICY = AwsServicePolicy(
+    "external_publish",
+    "AWS Step Functions can start workflow executions or mutate live state machines and aliases.",
+    "approve step functions change",
+    ("create-", "delete-", "publish-", "redrive-", "start-", "stop-", "tag-", "untag-", "update-"),
+    critical_prefixes=("delete-", "stop-"),
+    remote_prefixes=("redrive-", "start-"),
+)
+AWS_SERVICE_POLICIES = {
+    "batch": AwsServicePolicy(
+        "external_publish",
+        "AWS Batch can submit remote jobs or mutate live compute environments, queues, and job definitions.",
+        "approve batch job change",
+        ("cancel-", "create-", "delete-", "deregister-", "register-", "submit-", "terminate-", "update-"),
+        critical_prefixes=("cancel-", "delete-", "deregister-", "terminate-"),
+        remote_operations=frozenset({"submit-job"}),
+    ),
+    "stepfunctions": STEP_FUNCTIONS_POLICY,
+    "states": STEP_FUNCTIONS_POLICY,
+    "events": AwsServicePolicy(
+        "external_publish",
+        "AWS EventBridge can publish events or mutate event buses, rules, targets, permissions, archives, or replays.",
+        "approve eventbridge change",
+        ("activate-", "cancel-", "create-", "deactivate-", "delete-", "disable-", "enable-", "put-", "remove-", "start-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-", "remove-"),
+    ),
+    "sqs": AwsServicePolicy(
+        "external_publish",
+        "AWS SQS can publish messages or mutate queues, policies, attributes, visibility, tags, or message state.",
+        "approve sqs change",
+        ("add-", "cancel-", "change-", "create-", "delete-", "purge-", "remove-", "send-", "set-", "start-", "tag-", "untag-"),
+        critical_prefixes=("delete-", "purge-", "remove-"),
+    ),
+    "sns": AwsServicePolicy(
+        "external_publish",
+        "AWS SNS can publish notifications or mutate topics, subscriptions, attributes, permissions, SMS settings, or tags.",
+        "approve sns change",
+        ("add-", "confirm-", "create-", "delete-", "opt-", "publish", "remove-", "set-", "subscribe", "tag-", "unsubscribe", "untag-", "verify-"),
+        critical_prefixes=("delete-", "remove-", "unsubscribe"),
+    ),
+    "secretsmanager": AwsServicePolicy(
+        "credential_mutation",
+        "AWS Secrets Manager can create, rotate, delete, restore, tag, or overwrite managed secret material and metadata.",
+        "approve secretsmanager change",
+        ("cancel-", "create-", "delete-", "put-", "remove-", "restore-", "rotate-", "stop-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-", "remove-"),
+    ),
+    "ssm": AwsServicePolicy(
+        "credential_mutation",
+        "AWS SSM Parameter Store can create, overwrite, delete, label, or retag stored configuration and secret-like values.",
+        "approve ssm parameter change",
+        mutation_operations=frozenset(
+            {"add-tags-to-resource", "delete-parameter", "delete-parameters", "label-parameter-version", "put-parameter", "remove-tags-from-resource"}
+        ),
+        critical_operations=frozenset({"delete-parameter", "delete-parameters", "remove-tags-from-resource"}),
+    ),
+    "kms": AwsServicePolicy(
+        "credential_mutation",
+        "AWS KMS can decrypt data, generate plaintext key material, or mutate key lifecycle, policy, grants, aliases, rotation, or tags.",
+        "approve kms change",
+        ("cancel-", "connect-", "create-", "delete-", "disable-", "disconnect-", "enable-", "import-", "put-", "replicate-", "retire-", "revoke-", "rotate-", "schedule-", "tag-", "untag-", "update-"),
+        frozenset({"decrypt", "generate-data-key", "generate-data-key-pair", "generate-mac", "sign"}),
+        ("delete-", "disable-", "revoke-"),
+        frozenset({"decrypt", "put-key-policy", "schedule-key-deletion"}),
+    ),
+    "acm": AwsServicePolicy(
+        "credential_mutation",
+        "AWS ACM can export or import certificate material and mutate certificate lifecycle, validation, options, or tags.",
+        "approve acm change",
+        mutation_operations=frozenset(
+            {"add-tags-to-certificate", "delete-certificate", "export-certificate", "import-certificate", "put-account-configuration", "remove-tags-from-certificate", "renew-certificate", "request-certificate", "resend-validation-email", "update-certificate-options"}
+        ),
+        critical_operations=frozenset({"delete-certificate", "export-certificate", "import-certificate", "remove-tags-from-certificate"}),
+    ),
+    "route53": AwsServicePolicy(
+        "external_publish",
+        "AWS Route 53 can mutate public DNS records, hosted zones, health checks, domain routing, or zone associations.",
+        "approve route53 change",
+        ("associate-", "change-", "create-", "delete-", "disable-", "disassociate-", "enable-", "update-"),
+        critical_prefixes=("delete-", "disable-", "disassociate-"),
+    ),
+    "cloudfront": AwsServicePolicy(
+        "external_publish",
+        "AWS CloudFront can change distributions, cache state, edge functions, origins, policies, aliases, or tags.",
+        "approve cloudfront change",
+        ("associate-", "copy-", "create-", "delete-", "disable-", "enable-", "publish-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-", "disable-"),
+    ),
+    "apigateway": AwsServicePolicy(
+        "external_publish",
+        "AWS API Gateway can deploy, route, expose, delete, or reconfigure public APIs and integrations.",
+        "approve api gateway change",
+        ("create-", "delete-", "flush-", "import-", "put-", "reset-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-",),
+    ),
+    "apigatewayv2": AwsServicePolicy(
+        "external_publish",
+        "AWS API Gateway can deploy, route, expose, delete, or reconfigure public APIs and integrations.",
+        "approve api gateway change",
+        ("create-", "delete-", "flush-", "import-", "put-", "reset-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-",),
+    ),
+    "cognito-idp": AwsServicePolicy(
+        "identity_access_mutation",
+        "AWS Cognito can create users, change passwords or groups, mutate pools, route roles, or revoke sessions.",
+        "approve cognito access change",
+        ("admin-", "associate-", "change-", "confirm-", "create-", "delete-", "disable-", "enable-", "global-sign-out", "revoke-", "set-", "sign-up", "tag-", "unlink-", "untag-", "update-"),
+        critical_prefixes=("admin-set-", "delete-", "disable-", "global-sign-out", "revoke-", "set-"),
+    ),
+    "cognito-identity": AwsServicePolicy(
+        "identity_access_mutation",
+        "AWS Cognito can create users, change passwords or groups, mutate pools, route roles, or revoke sessions.",
+        "approve cognito access change",
+        ("admin-", "associate-", "change-", "confirm-", "create-", "delete-", "disable-", "enable-", "global-sign-out", "revoke-", "set-", "sign-up", "tag-", "unlink-", "untag-", "update-"),
+        critical_prefixes=("admin-set-", "delete-", "disable-", "global-sign-out", "revoke-", "set-"),
+    ),
+    "dynamodb": AwsServicePolicy(
+        "external_publish",
+        "AWS DynamoDB can write items, mutate tables, restore or import data, change tags, or delete resources.",
+        "approve dynamodb change",
+        ("batch-write", "create-", "delete-", "disable-", "enable-", "import-", "put-", "restore-", "tag-", "transact-write", "untag-", "update-"),
+        critical_prefixes=("delete-", "disable-"),
+    ),
+    "logs": AwsServicePolicy(
+        "external_publish",
+        "AWS CloudWatch Logs can write events, mutate logs, change retention or policies, export data, or retag resources.",
+        "approve cloudwatch logs change",
+        ("associate-", "cancel-", "create-", "delete-", "disassociate-", "put-", "start-", "stop-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-", "disassociate-"),
+    ),
+    "cloudwatch": AwsServicePolicy(
+        "external_publish",
+        "AWS CloudWatch can mutate alarms, dashboards, actions, metric data, tags, or monitoring state.",
+        "approve cloudwatch change",
+        ("delete-", "disable-", "enable-", "put-", "set-", "tag-", "untag-"),
+        critical_prefixes=("delete-", "disable-", "set-"),
+    ),
+    "cloudtrail": AwsServicePolicy(
+        "external_publish",
+        "AWS CloudTrail can create or delete trails, stop audit logging, or mutate audit configuration and storage.",
+        "approve cloudtrail change",
+        ("add-", "create-", "delete-", "put-", "remove-", "restore-", "start-", "stop-", "update-"),
+        critical_prefixes=("delete-", "remove-", "stop-"),
+    ),
+    "configservice": AwsServicePolicy(
+        "external_publish",
+        "AWS Config can change recording, delivery, compliance rules, remediation, or resource tags.",
+        "approve aws config change",
+        ("batch-delete-", "batch-put-", "delete-", "deliver-", "put-", "start-", "stop-", "tag-", "untag-"),
+        critical_prefixes=("batch-delete-", "delete-", "stop-"),
+    ),
+    "guardduty": AwsServicePolicy(
+        "external_publish",
+        "AWS GuardDuty can change threat detection, finding state, members, destinations, or resource tags.",
+        "approve guardduty change",
+        ("accept-", "archive-", "create-", "decline-", "delete-", "disable-", "disassociate-", "enable-", "invite-", "start-", "stop-", "tag-", "unarchive-", "untag-", "update-"),
+        critical_prefixes=("delete-", "disable-", "stop-"),
+    ),
+    "wafv2": AwsServicePolicy(
+        "external_publish",
+        "AWS WAFv2 can change web ACLs, request filtering, logging, permissions, associations, or tags.",
+        "approve wafv2 change",
+        ("associate-", "create-", "delete-", "disassociate-", "put-", "tag-", "untag-", "update-"),
+        critical_prefixes=("delete-", "disassociate-"),
+    ),
 }
 
 
@@ -305,6 +484,25 @@ def _iam_authority(command: CloudCommand) -> AwsAuthority | None:
     )
 
 
+def _service_policy_authority(command: CloudCommand) -> AwsAuthority | None:
+    policy = AWS_SERVICE_POLICIES.get(command.service)
+    if policy is None:
+        return None
+    operation = command.operation
+    mutating = operation in policy.mutation_operations or operation.startswith(policy.mutation_prefixes)
+    if not mutating:
+        return None
+    remote = operation in policy.remote_operations or operation.startswith(policy.remote_prefixes)
+    critical = operation in policy.critical_operations or operation.startswith(policy.critical_prefixes)
+    return _authority(
+        "remote_code_execution" if remote else policy.action_class,
+        "critical" if critical else "high",
+        policy.reason,
+        f"aws {command.service} {operation}",
+        policy.confirmation_phrase,
+    )
+
+
 def _control_plane_authority(command: CloudCommand) -> AwsAuthority | None:
     service, operation = command.service, command.operation
     if not operation or _is_read_only(operation):
@@ -348,6 +546,8 @@ def _aws_authority(command: CloudCommand) -> AwsAuthority | None:
         return secret
     if command.service == "iam":
         return _iam_authority(command)
+    if authority := _service_policy_authority(command):
+        return authority
     if command.service in CONTROL_PLANE_SERVICES or command.service == "ssm":
         return _control_plane_authority(command)
     return None
