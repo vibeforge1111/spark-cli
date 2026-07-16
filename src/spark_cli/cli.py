@@ -14046,6 +14046,7 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "destructive_filesystem",
     "external_publish",
     "git_history_mutation",
+    "high_cost_execution",
     "identity_access_mutation",
     "network_exfiltration",
     "remote_code_execution",
