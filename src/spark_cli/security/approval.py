@@ -783,7 +783,31 @@ def _extract_privileged_command(parts: list[str]) -> list[str] | None:
     return None
 
 
+def _opens_privileged_shell(parts: list[str]) -> bool:
+    if not parts:
+        return False
+    wrapper = _command_word(parts[0])
+    if wrapper not in {"sudo", "doas", "pkexec", "run0", "gosu", "su"}:
+        return False
+    if wrapper in {"sudo", "doas"} and any(part in {"-i", "--login", "-s", "--shell"} for part in parts[1:]):
+        return True
+    nested_parts = _extract_privileged_command(parts)
+    if not nested_parts:
+        return False
+    return _command_word(nested_parts[0]) in {"bash", "csh", "dash", "fish", "ksh", "sh", "tcsh", "zsh"}
+
+
 def _nested_privilege_decision(parts: list[str], context: CommandContext) -> ApprovalDecision:
+    if _opens_privileged_shell(parts):
+        return _decision(
+            parts,
+            context,
+            "identity_access_mutation",
+            "critical",
+            "Command opens a shell through a privilege-elevation wrapper.",
+            target_display=_command_word(parts[0]) if parts else "privilege wrapper",
+            confirmation_phrase="approve privileged shell",
+        )
     nested_parts = _extract_privileged_command(parts)
     if nested_parts:
         nested = approval_required_for_command(nested_parts, context)
