@@ -21,11 +21,13 @@ CONTEXT_FILE_NAMES = {
 
 CONTEXT_FILE_SUFFIXES = {".md", ".mdx", ".txt", ".rst"}
 
+INVISIBLE_SCAN_CHARACTERS = str.maketrans("", "", "\u00ad\u180e\u200b\u200c\u200d\u2060\ufeff")
+
 PROMPT_INJECTION_PATTERNS = (
     (
         "prompt-injection-override",
         "medium",
-        re.compile(r"\b(?:ignore|disregard|forget|override)\b.{0,80}\b(?:previous|prior|system|developer|higher[- ]priority)\b.{0,80}\b(?:instructions?|prompts?|rules?)", re.IGNORECASE | re.DOTALL),
+        re.compile(r"\b(?:ignore|disregard|forget|override|neglect|dismiss|skip|omit|discard|bypass)\b.{0,80}\b(?:previous|prior|system|developer|higher[- ]priority)\b.{0,80}\b(?:instructions?|prompts?|rules?)", re.IGNORECASE | re.DOTALL),
         "context file appears to tell an agent to ignore higher-priority instructions",
     ),
     (
@@ -64,8 +66,9 @@ def is_agent_context_path(path_label: str) -> bool:
 def scan_prompt_injection_text(path_label: str, text: str) -> list[PromptInjectionFinding]:
     if not is_agent_context_path(path_label):
         return []
+    normalized_text = text.translate(INVISIBLE_SCAN_CHARACTERS)
     findings: list[PromptInjectionFinding] = []
     for category, severity, pattern, detail in PROMPT_INJECTION_PATTERNS:
-        if pattern.search(text):
+        if pattern.search(normalized_text):
             findings.append(PromptInjectionFinding(category, severity, path_label, detail))
     return findings
