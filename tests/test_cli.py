@@ -602,7 +602,9 @@ class SparkCliTests(unittest.TestCase):
         self.assertTrue(bounded.truncated)
 
     def test_sandbox_redaction_catches_telegram_and_bearer_tokens(self) -> None:
-        text = redact_sandbox_text("Authorization: Bearer abcdefghijklmnopqrstuvwxyz and bot123456:abcdefghijklmnopqrstuvwxyz")
+        bearer = "abcdefghijklmnop/qrstuvwxyz+12=="
+        text = redact_sandbox_text(f"Authorization: Bearer {bearer} and bot123456:abcdefghijklmnopqrstuvwxyz")
+        self.assertNotIn(bearer, text)
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz", text)
         self.assertIn("[REDACTED]", text)
 

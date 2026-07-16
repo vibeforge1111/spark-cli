@@ -12440,9 +12440,29 @@ def print_security_revoke_all_payload(payload: dict[str, Any]) -> None:
 SENSITIVE_VALUE_PATTERNS = [
     re.compile(r"\b\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)([^\s,;\"']+)"),
-    re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{16,})"),
 ]
+NAMED_SECRET_KEY_PATTERN = (
+    r"(?:[A-Za-z][A-Za-z0-9_]*_)?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|"
+    r"client[-_]?secret|token|secret|password|passwd)"
+)
+QUOTED_SECRET_KEY_PATTERN = rf"(?:{NAMED_SECRET_KEY_PATTERN}|authorization)"
+QUOTED_NAMED_SECRET_PATTERNS = (
+    re.compile(
+        rf'(?i)(?P<prefix>(?<![A-Za-z0-9_])(?:"{QUOTED_SECRET_KEY_PATTERN}"|{QUOTED_SECRET_KEY_PATTERN})\s*[:=]\s*")'
+        r'(?P<value>[^"\r\n]+)(?P<suffix>")'
+    ),
+    re.compile(
+        rf"(?i)(?P<prefix>(?<![A-Za-z0-9_])(?:'{QUOTED_SECRET_KEY_PATTERN}'|{QUOTED_SECRET_KEY_PATTERN})\s*[:=]\s*')"
+        r"(?P<value>[^'\r\n]+)(?P<suffix>')"
+    ),
+)
+NAMED_SECRET_VALUE_PATTERN = re.compile(
+    rf"(?i)(?P<prefix>(?<![A-Za-z0-9_]){NAMED_SECRET_KEY_PATTERN}\s*[:=]\s*)(?P<value>[^\s,;\"']+)"
+)
+AUTHORIZATION_VALUE_PATTERN = re.compile(
+    r"(?i)(?P<prefix>(?<![A-Za-z0-9_])authorization\s*[:=]\s*)(?!bearer\b)(?P<value>[^\s,;\"']+)"
+)
+BEARER_VALUE_PATTERN = re.compile(r"(?i)(?P<prefix>\bbearer[ \t]+)(?P<value>[A-Za-z0-9._~+/\-]+=*)")
 SECRET_SURFACE_ENV_PATTERN = re.compile(
     r"(?im)^\s*([A-Z][A-Z0-9_]*(?:API_KEY|BOT_TOKEN|TOKEN|SECRET|PASSWORD|AUTHORIZATION))\s*=\s*([^\r\n#]+)"
 )
@@ -12450,7 +12470,7 @@ SECRET_SURFACE_ALLOWED_CONFIG_SECRET_NAMES = {"TELEGRAM_RELAY_SECRET"}
 SECRET_SURFACE_TOKEN_PATTERNS = [
     re.compile(r"\b(?:bot)?\d{7,12}:[A-Za-z0-9_-]{30,}\b"),
     re.compile(r"\b(?:sk-[A-Za-z0-9_\-]{16,}|sk-proj-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|gho_[A-Za-z0-9_]{16,}|ghp_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_\-]{16,}|xoxb-[A-Za-z0-9_\-]{16,}|xoxp-[A-Za-z0-9_\-]{16,}|AIza[A-Za-z0-9_\-]{16,})\b"),
-    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}"),
+    re.compile(r"(?i)\bbearer[ \t]+[A-Za-z0-9._~+/\-]+=*"),
 ]
 SECRET_SURFACE_MAX_FILE_BYTES = 2 * 1024 * 1024
 
@@ -14053,13 +14073,22 @@ def enforce_cli_approval(args: argparse.Namespace, command_argv: list[str]) -> i
 
 def redact_sensitive_text(value: str) -> str:
     redacted = str(value)
+    redacted = BEARER_VALUE_PATTERN.sub(lambda match: f"{match.group('prefix')}[REDACTED]", redacted)
+    for pattern in QUOTED_NAMED_SECRET_PATTERNS:
+        redacted = pattern.sub(
+            lambda match: f"{match.group('prefix')}[REDACTED]{match.group('suffix')}",
+            redacted,
+        )
+    redacted = AUTHORIZATION_VALUE_PATTERN.sub(
+        lambda match: f"{match.group('prefix')}[REDACTED]",
+        redacted,
+    )
+    redacted = NAMED_SECRET_VALUE_PATTERN.sub(
+        lambda match: f"{match.group('prefix')}[REDACTED]",
+        redacted,
+    )
     for pattern in SENSITIVE_VALUE_PATTERNS:
-        if pattern.pattern.startswith("(?i)(api"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]", redacted)
-        elif pattern.pattern.startswith("(?i)(bearer"):
-            redacted = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", redacted)
-        else:
-            redacted = pattern.sub("[REDACTED]", redacted)
+        redacted = pattern.sub("[REDACTED]", redacted)
     return redacted
 
 
