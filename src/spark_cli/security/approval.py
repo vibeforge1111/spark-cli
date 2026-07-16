@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
@@ -51,6 +52,16 @@ class OsStartupAction:
     executable: str
     action: str
     read_only: bool
+
+
+TransferDirection = Literal["upload", "download", "remote", "local", "read"]
+
+
+@dataclass(frozen=True)
+class OutboundTransferAction:
+    transport: str
+    direction: TransferDirection
+    target: str
 
 
 SECRET_LIKE_PATTERN = re.compile(
@@ -263,6 +274,241 @@ def _has_network_upload_option(command: str, parts: list[str]) -> bool:
             if any(flag in part[1:] for flag in {"F", "T", "d"}):
                 return True
     return False
+
+
+POWERSHELL_WEB_COMMANDS = frozenset({"irm", "invoke-restmethod", "invoke-webrequest", "iwr"})
+POWERSHELL_UPLOAD_INPUT_OPTIONS = frozenset({"-body", "-form", "-formdata", "-infile"})
+REMOTE_COPY_VALUE_OPTIONS = {
+    "scp": frozenset({"-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-X"}),
+    "rsync": frozenset(
+        {
+            "--address",
+            "--backup-dir",
+            "--bwlimit",
+            "--chmod",
+            "--contimeout",
+            "--exclude",
+            "--exclude-from",
+            "--files-from",
+            "--filter",
+            "--include",
+            "--include-from",
+            "--max-size",
+            "--min-size",
+            "--password-file",
+            "--port",
+            "--rsync-path",
+            "--rsh",
+            "--temp-dir",
+            "--timeout",
+            "-e",
+        }
+    ),
+}
+AWS_S3_VALUE_OPTIONS = frozenset(
+    {
+        "--acl",
+        "--cache-control",
+        "--content-disposition",
+        "--content-encoding",
+        "--content-language",
+        "--content-type",
+        "--copy-props",
+        "--exclude",
+        "--expires",
+        "--grant-full-control",
+        "--grant-read",
+        "--grant-read-acp",
+        "--grant-write-acp",
+        "--include",
+        "--metadata",
+        "--metadata-directive",
+        "--page-size",
+        "--profile",
+        "--region",
+        "--sse",
+        "--sse-c",
+        "--sse-c-copy-source",
+        "--sse-c-copy-source-key",
+        "--sse-c-key",
+        "--sse-kms-key-id",
+        "--storage-class",
+        "--website-redirect",
+    }
+)
+GSUTIL_VALUE_OPTIONS = frozenset({"-a", "-h", "-i", "-j", "-o", "-p", "-u"})
+
+
+def _option_name_and_value(part: str) -> tuple[str, str]:
+    lowered = part.lower()
+    if not lowered.startswith("-"):
+        return "", ""
+    for separator in ("=", ":"):
+        if separator in lowered:
+            name, value = lowered.split(separator, 1)
+            return name, value
+    return lowered, ""
+
+
+def _positionals_after(
+    parts: list[str],
+    start: int,
+    *,
+    value_options: frozenset[str],
+) -> list[str]:
+    positionals: list[str] = []
+    skip_next = False
+    options_done = False
+    for part in parts[start:]:
+        lowered = part.lower()
+        if skip_next:
+            skip_next = False
+            continue
+        if not options_done and lowered == "--":
+            options_done = True
+            continue
+        if not options_done and lowered.startswith("-"):
+            option_text = part if part.startswith("-") and not part.startswith("--") else lowered
+            if "=" in option_text:
+                option, attached = option_text.split("=", 1)
+            else:
+                option, attached = option_text, ""
+            if option in value_options and not attached:
+                skip_next = True
+            elif len(option) > 2 and option[:2] in value_options and not option.startswith("--"):
+                continue
+            continue
+        positionals.append(part)
+    return positionals
+
+
+def _is_remote_copy_spec(value: str) -> bool:
+    normalized = value.strip()
+    lowered = normalized.lower()
+    if lowered.startswith(("rsync://", "scp://")):
+        return True
+    if "://" in normalized or re.match(r"^[A-Za-z]:[\\/]", normalized):
+        return False
+    if ":" not in normalized:
+        return False
+    host, remote_path = normalized.split(":", 1)
+    return bool(host and remote_path and "/" not in host and "\\" not in host and not host.startswith((".", "~")))
+
+
+def _transfer_direction(
+    sources: list[str],
+    target: str,
+    *,
+    is_remote: Callable[[str], bool],
+) -> TransferDirection:
+    remote_target = is_remote(target)
+    remote_sources = [is_remote(source) for source in sources]
+    if remote_target:
+        return "upload" if any(not remote for remote in remote_sources) else "remote"
+    if any(remote_sources):
+        return "download"
+    return "local"
+
+
+def _is_cloud_storage_uri(value: str) -> bool:
+    return value.strip().lower().startswith(("s3://", "gs://", "az://", "abfs://", "abfss://"))
+
+
+def _parse_powershell_web_transfer(parts: list[str]) -> OutboundTransferAction | None:
+    executable = _command_word(parts[0]) if parts else ""
+    if executable not in POWERSHELL_WEB_COMMANDS:
+        return None
+    method = ""
+    upload_input = False
+    for index, part in enumerate(parts[1:], start=1):
+        option, attached = _option_name_and_value(part)
+        if option in POWERSHELL_UPLOAD_INPUT_OPTIONS:
+            upload_input = True
+        if option == "-method":
+            method = attached or (parts[index + 1].lower() if index + 1 < len(parts) else "")
+    direction: TransferDirection = "upload" if upload_input or method in {"patch", "post", "put"} else "read"
+    return OutboundTransferAction(transport=executable, direction=direction, target=executable)
+
+
+def _parse_remote_copy_transfer(parts: list[str]) -> OutboundTransferAction | None:
+    executable = _command_word(parts[0]) if parts else ""
+    if executable not in REMOTE_COPY_VALUE_OPTIONS:
+        return None
+    positionals = _positionals_after(parts, 1, value_options=REMOTE_COPY_VALUE_OPTIONS[executable])
+    if len(positionals) < 2:
+        return None
+    sources, target = positionals[:-1], positionals[-1]
+    return OutboundTransferAction(
+        transport=executable,
+        direction=_transfer_direction(sources, target, is_remote=_is_remote_copy_spec),
+        target=target,
+    )
+
+
+def _find_cloud_action(parts: list[str], executable: str) -> tuple[int, str] | None:
+    lowered = _lower_parts(parts)
+    if executable == "aws":
+        for index in range(1, len(lowered) - 1):
+            if lowered[index] == "s3" and lowered[index + 1] in {"cp", "sync"}:
+                return index + 2, lowered[index + 1]
+    if executable == "gsutil":
+        for index in range(1, len(lowered)):
+            if lowered[index] in {"cp", "rsync"}:
+                return index + 1, lowered[index]
+    return None
+
+
+def _parse_cloud_storage_transfer(parts: list[str]) -> OutboundTransferAction | None:
+    executable = _command_word(parts[0]) if parts else ""
+    if executable not in {"aws", "gsutil"}:
+        return None
+    action = _find_cloud_action(parts, executable)
+    if action is None:
+        return None
+    start, _ = action
+    value_options = AWS_S3_VALUE_OPTIONS if executable == "aws" else GSUTIL_VALUE_OPTIONS
+    positionals = _positionals_after(parts, start, value_options=value_options)
+    if len(positionals) < 2:
+        return None
+    sources, target = positionals[:-1], positionals[-1]
+    return OutboundTransferAction(
+        transport=f"{executable} cloud storage",
+        direction=_transfer_direction(sources, target, is_remote=_is_cloud_storage_uri),
+        target=target,
+    )
+
+
+def _shell_command_segments(parts: list[str]) -> list[list[str]]:
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for part in parts:
+        chunks = re.split(r"(&&|\|\||[|;&])", part)
+        for chunk in chunks:
+            if not chunk:
+                continue
+            if chunk in SHELL_CONTROL_MARKERS:
+                if current:
+                    segments.append(current)
+                    current = []
+                continue
+            current.append(chunk)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _parse_outbound_transfer(parts: list[str]) -> OutboundTransferAction | None:
+    observed: OutboundTransferAction | None = None
+    for segment in _shell_command_segments(parts):
+        action = (
+            _parse_powershell_web_transfer(segment)
+            or _parse_remote_copy_transfer(segment)
+            or _parse_cloud_storage_transfer(segment)
+        )
+        if action is not None and action.direction == "upload":
+            return action
+        observed = observed or action
+    return observed
 
 
 def _extract_privileged_command(parts: list[str]) -> list[str] | None:
@@ -870,6 +1116,17 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Doctor logs may be sent to a configured LLM provider after redaction.",
             target_display="spark doctor llm --include-logs",
             confirmation_phrase="approve redacted log sharing",
+        )
+    outbound_transfer = _parse_outbound_transfer(parts)
+    if outbound_transfer is not None and outbound_transfer.direction == "upload":
+        return _decision(
+            parts,
+            ctx,
+            "network_exfiltration",
+            "medium",
+            "Command can transfer local data to a remote system or cloud storage.",
+            target_display=outbound_transfer.transport,
+            confirmation_phrase="approve network upload",
         )
     if bin_name in {"curl", "wget"} and _has_network_upload_option(bin_name, parts):
         return _decision(

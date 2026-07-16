@@ -1815,6 +1815,8 @@ class Sandbox:
             ["Invoke-RestMethod", "https://example.test/upload", "-Method=Put", "-Body", "$payload"],
             ["iwr", "https://example.test/upload", "-Method:Patch", "-Form", "$form"],
             ["pwsh", "-Command", "irm https://example.test/upload -Method Post -InFile report.txt"],
+            ["bash", "-lc", "echo ready; scp report.txt spark@example.test:/incoming/report.txt"],
+            ["pwsh", "-Command", "Write-Output ready; irm https://example.test/upload -Body payload"],
             ["scp", "-P", "2222", "report.txt", "spark@example.test:/incoming/report.txt"],
             ["rsync", "-az", "--exclude", "*.tmp", "dist/", "spark@example.test:/srv/dist/"],
             ["aws", "--profile", "qa", "s3", "cp", "report.txt", "s3://spark-evidence/report.txt"],
@@ -1835,9 +1837,11 @@ class Sandbox:
         reads = (
             ["Invoke-WebRequest", "-Uri", "https://example.test/report.txt", "-OutFile", "report.txt"],
             ["scp", "spark@example.test:/reports/report.txt", "."],
+            ["scp", "-o", "ProxyJump=spark@example.test", "spark@example.test:/reports/report.txt", "."],
             ["rsync", "-az", "spark@example.test:/srv/dist/", "dist/"],
             ["scp", "report.txt", r"C:\\backup\\report.txt"],
             ["aws", "--profile", "qa", "s3", "cp", "s3://spark-evidence/report.txt", "report.txt"],
+            ["aws", "s3", "cp", "s3://spark-evidence/report.txt", "report.txt", "--exclude", "remote:*"],
             ["gsutil", "-m", "cp", "gs://spark-evidence/report.txt", "report.txt"],
         )
         for command in reads:
