@@ -1994,6 +1994,50 @@ class Sandbox:
                 self.assertEqual(decision.action_class, action_class)
                 self.assertEqual(decision.risk, risk)
 
+    def test_approval_classifier_preserves_publication_family_donor_intent(self) -> None:
+        publishes = (
+            ["/usr/local/bin/podman", "push", "ghcr.io/example/spark:latest"],
+            ["python3.12", "-m", "twine", "upload", "dist/*"],
+            ["cargo", "publish"],
+            ["gem", "push", "pkg/spark.gem"],
+            ["dotnet", "nuget", "push", "pkg/spark.nupkg"],
+            ["./mvnw", "-B", "deploy"],
+            ["./gradlew", ":library:publish"],
+            ["pnpm", "publish"],
+            ["helm", "chart", "push", "registry.example.test/charts/spark:1.0.0"],
+            ["firebase", "deploy", "--only", "hosting"],
+            ["netlify", "deploy", "--prod", "--dir", "dist"],
+            ["wrangler", "publish"],
+            ["bash", "-lc", "echo ready; podman push ghcr.io/example/spark:latest"],
+        )
+        for command in publishes:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, "external_publish")
+                self.assertEqual(decision.risk, "high")
+                self.assertEqual(decision.approval_mode, "blocked")
+
+    def test_approval_classifier_keeps_local_package_and_deploy_inspection_safe(self) -> None:
+        safe_commands = (
+            ["podman", "pull", "ghcr.io/example/spark:latest"],
+            ["python", "-m", "twine", "check", "dist/*"],
+            ["cargo", "package"],
+            ["gem", "build", "spark.gemspec"],
+            ["dotnet", "pack"],
+            ["mvn", "package"],
+            ["gradle", "publishToMavenLocal"],
+            ["helm", "lint", "charts/spark"],
+            ["gcloud", "config", "list"],
+            ["firebase", "projects:list"],
+            ["netlify", "status"],
+            ["wrangler", "dev"],
+        )
+        for command in safe_commands:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertFalse(decision.requires_approval)
+
     def test_approval_classifier_blocks_non_interactive_sensitive_command(self) -> None:
         decision = approval_required_for_command(["terraform", "destroy", "-auto-approve"], CommandContext(hosted=True, non_interactive=True))
         self.assertTrue(decision.requires_approval)
