@@ -1984,6 +1984,27 @@ class Sandbox:
                 self.assertEqual(decision.approval_mode, "blocked")
                 self.assertEqual(decision.confirmation_phrase, "approve privileged shell")
 
+    def test_approval_classifier_normalizes_only_the_executable_token(self) -> None:
+        cases = (
+            ([r"C:\Program Files\Git\cmd\git.exe", "push", "--force-with-lease"], "git_history_mutation", "critical"),
+            ([r"C:\Windows\System32\schtasks.exe", "/Create", "/TN", "Spark", "/TR", "calc", "/SC", "ONLOGON"], "process_autostart_mutation", "high"),
+            ([r"C:\Program Files\Docker\docker.exe", "run", "--privileged", "alpine"], "container_privilege_escalation", "critical"),
+            ([r"C:\Spark\spark.cmd", "secrets", "get", "telegram.bot_token", "--reveal"], "credential_reveal", "critical"),
+        )
+        for command, action_class, risk in cases:
+            with self.subTest(command=command):
+                decision = approval_required_for_command(command, CommandContext(non_interactive=True))
+                self.assertTrue(decision.requires_approval)
+                self.assertEqual(decision.action_class, action_class)
+                self.assertEqual(decision.risk, risk)
+                self.assertEqual(decision.approval_mode, "blocked")
+
+        harmless = approval_required_for_command(
+            ["echo", r"C:\evidence\docker.exe", "run", "--privileged"],
+            CommandContext(non_interactive=True),
+        )
+        self.assertFalse(harmless.requires_approval)
+
     def test_approval_classifier_fails_closed_for_unresolved_privilege_wrapper(self) -> None:
         for command in (["sudo"], ["sudo", "--unknown-option", "spark", "status"], ["su", "root"]):
             with self.subTest(command=command):
