@@ -173,11 +173,6 @@ def _looks_like_sensitive_env_name(value: str) -> bool:
     return bool(SENSITIVE_ENV_NAME_PATTERN.search(value))
 
 
-def _looks_like_npm_auth_key(value: str) -> bool:
-    lowered = value.lower()
-    return any(marker in lowered for marker in {"_authtoken", "auth-token", "auth_token"})
-
-
 def _command_word(value: str) -> str:
     normalized = value.strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
     normalized = normalized.lstrip("&|;(")
@@ -944,50 +939,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Command can reveal environment variables or credential-like values.",
             target_display=parts[0],
             confirmation_phrase="approve environment reveal",
-        )
-
-    if first == "gh" and lowered[1:3] == ["auth", "token"]:
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "critical",
-            "GitHub command can reveal the active authentication token.",
-            target_display="gh auth token",
-            confirmation_phrase="approve github token reveal",
-        )
-
-    if first == "npm" and (
-        second == "token"
-        or (
-            second == "config"
-            and len(lowered) > 3
-            and lowered[2] in {"get", "set", "delete", "rm", "remove"}
-            and _looks_like_npm_auth_key(parts[3])
-        )
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "high",
-            "npm command can reveal, create, revoke, or change registry authentication tokens.",
-            target_display=" ".join(parts[:4]),
-            confirmation_phrase="approve npm token access",
-        )
-
-    if (
-        (first == "gcloud" and lowered[1:3] == ["auth", "print-access-token"])
-        or (first == "az" and lowered[1:3] == ["account", "get-access-token"])
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "critical",
-            "Cloud CLI command can reveal a live access token.",
-            target_display=" ".join(parts[:3]),
-            confirmation_phrase="approve cloud token reveal",
         )
 
     if first == "aws" and (

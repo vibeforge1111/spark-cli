@@ -28,6 +28,66 @@ PIP_SENSITIVE_KEY_PATTERN = re.compile(
 PYTHON_EXECUTABLE_PATTERN = re.compile(r"python(?:\d+(?:\.\d+)*)?$")
 PIP_EXECUTABLE_PATTERN = re.compile(r"pip(?:\d+(?:\.\d+)*)?$")
 
+PROVIDER_AUTH_MUTATIONS = frozenset(
+    {
+        ("huggingface-cli", "login"),
+        ("huggingface-cli", "logout"),
+        ("hf", "auth", "login"),
+        ("hf", "auth", "logout"),
+        ("modal", "token", "clear"),
+        ("modal", "token", "delete"),
+        ("modal", "token", "remove"),
+        ("modal", "token", "set"),
+        ("wandb", "login"),
+        ("wandb", "logout"),
+    }
+)
+CLOUD_TOKEN_REVEALS = frozenset(
+    {
+        ("az", "account", "get-access-token"),
+        ("gcloud", "auth", "application-default", "print-access-token"),
+        ("gcloud", "auth", "print-access-token"),
+    }
+)
+CLOUD_AUTH_MUTATIONS = frozenset(
+    {
+        ("az", "login"),
+        ("az", "logout"),
+        ("gcloud", "auth", "activate-service-account"),
+        ("gcloud", "auth", "application-default", "login"),
+        ("gcloud", "auth", "application-default", "revoke"),
+        ("gcloud", "auth", "login"),
+        ("gcloud", "auth", "revoke"),
+    }
+)
+GITHUB_AUTH_MUTATIONS = frozenset(
+    {
+        ("gh", "auth", "login"),
+        ("gh", "auth", "logout"),
+        ("gh", "auth", "refresh"),
+        ("gh", "auth", "setup-git"),
+        ("gh", "auth", "switch"),
+    }
+)
+PACKAGE_AUTH_MUTATIONS = frozenset(
+    {
+        ("npm", "adduser"),
+        ("npm", "login"),
+        ("npm", "logout"),
+        ("npm", "token", "create"),
+        ("npm", "token", "delete"),
+        ("npm", "token", "revoke"),
+        ("pnpm", "adduser"),
+        ("pnpm", "login"),
+        ("pnpm", "logout"),
+        ("pnpm", "token", "create"),
+        ("pnpm", "token", "delete"),
+        ("pnpm", "token", "revoke"),
+        ("yarn", "npm", "login"),
+        ("yarn", "npm", "logout"),
+    }
+)
+
 
 def _command_word(value: str) -> str:
     word = value.strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
@@ -42,6 +102,10 @@ def _authority(
     phrase: str,
 ) -> CredentialAuthority:
     return CredentialAuthority(action_class, risk, reason, target, phrase)
+
+
+def _matches_prefix(words: list[str], prefixes: frozenset[tuple[str, ...]]) -> bool:
+    return any(tuple(words[: len(prefix)]) == prefix for prefix in prefixes)
 
 
 def _before_separator(arguments: list[str]) -> list[str]:
@@ -155,7 +219,62 @@ def parse_credential_authority(parts: list[str]) -> CredentialAuthority | None:
     executable = _command_word(parts[0])
     arguments = parts[1:]
     lowered = [part.lower() for part in parts]
+    command_words = [executable, *[part.lower() for part in parts[1:]]]
     bounded_arguments = _before_separator(arguments)
+
+    if _matches_prefix(command_words, CLOUD_TOKEN_REVEALS):
+        return _authority(
+            "credential_mutation",
+            "critical",
+            "Cloud CLI command can reveal an active access token.",
+            "cloud access token",
+            "approve cloud token reveal",
+        )
+
+    if command_words[:3] == ["gh", "auth", "token"]:
+        return _authority(
+            "credential_mutation",
+            "critical",
+            "GitHub command can reveal the active authentication token.",
+            "gh auth token",
+            "approve github token reveal",
+        )
+
+    if _matches_prefix(command_words, PROVIDER_AUTH_MUTATIONS):
+        return _authority(
+            "credential_mutation",
+            "high",
+            "Provider auth command can store, replace, or remove local service credentials.",
+            "provider auth credentials",
+            "approve provider auth change",
+        )
+
+    if _matches_prefix(command_words, CLOUD_AUTH_MUTATIONS):
+        return _authority(
+            "credential_mutation",
+            "high",
+            "Cloud CLI auth command can store, replace, or remove local cloud credentials.",
+            "cloud auth credentials",
+            "approve cloud auth change",
+        )
+
+    if _matches_prefix(command_words, GITHUB_AUTH_MUTATIONS):
+        return _authority(
+            "credential_mutation",
+            "high",
+            "GitHub CLI auth command can store, remove, switch, or expand local GitHub credentials.",
+            "github cli auth",
+            "approve github auth change",
+        )
+
+    if _matches_prefix(command_words, PACKAGE_AUTH_MUTATIONS):
+        return _authority(
+            "credential_mutation",
+            "high",
+            "Package manager auth command can store, remove, create, or revoke registry credentials.",
+            "package manager auth",
+            "approve package auth change",
+        )
 
     pip_config = _pip_config_arguments(parts)
     if pip_config is not None and _pip_config_sensitive(pip_config):

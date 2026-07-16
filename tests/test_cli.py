@@ -2161,7 +2161,6 @@ class Sandbox:
     def test_approval_classifier_flags_credential_read_and_registry_auth_commands(self) -> None:
         cases = (
             (["gh", "auth", "token"], "critical", "approve github token reveal"),
-            (["npm", "token", "list"], "high", "approve npm token access"),
             (["npm", "config", "get", "//registry.npmjs.org/:_authToken"], "critical", "approve package credential access"),
             (["docker", "login", "ghcr.io"], "high", "approve docker credential change"),
             (["docker", "logout", "ghcr.io"], "high", "approve docker credential change"),
@@ -2187,6 +2186,12 @@ class Sandbox:
                 self.assertEqual(decision.risk, risk)
                 self.assertEqual(decision.approval_mode, "blocked")
                 self.assertEqual(decision.confirmation_phrase, phrase)
+
+        token_inventory = approval_required_for_command(
+            ["npm", "token", "list"], CommandContext(non_interactive=True)
+        )
+        self.assertFalse(token_inventory.requires_approval)
+        self.assertEqual(token_inventory.action_class, "none")
 
     def test_approval_classifier_allows_adjacent_noncredential_inspection(self) -> None:
         cases = (
