@@ -2649,6 +2649,22 @@ class Sandbox:
         self.assertEqual(payload["nested"]["telegram_bot_token"], "[REDACTED]")
         self.assertEqual(payload["safe"], "Spawner UI unhealthy")
 
+    def test_share_redaction_retains_pr175_structured_and_bearer_boundaries(self) -> None:
+        cases = (
+            ('{"secret": "myappsecret12345678901234567890abcd"}', '{"secret": "[REDACTED]"}'),
+            ('{"password": "SuperSecret123!@#"}', '{"password": "[REDACTED]"}'),
+            ("{'access_token': 'secret/value+with=padding'}", "{'access_token': '[REDACTED]'}"),
+            ("Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", "Bearer [REDACTED]"),
+            ("Authorization: Bearer abcdefghijklmnop/qrstuvwxyz+12==", "Authorization: Bearer [REDACTED]"),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(redact_sensitive_text(source), expected)
+
+    def test_share_redaction_preserves_adjacent_nonsecret_text(self) -> None:
+        text = 'AUTHOR="Ada" and secret sauce plus token budget are ordinary prose'
+        self.assertEqual(redact_sensitive_text(text), text)
+
     def test_share_redaction_does_not_flag_skip_words_as_api_keys(self) -> None:
         text = "setup_should_run_install_commands and skip_install_commands are normal field names"
         self.assertEqual(redact_sensitive_text(text), text)
