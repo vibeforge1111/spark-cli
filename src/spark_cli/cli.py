@@ -41,6 +41,7 @@ import tomllib
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
 from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
+from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
 from .provider_auth import effective_provider_auth_mode
 from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
 from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
@@ -5421,21 +5422,11 @@ def remove_managed_env_block(path: Path) -> None:
     atomic_write_text(path, (output + "\n") if output else "")
 
 
-def cmd_list(_: argparse.Namespace) -> int:
+def cmd_list(args: argparse.Namespace) -> int:
     registry = load_registry_definition()
     installed = load_json(REGISTRY_PATH, {})
     modules = discover_modules()
-    if not modules:
-        print("No installed Spark modules recorded.")
-        print("Run `spark setup telegram-starter` to install the starter bundle.")
-        return 0
-    for module in modules.values():
-        metadata = registry.get("modules", {}).get(module.name, {})
-        blessed = "yes" if metadata.get("blessed") else "no"
-        installed_marker = "installed" if module.name in installed else "available"
-        print(
-            f"{module.name}\t{module.version}\t{module.kind}\t{module.plane}\t{blessed}\t{installed_marker}"
-        )
+    print(render_module_listing(modules, registry_modules=registry.get("modules", {}), installed=installed, json_output=bool(getattr(args, "json", False))))
     return 0
 
 
@@ -11297,6 +11288,7 @@ def cmd_os_capabilities(args: argparse.Namespace) -> int:
 
 
 def cmd_os_authority(args: argparse.Namespace) -> int:
+    output_path = resolve_os_json_output_path(json_output=args.json, output=getattr(args, "output", None), validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="Spark OS JSON output"), reject_linked_path=assert_no_linked_write_path)
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
@@ -11339,7 +11331,7 @@ def cmd_os_authority(args: argparse.Namespace) -> int:
         "redaction": authority.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        emit_json_payload(payload, output_path=output_path, write_text=atomic_write_text)
         return 0
     print("Spark OS authority")
     print(f"- default access level: {payload['default_access_level']}")
@@ -11369,6 +11361,7 @@ def _safe_int(value: Any) -> int:
 
 
 def cmd_os_trace(args: argparse.Namespace) -> int:
+    output_path = resolve_os_json_output_path(json_output=args.json, output=getattr(args, "output", None), validate_path=lambda path: require_write_allowed(path, safe_root=spark_write_safe_root(), subject="Spark OS JSON output"), reject_linked_path=assert_no_linked_write_path)
     desktop = Path(args.desktop).expanduser()
     spark_home = Path(args.spark_home).expanduser()
     registry_path = Path(args.registry).expanduser()
@@ -11420,7 +11413,7 @@ def cmd_os_trace(args: argparse.Namespace) -> int:
         "redaction": trace_index.get("redaction"),
     }
     if args.json:
-        print(json.dumps(payload, indent=2))
+        emit_json_payload(payload, output_path=output_path, write_text=atomic_write_text)
         return 0
     cross_system = payload["cross_system_trace"]
     print("Spark OS trace")
@@ -20850,6 +20843,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="List local Spark modules with manifests")
+    list_parser.add_argument("--json", action="store_true", help="Emit machine-readable module metadata")
     list_parser.set_defaults(func=cmd_list)
 
     install_parser = subparsers.add_parser("install", help="Install a module by registry name or local repo path")
@@ -21074,12 +21068,14 @@ def build_parser() -> argparse.ArgumentParser:
     os_authority_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_authority_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_authority_parser.add_argument("--json", action="store_true", help="Emit authority contracts as JSON")
+    os_authority_parser.add_argument("--output", "-o", help="Write --json output atomically to a governed file")
     os_authority_parser.set_defaults(func=cmd_os_authority)
     os_trace_parser = os_subparsers.add_parser("trace", help="Inspect compiled Spark trace health")
     os_trace_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")
     os_trace_parser.add_argument("--spark-home", default=str(SPARK_HOME), help="Spark home directory")
     os_trace_parser.add_argument("--registry", default=str(LOCAL_REGISTRY_PATH), help="spark-cli registry.json path")
     os_trace_parser.add_argument("--json", action="store_true", help="Emit trace health as JSON")
+    os_trace_parser.add_argument("--output", "-o", help="Write --json output atomically to a governed file")
     os_trace_parser.set_defaults(func=cmd_os_trace)
     os_memory_parser = os_subparsers.add_parser("memory", help="Inspect compiled Spark memory movement")
     os_memory_parser.add_argument("--desktop", default=str(Path.home() / "Desktop") if (Path.home() / "Desktop").exists() else str(Path.home()), help="Desktop root containing Spark repos")

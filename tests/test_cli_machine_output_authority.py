@@ -42,6 +42,22 @@ def test_os_json_output_respects_runtime_write_boundary(command: str) -> None:
         assert not output.exists()
 
 
+@pytest.mark.parametrize("command", ["authority", "trace"])
+def test_os_json_output_refuses_linked_destination_before_collecting_state(command: str) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        target = root / "owner.json"
+        target.write_text("preserve-owner\n", encoding="utf-8")
+        output = root / "report.json"
+        output.symlink_to(target)
+        with patch("spark_cli.cli.compile_system_map") as compile_map:
+            with pytest.raises(SystemExit, match="linked path"):
+                main(["os", command, "--json", "--output", str(output)])
+
+        compile_map.assert_not_called()
+        assert target.read_text(encoding="utf-8") == "preserve-owner\n"
+
+
 @pytest.mark.parametrize(
     "command,expected_schema",
     [
