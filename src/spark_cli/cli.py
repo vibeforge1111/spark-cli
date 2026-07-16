@@ -3472,11 +3472,25 @@ def write_denied_paths(home: Path | None = None) -> list[Path]:
 
 def path_is_write_denied(path: Path) -> tuple[bool, str]:
     candidate = resolve_policy_path(path)
+    secrets_file = resolve_policy_path(SECRETS_FILE_PATH)
+    if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(
+        os.path.normpath(os.fspath(secrets_file))
+    ):
+        return True, str(secrets_file)
     for denied_path in write_denied_paths():
         if os.path.normcase(os.path.normpath(os.fspath(candidate))) == os.path.normcase(os.path.normpath(os.fspath(denied_path))):
             return True, str(denied_path)
+    spark_home = resolve_policy_path(SPARK_HOME)
+    root_home = resolve_policy_path(Path("/root"))
+    root_owned_spark_state = (
+        sys.platform != "win32"
+        and policy_path_is_same_or_child(candidate, spark_home)
+        and policy_path_is_same_or_child(spark_home, root_home)
+    )
     for denied_prefix in write_denied_prefixes():
         if policy_path_is_same_or_child(candidate, denied_prefix):
+            if root_owned_spark_state and resolve_policy_path(denied_prefix) == root_home:
+                continue
             return True, str(denied_prefix)
     return False, ""
 
