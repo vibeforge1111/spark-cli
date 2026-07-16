@@ -46,6 +46,13 @@ class ApprovalDecision:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class OsStartupAction:
+    executable: str
+    action: str
+    read_only: bool
+
+
 SECRET_LIKE_PATTERN = re.compile(
     r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\d{5,}:[A-Za-z0-9_-]{20,})"
 )
@@ -121,6 +128,74 @@ def _command_word(value: str) -> str:
         return ""
     word = match.group(0)
     return word.removesuffix(".exe")
+
+
+OS_STARTUP_EXECUTABLES = frozenset({"launchctl", "reg", "schtasks", "setx", "systemctl"})
+SYSTEMCTL_READ_ONLY_ACTIONS = frozenset(
+    {"is-active", "is-enabled", "list-unit-files", "list-units", "show", "status"}
+)
+SYSTEMCTL_READ_ONLY_PREFIX_OPTIONS = frozenset(
+    {
+        "--all",
+        "--full",
+        "--global",
+        "--no-ask-password",
+        "--no-block",
+        "--no-legend",
+        "--no-pager",
+        "--plain",
+        "--quiet",
+        "--runtime",
+        "--system",
+        "--user",
+        "-a",
+        "-l",
+        "-q",
+    }
+)
+SCHTASKS_ACTION_SWITCHES = frozenset({"/change", "/create", "/delete", "/end", "/query", "/run"})
+SHELL_CONTROL_MARKERS = ("&&", "||", "|", ";", "&")
+
+
+def _has_shell_control_syntax(parts: list[str]) -> bool:
+    return any(any(marker in part for marker in SHELL_CONTROL_MARKERS) for part in parts)
+
+
+def _parse_os_startup_action(parts: list[str]) -> OsStartupAction | None:
+    if not parts:
+        return None
+    executable = _command_word(parts[0])
+    if executable not in OS_STARTUP_EXECUTABLES:
+        return None
+    lowered = _lower_parts(parts)
+    if _has_shell_control_syntax(parts):
+        return OsStartupAction(executable=executable, action="composed", read_only=False)
+
+    if executable == "reg":
+        action = lowered[1] if len(lowered) > 1 else ""
+        return OsStartupAction(executable=executable, action=action, read_only=action == "query")
+
+    if executable == "schtasks":
+        actions = sorted(SCHTASKS_ACTION_SWITCHES.intersection(lowered[1:]))
+        action = "+".join(actions) if actions else ""
+        return OsStartupAction(executable=executable, action=action, read_only=actions == ["/query"])
+
+    if executable == "systemctl":
+        index = 1
+        while index < len(lowered) and lowered[index] in SYSTEMCTL_READ_ONLY_PREFIX_OPTIONS:
+            index += 1
+        action = lowered[index] if index < len(lowered) else ""
+        return OsStartupAction(
+            executable=executable,
+            action=action,
+            read_only=action in SYSTEMCTL_READ_ONLY_ACTIONS,
+        )
+
+    if executable == "launchctl":
+        action = lowered[1] if len(lowered) > 1 else ""
+        return OsStartupAction(executable=executable, action=action, read_only=action in {"list", "print"})
+
+    return OsStartupAction(executable=executable, action="", read_only=False)
 
 
 def _has_remote_download_execution(parts: list[str]) -> bool:
@@ -765,7 +840,17 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve autostart change",
         )
-    if first in {"schtasks", "setx", "reg", "systemctl", "launchctl"}:
+    os_startup_action = _parse_os_startup_action(parts)
+    if os_startup_action is not None and os_startup_action.read_only:
+        return _decision(
+            parts,
+            ctx,
+            "none",
+            "none",
+            "Command performs one parsed read-only OS startup or service inspection.",
+            target_display=f"{os_startup_action.executable} {os_startup_action.action}".strip(),
+        )
+    if os_startup_action is not None:
         return _decision(
             parts,
             ctx,
