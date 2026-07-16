@@ -11980,11 +11980,19 @@ class Sandbox:
             store.assert_called_once()
             remember.assert_called_once_with(GOVERNOR_HMAC_SECRET_ID)
 
-    def test_windows_current_user_grantee_falls_back_when_username_empty(self) -> None:
-        with patch.dict(os.environ, {"USERNAME": ""}, clear=False), \
-             patch("spark_cli.cli.getpass.getuser", return_value="fallbackuser"):
-            self.assertEqual(windows_current_user_grantee(), "fallbackuser")
-        with patch.dict(os.environ, {"USERNAME": "realuser"}, clear=False):
+    def test_windows_current_user_grantee_uses_sid_then_os_login(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
+            0,
+            '"DOMAIN\\\\realuser","S-1-5-21-1234"\n',
+            "",
+        )
+        with patch.dict(os.environ, {"USERNAME": "spoofed"}, clear=False), \
+             patch("spark_cli.cli.subprocess.run", return_value=completed):
+            self.assertEqual(windows_current_user_grantee(), "*S-1-5-21-1234")
+        with patch.dict(os.environ, {"USERNAME": "spoofed"}, clear=False), \
+             patch("spark_cli.cli.subprocess.run", side_effect=OSError("missing")), \
+             patch("spark_cli.cli.os.getlogin", return_value="realuser"):
             self.assertEqual(windows_current_user_grantee(), "realuser")
 
     def test_update_module_source_fetches_pinned_commit_for_detached_clone(self) -> None:
