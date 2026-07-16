@@ -352,6 +352,7 @@ from spark_cli.cli import (
     linux_root_filesystem_read_only,
     mountinfo_mountpoints,
 )
+from spark_cli.runtime_policy import resolve_runtime_executable, split_single_argv_command
 from spark_cli.security.approval import (
     INVALID_COMMAND_REASON,
     CommandContext,
@@ -10637,6 +10638,34 @@ class Sandbox:
     def test_runtime_command_argv_rejects_shell_metacharacter_chains(self) -> None:
         with self.assertRaises(SystemExit):
             runtime_command_argv("npm run health && node evil.js")
+
+    def test_windows_runtime_split_preserves_path_grammar(self) -> None:
+        cases = {
+            r"python C:\tmp\spark\health.py": ["python", r"C:\tmp\spark\health.py"],
+            'python "C:\\tmp\\spark module\\health.py"': ["python", r"C:\tmp\spark module\health.py"],
+            r"python C:\tmp\spark#1\health.py": ["python", r"C:\tmp\spark#1\health.py"],
+        }
+        with patch("spark_cli.runtime_policy.os.name", "nt"):
+            for command, expected in cases.items():
+                with self.subTest(command=command):
+                    self.assertEqual(split_single_argv_command(command, "Runtime command"), expected)
+
+    def test_windows_runtime_resolves_managed_node_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spark_home = Path(tmp_dir) / ".spark"
+            managed_node = spark_home / "tools" / "node-v22.18.0-win-x64"
+            managed_node.mkdir(parents=True)
+            node_exe = managed_node / "node.exe"
+            npm_cmd = managed_node / "npm.cmd"
+            node_exe.write_text("", encoding="utf-8")
+            npm_cmd.write_text("", encoding="utf-8")
+
+            with patch.dict(os.environ, {"SPARK_HOME": str(spark_home)}, clear=False), \
+                 patch("spark_cli.runtime_policy.os.name", "nt"), \
+                 patch("spark_cli.runtime_policy.Path", type(spark_home)), \
+                 patch("spark_cli.runtime_policy.shutil.which", return_value=None):
+                self.assertEqual(resolve_runtime_executable("node"), str(node_exe))
+                self.assertEqual(resolve_runtime_executable("npm"), str(npm_cmd))
 
     def test_runtime_command_argv_allowlists_runtime_tools(self) -> None:
         self.assertEqual(runtime_command_argv("python -m spark_researcher.cli status")[:3], [str(Path(sys.executable)), "-m", "spark_researcher.cli"])
