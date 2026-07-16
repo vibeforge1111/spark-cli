@@ -47,6 +47,7 @@ from .provider_secrets import redaction_followup, resolve_runtime_provider_secre
 from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
 from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
+from .secret_storage_notice import warn_insecure_file_secret_storage
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import (
@@ -1547,6 +1548,7 @@ def dpapi_protect(value: str) -> str:
                 "Install/configure a keyring backend, or set "
                 f"{ALLOW_INSECURE_FILE_SECRETS_ENV}=1 only for disposable local tests."
             )
+        warn_insecure_file_secret_storage()
         return INSECURE_FILE_SECRET_PREFIX + base64.b64encode(value.encode("utf-8")).decode("ascii")
     raw = value.encode("utf-8")
     buffer = ctypes.create_string_buffer(raw)
