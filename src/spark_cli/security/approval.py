@@ -914,7 +914,7 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     second = lowered[1] if len(lowered) > 1 else ""
 
     bin_name = first
-    shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "pwsh", "powershell"}
+    shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell"}
     language_interpreters = {"python", "python2", "python3", "node", "ruby", "perl"}
 
     if bin_name in shell_interpreters:
@@ -940,7 +940,17 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
                 nested = approval_required_for_command(parse_command_text(payload), ctx)
                 if nested.requires_approval:
                     return nested
-                break
+                if bin_name in {"pwsh", "powershell"}:
+                    break
+                return _decision(
+                    parts,
+                    ctx,
+                    "remote_code_execution",
+                    "high",
+                    "Shell interpreter invoked with inline source code.",
+                    target_display=bin_name,
+                    confirmation_phrase="approve remote code execution",
+                )
 
     if bin_name in language_interpreters:
         lang_code_flags = {"-c", "-e", "--eval", "-p", "--print"}
