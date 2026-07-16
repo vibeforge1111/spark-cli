@@ -10653,6 +10653,145 @@ class Sandbox:
                     cloned,
                 )
 
+    def _pinned_resume_fixture(self, tmp: Path) -> tuple[Path, str]:
+        work = tmp / "work"
+        work.mkdir()
+        subprocess.run(["git", "-C", str(work), "init", "-q"], check=True)
+        subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", str(work), "config", "user.name", "t"], check=True)
+        (work / "spark.toml").write_text(
+            '[module]\nname = "git-demo"\nversion = "0.1.0"\nkind = "service"\nplane = "execution"\n',
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(work), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(work), "commit", "-q", "-m", "init"], check=True)
+        commit = subprocess.run(
+            ["git", "-C", str(work), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        bare = tmp / "remote.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(bare)], check=True)
+        return bare, commit
+
+    def test_clone_module_source_resumes_matching_empty_pinned_checkout_in_place(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commit = self._pinned_resume_fixture(tmp)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", str(bare)], check=True)
+            subprocess.run(["git", "-C", str(partial), "config", "spark.resume-marker", "keep"], check=True)
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home):
+                cloned = clone_module_source("git-demo", str(bare), commit=commit)
+
+            self.assertEqual(cloned, partial)
+            marker = subprocess.run(
+                ["git", "-C", str(cloned), "config", "--get", "spark.resume-marker"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(marker, "keep")
+            self.assertTrue((cloned / "spark.toml").is_file())
+
+    def test_clone_module_source_rejects_mismatched_partial_origin_without_mutation(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commit = self._pinned_resume_fixture(tmp)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            stale = str(tmp / "stale.git")
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", stale], check=True)
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home), self.assertRaisesRegex(
+                SystemExit,
+                "origin does not match",
+            ):
+                clone_module_source("git-demo", str(bare), commit=commit)
+
+            origin = subprocess.run(
+                ["git", "-C", str(partial), "remote", "get-url", "origin"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(origin, stale)
+            self.assertTrue(partial.exists())
+
+    def test_clone_module_source_preserves_partial_checkout_with_user_files(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commit = self._pinned_resume_fixture(tmp)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", str(bare)], check=True)
+            evidence = partial / "recovery-note.txt"
+            evidence.write_text("preserve me", encoding="utf-8")
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home), self.assertRaisesRegex(
+                SystemExit,
+                "contains files",
+            ):
+                clone_module_source("git-demo", str(bare), commit=commit)
+
+            self.assertEqual(evidence.read_text(encoding="utf-8"), "preserve me")
+
+    def test_clone_module_source_retains_verified_partial_checkout_after_fetch_failure(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(partial), "init", "-q"], check=True)
+            missing = tmp / "missing.git"
+            subprocess.run(["git", "-C", str(partial), "remote", "add", "origin", str(missing)], check=True)
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home), self.assertRaises(SystemExit):
+                clone_module_source("git-demo", str(missing), commit="a" * 40)
+
+            self.assertTrue((partial / ".git").is_dir())
+            self.assertFalse((partial / "spark.toml").exists())
+
+    @unittest.skipIf(os.name == "nt", "symlink fixture requires POSIX privileges")
+    def test_clone_module_source_rejects_linked_partial_git_metadata(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git not available on PATH")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bare, commit = self._pinned_resume_fixture(tmp)
+            clone_home = tmp / "spark-home"
+            partial = clone_home / "modules" / "git-demo" / "source"
+            partial.mkdir(parents=True)
+            external_git = tmp / "external-git"
+            subprocess.run(["git", "init", "-q", str(external_git)], check=True)
+            os.symlink(external_git, partial / ".git", target_is_directory=True)
+
+            with patch("spark_cli.cli.SPARK_HOME", clone_home), self.assertRaisesRegex(
+                SystemExit,
+                "linked git metadata",
+            ):
+                clone_module_source("git-demo", str(bare), commit=commit)
+
+            self.assertTrue(external_git.is_dir())
+            self.assertTrue((partial / ".git").is_symlink())
+
     def test_is_orphan_clone_detects_git_without_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             target = Path(tmp_dir) / "source"
