@@ -44,6 +44,7 @@ from spark_cli.cli import (
     collect_specialization_loop_payload,
     collect_support_bundle_payload,
     collect_secret_values,
+    hosted_installer_checksums,
     collect_installer_integrity_payload,
     collect_module_provenance_payload,
     collect_drift_sentinel_payload,
@@ -14198,6 +14199,25 @@ class Sandbox:
         self.assertIn("expected Spark CLI source", checks["hosted_install.sh"]["detail"])
         self.assertTrue(checks["hosted_release_manifest"]["ok"])
         self.assertTrue(checks["hosted_commands_metadata"]["ok"])
+
+    def test_hosted_installer_checksums_skip_malformed_lines(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return (
+                    b"malformed-line-without-a-path\n"
+                    b"\n"
+                    + (b"a" * 64)
+                    + b"  install.sh\n"
+                )
+
+        with patch("spark_cli.cli.installer_urlopen", return_value=FakeResponse()):
+            self.assertEqual(hosted_installer_checksums(), {"install.sh": "a" * 64})
 
     def test_hosted_installer_checks_accept_installed_checkout_release(self) -> None:
         class FakeResponse:
