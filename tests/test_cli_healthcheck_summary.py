@@ -43,9 +43,23 @@ class CliHealthcheckSummaryTests(unittest.TestCase):
 
         summary = summarize_command_output(result)
 
-        self.assertIn("[REDACTED]", summary)
+        self.assertEqual(
+            summary,
+            "Error: provider failed with Authorization: Bearer [REDACTED] "
+            "while opening https://api.example.test/run?api_key=[REDACTED]",
+        )
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", summary)
         self.assertNotIn("sk-abcdefghi123456789", summary)
+
+    def test_failure_summary_redacts_another_users_home_path(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["dummy"],
+            returncode=1,
+            stdout="",
+            stderr="Error: failed at /Users/alice/private/app.ts\n",
+        )
+
+        self.assertEqual(summarize_command_output(result), "Error: failed at $HOME/private/app.ts")
 
     def test_failure_summary_strips_terminal_controls(self) -> None:
         result = subprocess.CompletedProcess(
