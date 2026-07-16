@@ -2162,7 +2162,7 @@ class Sandbox:
         cases = (
             (["gh", "auth", "token"], "critical", "approve github token reveal"),
             (["npm", "token", "list"], "high", "approve npm token access"),
-            (["npm", "config", "get", "//registry.npmjs.org/:_authToken"], "high", "approve npm token access"),
+            (["npm", "config", "get", "//registry.npmjs.org/:_authToken"], "critical", "approve package credential access"),
             (["docker", "login", "ghcr.io"], "high", "approve docker credential change"),
             (["docker", "logout", "ghcr.io"], "high", "approve docker credential change"),
             (["gcloud", "auth", "print-access-token"], "critical", "approve cloud token reveal"),
@@ -2172,10 +2172,10 @@ class Sandbox:
             (["aws", "sts", "get-session-token"], "critical", "approve aws credential reveal"),
             (["kubectl", "config", "view", "--raw"], "critical", "approve kubernetes secret read"),
             (["kubectl", "get", "secret", "app-token", "-o", "yaml"], "critical", "approve kubernetes secret read"),
-            (["op", "read", "op://Private/GitHub/token"], "critical", "approve password reveal"),
-            (["op", "item", "get", "GitHub token", "--fields", "password"], "critical", "approve password reveal"),
-            (["pass", "show", "github/token"], "critical", "approve password reveal"),
-            (["security", "find-generic-password", "-a", "spark", "-w"], "critical", "approve password reveal"),
+            (["op", "read", "op://Private/GitHub/token"], "critical", "approve password manager access"),
+            (["op", "item", "get", "GitHub token", "--fields", "password"], "critical", "approve password manager access"),
+            (["pass", "show", "github/token"], "critical", "approve password manager access"),
+            (["security", "find-generic-password", "-a", "spark", "-w"], "critical", "approve password manager access"),
             (["env"], "high", "approve environment reveal"),
             (["printenv", "TELEGRAM_BOT_TOKEN"], "high", "approve environment reveal"),
         )

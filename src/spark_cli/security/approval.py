@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .credential_authority import decide_credential_authority
 from .git_authority import decide_git_authority
 from .host_authority import decide_host_authority
 from .wrapper_policy import (
@@ -1163,6 +1164,8 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
 
     if git_decision := decide_git_authority(raw_parts, ctx, _decision):
         return git_decision
+    if credential_decision := decide_credential_authority(raw_parts, ctx, _decision):
+        return credential_decision
 
     if first == "spark" and second == "secrets" and _contains_any(lowered, {"delete", "get", "export", "--reveal"}):
         return _decision(
@@ -1285,25 +1288,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             "Kubernetes command can reveal cluster secrets or raw kubeconfig credentials.",
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve kubernetes secret read",
-        )
-
-    if (
-        (first == "op" and (second == "read" or lowered[1:3] == ["item", "get"]))
-        or (first == "pass" and second in {"show", "otp"})
-        or (
-            first == "security"
-            and second in {"find-generic-password", "find-internet-password"}
-            and "-w" in lowered
-        )
-    ):
-        return _decision(
-            parts,
-            ctx,
-            "credential_mutation",
-            "critical",
-            "Password-manager command can reveal stored secret values.",
-            target_display=" ".join(parts[:3]),
-            confirmation_phrase="approve password reveal",
         )
 
     if first == "docker" and second in {"login", "logout"}:
