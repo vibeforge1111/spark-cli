@@ -7,6 +7,14 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .wrapper_policy import (
+    DYNAMIC_LOADER_ENV_NAMES,
+    PROCESS_SCHEDULER_WRAPPERS,
+    PROCESS_TRACE_WRAPPERS,
+    TRANSPARENT_COMMAND_WRAPPERS,
+    transparent_wrapper_command,
+)
+
 
 ApprovalClass = Literal[
     "none",
@@ -927,6 +935,66 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     joined = " ".join(lowered)
 
     bin_name = first
+    if bin_name in PROCESS_TRACE_WRAPPERS:
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "critical",
+            "Process tracing can inspect another process's arguments, memory, files, and secret-bearing system calls.",
+            target_display=bin_name,
+            confirmation_phrase="approve process tracing",
+        )
+    if bin_name in PROCESS_SCHEDULER_WRAPPERS:
+        return _decision(
+            parts,
+            ctx,
+            "identity_access_mutation",
+            "high",
+            "Process scheduler commands can inspect or change execution authority for an existing process.",
+            target_display=bin_name,
+            confirmation_phrase="approve process scheduling",
+        )
+    if bin_name in TRANSPARENT_COMMAND_WRAPPERS:
+        inner_parts, env_names, read_only = transparent_wrapper_command(parts)
+        if read_only:
+            return _decision(parts, ctx, "none", "none", f"`{bin_name}` help/version output is read-only.")
+        injection_names = env_names & DYNAMIC_LOADER_ENV_NAMES
+        if injection_names:
+            return _decision(
+                parts,
+                ctx,
+                "remote_code_execution",
+                "high",
+                "Environment assignments can inject code or alter executable/module loading before the wrapped command starts.",
+                target_display=", ".join(sorted(injection_names)),
+                confirmation_phrase="approve environment code injection",
+            )
+        if not inner_parts:
+            action_class: ApprovalClass = "credential_mutation" if bin_name == "env" else "identity_access_mutation"
+            phrase = "approve environment reveal" if bin_name == "env" else "approve unresolved command wrapper"
+            return _decision(
+                parts,
+                ctx,
+                action_class,
+                "high",
+                "Command wrapper did not expose a complete inner command that Spark could classify safely.",
+                target_display=bin_name,
+                confirmation_phrase=phrase,
+            )
+        nested = approval_required_for_command(inner_parts, ctx)
+        if nested.requires_approval:
+            return _decision(
+                parts,
+                ctx,
+                nested.action_class,
+                nested.risk,
+                f"Command runs through `{bin_name}`. {nested.reason}",
+                target_display=nested.target_display,
+                confirmation_phrase=nested.confirmation_phrase,
+            )
+        return _decision(parts, ctx, "none", "none", f"`{bin_name}` wraps a classified read-only command.")
+
     shell_interpreters = {"bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell"}
     language_interpreters = {"python", "python2", "python3", "node", "ruby", "perl"}
 
@@ -989,25 +1057,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
 
     if bin_name in {"sudo", "doas", "pkexec", "run0", "gosu", "su"}:
         return _nested_privilege_decision(parts, ctx)
-
-    if first == "env":
-        index = 1
-        while index < len(parts) and _is_env_assignment(parts[index]):
-            index += 1
-        if index < len(parts):
-            nested = approval_required_for_command(parts[index:], ctx)
-            if nested.requires_approval:
-                return nested
-        else:
-            return _decision(
-                parts,
-                ctx,
-                "credential_mutation",
-                "high",
-                "Command can print environment variables that may include secrets.",
-                target_display="env",
-                confirmation_phrase="approve environment reveal",
-            )
 
     if first == "spark" and second in {"status", "guide"}:
         return _decision(parts, ctx, "none", "none", f"`spark {second}` is read-only.")
