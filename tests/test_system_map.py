@@ -319,6 +319,32 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(row["module_ids"], ["spawner-ui"])
         self.assertEqual(board["next_actions"][0]["repo"], "spawner-ui")
 
+    def test_repo_board_preserves_named_checkout_identity_separately_from_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "local-spawner-fork"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / "spark.toml").write_text(
+                "[module]\nname = \"spawner-ui\"\n",
+                encoding="utf-8",
+            )
+
+            metadata = collect_repo_metadata(repo)
+            board = build_repo_board(
+                {
+                    "registry": {"modules": {"spawner-ui": {}}},
+                    "installed_modules": {},
+                    "discovered_repos": [metadata],
+                }
+            )
+
+        self.assertEqual(metadata["name"], "local-spawner-fork")
+        self.assertEqual(metadata["spark_toml"]["module_name"], "spawner-ui")
+        row = board["repos"][0]
+        self.assertEqual(row["repo"], "local-spawner-fork")
+        self.assertEqual(row["repo_dir"], "local-spawner-fork")
+        self.assertEqual(row["module_ids"], ["spawner-ui"])
+
     def test_spark_skill_manifest_schema_is_bounded_untrusted_contract(self) -> None:
         schema_path = Path(__file__).resolve().parents[1] / "schemas" / "spark-skill-manifest.v1.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
