@@ -820,6 +820,58 @@ class SparkCliTests(unittest.TestCase):
         self.assertIn("sandbox.detach()", script)
         self.assertNotIn("MODAL_TOKEN_SECRET", script)
 
+    def test_modal_smoke_script_reports_bounded_cleanup_failures(self) -> None:
+        fake_modal = """
+class App:
+    @staticmethod
+    def lookup(*args, **kwargs):
+        return object()
+
+class _Stream:
+    def __init__(self, value):
+        self.value = value
+    def read(self):
+        return self.value
+
+class _Process:
+    stdout = _Stream(b"SPARK_MODAL_SMOKE_OK\\n")
+    stderr = _Stream(b"")
+    def wait(self):
+        return 0
+
+class _Sandbox:
+    def exec(self, *args, **kwargs):
+        return _Process()
+    def terminate(self):
+        raise RuntimeError("Bearer secret-cleanup-token /private/tmp/provider")
+    def detach(self):
+        raise OSError("secret-cleanup-token /Users/private/provider")
+
+class Sandbox:
+    @staticmethod
+    def create(*args, **kwargs):
+        return _Sandbox()
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "modal.py").write_text(fake_modal, encoding="utf-8")
+            env = dict(os.environ)
+            env["PYTHONPATH"] = tmpdir
+            result = subprocess.run(
+                [sys.executable, "-c", modal_smoke_script()],
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SPARK_MODAL_CLEANUP_WARNING action=terminate error=RuntimeError", result.stderr)
+        self.assertIn("SPARK_MODAL_CLEANUP_WARNING action=detach error=OSError", result.stderr)
+        self.assertNotIn("secret-cleanup-token", result.stderr)
+        self.assertNotIn("/private/tmp", result.stderr)
+        self.assertNotIn("/Users/private", result.stderr)
+
     def test_modal_smoke_probe_requires_sdk_before_subprocess(self) -> None:
         with patch("spark_cli.sandbox.modal.modal_sdk_available", return_value=False), \
              patch("spark_cli.sandbox.modal.subprocess.run") as run:
