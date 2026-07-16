@@ -29,7 +29,11 @@ class ResidualApprovalAuthorityTests(unittest.TestCase):
                 self.assert_blocked(command, "network_exfiltration", "medium", "approve network upload")
 
     def test_forced_git_worktree_and_ref_mutations_are_governed(self) -> None:
-        for command in (["git", "checkout", "-f", "main"], ["git", "checkout", "--force", "main"]):
+        for command in (
+            ["git", "checkout", "-f", "main"],
+            ["git", "checkout", "--force", "main"],
+            ["git", "switch", "--discard-changes", "main"],
+        ):
             with self.subTest(command=command):
                 self.assert_blocked(command, "destructive_filesystem", "high", "approve git worktree discard")
         self.assert_blocked(["git", "branch", "-f", "main", "HEAD~1"], "git_history_mutation", "critical", "approve git history mutation")
@@ -68,6 +72,9 @@ class ResidualApprovalAuthorityTests(unittest.TestCase):
                 self.assert_blocked(command, "remote_code_execution", "high", "approve package runner execution")
         self.assertFalse(self.decision(["npx", "prisma", "db", "pull"]).requires_approval)
         self.assert_blocked(["npx", "prisma", "migrate", "deploy"], "external_publish", "high", "approve database migration")
+        for command in (["npx", "--help"], ["npm", "exec", "--help"], ["pnpm", "dlx", "--help"]):
+            with self.subTest(command=command):
+                self.assertFalse(self.decision(command).requires_approval)
 
     def test_container_exec_namespace_and_chroot_are_governed(self) -> None:
         cases = (

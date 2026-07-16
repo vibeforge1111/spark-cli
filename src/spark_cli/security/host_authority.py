@@ -99,6 +99,17 @@ def _package_install(words: list[str]) -> bool:
 
 def _package_runner(words: list[str]) -> bool:
     executable = words[0]
+    read_only_flags = {"-h", "--help", "-v", "--version"}
+    if executable == "npx":
+        if len(words) <= 1 or all(word in read_only_flags for word in words[1:]):
+            return False
+        if words[1:4] in (["prisma", "db", "pull"], ["prisma", "migrate", "deploy"]):
+            return False
+        return True
+    if executable == "npm" and words[1:2] == ["exec"]:
+        return len(words) > 2 and not all(word in read_only_flags for word in words[2:])
+    if executable in {"pnpm", "yarn"} and words[1:2] == ["dlx"]:
+        return len(words) > 2 and not all(word in read_only_flags for word in words[2:])
     return (
         executable == "uvx"
         or executable == "pipx"

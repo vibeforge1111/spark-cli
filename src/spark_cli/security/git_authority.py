@@ -241,6 +241,17 @@ def parse_git_authority(parts: list[str]) -> GitAuthority | None:
             "approve git worktree discard",
         )
 
+    if command in {"checkout", "switch"} and (
+        _has(arguments, "--force", "--discard-changes") or _short_flag(arguments, "f")
+    ):
+        return _authority(
+            "destructive_filesystem",
+            "high",
+            "Forced Git checkout or switch can discard tracked worktree changes.",
+            target,
+            "approve git worktree discard",
+        )
+
     if command == "checkout" and ("--" in arguments or "." in arguments):
         return _authority(
             "destructive_filesystem",
