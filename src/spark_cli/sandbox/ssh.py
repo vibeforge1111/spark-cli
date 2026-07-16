@@ -39,6 +39,12 @@ SSH_SUBPROCESS_ENV_ALLOWLIST = {
     "USERPROFILE",
     "WINDIR",
 }
+SSH_LOCAL_HOST_ALIASES = {
+    "localhost",
+    "localhost.localdomain",
+    "ip6-localhost",
+    "ip6-loopback",
+}
 SSH_SMOKE_PROBE = """#!/bin/sh
 set -eu
 printf 'SPARK_SSH_SMOKE_OK\\n'
@@ -181,17 +187,18 @@ def _legacy_ipv4_address(host: str) -> ipaddress.IPv4Address | None:
 
 def _ssh_host_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
-        return ipaddress.ip_address(host)
+        address = ipaddress.ip_address(host)
     except ValueError:
-        return _legacy_ipv4_address(host)
+        address = _legacy_ipv4_address(host)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
 
 
 def _is_metadata_host(value: str) -> bool:
     if value == "metadata.google.internal":
         return True
     ip = _ssh_host_ip(value)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
     return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
 
 
@@ -205,6 +212,11 @@ def validate_ssh_host(host: str) -> str:
         raise ValueError("SSH host contains unsupported characters.")
     if _is_metadata_host(value):
         raise ValueError("SSH host must not point at a cloud metadata service.")
+    address = _ssh_host_ip(value)
+    if value in SSH_LOCAL_HOST_ALIASES or (address is not None and address.is_loopback):
+        raise ValueError("SSH sandbox host must not point back to this machine.")
+    if address is not None and address.is_link_local:
+        raise ValueError("SSH sandbox host must not use a link-local address.")
     return value
 
 
