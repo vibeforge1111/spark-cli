@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -3229,6 +3230,99 @@ class Sandbox:
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["provider"], "zai")
         self.assertNotIn("zai-secret", json.dumps(payload))
+
+    def test_provider_test_uses_short_bounded_probe_timeout(self) -> None:
+        with patch("spark_cli.cli.resolve_provider_test_target", return_value={
+            "provider": "codex",
+            "role": "chat",
+            "model": "gpt-5.6",
+            "auth_mode": "codex_oauth",
+            "cli_path": "codex",
+        }), patch("spark_cli.cli.call_llm_doctor", return_value="PING_OK") as doctor:
+            payload = provider_test_payload(role="chat")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(doctor.call_args.kwargs["timeout_seconds"], 30)
+
+    def test_llm_cli_probe_command_captures_bounded_output_and_cleans_temp_files(self) -> None:
+        from spark_cli.cli import run_llm_cli_probe_command
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            with patch.dict(os.environ, {"TMPDIR": temp_root}):
+                result = run_llm_cli_probe_command(
+                    [sys.executable, "-c", "import sys; print('PING_OK'); print('small warning', file=sys.stderr)"],
+                    provider_label="TestProvider",
+                    timeout_seconds=2,
+                    max_output_bytes=4096,
+                )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), "PING_OK")
+            self.assertEqual(result.stderr.strip(), "small warning")
+            self.assertEqual(list(Path(temp_root).iterdir()), [])
+
+    def test_llm_cli_probe_command_stops_on_output_budget(self) -> None:
+        from spark_cli.cli import run_llm_cli_probe_command
+
+        with self.assertRaises(SystemExit) as error:
+            run_llm_cli_probe_command(
+                [sys.executable, "-c", "print('x' * 65536)"],
+                provider_label="TestProvider",
+                timeout_seconds=2,
+                max_output_bytes=1024,
+            )
+        self.assertIn("bounded output limit", str(error.exception))
+
+    def test_llm_cli_probe_command_rejects_nonpositive_limits_before_spawn(self) -> None:
+        from spark_cli.cli import run_llm_cli_probe_command
+
+        with patch("spark_cli.cli.subprocess.Popen") as popen:
+            for timeout_seconds, max_output_bytes in ((0, 1024), (1, 0)):
+                with self.subTest(timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes):
+                    with self.assertRaises(ValueError):
+                        run_llm_cli_probe_command(
+                            ["provider"],
+                            provider_label="TestProvider",
+                            timeout_seconds=timeout_seconds,
+                            max_output_bytes=max_output_bytes,
+                        )
+        popen.assert_not_called()
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group proof")
+    def test_llm_cli_probe_command_kills_timeout_process_group(self) -> None:
+        from spark_cli.cli import run_llm_cli_probe_command
+
+        with tempfile.TemporaryDirectory() as temp_root:
+            child_pid_path = Path(temp_root) / "child.pid"
+            program = (
+                "import pathlib,subprocess,sys,time;"
+                "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']);"
+                f"pathlib.Path({str(child_pid_path)!r}).write_text(str(child.pid));"
+                "time.sleep(30)"
+            )
+            with self.assertRaises(SystemExit) as error:
+                run_llm_cli_probe_command(
+                    [sys.executable, "-c", program],
+                    provider_label="TestProvider",
+                    timeout_seconds=0.5,
+                    max_output_bytes=4096,
+                )
+            self.assertIn("within 0.5s", str(error.exception))
+            child_pid = int(child_pid_path.read_text())
+            alive = True
+            try:
+                for _ in range(20):
+                    try:
+                        os.kill(child_pid, 0)
+                    except ProcessLookupError:
+                        alive = False
+                        break
+                    time.sleep(0.05)
+            finally:
+                if alive:
+                    try:
+                        os.kill(child_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        alive = False
+            self.assertFalse(alive, "timed-out provider descendant remained alive")
 
     def test_provider_test_can_call_codex_oauth_cli(self) -> None:
         completed = subprocess.CompletedProcess(
