@@ -4759,6 +4759,23 @@ class Sandbox:
             self.assertEqual(shim_path.read_text(encoding="utf-8"), "@python %*\n")
             self.assertEqual(shim_path.stat().st_mtime_ns, before)
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink and mode boundary")
+    def test_write_runtime_shim_uses_private_exclusive_temp_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            shim_path = root / "spark"
+            victim = root / "do-not-touch"
+            victim.write_text("original", encoding="utf-8")
+            predictable_temp = root / f".{shim_path.name}.{os.getpid()}.tmp"
+            predictable_temp.symlink_to(victim)
+
+            write_runtime_shim(shim_path, "#!/bin/sh\nprintf safe\n")
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "original")
+            self.assertFalse(shim_path.is_symlink())
+            self.assertEqual(shim_path.read_text(encoding="utf-8"), "#!/bin/sh\nprintf safe\n")
+            self.assertEqual(shim_path.stat().st_mode & 0o777, 0o600)
+
     def test_update_env_file_replaces_managed_block(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             env_path = Path(tmp_dir) / ".env"
