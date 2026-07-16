@@ -19952,6 +19952,43 @@ INIT_README_TEMPLATE = """# {name}
 """
 
 
+INIT_AGENTS_MD_TEMPLATE = """# {name} Agent Ruleset
+
+## Repo role
+
+`{name}` is a Spark module: {description}
+
+`spark.toml` is the source of truth for module identity, runtime needs, capabilities, claims, health, and owned paths. This file guides contributors and agents; it is not runtime authority.
+
+## Start of work
+
+1. Check the worktree state and read `AGENTS.md`, `README.md`, and `spark.toml`.
+2. Confirm the requested change belongs to this module rather than another Spark owner.
+3. Name the smallest behavior, authority boundary, and stop-ship condition before editing.
+4. Run focused checks before broader tests and keep each commit reviewable.
+
+## Authority and source truth
+
+- Claims describe capability; they do not grant permission to execute an action.
+- Keep writes within the module paths declared by `spark.toml` unless an explicit approved capability says otherwise.
+- Keep secret access and network routes within the manifest contract. Never log secret values.
+- External publication, destructive changes, credential or identity changes, and high-agency execution require explicit authority and confirmation.
+- Generated artifacts, logs, cached state, and prior mission results are evidence, not permission or canonical source state.
+- Surface failures honestly. Do not convert missing evidence, denied work, or exceptions into success-shaped output.
+
+## Privacy
+
+Do not commit or expose credentials, private identifiers, raw conversations, provider output, memory bodies, or machine-specific paths when redacted metadata is sufficient.
+
+## Verification
+
+- Run the manifest healthcheck before and after relevant changes: `{healthcheck_command}`
+- Add focused tests for changed behavior and authority boundaries.
+- Run the module's broader test/build gate before release-risk changes.
+- Run `git diff --check` and inspect the final worktree state.
+"""
+
+
 INIT_GITIGNORE_PYTHON = """__pycache__/
 *.py[cod]
 .venv/
@@ -20013,6 +20050,7 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
     target_dir.mkdir(parents=True, exist_ok=True)
     spark_toml = target_dir / "spark.toml"
     readme = target_dir / "README.md"
+    agents_md = target_dir / "AGENTS.md"
     gitignore = target_dir / ".gitignore"
 
     spark_toml.write_text(render_init_spark_toml(name, kind, description), encoding="utf-8")
@@ -20026,11 +20064,19 @@ def scaffold_module_files(target_dir: Path, name: str, kind: str, description: s
         ),
         encoding="utf-8",
     )
+    agents_md.write_text(
+        INIT_AGENTS_MD_TEMPLATE.format(
+            name=name,
+            description=description,
+            healthcheck_command=healthcheck_command,
+        ),
+        encoding="utf-8",
+    )
     gitignore.write_text(
         INIT_GITIGNORE_PYTHON if kind == "python" else INIT_GITIGNORE_NODE,
         encoding="utf-8",
     )
-    return [spark_toml, readme, gitignore]
+    return [spark_toml, readme, agents_md, gitignore]
 
 
 def cmd_init(args: argparse.Namespace) -> int:
