@@ -40,7 +40,7 @@ import tomllib
 
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
-from .env_files import normalize_env_file_value
+from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
 from .provider_auth import effective_provider_auth_mode
 from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
 from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
@@ -3966,26 +3966,18 @@ def spark_builder_home() -> Path:
 
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
-    lines = [f"{key}={value}" for key, value in values.items()]
     # Generated module env files hold control-plane keys (SPARK_BRIDGE_API_KEY,
     # SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
     # owner-only from the first byte and replace them atomically so a reader never
     # observes a partial file. The helper also refuses linked write paths and breaks
     # inherited ACL access on Windows.
-    atomic_write_text(path, "\n".join(lines) + "\n")
+    atomic_write_text(path, serialize_env_file(values))
 
 
 def read_generated_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
     if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
-    return values
+        return {}
+    return parse_env_file_bytes(path.read_bytes())
 
 
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
@@ -5383,7 +5375,7 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
     end = "# --- spark-cli managed end ---"
     lines: list[str] = []
     if path.exists():
-        existing = path.read_text(encoding="utf-8").splitlines()
+        existing = decode_env_file_bytes(path.read_bytes()).splitlines()
         inside = False
         for line in existing:
             if line.strip() == start:
@@ -5400,7 +5392,7 @@ def update_env_file(path: Path, values: dict[str, str]) -> None:
         lines.append("")
     lines.append(start)
     for key, value in values.items():
-        lines.append(f"{key}={value}")
+        lines.append(serialize_env_assignment(key, value))
     lines.append(end)
     atomic_write_text(path, "\n".join(lines) + "\n")
 
