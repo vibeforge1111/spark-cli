@@ -58,6 +58,9 @@ INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
 ALLOW_INSECURE_FILE_SECRETS_ENV = "SPARK_ALLOW_INSECURE_FILE_SECRETS"
 SETUP_OPTIONAL_ON_UPGRADE_ENV = "SPARK_SETUP_OPTIONAL_ON_UPGRADE"
 PRIVATE_FILE_MODE = 0o600
+MAX_PROCESS_LOG_BYTES = 10 * 1024 * 1024
+MAX_PROCESS_LOG_ENTRY_BYTES = 64 * 1024
+MAX_LOG_TAIL_BYTES = 2 * 1024 * 1024
 GIT_SHORTHAND_HOSTS = {"github.com", "gitlab.com"}
 
 
@@ -19567,18 +19570,143 @@ def module_log_path(module_name: str, profile: str | None = None) -> Path:
     return LOG_DIR / module_name / "process.log"
 
 
+@contextmanager
+def process_log_lock(path: Path, timeout_seconds: float = 5.0):
+    lock_path = path.with_name(f".{path.name}.lock")
+    flags = (
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = os.open(lock_path, flags, PRIVATE_FILE_MODE)
+    with os.fdopen(fd, "a+b") as handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        deadline = time.monotonic() + timeout_seconds
+        if sys.platform == "win32":
+            import msvcrt
+
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the Spark process-log lock.")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            while True:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the Spark process-log lock.")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def bounded_process_log_entry(message: str) -> bytes:
+    prefix = f"[spark-cli {timestamp_now()}] ".encode("utf-8")
+    suffix = b"\n"
+    marker = b" [truncated]"
+    entry_limit = max(1, min(MAX_PROCESS_LOG_ENTRY_BYTES, MAX_PROCESS_LOG_BYTES))
+    body_limit = max(0, entry_limit - len(prefix) - len(suffix))
+    body = message.rstrip().encode("utf-8", errors="replace")
+    if len(body) > body_limit:
+        retained_limit = max(0, body_limit - len(marker))
+        retained = body[:retained_limit].decode("utf-8", errors="ignore").encode("utf-8")
+        body = (retained + marker)[:body_limit]
+    return (prefix + body + suffix)[:entry_limit]
+
+
+def compact_process_log(path: Path, max_bytes: int) -> None:
+    flags = (
+        os.O_RDWR
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "r+b") as handle:
+        file_size = os.fstat(handle.fileno()).st_size
+        if file_size <= max_bytes:
+            return
+        handle.seek(-max_bytes, os.SEEK_END)
+        retained = handle.read(max_bytes)
+        newline = retained.find(b"\n")
+        retained = retained[newline + 1 :] if newline >= 0 else b""
+        handle.seek(0)
+        handle.write(retained)
+        handle.truncate()
+        handle.flush()
+
+
 def append_process_log(module_name: str, message: str, profile: str | None = None) -> None:
     path = module_log_path(module_name, profile)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", errors="replace") as handle:
-        handle.write(f"[spark-cli {timestamp_now()}] {message.rstrip()}\n")
+    entry = bounded_process_log_entry(message)
+    with process_log_lock(path):
+        if path.is_symlink():
+            raise OSError("Refusing to append through a linked Spark process log.")
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_APPEND
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        fd = os.open(path, flags, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "ab") as handle:
+            handle.write(entry)
+            handle.flush()
+        compact_process_log(path, MAX_PROCESS_LOG_BYTES)
 
 
 def tail_log_lines(path: Path, line_count: int) -> list[str]:
-    if not path.exists():
+    if path.is_symlink():
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOINHERIT", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return []
+    with os.fdopen(fd, "rb") as handle:
+        file_size = os.fstat(handle.fileno()).st_size
+        read_size = min(file_size, MAX_LOG_TAIL_BYTES)
+        if read_size <= 0:
+            return []
+        start = file_size - read_size
+        handle.seek(start)
+        data = handle.read(read_size)
+    if start > 0:
+        newline = data.find(b"\n")
+        data = data[newline + 1 :] if newline >= 0 else b""
+    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+    lines = [
+        f"{line[:-2]}\n" if line.endswith("\r\n") else f"{line[:-1]}\n" if line.endswith("\r") else line
+        for line in lines
+    ]
     if line_count <= 0:
         return lines
     return lines[-line_count:]
