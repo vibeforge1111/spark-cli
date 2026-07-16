@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 
 HostActionClass = Literal["destructive_filesystem", "identity_access_mutation", "process_autostart_mutation", "remote_code_execution"]
@@ -159,3 +160,18 @@ def parse_host_authority(parts: list[str]) -> HostAuthority | None:
         if authority is not None:
             return authority
     return None
+
+
+def decide_host_authority(parts: list[str], context: Any, decision_factory: Callable[..., Any]) -> Any:
+    authority = parse_host_authority(parts)
+    if authority is None:
+        return None
+    return decision_factory(
+        parts,
+        context,
+        authority.action_class,
+        authority.risk,
+        authority.reason,
+        target_display=authority.target_display,
+        confirmation_phrase=authority.confirmation_phrase,
+    )

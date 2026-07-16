@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from .host_authority import parse_host_authority
+from .host_authority import decide_host_authority
 from .wrapper_policy import (
     DYNAMIC_LOADER_ENV_NAMES,
     PROCESS_SCHEDULER_WRAPPERS,
@@ -930,11 +930,9 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
     lowered = _lower_parts(parts)
     if not lowered:
         return _decision(parts, ctx, "none", "none", "Empty command.")
-
     first = _command_word(parts[0])
     second = lowered[1] if len(lowered) > 1 else ""
     joined = " ".join(lowered)
-
     bin_name = first
     if bin_name in PROCESS_TRACE_WRAPPERS:
         return _decision(
@@ -1623,17 +1621,6 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display="spark verify --deep",
             confirmation_phrase="approve deep verification",
         )
-
-    host_authority = parse_host_authority(parts)
-    if host_authority is not None:
-        return _decision(
-            parts,
-            ctx,
-            host_authority.action_class,
-            host_authority.risk,
-            host_authority.reason,
-            target_display=host_authority.target_display,
-            confirmation_phrase=host_authority.confirmation_phrase,
-        )
-
+    if host_decision := decide_host_authority(parts, ctx, _decision):
+        return host_decision
     return _decision(parts, ctx, "none", "none", "No sensitive action class matched.")
