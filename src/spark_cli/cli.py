@@ -15606,14 +15606,13 @@ def cmd_fix(args: argparse.Namespace) -> int:
         for command in payload["next_commands"]:
             print(f"  {command}")
         return 0 if all(check.get("ok") for check in payload.get("checks", [])) else 1
-
     if args.target != "telegram":
         raise SystemExit(f"Unknown fix target: {args.target}")
     payload = collect_telegram_fix_payload()
     if args.json:
         print(json.dumps(payload, indent=2))
         return 0 if payload.get("ok") else 1
-    print(payload["summary"])
+    print(("Spark Telegram is ready." if payload.get("ok") else "Spark Telegram needs attention.") if getattr(args, "status_view", False) else payload["summary"])
     print("")
     for check in payload["checks"]:
         marker = "[OK]" if check["ok"] else "[FIX]"
@@ -19652,7 +19651,10 @@ def cmd_autostart_profile(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_autostart_status(_: argparse.Namespace) -> int:
+def cmd_autostart_status(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False):
+        args.target = "autostart"
+        return cmd_fix(args)
     profiles = autostart_telegram_profiles()
     profile_text = ", ".join(profiles) if profiles else "none"
     configured = configured_telegram_profiles()
@@ -19671,7 +19673,6 @@ def cmd_autostart_status(_: argparse.Namespace) -> int:
         if startup_path is not None:
             print_autostart_file_audit("WSL Windows-login fallback", startup_path, expected_command=expected_start_command)
         return 0
-
     if sys.platform.startswith("linux"):
         scope = linux_autostart_scope()
         service_path = linux_autostart_path(scope)
@@ -19767,7 +19768,6 @@ def process_log_lock(path: Path, timeout_seconds: float = 5.0):
         deadline = time.monotonic() + timeout_seconds
         if sys.platform == "win32":
             import msvcrt
-
             while True:
                 try:
                     msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
@@ -19783,7 +19783,6 @@ def process_log_lock(path: Path, timeout_seconds: float = 5.0):
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
-
             while True:
                 try:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -21393,9 +21392,11 @@ def build_parser() -> argparse.ArgumentParser:
     approval_classify_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to classify; use -- before the command")
     approval_classify_parser.set_defaults(func=cmd_approval)
     _wrap_subgroup_help(approval_parser, ["status", "classify"])
-
     telegram_parser = subparsers.add_parser("telegram", help="Connect and manage Telegram bots")
     telegram_sub = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+    telegram_status_parser = telegram_sub.add_parser("status", help="Show fresh Telegram runtime and repair status")
+    telegram_status_parser.add_argument("--json", action="store_true", help="Emit status as structured JSON")
+    telegram_status_parser.set_defaults(func=cmd_fix, target="telegram", status_view=True)
     telegram_connect_parser = telegram_sub.add_parser("connect", help="Connect a BotFather token to a Spark Telegram profile")
     telegram_connect_parser.add_argument(
         "profile",
@@ -21417,8 +21418,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     telegram_connect_parser.add_argument("--no-restart", action="store_true", help="Save the token without restarting the bot")
     telegram_connect_parser.set_defaults(func=cmd_telegram_connect)
-    _wrap_subgroup_help(telegram_parser, ["connect"])
-
+    _wrap_subgroup_help(telegram_parser, ["status", "connect"])
     update_parser = subparsers.add_parser("update", help="Refresh installed modules from their current source paths")
     update_parser.add_argument("target", nargs="?")
     update_parser.add_argument("--skip-install-commands", action="store_true", help="Skip post-update install commands (pip install, npm install) for faster refresh")
@@ -21517,9 +21517,9 @@ def build_parser() -> argparse.ArgumentParser:
     autostart_profile_parser.add_argument("state", choices=["on", "off"], help="Whether this profile should start with Spark Live")
     autostart_profile_parser.set_defaults(func=cmd_autostart_profile)
     autostart_status_parser = autostart_subparsers.add_parser("status", help="Show OS login autostart status")
+    autostart_status_parser.add_argument("--json", action="store_true", help="Emit status as structured JSON")
     autostart_status_parser.set_defaults(func=cmd_autostart_status)
     _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
-
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
     guide_parser.add_argument(
         "topic",
