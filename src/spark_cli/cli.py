@@ -15809,6 +15809,9 @@ def prepend_pythonpath(env: dict[str, str], paths: list[Path]) -> None:
     env["PYTHONPATH"] = os.pathsep.join([*present, existing]) if existing else os.pathsep.join(present)
 
 
+BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS = 30
+
+
 def collect_builder_memory_direct_smoke(
     *,
     installed: object,
@@ -15863,16 +15866,25 @@ def collect_builder_memory_direct_smoke(
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
         return {
             "ok": False,
             "ran": True,
-            "detail": f"Builder memory direct smoke could not complete: {exc}",
+            "detail": (
+                "Builder memory direct smoke timed out after "
+                f"{BUILDER_MEMORY_DIRECT_SMOKE_TIMEOUT_SECONDS} seconds."
+            ),
             "repair": "spark setup telegram-starter",
         }
-    detail = summarize_command_output(result)
+    except OSError as error:
+        return {
+            "ok": False,
+            "ran": True,
+            "detail": f"Builder memory direct smoke could not start (error type: {type(error).__name__}).",
+            "repair": "spark setup telegram-starter",
+        }
     if result.returncode == 0:
         return {
             "ok": True,
@@ -15883,7 +15895,10 @@ def collect_builder_memory_direct_smoke(
     return {
         "ok": False,
         "ran": True,
-        "detail": detail or f"Builder memory direct smoke failed with exit {result.returncode}.",
+        "detail": (
+            f"Builder memory direct smoke failed with exit {result.returncode}. "
+            "No Builder or Memory state was accepted."
+        ),
         "repair": "spark setup telegram-starter",
     }
 
