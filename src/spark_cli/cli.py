@@ -17696,7 +17696,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
             print(f"{marker} {check['name']}: {check['detail']}")
         return 0 if payload["ok"] else 1
 
-    if getattr(args, "installers", False):
+    if getattr(args, "installers", False) or getattr(args, "hosted_installers", False):
         payload = collect_installer_integrity_payload(hosted=bool(getattr(args, "hosted_installers", False)))
         if args.json:
             print(json.dumps(payload, indent=2))
@@ -20566,7 +20566,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark doctor [--json]", "use": "Run diagnostic status output." },
             { "command": "spark doctor llm \"<problem>\"", "use": "Ask the configured LLM for a redacted repair plan." },
             { "command": "spark support bundle", "use": "Create a local redacted support bundle." },
-            { "command": "spark verify [--onboarding|--deep|--installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
+            { "command": "spark verify [--onboarding|--deep|--installers|--hosted-installers|--sandboxes]", "use": "Verify launch-critical wiring, onboarding, deeper runtime checks, local or hosted installer integrity, or optional Docker/SSH/Modal sandbox readiness." },
             { "command": "spark drift sentinel [--json|--dm-telegram]", "use": "Run the daily drift sentinel over registry pins, release-lane mirrors, OS compile, runtime health, and Harness vendor hashes." },
             { "command": "spark smoke first-run [--quick|--json]", "use": "Check first-run readiness and print the exact Telegram smoke script for Mission Control." },
             { "command": "spark fix <target>", "use": "Run targeted repair guidance for telegram, secrets, spawner, providers, memory, live, update, or autostart." },
@@ -20585,7 +20585,7 @@ def onboarding_guide_payload() -> dict[str, Any]:
             { "command": "spark restart [target]", "use": "Restart modules or starter bundles." },
             { "command": "spark live status|start|run|restart|stop|logs|verify", "use": "Control and inspect Spark Live." },
             { "command": "spark autostart install|on|uninstall|off|profile|status", "use": "Control OS login startup and per-profile autostart." },
-            { "command": "spark guide [--advanced|--json]", "use": "Show onboarding, advanced guidance, and this command reference." },
+            { "command": "spark guide [topic] [--advanced|--json]", "use": "Show onboarding, advanced guidance, and this command reference; topic records the requested install, setup, Telegram, provider, voice, security, or update lane." },
             { "command": "spark init <name>", "use": "Scaffold a new Spark module." },
             { "command": "spark search [query]", "use": "Search the local blessed registry." },
             { "command": "spark config get|set|unset|list", "use": "Read or write user config at ~/.spark/config/config.json." },
@@ -20609,11 +20609,16 @@ def onboarding_guide_payload() -> dict[str, Any]:
 
 def cmd_guide(args: argparse.Namespace) -> int:
     payload = onboarding_guide_payload()
+    topic = str(getattr(args, "topic", "") or "").strip().lower()
+    if topic:
+        payload["selected_topic"] = topic
     if getattr(args, "json", False):
         print(json.dumps(payload, indent=2))
         return 0
 
     print(payload["title"])
+    if topic:
+        print(f"Topic: {topic}")
     print(payload["goal"])
     print("Works on: " + ", ".join(payload["operating_systems"]))
     print("")
@@ -20983,7 +20988,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--deep", action="store_true", help="Run live write/read memory smoke checks in addition to static wiring checks")
     verify_parser.add_argument("--onboarding", action="store_true", help="Run first-user onboarding checks and print the Telegram finish checklist")
     verify_parser.add_argument("--installers", action="store_true", help="Verify installer script hashes against the committed manifest")
-    verify_parser.add_argument("--hosted-installers", action="store_true", help="Also compare agent.sparkswarm.ai installers against the committed manifest")
+    verify_parser.add_argument("--hosted-installers", action="store_true", help="Compare agent.sparkswarm.ai installers against the committed manifest; implies --installers")
     verify_parser.add_argument("--hosted", action="store_true", help="Verify hosted Docker/Railway security posture")
     verify_parser.add_argument("--provenance", action="store_true", help="Report blessed module commit-pin, signature, and attestation posture")
     verify_parser.add_argument("--registry-pins", action="store_true", help="Verify blessed registry pins match each module's remote HEAD")
@@ -21351,6 +21356,12 @@ def build_parser() -> argparse.ArgumentParser:
     _wrap_subgroup_help(autostart_parser, ["status", "install", "on", "uninstall", "off", "profile"])
 
     guide_parser = subparsers.add_parser("guide", help="Show first-run BotFather, LLM, module, and Telegram command guide")
+    guide_parser.add_argument(
+        "topic",
+        nargs="?",
+        choices=["install", "setup", "telegram", "providers", "voice", "security", "update"],
+        help="Optional guide lane; the selected topic is reported while the complete guide remains available",
+    )
     guide_parser.add_argument("--json", action="store_true", help="Emit the guide as structured JSON")
     guide_parser.add_argument("--advanced", action="store_true", help="Show provider splits, multiple bots, allowed actions, modules, and support commands")
     guide_parser.set_defaults(func=cmd_guide)
