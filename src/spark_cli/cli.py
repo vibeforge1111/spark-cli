@@ -3360,9 +3360,20 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
     except OSError:
         pass
 
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp_path: Path | None = None
+    temp_fd: int | None = None
     try:
-        temp_path.write_text(content, encoding="utf-8")
+        temp_fd, temp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temp_path = Path(temp_name)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         if executable and os.name != "nt":
             temp_path.chmod(0o755)
         os.replace(temp_path, path)
@@ -3371,8 +3382,10 @@ def write_runtime_shim(path: Path, content: str, *, executable: bool = False) ->
             return
         raise
     finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
         try:
-            if temp_path.exists():
+            if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
         except OSError:
             pass

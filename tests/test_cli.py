@@ -4776,6 +4776,10 @@ class Sandbox:
             self.assertEqual(shim_path.read_text(encoding="utf-8"), "#!/bin/sh\nprintf safe\n")
             self.assertEqual(shim_path.stat().st_mode & 0o777, 0o600)
 
+            executable_path = root / "spark-exec"
+            write_runtime_shim(executable_path, "#!/bin/sh\nprintf safe\n", executable=True)
+            self.assertEqual(executable_path.stat().st_mode & 0o777, 0o755)
+
     def test_update_env_file_replaces_managed_block(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             env_path = Path(tmp_dir) / ".env"
