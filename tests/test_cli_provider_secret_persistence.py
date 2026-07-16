@@ -107,6 +107,7 @@ class CliProviderSecretPersistenceTests(unittest.TestCase):
             stdout = StringIO()
             with patch.multiple("spark_cli.cli", MODULE_CONFIG_DIR=config_dir, LOG_DIR=log_dir), \
                  patch("spark_cli.cli.stdin_is_tty", return_value=False), \
+                 patch("spark_cli.cli.load_pids", return_value={}), \
                  redirect_stdout(stdout):
                 exit_code = main(["fix", "secrets", "--redact-logs"])
             persisted_config = config_path.read_text(encoding="utf-8")

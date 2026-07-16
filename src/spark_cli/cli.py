@@ -12569,15 +12569,37 @@ def collect_secret_surface_payload() -> dict[str, Any]:
     }
 
 
+def secret_log_redaction_has_live_process() -> bool:
+    for record in load_pids().values():
+        if not isinstance(record, dict):
+            continue
+        try:
+            pid = int(record.get("pid") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and pid_is_running(pid):
+            return True
+    return False
+
+
 def redact_secret_surface_logs() -> dict[str, Any]:
     changed: list[str] = []
     scanned = 0
+    failed = 0
+    if secret_log_redaction_has_live_process():
+        return {
+            "changed": changed,
+            "scanned_files": scanned,
+            "failed_files": failed,
+            "blocked": True,
+            "detail": "Stop Spark services before redacting logs so active writers are not orphaned.",
+        }
     if not LOG_DIR.exists():
-        return {"changed": changed, "scanned_files": scanned}
+        return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
     try:
         files = [path for path in LOG_DIR.rglob("*") if path.is_file()]
     except OSError:
-        return {"changed": changed, "scanned_files": scanned}
+        return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
     for path in files:
         scanned += 1
         try:
@@ -12589,11 +12611,12 @@ def redact_secret_surface_logs() -> dict[str, Any]:
         redacted = redact_sensitive_text(original)
         if redacted != original:
             try:
-                path.write_text(redacted, encoding="utf-8")
-            except OSError:
+                atomic_write_text(path, redacted)
+            except (OSError, SystemExit):
+                failed += 1
                 continue
             changed.append(redact_shareable_text(str(path)))
-    return {"changed": changed, "scanned_files": scanned}
+    return {"changed": changed, "scanned_files": scanned, "failed_files": failed, "blocked": False}
 
 
 def security_check(
@@ -15469,15 +15492,23 @@ def cmd_fix(args: argparse.Namespace) -> int:
             changed = result.get("changed", [])
             print("Spark log redaction")
             print("")
+            if result.get("blocked"):
+                detail = result.get("detail") or "Stop Spark services before redacting logs."
+                print(f"[FIX] {detail}")
+                print("      Run `spark stop`, rerun this command, then start Spark again.")
+                return 1
             if changed:
                 print(f"[OK] Redacted secret-like values in {len(changed)} log file(s).")
                 for path in changed:
                     print(f"      {Path(path).name}")
             else:
                 print(f"[OK] No log files needed redaction ({result.get('scanned_files', 0)} scanned).")
+            failed = int(result.get("failed_files", 0))
+            if failed:
+                print(f"[FIX] Could not safely rewrite {failed} log file(s); their original contents were left intact.")
             followup_code, followup_lines = redaction_followup(collect_secret_surface_payload())
             print("\n".join(followup_lines))
-            return followup_code
+            return 1 if failed else followup_code
 
         payload = collect_secret_surface_payload()
         if args.json:

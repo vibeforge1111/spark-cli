@@ -3055,8 +3055,7 @@ class Sandbox:
                 encoding="utf-8",
             )
             config_path.write_text("TELEGRAM_RELAY_SECRET=plain-relay-secret\n", encoding="utf-8")
-            with patch("spark_cli.cli.LOG_DIR", log_dir), \
-                 patch("spark_cli.cli.load_pids", return_value={}):
+            with patch("spark_cli.cli.LOG_DIR", log_dir), patch("spark_cli.cli.load_pids", return_value={}):
                 result = redact_secret_surface_logs()
             log_text = log_path.read_text(encoding="utf-8")
             config_text = config_path.read_text(encoding="utf-8")
