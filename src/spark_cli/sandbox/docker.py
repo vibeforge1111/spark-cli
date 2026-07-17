@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 from typing import Any
 
 from .capabilities import CapabilityManifest
 from .output import bound_sandbox_output
+from .paths import os_family as docker_os_family
 
 
 DEFAULT_SANDBOX_IMAGE = "spark-cli-sandbox:local"
@@ -25,17 +25,6 @@ def docker_capabilities() -> CapabilityManifest:
         inbound="none",
         cost="free-local",
     )
-
-
-def docker_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
 
 
 def docker_repair_hint(family: str) -> str:

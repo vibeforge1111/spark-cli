@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -15,6 +16,17 @@ WINDOWS_RESERVED_NAMES = {
     *(f"lpt{idx}" for idx in range(1, 10)),
 }
 WINDOWS_UNSAFE_NAME_PATTERN = re.compile(r'[<>:"\\|?*]')
+
+
+def os_family(platform: str | None = None) -> str:
+    value = platform or sys.platform
+    if value == "darwin":
+        return "macos"
+    if value.startswith("win"):
+        return "windows"
+    if value.startswith("linux"):
+        return "linux"
+    return "unknown"
 
 
 def spark_home() -> Path:

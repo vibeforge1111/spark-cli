@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +12,7 @@ from ..env_files import parse_env_file_bytes, serialize_env_file
 from .audit import sandbox_audit_ref, write_audit_event
 from .docker import collect_docker_doctor_payload
 from .modal import modal_auth_markers, modal_sdk_available
+from .paths import os_family as access_os_family
 from .ssh import load_ssh_targets
 
 
@@ -49,17 +49,6 @@ LOWER_ACCESS_PROFILES: dict[int, dict[str, str]] = {
         "next": "Use `/access 4` when Spark should prepare a safe local workspace.",
     },
 }
-
-
-def access_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
 
 
 def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:

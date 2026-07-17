@@ -147,7 +147,7 @@ class AccessSetupTests(unittest.TestCase):
         ]
         for platform, family, hint in cases:
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as tmpdir, \
-                 patch("spark_cli.sandbox.access.sys.platform", platform):
+                 patch("spark_cli.sandbox.paths.sys.platform", platform):
                 exit_code, payload = self.run_access("guide", spark_home=Path(tmpdir) / "spark-home")
 
             self.assertEqual(exit_code, 0)
