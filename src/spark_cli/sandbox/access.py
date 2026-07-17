@@ -62,13 +62,20 @@ def access_os_family(platform: str | None = None) -> str:
     return "unknown"
 
 
+def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+    if home is not None:
+        return home
+    env_values = os.environ if env is None else env
+    configured = env_values.get("SPARK_HOME")
+    return Path(configured).expanduser() if configured else (Path.home() / ".spark").expanduser()
+
+
 def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
+    env_values = os.environ if env is None else env
     configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
     if configured:
         return Path(configured).expanduser()
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "workspaces"
+    return home_or_default(home=home, env=env_values) / "workspaces"
 
 
 def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
@@ -79,9 +86,7 @@ def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | N
 
 
 def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "config" / "modules"
+    return home_or_default(home=home, env=env) / "config" / "modules"
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -210,11 +215,6 @@ def generated_level5_env(*, home: Path | None = None, env: dict[str, str] | None
     for path in [paths["spawner"], *level5_telegram_env_paths(home=home, env=env)]:
         merged.update(read_env_file(path))
     return merged
-
-
-def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    return home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
 
 
 def _parse_utc_timestamp(value: object) -> float | None:
