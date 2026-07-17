@@ -48,6 +48,7 @@ from .provider_status_scope import render_provider_status_heading, with_configur
 from .runtime_policy import managed_node_windows_dir, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .secret_listing import render_secret_presence, render_stored_secret_listing
 from .secret_storage_notice import warn_insecure_file_secret_storage
+from .secret_help import SECRET_BACKEND_HELP, SECRET_ID_DELETE_HELP, SECRET_ID_GET_HELP, SECRET_ID_SET_HELP
 from .security.approval import CommandContext, approval_required_for_command, parse_command_text
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import (
@@ -21568,10 +21569,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
-    secrets_set_parser.add_argument(
-        "secret_id",
-        help="Stable dotted identifier used to retrieve the value later, for example telegram.bot_token",
-    )
+    secrets_set_parser.add_argument("secret_id", help=SECRET_ID_SET_HELP)
     secrets_set_parser.add_argument(
         "--value",
         help=(
@@ -21579,19 +21577,11 @@ def build_parser() -> argparse.ArgumentParser:
             "@file:path (in PowerShell, quote '@clipboard')"
         ),
     )
-    secrets_set_parser.add_argument(
-        "--backend",
-        choices=["keychain", "file"],
-        default="keychain",
-        help=(
-            "Storage backend: keychain uses the OS keychain (default); file is DPAPI-protected on Windows "
-            "and an explicitly enabled insecure opt-in elsewhere"
-        ),
-    )
+    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain", help=SECRET_BACKEND_HELP)
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
-    secrets_get_parser.add_argument("secret_id", help="Stable dotted identifier of the secret to inspect")
+    secrets_get_parser.add_argument("secret_id", help=SECRET_ID_GET_HELP)
     secrets_get_output = secrets_get_parser.add_mutually_exclusive_group()
     secrets_get_output.add_argument("--reveal", action="store_true", help="Print the full value")
     secrets_get_output.add_argument(
@@ -21602,7 +21592,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
-    secrets_delete_parser.add_argument("secret_id", help="Stable dotted identifier of the secret to remove")
+    secrets_delete_parser.add_argument("secret_id", help=SECRET_ID_DELETE_HELP)
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
