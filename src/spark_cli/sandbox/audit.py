@@ -10,6 +10,7 @@ from .paths import sandbox_log_dir, validate_target_name
 
 
 AUDIT_SCHEMA_VERSION = 1
+CANONICAL_AUDIT_FIELDS = frozenset({"schema_version", "timestamp", "backend", "target"})
 
 
 def sandbox_audit_path(backend: str, target: str, *, home: Path | None = None) -> Path:
@@ -46,12 +47,13 @@ def write_audit_event(
 ) -> Path:
     path = sandbox_audit_path(backend, target, home=home)
     path.parent.mkdir(parents=True, exist_ok=True)
+    redacted_event = _redact_value(event)
     payload = {
         "schema_version": AUDIT_SCHEMA_VERSION,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "backend": validate_target_name(backend),
         "target": validate_target_name(target),
-        **_redact_value(event),
+        **{key: value for key, value in redacted_event.items() if key not in CANONICAL_AUDIT_FIELDS},
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
