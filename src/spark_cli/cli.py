@@ -21568,7 +21568,10 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_list_parser.set_defaults(func=cmd_secrets_list)
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
-    secrets_set_parser.add_argument("secret_id")
+    secrets_set_parser.add_argument(
+        "secret_id",
+        help="Stable dotted identifier used to retrieve the value later, for example telegram.bot_token",
+    )
     secrets_set_parser.add_argument(
         "--value",
         help=(
@@ -21576,11 +21579,19 @@ def build_parser() -> argparse.ArgumentParser:
             "@file:path (in PowerShell, quote '@clipboard')"
         ),
     )
-    secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain")
+    secrets_set_parser.add_argument(
+        "--backend",
+        choices=["keychain", "file"],
+        default="keychain",
+        help=(
+            "Storage backend: keychain uses the OS keychain (default); file is DPAPI-protected on Windows "
+            "and an explicitly enabled insecure opt-in elsewhere"
+        ),
+    )
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
 
     secrets_get_parser = secrets_sub.add_parser("get", help="Read a stored secret (masked by default)")
-    secrets_get_parser.add_argument("secret_id")
+    secrets_get_parser.add_argument("secret_id", help="Stable dotted identifier of the secret to inspect")
     secrets_get_output = secrets_get_parser.add_mutually_exclusive_group()
     secrets_get_output.add_argument("--reveal", action="store_true", help="Print the full value")
     secrets_get_output.add_argument(
@@ -21591,7 +21602,7 @@ def build_parser() -> argparse.ArgumentParser:
     secrets_get_parser.set_defaults(func=cmd_secrets_get)
 
     secrets_delete_parser = secrets_sub.add_parser("delete", help="Remove a stored secret")
-    secrets_delete_parser.add_argument("secret_id")
+    secrets_delete_parser.add_argument("secret_id", help="Stable dotted identifier of the secret to remove")
     secrets_delete_parser.set_defaults(func=cmd_secrets_delete)
     _wrap_subgroup_help(secrets_parser, ["list", "set", "get", "delete"])
 
