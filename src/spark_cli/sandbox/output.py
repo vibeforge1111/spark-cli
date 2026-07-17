@@ -49,6 +49,11 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(\d{6,}:[A-Za-z0-9_-]{20,})\b"),
 )
 
+LOCAL_HOME_PREFIX_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(?<![\w/\\])(?:[A-Z]:[\\/](?:Users|Documents and Settings)[\\/])[^\\/\s'\"<>:]+"),
+    re.compile(r"(?i)(?<![\w/\\])/(?:Users|home)/[^/\s'\"<>:]+"),
+)
+
 
 @dataclass(frozen=True)
 class BoundedOutput:
@@ -94,6 +99,8 @@ def redact_sandbox_text(text: str) -> str:
             return _mask_secret(match.group(0))
 
         redacted = pattern.sub(replace, redacted)
+    for pattern in LOCAL_HOME_PREFIX_PATTERNS:
+        redacted = pattern.sub("[LOCAL_HOME]", redacted)
     return redacted
 
 
