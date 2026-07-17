@@ -15,7 +15,8 @@ ENV_VALUE_ERROR = "Environment file values must be single-line text. Nothing was
 def normalize_env_file_value(value: str) -> str:
     normalized = value.strip()
     if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
-        return normalized[1:-1]
+        delimiter = normalized[0]
+        return normalized[1:-1].replace("\\" + delimiter, delimiter)
     return normalized
 
 

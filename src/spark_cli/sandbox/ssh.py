@@ -202,17 +202,32 @@ def _is_metadata_host(value: str) -> bool:
     return ip == ipaddress.ip_address("169.254.169.254") or ip == ipaddress.ip_address("fd00:ec2::254")
 
 
+def _is_valid_dns_hostname(value: str) -> bool:
+    if len(value) > 253:
+        return False
+    for label in value.split("."):
+        if not label or len(label) > 63:
+            return False
+        if label.startswith("-") or label.endswith("-"):
+            return False
+        if not re.fullmatch(r"[a-z0-9-]+", label):
+            return False
+    return True
+
+
 def validate_ssh_host(host: str) -> str:
     value = str(host or "").strip().lower().rstrip(".")
     if not value:
         raise ValueError("SSH host is required.")
     if "://" in value or "/" in value or "\\" in value or "@" in value:
         raise ValueError("SSH host must be a hostname or IP address, not a URL or user@host string.")
-    if not SSH_HOST_PATTERN.fullmatch(value) or value.startswith("-"):
+    if not SSH_HOST_PATTERN.fullmatch(value):
         raise ValueError("SSH host contains unsupported characters.")
+    address = _ssh_host_ip(value)
+    if address is None and (":" in value or not _is_valid_dns_hostname(value)):
+        raise ValueError("SSH host must be a valid hostname or IP address.")
     if _is_metadata_host(value):
         raise ValueError("SSH host must not point at a cloud metadata service.")
-    address = _ssh_host_ip(value)
     if value in SSH_LOCAL_HOST_ALIASES or (address is not None and address.is_loopback):
         raise ValueError("SSH sandbox host must not point back to this machine.")
     if address is not None and address.is_link_local:
@@ -269,11 +284,12 @@ def resolve_identity_file(path: str | Path) -> tuple[Path, list[str]]:
 
 
 def _target_from_dict(name: str, data: dict[str, Any]) -> SshTarget:
+    raw_port = data.get("port")
     return SshTarget(
         name=validate_target_name(str(data.get("name") or name)),
         host=validate_ssh_host(str(data.get("host") or "")),
         user=validate_ssh_user(str(data.get("user") or "")),
-        port=validate_ssh_port(int(data.get("port") or 22)),
+        port=validate_ssh_port(22 if raw_port is None else raw_port),
         identity_file=str(data.get("identity_file") or ""),
         remote_workspace=validate_remote_workspace(str(data.get("remote_workspace") or "~/spark-live")),
         host_key_status=str(data.get("host_key_status") or "unverified"),
