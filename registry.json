@@ -1,18 +1,18 @@
 {
   "modules": {
     "spark-researcher": {
-      "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "906592e2bb025ef485c6320339f714433714c9b6",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-researcher.git",
+      "commit": "6fcd8c4cae234208c4bf9727cb345e584cd820cf",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "906592e2bb025ef485c6320339f714433714c9b6",
-        "verify_ref": "refs/tags/spark-ship-2026-06-22",
-        "canonical_head": "906592e2bb025ef485c6320339f714433714c9b6",
-        "runtime_mirror_head": "906592e2bb025ef485c6320339f714433714c9b6",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-researcher.git",
+        "commit": "6fcd8c4cae234208c4bf9727cb345e584cd820cf",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "6fcd8c4cae234208c4bf9727cb345e584cd820cf",
+        "runtime_mirror_head": "6fcd8c4cae234208c4bf9727cb345e584cd820cf",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-06-22T00:00:00Z",
@@ -23,21 +23,21 @@
           "canonical Harness Core memory-write binding guard preserved"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-22"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spark-character": {
-      "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-character.git",
+      "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
-        "verify_ref": "refs/tags/spark-ship-2026-06-22",
-        "canonical_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
-        "runtime_mirror_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-character.git",
+        "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+        "runtime_mirror_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-06-22T00:00:00Z",
@@ -49,23 +49,23 @@
           "spark-cli-public-installer-2026-06-10-r27 tag preserves the live audited pin while master moves independently"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-22"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spark-telegram-bot": {
-      "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-telegram-bot.git",
+      "commit": "eaa050fe70cce04a41110315d4d19a2ceb309a09",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
-        "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
-        "canonical_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
-        "runtime_mirror_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-telegram-bot.git",
+        "commit": "eaa050fe70cce04a41110315d4d19a2ceb309a09",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "eaa050fe70cce04a41110315d4d19a2ceb309a09",
+        "runtime_mirror_head": "eaa050fe70cce04a41110315d4d19a2ceb309a09",
         "tree_clean": true,
-        "validated_at": "2026-07-01T20:20:05Z",
+        "validated_at": "2026-07-11T13:58:36Z",
         "evidence": [
           "R30 Telegram loop-engineering candidate anchored on release/r30-telegram-loop-engineering-20260701",
           "authority closure ladder focused tests passed",
@@ -73,25 +73,27 @@
           "Domain Chip creation, private check, live canary, and conversational closure routes covered",
           "Loop Engineering Telegram copy QA, evaluator-flagged tests, full npm test, and npm run build passed after readability curation",
           "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed",
-          "R30 Telegram Loop Engineering status replies now render generic proof blocks for old and new Spawner-backed Domain Chips; focused status/surface/command/domain-chip tests and npm run build passed."
+          "R30 Telegram Loop Engineering status replies now render generic proof blocks for old and new Spawner-backed Domain Chips; focused status/surface/command/domain-chip tests and npm run build passed.",
+          "Open PR #346 semantic adoption at 24da4aef: all 110 discovered suites, the 570-message matrix, TypeScript build, strict artifact sync, and compiled fake-bot relay smoke passed.",
+          "Open PR #498/#315 owner family at source-proven 7de2c50f and docs head 449f910: 19 focused authority cases, 327-turn bounded adversarial set with zero unsafe authorizations, all 112 discovered test files, and TypeScript build passed; supervised exactly-one-poller visual QA remains pending."
         ],
         "license_spdx": "MIT"
       },
-      "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spark-intelligence-builder": {
-      "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-intelligence-builder.git",
+      "commit": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
-        "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701",
-        "canonical_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
-        "runtime_mirror_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-intelligence-builder.git",
+        "commit": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
+        "runtime_mirror_head": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-07-01T20:20:05Z",
@@ -103,21 +105,21 @@
           "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed."
         ]
       },
-      "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "domain-chip-memory": {
-      "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/domain-chip-memory.git",
+      "commit": "c4834fe8062fe72acc32ca3822f0118b70552069",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/domain-chip-memory",
-        "commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
-        "verify_ref": "refs/heads/release/r30-memory-authority-20260701",
-        "canonical_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
-        "runtime_mirror_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/domain-chip-memory.git",
+        "commit": "c4834fe8062fe72acc32ca3822f0118b70552069",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "c4834fe8062fe72acc32ca3822f0118b70552069",
+        "runtime_mirror_head": "c4834fe8062fe72acc32ca3822f0118b70552069",
         "tree_clean": true,
         "validated_at": "2026-07-01T17:40:20Z",
         "evidence": [
@@ -127,22 +129,22 @@
         ],
         "license_spdx": "MIT"
       },
-      "verify_ref": "refs/heads/release/r30-memory-authority-20260701"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "domain-chip-spark-qa-evidence-lane": {
-      "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-      "commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/domain-chip-spark-qa-evidence-lane.git",
+      "commit": "18be48260608b057d76cb5f03b24037403398e12",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Evidence-only QA validation chip for Spark answer quality, source precedence, and conversational surface checks",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-        "commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
-        "verify_ref": "refs/heads/release/r30-evidence-lane-20260701",
-        "canonical_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
-        "runtime_mirror_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/domain-chip-spark-qa-evidence-lane.git",
+        "commit": "18be48260608b057d76cb5f03b24037403398e12",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "18be48260608b057d76cb5f03b24037403398e12",
+        "runtime_mirror_head": "18be48260608b057d76cb5f03b24037403398e12",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-07-01T17:40:20Z",
@@ -153,22 +155,22 @@
           "watchtower and evaluate commands passed for Domain Chip proof gates"
         ]
       },
-      "verify_ref": "refs/heads/release/r30-evidence-lane-20260701"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spark-harness-core": {
-      "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-      "verify_ref": "refs/tags/v1.0.0-rc.2",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-harness-core.git",
+      "commit": "a78c5bb2137a30a3bd9a543fd5a7cfe662245abd",
+      "verify_ref": "refs/heads/r30-candidate",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "verify_ref": "refs/tags/v1.0.0-rc.2",
-        "canonical_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "runtime_mirror_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-harness-core.git",
+        "commit": "a78c5bb2137a30a3bd9a543fd5a7cfe662245abd",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "a78c5bb2137a30a3bd9a543fd5a7cfe662245abd",
+        "runtime_mirror_head": "a78c5bb2137a30a3bd9a543fd5a7cfe662245abd",
         "tree_clean": true,
         "validated_at": "2026-06-22T00:00:00Z",
         "evidence": [
@@ -181,19 +183,19 @@
       }
     },
     "spark-skill-graphs": {
-      "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-      "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-skill-graphs.git",
+      "commit": "5c7c357e43223ade2e4803a58ac405fbd0b09b0a",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Metadata-only Spark specialist routing catalog and H70-C+ skill corpus",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-        "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
-        "verify_ref": "refs/heads/reconcile/20260610-metadata-authority",
-        "canonical_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
-        "runtime_mirror_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-skill-graphs.git",
+        "commit": "5c7c357e43223ade2e4803a58ac405fbd0b09b0a",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "5c7c357e43223ade2e4803a58ac405fbd0b09b0a",
+        "runtime_mirror_head": "5c7c357e43223ade2e4803a58ac405fbd0b09b0a",
         "tree_clean": true,
         "license_spdx": "MIT",
         "validated_at": "2026-06-09T21:40:00Z",
@@ -204,21 +206,21 @@
           "metadata-only module removes aspirational spark-harness-core dependency claim"
         ]
       },
-      "verify_ref": "refs/heads/reconcile/20260610-metadata-authority"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spark-voice-comms": {
-      "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "c502ec096cefb48839e3279d3392343231884415",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-voice-comms.git",
+      "commit": "75b50de1785c118154661552fb05a863eb8a8429",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "c502ec096cefb48839e3279d3392343231884415",
-        "verify_ref": "refs/heads/release/r30-voice-trace-governor-20260701",
-        "canonical_head": "c502ec096cefb48839e3279d3392343231884415",
-        "runtime_mirror_head": "c502ec096cefb48839e3279d3392343231884415",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-voice-comms.git",
+        "commit": "75b50de1785c118154661552fb05a863eb8a8429",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "75b50de1785c118154661552fb05a863eb8a8429",
+        "runtime_mirror_head": "75b50de1785c118154661552fb05a863eb8a8429",
         "tree_clean": true,
         "validated_at": "2026-07-01T17:40:20Z",
         "evidence": [
@@ -227,30 +229,33 @@
           "voice registry drift resolved against R30 source-owned candidate ref"
         ]
       },
-      "verify_ref": "refs/heads/release/r30-voice-trace-governor-20260701"
+      "verify_ref": "refs/heads/r30-candidate"
     },
     "spawner-ui": {
-      "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-      "verify_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
+      "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spawner-ui.git",
+      "commit": "2997207d095b4ca8c1573d33cc3a0f197ccc5fb6",
+      "verify_ref": "refs/heads/r30-candidate",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
-        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-        "verify_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
-        "canonical_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-        "runtime_mirror_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spawner-ui.git",
+        "commit": "2997207d095b4ca8c1573d33cc3a0f197ccc5fb6",
+        "verify_ref": "refs/heads/r30-candidate",
+        "canonical_head": "2997207d095b4ca8c1573d33cc3a0f197ccc5fb6",
+        "runtime_mirror_head": "2997207d095b4ca8c1573d33cc3a0f197ccc5fb6",
         "tree_clean": true,
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-11T14:15:44Z",
         "evidence": [
           "R30 Spawner source-squash candidate anchored on release/r30-spawner-source-squash-20260701",
           "bulky CUA artifact folder preserved in release artifacts instead of source branch",
           "npm run check passed",
           "focused loop-engineering vitest passed: 28/28",
-          "npm run build passed"
+          "npm run build passed",
+          "Open PR #887 semantic adoption at 672b5130: 36 focused and 1,071 full tests, diagnostics, build, zero-vulnerability audit, and isolated built-runtime HTTP smoke passed.",
+          "No-credit path/proof-authority companion through 333d6d5d: 109 focused and 1,092 full tests, diagnostics, production build, clean diff, and byte-identical live-state hashes passed; same-user parent-directory/CWD TOCTOU remains an explicit mitigated residual.",
+          "Artifact-found privacy repair at 8e0a79e4 hashes macOS /private/tmp and portable /tmp PRD trace paths; 18 focused redaction/write integration cases, diagnostics, production build, and clean diff passed before restaging."
         ],
         "license_spdx": "MIT"
       }
@@ -281,6 +286,21 @@
         "spark-telegram-bot"
       ],
       "summary": "Telegram starter plus Spark Voice Comms for speech I/O onboarding, transcription, and spoken replies"
+    },
+    "r30-local-candidate": {
+      "modules": [
+        "spark-harness-core",
+        "spark-researcher",
+        "spark-character",
+        "spark-intelligence-builder",
+        "domain-chip-memory",
+        "domain-chip-spark-qa-evidence-lane",
+        "spark-skill-graphs",
+        "spark-voice-comms",
+        "spawner-ui",
+        "spark-telegram-bot"
+      ],
+      "summary": "Disposable local R30 candidate with all ten exact owner-lane commits"
     }
   }
 }
