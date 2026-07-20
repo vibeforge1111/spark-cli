@@ -38,8 +38,8 @@
       "publication_ref_required": false
     },
     "spark-intelligence-builder": {
-      "commit": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
-      "proof": "Batch LF/LG authority and CI-source convergence; 132 focused checks, all 1,978 tests collected once across six shards, 176 baseline failures repaired, and 16 baseline/environment failures retained as an explicit release gate",
+      "commit": "d8bb056f49ee515be789fb5c309f79b645bede97",
+      "proof": "Sealed R30 release-baseline closure: the original 17-node red replay passed; all 2,008 tests were accounted for across six stable shards with 1,989 passed, 19 skipped, 87 parametrized subtests, zero failures; compileall and diff checks passed",
       "publication_ref_required": true
     },
     "spark-researcher": {

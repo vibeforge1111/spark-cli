@@ -83,26 +83,27 @@
     },
     "spark-intelligence-builder": {
       "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-intelligence-builder.git",
-      "commit": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
+      "commit": "d8bb056f49ee515be789fb5c309f79b645bede97",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "/Users/alchemistab/Documents/Codex/2026-07-11/can/work/stage-mirrors-v2/spark-intelligence-builder.git",
-        "commit": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
+        "commit": "d8bb056f49ee515be789fb5c309f79b645bede97",
         "verify_ref": "refs/heads/r30-candidate",
-        "canonical_head": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
-        "runtime_mirror_head": "b338cd36c86f916fb7cca7afcb0ff94e2034c697",
+        "canonical_head": "d8bb056f49ee515be789fb5c309f79b645bede97",
+        "runtime_mirror_head": "d8bb056f49ee515be789fb5c309f79b645bede97",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-07-01T20:20:05Z",
+        "validated_at": "2026-07-20T00:51:18Z",
         "evidence": [
           "R30 Builder Domain Chip loop-proof candidate anchored on release/r30-builder-loop-proof-20260701",
           "focused pytest passed: 278 passed, 26 subtests passed",
           "python3 -m compileall src tests passed",
           "chips create Governor authorization and loop-runner evidence binding covered",
-          "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed."
+          "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed.",
+          "Sealed R30 release-baseline closure at d8bb056f: all 2,008 tests accounted for across six stable shards (1,989 passed, 19 skipped, 87 parametrized subtests), focused original-red replay passed, and compileall/diff checks passed."
         ]
       },
       "verify_ref": "refs/heads/r30-candidate"
