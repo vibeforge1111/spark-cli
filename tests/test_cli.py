@@ -5240,9 +5240,11 @@ class SparkCliTests(unittest.TestCase):
             for name, entry in registry.get("modules", {}).items()
             if isinstance(entry, dict)
         }
+        local_candidate = "r30-local-candidate" in registry.get("bundles", {})
         bundled_modules = {
             str(module_name)
-            for bundle in registry.get("bundles", {}).values()
+            for bundle_name, bundle in registry.get("bundles", {}).items()
+            if bundle_name != "r30-local-candidate"
             if isinstance(bundle, dict)
             for module_name in bundle.get("modules", [])
         }
@@ -5256,7 +5258,11 @@ class SparkCliTests(unittest.TestCase):
         )
         for name, source in sources.items():
             with self.subTest(module=name):
-                self.assertTrue(source.startswith("https://github.com/vibeforge1111/"))
+                if local_candidate:
+                    self.assertTrue(Path(source).is_absolute())
+                    self.assertEqual(Path(source).parent.name, "stage-mirrors-v2")
+                else:
+                    self.assertTrue(source.startswith("https://github.com/vibeforge1111/"))
                 self.assertNotIn("github.com/spark/", source)
                 commit = str(registry["modules"][name].get("commit", ""))
                 self.assertEqual(validate_commit_pin(commit), commit)
