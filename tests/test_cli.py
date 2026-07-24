@@ -11175,9 +11175,11 @@ class Sandbox:
         providers = {provider["id"]: provider for provider in payload["providers"]}
         self.assertEqual(payload["providers"][0]["id"], "codex")
         self.assertEqual(payload["providers"][2]["id"], "zai")
-        self.assertEqual(providers["openai"]["recommended_models"][0], "gpt-5.5")
+        self.assertEqual(providers["codex"]["recommended_models"][0], "gpt-5.6-sol")
+        self.assertEqual(providers["openai"]["recommended_models"][0], "gpt-5.6-sol")
         self.assertIn("kimi-k2.6", providers["kimi"]["recommended_models"])
-        self.assertIn("gpt-5.4-mini", providers["openai"]["recommended_models"])
+        self.assertIn("gpt-5.6-terra", providers["openai"]["recommended_models"])
+        self.assertIn("gpt-5.6-luna", providers["openai"]["recommended_models"])
         self.assertIn("opus", providers["anthropic"]["recommended_models"])
         self.assertIn("google/gemma-4-31B-it:fastest", providers["huggingface"]["recommended_models"])
         self.assertEqual(providers["lmstudio"]["lane"], "local/free after download")
@@ -11199,6 +11201,12 @@ class Sandbox:
         self.assertNotIn("--kimi-api-key", output)
         self.assertNotIn("<key>", output)
         self.assertIn("type @clipboard when Spark asks", output)
+
+    def test_setup_defaults_new_openai_and_codex_installs_to_gpt_5_6_sol(self) -> None:
+        args = build_parser().parse_args(["setup"])
+
+        self.assertEqual(args.openai_model, "gpt-5.6-sol")
+        self.assertEqual(args.codex_model, "gpt-5.6-sol")
 
     def test_provider_catalog_uses_prompted_secret_entry_without_shell_specific_arguments(self) -> None:
         payload = provider_catalog_payload()
