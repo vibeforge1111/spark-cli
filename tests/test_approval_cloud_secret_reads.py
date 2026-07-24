@@ -11,9 +11,6 @@ from spark_cli.security.approval import CommandContext, approval_required_for_co
         (["gcloud", "--project", "spark", "secrets", "versions", "access", "latest", "--secret", "api"], "gcloud secrets versions access"),
         (["az", "keyvault", "secret", "show", "--vault-name", "spark", "--name", "api"], "az keyvault secret show"),
         (["az", "--subscription=prod", "keyvault", "secret", "download", "--file", "out"], "az keyvault secret download"),
-        (["op", "read", "op://spark/api/password"], "op read"),
-        (["op", "item", "get", "api-key", "--fields", "password"], "op item get"),
-        (["op", "document", "get", "certificate"], "op document get"),
         (["doppler", "--project", "spark", "secrets", "get", "API_KEY", "--plain"], "doppler secrets get"),
         (["doppler", "secrets", "download", "--no-file", "--format", "json"], "doppler secrets download"),
     ],
@@ -26,6 +23,24 @@ def test_cloud_secret_reads_require_approval(command: list[str], target: str) ->
     assert decision.approval_mode == "blocked"
     assert decision.confirmation_phrase == "approve cloud secret reveal"
     assert decision.target_display == target
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["op", "read", "op://spark/api/password"],
+        ["op", "item", "get", "api-key", "--fields", "password"],
+        ["op", "document", "get", "certificate"],
+    ],
+)
+def test_password_manager_secret_reads_keep_canonical_authority(command: list[str]) -> None:
+    decision = approval_required_for_command(command, CommandContext(hosted=True, non_interactive=True))
+    assert decision.requires_approval
+    assert decision.action_class == "credential_mutation"
+    assert decision.risk == "critical"
+    assert decision.approval_mode == "blocked"
+    assert decision.confirmation_phrase == "approve password manager access"
+    assert decision.target_display == "password manager secret"
 
 
 @pytest.mark.parametrize(

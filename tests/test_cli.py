@@ -2452,9 +2452,7 @@ class Sandbox:
 
     def test_approval_status_reports_classifier_and_execution_authority(self) -> None:
         args = build_parser().parse_args(["approval", "status", "--json"])
-        with patch.dict(os.environ, {}, clear=False), \
-             patch("sys.stdout", new_callable=StringIO) as stdout:
-            os.environ.pop("SPARK_APPROVAL_ENFORCE", None)
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["ok"])
@@ -2466,10 +2464,10 @@ class Sandbox:
         with patch.dict(os.environ, {"SPARK_APPROVAL_ENFORCE": "0"}), \
              patch("sys.stdout", new_callable=StringIO) as stdout:
             self.assertEqual(args.func(args), 0)
-        disabled = json.loads(stdout.getvalue())
-        self.assertEqual(disabled["classifier_mode"], "report_only")
-        self.assertEqual(disabled["execution_mode"], "disabled_by_operator")
-        self.assertFalse(disabled["enforcement_enabled"])
+        immutable = json.loads(stdout.getvalue())
+        self.assertEqual(immutable["classifier_mode"], "report_only")
+        self.assertEqual(immutable["execution_mode"], "enforced")
+        self.assertTrue(immutable["enforcement_enabled"])
 
     def test_sandbox_status_treats_unconfigured_optional_lanes_as_healthy_status(self) -> None:
         args = build_parser().parse_args(["sandbox", "status", "--json"])

@@ -204,7 +204,7 @@ def _kubectl_authority(command: ClusterCommand) -> KubernetesAuthority | None:
                 "kubectl config view", "approve kubernetes secret read",
             )
         return None
-    if action in {"get", "describe"} and subcommand in {"secret", "secrets"}:
+    if action in {"get", "describe"} and subcommand.split("/", 1)[0] in {"secret", "secrets"}:
         return _authority(
             "credential_mutation", "critical", "Kubernetes command can reveal cluster secrets.",
             f"kubectl {action} {subcommand}", "approve kubernetes secret read",

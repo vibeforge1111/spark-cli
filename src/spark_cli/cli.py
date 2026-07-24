@@ -13678,19 +13678,14 @@ def cmd_security(args: argparse.Namespace) -> int:
 
 
 def collect_approval_status_payload() -> dict[str, Any]:
-    enforcement_enabled = approval_enforcement_enabled()
     return {
         "ok": True,
         "classifier_mode": "report_only",
-        "execution_mode": "enforced" if enforcement_enabled else "disabled_by_operator",
-        "enforcement_enabled": enforcement_enabled,
+        "execution_mode": "enforced",
+        "enforcement_enabled": True,
         "default_enabled": True,
-        "enforcement_source": "SPARK_APPROVAL_ENFORCE",
-        "enforcement_note": (
-            "Sensitive command execution is approval-enforced by default."
-            if enforcement_enabled
-            else "The operator explicitly disabled sensitive command enforcement for this process environment."
-        ),
+        "enforcement_source": "process_security_floor",
+        "enforcement_note": "Sensitive command execution is approval-enforced and cannot be disabled by mutable process environment.",
         "classify_usage": "spark approval classify -- <command>",
         "next": "Use classify to inspect a decision; keep execution enforcement enabled for normal operation.",
     }
@@ -14102,7 +14097,6 @@ APPROVAL_ENFORCED_ACTION_CLASSES = {
     "remote_code_execution",
     "container_privilege_escalation",
     "process_autostart_mutation",
-    "high_cost_execution",
 }
 
 

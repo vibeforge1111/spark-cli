@@ -135,7 +135,7 @@ class CredentialAuthorityTests(unittest.TestCase):
             ["rg", "client_secret", "~/.config/gcloud/application_default_credentials.json"],
         ):
             with self.subTest(command=command):
-                self.assert_blocked(command, "credential_mutation", "high", "approve credential file read")
+                self.assert_blocked(command, "credential_mutation", "critical", "approve local secret file reveal")
         for command in (
             ["cat", "README.md"],
             ["cat", ".env.example"],

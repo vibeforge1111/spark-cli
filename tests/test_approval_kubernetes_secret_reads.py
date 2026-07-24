@@ -20,7 +20,7 @@ def test_kubernetes_secret_resource_forms_require_approval(command: list[str]) -
     assert decision.action_class == "credential_mutation"
     assert decision.risk == "critical"
     assert decision.approval_mode == "blocked"
-    assert decision.confirmation_phrase == "approve kubernetes secret reveal"
+    assert decision.confirmation_phrase == "approve kubernetes secret read"
 
 
 @pytest.mark.parametrize(

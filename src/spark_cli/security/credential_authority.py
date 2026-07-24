@@ -185,32 +185,106 @@ def _password_manager_read(parts: list[str]) -> bool:
     return first == "secret-tool" and second == "lookup"
 
 
-def _sensitive_file_target(arguments: list[str]) -> bool:
+LOCAL_FILE_READ_EXECUTABLES = frozenset(
+    {"cat", "gc", "get-content", "grep", "head", "less", "more", "rg", "tail", "type"}
+)
+CLOUD_SECRET_OPTIONS_WITH_VALUES = frozenset(
+    {
+        "--account",
+        "--config",
+        "--configuration",
+        "--format",
+        "--project",
+        "--subscription",
+        "--vault",
+    }
+)
+
+
+def _sensitive_file_basename(arguments: list[str]) -> str:
     exact_leaves = {
         ".netrc",
         ".npmrc",
         ".pypirc",
+        "application_default_credentials.json",
+        "credentials.json",
         "id_dsa",
         "id_ecdsa",
         "id_ed25519",
         "id_rsa",
+        "service-account.json",
+        "service_account.json",
     }
-    env_examples = {".env.example", ".env.sample", ".env.template"}
+    env_examples = {
+        ".env.default",
+        ".env.defaults",
+        ".env.dist",
+        ".env.example",
+        ".env.sample",
+        ".env.template",
+    }
     suffixes = (
         "/.aws/credentials",
         "/.config/gcloud/application_default_credentials.json",
         "/.docker/config.json",
+        "/.kube/config",
+        "/.ssh/id_dsa",
+        "/.ssh/id_ecdsa",
+        "/.ssh/id_ed25519",
+        "/.ssh/id_rsa",
     )
     for argument in arguments:
         if not argument or argument.startswith("-"):
             continue
-        normalized = argument.lower().replace("\\", "/").rstrip("/")
+        normalized = argument.strip().strip("'\"").lower().replace("\\", "/").rstrip("/")
+        if normalized.startswith("file://"):
+            normalized = normalized[7:]
         leaf = normalized.rsplit("/", 1)[-1]
         if leaf in env_examples:
             continue
         if leaf in exact_leaves or leaf == ".env" or leaf.startswith(".env.") or normalized.endswith(suffixes):
-            return True
-    return False
+            return leaf
+    return ""
+
+
+def _command_positionals(parts: list[str], options_with_values: frozenset[str]) -> list[str]:
+    positionals: list[str] = []
+    index = 1
+    while index < len(parts):
+        token = parts[index].lower()
+        option = token.split("=", 1)[0]
+        if token.startswith("-"):
+            index += 1 if "=" in token or option not in options_with_values else 2
+            continue
+        positionals.append(token)
+        index += 1
+    return positionals
+
+
+def _cloud_secret_read_target(parts: list[str]) -> str:
+    if not parts:
+        return ""
+    executable = _command_word(parts[0])
+    positionals = _command_positionals(parts, CLOUD_SECRET_OPTIONS_WITH_VALUES)
+    operations: tuple[tuple[str, tuple[str, ...]], ...]
+    if executable == "gcloud":
+        operations = (("gcloud secrets versions access", ("secrets", "versions", "access")),)
+    elif executable == "az":
+        operations = (
+            ("az keyvault secret show", ("keyvault", "secret", "show")),
+            ("az keyvault secret download", ("keyvault", "secret", "download")),
+        )
+    elif executable == "doppler":
+        operations = (
+            ("doppler secrets get", ("secrets", "get")),
+            ("doppler secrets download", ("secrets", "download")),
+        )
+    else:
+        return ""
+    for target, prefix in operations:
+        if tuple(positionals[: len(prefix)]) == prefix:
+            return target
+    return ""
 
 
 def parse_credential_authority(parts: list[str]) -> CredentialAuthority | None:
@@ -260,6 +334,16 @@ def parse_credential_authority(parts: list[str]) -> CredentialAuthority | None:
             "Cloud CLI command can reveal an active access token.",
             "cloud access token",
             "approve cloud token reveal",
+        )
+
+    cloud_secret_target = _cloud_secret_read_target(parts)
+    if cloud_secret_target:
+        return _authority(
+            "credential_mutation",
+            "critical",
+            "Cloud CLI command can reveal stored secret material.",
+            cloud_secret_target,
+            "approve cloud secret reveal",
         )
 
     if command_words[:3] == ["gh", "auth", "token"]:
@@ -362,13 +446,14 @@ def parse_credential_authority(parts: list[str]) -> CredentialAuthority | None:
             "approve package credential access",
         )
 
-    if executable in {"cat", "grep", "head", "less", "more", "rg", "tail"} and _sensitive_file_target(arguments):
+    sensitive_file = _sensitive_file_basename(arguments)
+    if executable in LOCAL_FILE_READ_EXECUTABLES and sensitive_file:
         return _authority(
             "credential_mutation",
-            "high",
+            "critical",
             "File inspection can reveal credential files or private key material.",
-            "credential file",
-            "approve credential file read",
+            f"local secret file ({sensitive_file})",
+            "approve local secret file reveal",
         )
 
     if executable in {"age", "gpg", "gpg2", "sops"} and (
