@@ -81,6 +81,16 @@ Estate map: `spark-loops-desktop/docs/ECOSYSTEM-DISK-MAP-2026-07-02.md`.
    exit-2 = red row in table · allow-incomplete detection = red · classify_push G1/G2/G4 · separation
    violation detection (synthetic two-file commit).
 
+### R-21 owner and extraction plan
+
+- **Owner:** Spark CLI release tooling.
+- **Reason for the reviewed baseline change:** retaining source commit `af68617` adds six lines of thin
+  CLI wiring and its complete fail-closed regression matrix. The implementation itself remains in
+  `src/spark_cli/release_gate.py`; no release-gate domain logic moved into `cli.py`.
+- **Bounded follow-up:** the next release-gate test change must first move this matrix into
+  `tests/test_release_gate.py` and return `tests/test_cli.py` to at most its prior 19,147-line
+  baseline. No further growth of either baselined file is permitted before that extraction.
+
 ## Commit discipline (the d7fc1df rule applied to ITSELF)
 - **Commit A**: gate machinery (release_gate.py, hooks, harness_checks, CLI wiring, tests, CI steps).
 - **Commit B**: gate-map.json + any evidence-side registration (separate — a gate and its evidence never

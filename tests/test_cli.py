@@ -4145,7 +4145,7 @@ class Sandbox:
             target = resolve_provider_test_target("chat", "codex")
         self.assertEqual(target["provider"], "codex")
         self.assertEqual(target["auth_mode"], "codex_oauth")
-        self.assertEqual(target["model"], "gpt-5.5")
+        self.assertEqual(target["model"], "gpt-5.6-sol")
         self.assertEqual(target["cli_path"], "codex")
 
     def test_provider_test_explicit_anthropic_uses_claude_oauth_defaults(self) -> None:
