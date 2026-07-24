@@ -75,7 +75,8 @@
           "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed",
           "R30 Telegram Loop Engineering status replies now render generic proof blocks for old and new Spawner-backed Domain Chips; focused status/surface/command/domain-chip tests and npm run build passed.",
           "Open PR #346 semantic adoption at 24da4aef: all 110 discovered suites, the 570-message matrix, TypeScript build, strict artifact sync, and compiled fake-bot relay smoke passed.",
-          "Open PR #498/#315 owner family at source-proven 7de2c50f and docs head 449f910: 19 focused authority cases, 327-turn bounded adversarial set with zero unsafe authorizations, all 112 discovered test files, and TypeScript build passed; supervised exactly-one-poller visual QA remains pending."
+          "Open PR #498/#315 owner family at source-proven 7de2c50f and docs head 449f910: 19 focused authority cases, 327-turn bounded adversarial set with zero unsafe authorizations, all 112 discovered test files, and TypeScript build passed; supervised exactly-one-poller visual QA remains pending.",
+          "Final integrated tip 56a53efa: the complete repository gate and TypeScript build pass, the production audit reports zero vulnerabilities, and installed tarball ba8e90be0524914301591fe8a6a547ed40eef1d4c796346bb7af5c6721f8fd03 contains the direct dist start contract."
         ],
         "license_spdx": "MIT"
       },
@@ -103,7 +104,8 @@
           "python3 -m compileall src tests passed",
           "chips create Governor authorization and loop-runner evidence binding covered",
           "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed.",
-          "Sealed R30 release-baseline closure at d8bb056f: all 2,008 tests accounted for across six stable shards (1,989 passed, 19 skipped, 87 parametrized subtests), focused original-red replay passed, and compileall/diff checks passed."
+          "Sealed R30 release-baseline closure at d8bb056f: all 2,008 tests accounted for across six stable shards (1,989 passed, 19 skipped, 87 parametrized subtests), focused original-red replay passed, and compileall/diff checks passed.",
+          "Final integrated tip 77c3a53d: six complete deterministic shards pass 2,531 tests with 15 expected skips and 183 parametrized subtests; compileall, lock, diff, installed doctor, and known-vulnerability audit pass. Installed wheel SHA-256 is 05a3d074f8ccc531897abee00cf542ab130050132e377170733abd7d59b694e8."
         ]
       },
       "verify_ref": "refs/heads/r30-candidate"
@@ -256,7 +258,8 @@
           "npm run build passed",
           "Open PR #887 semantic adoption at 672b5130: 36 focused and 1,071 full tests, diagnostics, build, zero-vulnerability audit, and isolated built-runtime HTTP smoke passed.",
           "No-credit path/proof-authority companion through 333d6d5d: 109 focused and 1,092 full tests, diagnostics, production build, clean diff, and byte-identical live-state hashes passed; same-user parent-directory/CWD TOCTOU remains an explicit mitigated residual.",
-          "Artifact-found privacy repair at 8e0a79e4 hashes macOS /private/tmp and portable /tmp PRD trace paths; 18 focused redaction/write integration cases, diagnostics, production build, and clean diff passed before restaging."
+          "Artifact-found privacy repair at 8e0a79e4 hashes macOS /private/tmp and portable /tmp PRD trace paths; 18 focused redaction/write integration cases, diagnostics, production build, and clean diff passed before restaging.",
+          "Final integrated tip 4a38113d: 201 files and 1,285 tests pass with zero typecheck warnings, the production build passes, and installed tarball 5791cdfb8caa6ecfa931a314accbe43a3747ec58d964026951f99434338dcfad serves the application on isolated loopback with HTTP 200. The MCP/Hono chain retains its documented moderate no-fix advisory."
         ],
         "license_spdx": "MIT"
       }
