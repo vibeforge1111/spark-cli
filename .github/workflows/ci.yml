@@ -85,6 +85,12 @@ jobs:
         run: |
           python -m spark_cli.cli verify --registry-pins --json | python -c "import json,sys; d=json.load(sys.stdin); n=int(d.get('unverified', 0)); assert n <= 3, f'unexpected unverified pins: {n}'; print('unverified:', n)"
 
+      - name: release_policy_binding_gate
+        run: python scripts/harness_checks/release_policy_binding_gate.py --root . --range "${{ github.event.pull_request.base.sha && format('{0}..{1}', github.event.pull_request.base.sha, github.sha) || 'HEAD' }}"
+
+      - name: gate_evidence_separation
+        run: python scripts/harness_checks/gate_evidence_separation.py --root . --range "${{ github.event.pull_request.base.sha && format('{0}..{1}', github.event.pull_request.base.sha, github.sha) || 'HEAD' }}"
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
