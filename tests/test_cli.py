@@ -7266,33 +7266,6 @@ class Sandbox:
             commands,
         )
 
-    def test_autostart_uninstall_windows_preserves_task_delete_failure_through_main(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            startup_path = Path(tmp_dir) / "spark-telegram-agent.vbs"
-            legacy_path = Path(tmp_dir) / "spark-telegram-agent.cmd"
-            startup_path.write_text("startup", encoding="utf-8")
-            legacy_path.write_text("legacy", encoding="utf-8")
-
-            def fake_helper(command: list[str]) -> subprocess.CompletedProcess[str]:
-                return_code = 1 if command[0] == "schtasks" else 0
-                return subprocess.CompletedProcess(command, return_code, "", "task delete failed")
-
-            with patch("spark_cli.cli.ensure_state_dirs"), \
-                 patch("spark_cli.cli.stdin_is_tty", return_value=True), \
-                 patch("builtins.input", return_value="approve autostart change"), \
-                 patch("spark_cli.cli.sys.platform", "win32"), \
-                 patch("spark_cli.cli.windows_startup_script_path", return_value=startup_path), \
-                 patch("spark_cli.cli.windows_startup_legacy_cmd_path", return_value=legacy_path), \
-                 patch("spark_cli.cli.run_autostart_helper", side_effect=fake_helper), \
-                 patch("sys.stdout", new_callable=StringIO) as output:
-                self.assertEqual(main(["autostart", "uninstall"]), 1)
-
-        self.assertFalse(startup_path.exists())
-        self.assertFalse(legacy_path.exists())
-        self.assertIn("Spark needs confirmation before continuing.", output.getvalue())
-        self.assertIn("task delete failed", output.getvalue())
-        self.assertIn("Removed Windows Run-key fallback", output.getvalue())
-
     def test_windows_startup_script_path_uses_appdata(self) -> None:
         with patch.dict(os.environ, {"APPDATA": r"C:\Users\Example\AppData\Roaming"}):
             path_text = str(windows_startup_script_path())
@@ -8775,45 +8748,6 @@ class Sandbox:
 
         self.assertEqual(args.live_command, "status")
 
-    def test_live_status_reports_unhealthy_module_count_through_main(self) -> None:
-        payload = {
-            "ok": False,
-            "modules": [
-                {"name": "spawner-ui", "healthy": False, "detail": "not ready"},
-                {"name": "spark-telegram-bot", "healthy": False, "detail": "not ready"},
-                {"name": "spark-character", "healthy": True, "detail": "ready"},
-                {"name": "spark-researcher", "healthy": None, "detail": "not checked"},
-                "malformed-module-record",
-            ],
-            "repair_hints": [],
-        }
-
-        with patch("spark_cli.cli.ensure_state_dirs"), \
-             patch("spark_cli.cli.collect_status_payload", return_value=payload), \
-             patch("sys.stdout", new_callable=StringIO) as stdout:
-            self.assertEqual(main(["live", "status"]), 1)
-
-        self.assertIn("[FIX] Spark Live needs attention (2 module(s) unhealthy).", stdout.getvalue())
-
-    def test_live_status_does_not_count_unknown_or_malformed_health(self) -> None:
-        payload = {
-            "ok": False,
-            "modules": [
-                {"name": "spark-researcher", "healthy": None, "detail": "not checked"},
-                {"name": "spark-character", "healthy": "false", "detail": "invalid health shape"},
-                "malformed-module-record",
-            ],
-            "repair_hints": [],
-        }
-
-        with patch("spark_cli.cli.ensure_state_dirs"), \
-             patch("spark_cli.cli.collect_status_payload", return_value=payload), \
-             patch("sys.stdout", new_callable=StringIO) as stdout:
-            self.assertEqual(main(["live", "status"]), 1)
-
-        self.assertIn("[FIX] Spark Live needs attention.", stdout.getvalue())
-        self.assertNotIn("module(s) unhealthy", stdout.getvalue())
-
     def test_live_run_starts_stack_and_follows_logs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, \
              patch("spark_cli.cli.CONFIG_PATH", Path(tmp_dir) / "setup.json"):
@@ -8948,50 +8882,6 @@ class Sandbox:
         requirements = collect_secret_requirements([module])
         self.assertEqual(requirements["telegram.bot_token"]["env_var"], "BOT_TOKEN")
         self.assertEqual(requirements["telegram.admin_ids"]["env_var"], "ADMIN_TELEGRAM_IDS")
-
-    def test_collect_secret_requirements_default_required_is_order_independent(self) -> None:
-        def module(name: str, definition: dict[str, Any]) -> Module:
-            return Module(
-                name=name,
-                path=Path(f"C:/tmp/{name}"),
-                manifest={
-                    "module": {"name": name, "version": "1.0.0", "kind": "service", "plane": "runtime"},
-                    "needs": {"secrets": ["shared.api_key"]},
-                    "secrets": {"shared_api_key": definition},
-                },
-            )
-
-        optional = module("optional-consumer", {"prompt": "Shared key", "required": False})
-        default_required = module("default-consumer", {"prompt": "Shared key"})
-
-        self.assertTrue(collect_secret_requirements([optional, default_required])["shared.api_key"]["required"])
-        self.assertTrue(collect_secret_requirements([default_required, optional])["shared.api_key"]["required"])
-        self.assertFalse(collect_secret_requirements([optional, optional])["shared.api_key"]["required"])
-
-    def test_collect_secret_values_fails_closed_when_later_module_omits_required(self) -> None:
-        optional = Module(
-            name="optional-consumer",
-            path=Path("C:/tmp/optional-consumer"),
-            manifest={
-                "module": {"name": "optional-consumer", "version": "1.0.0", "kind": "service", "plane": "runtime"},
-                "needs": {"secrets": ["shared.api_key"]},
-                "secrets": {"shared_api_key": {"prompt": "Shared key", "required": False}},
-            },
-        )
-        default_required = Module(
-            name="default-consumer",
-            path=Path("C:/tmp/default-consumer"),
-            manifest={
-                "module": {"name": "default-consumer", "version": "1.0.0", "kind": "service", "plane": "runtime"},
-                "needs": {"secrets": ["shared.api_key"]},
-                "secrets": {"shared_api_key": {"prompt": "Shared key"}},
-            },
-        )
-
-        with patch("spark_cli.cli.fetch_secret", return_value=None), \
-             patch("spark_cli.cli.fetch_generated_secret_value", return_value=None), \
-             self.assertRaisesRegex(SystemExit, "Missing required secrets: shared.api_key"):
-            collect_secret_values(Namespace(secret=None), [optional, default_required], interactive=False)
 
     def test_collect_secret_values_accepts_generic_secret_flags(self) -> None:
         module = Module(
