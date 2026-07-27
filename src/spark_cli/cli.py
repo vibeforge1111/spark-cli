@@ -71,6 +71,7 @@ from .security.url_policy import (
 from .state_hardening import STATE_DIRECTORY_HARDENING_WARNING, ensure_private_directories
 from .system_map import compile_summary, compile_system_map, git_board_status, write_compiled_outputs
 from .telegram_fix_health import resolve_telegram_fix_health
+from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
@@ -5652,25 +5653,6 @@ def chip_scan_text(path_label: str, text: str) -> list[ChipScanFinding]:
 def chip_scan_is_fixture_path(path_label: str) -> bool:
     parts = {part.lower() for part in Path(path_label).parts}
     return bool(parts & CHIP_SCAN_FIXTURE_DIRS)
-
-
-# A bare private-key block in a test file is still a real, exfiltratable key, so
-# embedded-private-key is NOT downgraded by fixture path alone. The one safe
-# exception is a redaction-test fixture: a placeholder key passed straight into a
-# redaction helper (redact/redactText/scrubSecrets/...) so the test can assert it
-# gets scrubbed. Those are intentional sample inputs, not installed key material.
-_REDACTION_FIXTURE_PRIVATE_KEY = re.compile(
-    r"(?:redact|redactText|redactSecret[s]?|scrub|scrubSecret[s]?|sanitize|sanitise|maskSecret[s]?)"
-    r"\s*\(\s*[\"'`][^\"'`]*-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
-    re.IGNORECASE,
-)
-
-
-def is_redaction_fixture_private_key(path_label: str, text: str) -> bool:
-    return bool(
-        chip_scan_is_fixture_path(path_label)
-        and _REDACTION_FIXTURE_PRIVATE_KEY.search(text)
-    )
 
 
 def normalize_fixture_finding(finding: ChipScanFinding, text: str = "") -> ChipScanFinding:
