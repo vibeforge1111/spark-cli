@@ -76,6 +76,7 @@ def collect_r30_merged_source_truth_status(
         source = str(row.get("source") or "")
         commit = str(row.get("merge_commit") or "").lower()
         verify_ref = str(metadata.get("verify_ref") or "")
+        immutable_ref = str(row.get("immutable_ref") or manifest.get("immutable_ref") or "")
         attestation = metadata.get("attestation") if isinstance(metadata.get("attestation"), dict) else {}
         if source != str(metadata.get("source") or ""):
             row_issues.append("source_mismatch")
@@ -83,7 +84,7 @@ def collect_r30_merged_source_truth_status(
             row_issues.append("merge_commit_invalid")
         if commit != str(metadata.get("commit") or "").lower():
             row_issues.append("registry_commit_mismatch")
-        if verify_ref != str(manifest.get("immutable_ref") or ""):
+        if verify_ref != immutable_ref:
             row_issues.append("verify_ref_mismatch")
         for key in ("commit", "canonical_head", "runtime_mirror_head"):
             if str(attestation.get(key) or "").lower() != commit:
@@ -118,6 +119,7 @@ def collect_r30_merged_source_truth_status(
                 "source": source,
                 "commit": commit,
                 "verify_ref": verify_ref,
+                "immutable_ref": immutable_ref,
                 "pr_number": row.get("pr_number"),
                 "disposition": row.get("disposition"),
                 "ok": not row_issues,
