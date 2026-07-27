@@ -9088,6 +9088,32 @@ def collect_r30_live_status_status(status_payload: dict[str, Any]) -> dict[str, 
     }
 
 
+def classify_r30_os_compile_status(
+    repo_board: dict[str, Any],
+    release_lane: dict[str, Any],
+) -> dict[str, Any]:
+    broad_dirty = int(repo_board.get("dirty_repo_count") or 0)
+    broad_blocked = int(repo_board.get("blocked_release_count") or 0)
+    critical_duplicates = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    release_dirty = int(release_lane.get("dirty_repo_count") or 0)
+    release_issues = int(release_lane.get("issue_count") or 0)
+    ok = bool(release_lane.get("ok")) and critical_duplicates == 0
+    return {
+        "ok": ok,
+        "detail": (
+            f"release_lane_dirty_repo_count={release_dirty}, "
+            f"release_lane_issue_count={release_issues}, "
+            f"critical_duplicate_truth_count={critical_duplicates}; "
+            f"broad_dirty_repo_count={broad_dirty}, broad_blocked_release_count={broad_blocked}"
+        ),
+        "release_lane_dirty_repo_count": release_dirty,
+        "release_lane_issue_count": release_issues,
+        "broad_dirty_repo_count": broad_dirty,
+        "broad_blocked_release_count": broad_blocked,
+        "critical_duplicate_truth_count": critical_duplicates,
+    }
+
+
 def collect_r30_voice_runtime_truth_status(compiled: dict[str, Any]) -> dict[str, Any]:
     voice_surface = compiled.get("voice_surface_view") if isinstance(compiled.get("voice_surface_view"), dict) else {}
     mode = str(voice_surface.get("mode") or "")
@@ -10503,6 +10529,7 @@ def collect_r30_release_gate_payload(
         critical_duplicate_truth_count=critical_duplicate_truth_count,
     )
     release_lane_classification = classify_r30_release_lane_rows(release_lane)
+    os_compile_status = classify_r30_os_compile_status(repo_board, release_lane)
     handoff_manifest = collect_r30_handoff_manifest_status(release_lane_classification, check_remote_refs=True)
     local_runtime_artifacts_handoff = collect_r30_local_runtime_artifacts_handoff_status(
         release_lane_classification,
@@ -10575,11 +10602,7 @@ def collect_r30_release_gate_payload(
         },
         {
             "name": "os_compile",
-            "ok": dirty_repo_count == 0 and blocked_release_count == 0 and critical_duplicate_truth_count == 0,
-            "detail": (
-                f"dirty_repo_count={dirty_repo_count}, blocked_release_count={blocked_release_count}, "
-                f"critical_duplicate_truth_count={critical_duplicate_truth_count}"
-            ),
+            **os_compile_status,
         },
         {
             "name": "r30_live_status",

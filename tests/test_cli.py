@@ -50,6 +50,7 @@ from spark_cli.cli import (
     classify_r30_publish_handoff_blockers,
     collect_harness_vendor_integrity_payload,
     collect_r30_access_level5_codex_sandbox_status,
+    classify_r30_os_compile_status,
     collect_r30_builder_trace_lifecycle_status,
     collect_r30_docs_status,
     collect_r30_live_status_status,
@@ -15067,6 +15068,43 @@ class Sandbox:
         self.assertTrue(checks["r30_voice_registry_decision"]["ok"])
         self.assertTrue(checks["r30_builder_trace_lifecycle"]["ok"])
         self.assertIn("canonical", checks["r30_voice_registry_decision"]["detail"])
+
+    def test_r30_os_compile_status_keeps_unrelated_dirty_repos_as_nonblocking_hygiene(self) -> None:
+        payload = classify_r30_os_compile_status(
+            {
+                "dirty_repo_count": 5,
+                "blocked_release_count": 5,
+                "critical_duplicate_truth_count": 0,
+            },
+            {
+                "ok": True,
+                "dirty_repo_count": 0,
+                "issue_count": 0,
+            },
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["release_lane_dirty_repo_count"], 0)
+        self.assertEqual(payload["broad_dirty_repo_count"], 5)
+        self.assertIn("broad_dirty_repo_count=5", payload["detail"])
+
+    def test_r30_os_compile_status_blocks_release_lane_issues(self) -> None:
+        payload = classify_r30_os_compile_status(
+            {
+                "dirty_repo_count": 5,
+                "blocked_release_count": 5,
+                "critical_duplicate_truth_count": 0,
+            },
+            {
+                "ok": False,
+                "dirty_repo_count": 1,
+                "issue_count": 1,
+            },
+        )
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["release_lane_dirty_repo_count"], 1)
+        self.assertEqual(payload["release_lane_issue_count"], 1)
 
     def test_r30_live_status_status_reports_unhealthy_modules(self) -> None:
         payload = collect_r30_live_status_status(
