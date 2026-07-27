@@ -22,6 +22,32 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def classify_r30_os_compile_status(
+    repo_board: dict[str, Any],
+    release_lane: dict[str, Any],
+) -> dict[str, Any]:
+    broad_dirty = int(repo_board.get("dirty_repo_count") or 0)
+    broad_blocked = int(repo_board.get("blocked_release_count") or 0)
+    critical_duplicates = int(repo_board.get("critical_duplicate_truth_count") or 0)
+    release_dirty = int(release_lane.get("dirty_repo_count") or 0)
+    release_issues = int(release_lane.get("issue_count") or 0)
+    ok = bool(release_lane.get("ok")) and critical_duplicates == 0
+    return {
+        "ok": ok,
+        "detail": (
+            f"release_lane_dirty_repo_count={release_dirty}, "
+            f"release_lane_issue_count={release_issues}, "
+            f"critical_duplicate_truth_count={critical_duplicates}; "
+            f"broad_dirty_repo_count={broad_dirty}, broad_blocked_release_count={broad_blocked}"
+        ),
+        "release_lane_dirty_repo_count": release_dirty,
+        "release_lane_issue_count": release_issues,
+        "broad_dirty_repo_count": broad_dirty,
+        "broad_blocked_release_count": broad_blocked,
+        "critical_duplicate_truth_count": critical_duplicates,
+    }
+
+
 def collect_r30_merged_source_truth_status(
     *,
     registry_path: Path | None = None,
