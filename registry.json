@@ -2,74 +2,75 @@
   "modules": {
     "spark-researcher": {
       "source": "https://github.com/vibeforge1111/spark-researcher",
-      "commit": "9ac089dd791c3601e28c3c1d58c0858853567d40",
+      "commit": "a067d98e332e2dab99e01191aea662844117e953",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Research, advisory, memory packet, and domain-chip authoring runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-researcher",
-        "commit": "9ac089dd791c3601e28c3c1d58c0858853567d40",
-        "verify_ref": "refs/tags/spark-ship-2026-06-26",
-        "canonical_head": "9ac089dd791c3601e28c3c1d58c0858853567d40",
-        "runtime_mirror_head": "9ac089dd791c3601e28c3c1d58c0858853567d40",
+        "commit": "a067d98e332e2dab99e01191aea662844117e953",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "a067d98e332e2dab99e01191aea662844117e953",
+        "runtime_mirror_head": "a067d98e332e2dab99e01191aea662844117e953",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-26T00:00:00Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "2026-06-26 r29 cut: pinned to immutable ship tag spark-ship-2026-06-26 at merged HEAD 9ac089dd791c (community-PR adoption squash-merged)",
-          "2026-06-22 r28 cut: pinned to immutable ship tag spark-ship-2026-06-22 (was moving refs/heads/main)",
+          "R30 adoption merged through PR #574 at a067d98e332e2dab99e01191aea662844117e953",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "SPDX decision: MIT",
           "focused pytest: 31/31",
           "canonical Harness Core memory-write binding guard preserved"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-26"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spark-character": {
       "source": "https://github.com/vibeforge1111/spark-character",
-      "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+      "commit": "7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Persona, voice consistency, scoring, and opt-in character evolution runtime for Spark",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-character",
-        "commit": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
-        "verify_ref": "refs/tags/spark-ship-2026-06-26",
-        "canonical_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
-        "runtime_mirror_head": "8cad27624c4bba34e52d5a1e67056d89d95c7cb2",
+        "commit": "7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
+        "runtime_mirror_head": "7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-26T00:00:00Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "2026-06-26 r29 cut: pinned to immutable ship tag spark-ship-2026-06-26 at merged HEAD 8cad27624c4b (community-PR adoption squash-merged)",
-          "2026-06-22 r28 cut: pinned to immutable ship tag spark-ship-2026-06-22 (PII-scrubbed)",
+          "R30 adoption merged through PR #328 at 7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "SPDX decision: MIT",
           "focused pytest tests/test_search_adapter.py: 19/19",
           "live-search network policy gate preserved",
           "spark-cli-public-installer-2026-06-10-r27 tag preserves the live audited pin while master moves independently"
         ]
       },
-      "verify_ref": "refs/tags/spark-ship-2026-06-26"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
+      "commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "5c0bf771a74308bd85302cba1254f1c502d01156",
-        "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
-        "canonical_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
-        "runtime_mirror_head": "5c0bf771a74308bd85302cba1254f1c502d01156",
+        "commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+        "runtime_mirror_head": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
         "tree_clean": true,
-        "validated_at": "2026-07-01T20:20:05Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 Telegram loop-engineering candidate anchored on release/r30-telegram-loop-engineering-20260701",
+          "R30 adoption merged through PR #861 at b72cf5eafe0fddda124fed696e26d6739029b8f5",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "authority closure ladder focused tests passed",
           "npm run build passed after authority closure curation",
           "Domain Chip creation, private check, live canary, and conversational closure routes covered",
@@ -79,61 +80,63 @@
         ],
         "license_spdx": "MIT"
       },
-      "verify_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
+      "commit": "cc289472ea0f65bfe5173514d46556f954405fea",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
-        "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701",
-        "canonical_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
-        "runtime_mirror_head": "3c2d82268d21919be4d37f0961ce5d72fec6830a",
+        "commit": "cc289472ea0f65bfe5173514d46556f954405fea",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "cc289472ea0f65bfe5173514d46556f954405fea",
+        "runtime_mirror_head": "cc289472ea0f65bfe5173514d46556f954405fea",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-07-01T20:20:05Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 Builder Domain Chip loop-proof candidate anchored on release/r30-builder-loop-proof-20260701",
+          "R30 adoption merged through PR #1008 at cc289472ea0f65bfe5173514d46556f954405fea",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "focused pytest passed: 278 passed, 26 subtests passed",
           "python3 -m compileall src tests passed",
           "chips create Governor authorization and loop-runner evidence binding covered",
           "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed."
         ]
       },
-      "verify_ref": "refs/heads/release/r30-builder-loop-proof-20260701"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
-      "commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "commit": "94c0526b435c619d6479a3c54dd421ea7f5f6c71",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Default memory substrate, benchmark pack, and Telegram memory-check chip",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-memory",
-        "commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
-        "verify_ref": "refs/heads/release/r30-memory-authority-20260701",
-        "canonical_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
-        "runtime_mirror_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "commit": "94c0526b435c619d6479a3c54dd421ea7f5f6c71",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "94c0526b435c619d6479a3c54dd421ea7f5f6c71",
+        "runtime_mirror_head": "94c0526b435c619d6479a3c54dd421ea7f5f6c71",
         "tree_clean": true,
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 memory authority candidate anchored on release/r30-memory-authority-20260701",
+          "R30 adoption merged through PR #80 at 94c0526b435c619d6479a3c54dd421ea7f5f6c71",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts passed",
           "vNext memory write authority proof preserved for R30 source truth"
         ],
         "license_spdx": "MIT"
       },
-      "verify_ref": "refs/heads/release/r30-memory-authority-20260701"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "domain-chip-spark-qa-evidence-lane": {
       "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-      "commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "commit": "3afeff10dc08895519c6c0da3faa8e56d61e64ef",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -141,40 +144,42 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
-        "commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
-        "verify_ref": "refs/heads/release/r30-evidence-lane-20260701",
-        "canonical_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
-        "runtime_mirror_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "commit": "3afeff10dc08895519c6c0da3faa8e56d61e64ef",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "3afeff10dc08895519c6c0da3faa8e56d61e64ef",
+        "runtime_mirror_head": "3afeff10dc08895519c6c0da3faa8e56d61e64ef",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 evidence lane anchored on release/r30-evidence-lane-20260701",
+          "R30 adoption merged through PR #4 at 3afeff10dc08895519c6c0da3faa8e56d61e64ef",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "pytest passed: 206/206",
           "dcl-fixture-check passed with 18 Domain Chip scenarios",
           "watchtower and evaluate commands passed for Domain Chip proof gates"
         ]
       },
-      "verify_ref": "refs/heads/release/r30-evidence-lane-20260701"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spark-harness-core": {
       "source": "https://github.com/vibeforge1111/spark-harness-core",
-      "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-      "verify_ref": "refs/tags/v1.0.0-rc.2",
+      "commit": "f3641143f1c3f28f55178faefcea57fd443c98bc",
+      "verify_ref": "refs/tags/spark-r30-2026-07-27",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark Genesis Harness canonical authority kernel, schemas, ledger, readiness, and self-evolution contracts",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-harness-core",
-        "commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "verify_ref": "refs/tags/v1.0.0-rc.2",
-        "canonical_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
-        "runtime_mirror_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "commit": "f3641143f1c3f28f55178faefcea57fd443c98bc",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "f3641143f1c3f28f55178faefcea57fd443c98bc",
+        "runtime_mirror_head": "f3641143f1c3f28f55178faefcea57fd443c98bc",
         "tree_clean": true,
-        "validated_at": "2026-06-22T00:00:00Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "2026-06-22 r28 cut: public, pinned to immutable tag v1.0.0-rc.2 (71e564b)",
+          "R30 adoption merged through PR #13 at f3641143f1c3f28f55178faefcea57fd443c98bc",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "HS-13 reconciled codex/genesis-harness-core-20260602 and rescue docs into origin/main",
           "origin/main, installed mirror, and v1.0.0-rc peel to 25b0b01abf806426c46f9ef71bd0d0cf29da0f56",
           "bot and spawner-ui harness-core SOURCE_MANIFEST files point to v1.0.0-rc commit"
@@ -184,7 +189,7 @@
     },
     "spark-skill-graphs": {
       "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-      "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+      "commit": "1606442cb5e128dbdee03850afbebff192c4db4e",
       "visibility": "private",
       "require_signed_commit": false,
       "blessed": true,
@@ -192,63 +197,68 @@
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-skill-graphs",
-        "commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
-        "verify_ref": "refs/heads/reconcile/20260610-metadata-authority",
-        "canonical_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
-        "runtime_mirror_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "commit": "1606442cb5e128dbdee03850afbebff192c4db4e",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "1606442cb5e128dbdee03850afbebff192c4db4e",
+        "runtime_mirror_head": "1606442cb5e128dbdee03850afbebff192c4db4e",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-06-09T21:40:00Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
+          "R30 adoption merged through PR #4 at 1606442cb5e128dbdee03850afbebff192c4db4e",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "npm run validate:all: passed",
           "npm run test:unit: 7/7",
           "npm run pack:dry: passed",
           "metadata-only module removes aspirational spark-harness-core dependency claim"
         ]
       },
-      "verify_ref": "refs/heads/reconcile/20260610-metadata-authority"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "c502ec096cefb48839e3279d3392343231884415",
+      "commit": "e0be919b47a0c271b709361f0f2026be580a272f",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "c502ec096cefb48839e3279d3392343231884415",
-        "verify_ref": "refs/heads/release/r30-voice-trace-governor-20260701",
-        "canonical_head": "c502ec096cefb48839e3279d3392343231884415",
-        "runtime_mirror_head": "c502ec096cefb48839e3279d3392343231884415",
+        "commit": "e0be919b47a0c271b709361f0f2026be580a272f",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "e0be919b47a0c271b709361f0f2026be580a272f",
+        "runtime_mirror_head": "e0be919b47a0c271b709361f0f2026be580a272f",
         "tree_clean": true,
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 voice trace/governor candidate anchored on release/r30-voice-trace-governor-20260701",
+          "R30 adoption merged through PR #266 at e0be919b47a0c271b709361f0f2026be580a272f",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
           "PYTHONPATH=src python3 -m pytest -q passed: 132/132",
           "voice registry drift resolved against R30 source-owned candidate ref"
         ]
       },
-      "verify_ref": "refs/heads/release/r30-voice-trace-governor-20260701"
+      "verify_ref": "refs/tags/spark-r30-2026-07-27"
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-      "verify_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
+      "commit": "db6abca434d325336930f9f277c77c05390f06da",
+      "verify_ref": "refs/tags/spark-r30-2026-07-27",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-        "verify_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
-        "canonical_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-        "runtime_mirror_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "commit": "db6abca434d325336930f9f277c77c05390f06da",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27",
+        "canonical_head": "db6abca434d325336930f9f277c77c05390f06da",
+        "runtime_mirror_head": "db6abca434d325336930f9f277c77c05390f06da",
         "tree_clean": true,
-        "validated_at": "2026-07-01T17:40:20Z",
+        "validated_at": "2026-07-27T07:30:00Z",
         "evidence": [
-          "R30 Spawner source-squash candidate anchored on release/r30-spawner-source-squash-20260701",
+          "R30 adoption merged through PR #888 at db6abca434d325336930f9f277c77c05390f06da",
+          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
+          "the canonical merge supersedes the divergent provisional source-squash lane while preserving its useful commits and contributor attribution",
           "bulky CUA artifact folder preserved in release artifacts instead of source branch",
           "npm run check passed",
           "focused loop-engineering vitest passed: 28/28",
