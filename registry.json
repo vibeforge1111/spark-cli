@@ -241,28 +241,30 @@
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "db6abca434d325336930f9f277c77c05390f06da",
-      "verify_ref": "refs/tags/spark-r30-2026-07-27",
+      "commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
+      "verify_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "db6abca434d325336930f9f277c77c05390f06da",
-        "verify_ref": "refs/tags/spark-r30-2026-07-27",
-        "canonical_head": "db6abca434d325336930f9f277c77c05390f06da",
-        "runtime_mirror_head": "db6abca434d325336930f9f277c77c05390f06da",
+        "commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
+        "verify_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
+        "canonical_head": "69b444899595ce6c44845a6a58712fc45ddce80c",
+        "runtime_mirror_head": "69b444899595ce6c44845a6a58712fc45ddce80c",
         "tree_clean": true,
-        "validated_at": "2026-07-27T07:30:00Z",
+        "validated_at": "2026-07-27T08:09:00Z",
         "evidence": [
           "R30 adoption merged through PR #888 at db6abca434d325336930f9f277c77c05390f06da",
-          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
+          "Level 5 follow-up selectively ported through PR #889 at 69b444899595ce6c44845a6a58712fc45ddce80c",
+          "immutable refs/tags/spark-r30-2026-07-27-spawner-level5 resolves to the exact follow-up merge",
           "the canonical merge supersedes the divergent provisional source-squash lane while preserving its useful commits and contributor attribution",
+          "Spark CLI Access 5 verifier passed 33/33 checks against the follow-up source",
           "bulky CUA artifact folder preserved in release artifacts instead of source branch",
-          "npm run check passed",
-          "focused loop-engineering vitest passed: 28/28",
-          "npm run build passed"
+          "focused Level 5 vitest passed: 46/46",
+          "full Vitest passed: 1,295/1,295",
+          "npm run check and npm run build passed"
         ],
         "license_spdx": "MIT"
       }

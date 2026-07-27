@@ -82,13 +82,15 @@
     {
       "name": "spawner-ui",
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "pr_number": 888,
-      "merge_commit": "db6abca434d325336930f9f277c77c05390f06da",
+      "pr_number": 889,
+      "merge_commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
+      "immutable_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
       "disposition": "selectively_port",
-      "receipt": "spark-r30-spawner-merge-receipt-2026-07-27.json",
-      "receipt_sha256": "083b000552cf902ed22c84bc3cd4bbe1c5e8ae339d340a2d1d8f0199c3aca0e6",
+      "receipt": "spark-r30-spawner-level5-followup-merge-receipt-2026-07-27.md",
+      "receipt_sha256": "43044e5fdf1151afc7d0c9e0772cdbb96d03b61559438fdb5722680e76a89168",
+      "extends_merge_commit": "db6abca434d325336930f9f277c77c05390f06da",
       "supersedes": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-      "supersession_reason": "PR #888 is the canonical merge lane; it preserves useful divergent work and contributor attribution without treating the provisional source-squash head as release truth."
+      "supersession_reason": "PR #889 extends the canonical PR #888 merge lane with the retained Level 5 sandbox behavior from the divergent source chain, preserving useful work and attribution without treating the provisional source-squash head as release truth."
     },
     {
       "name": "spark-telegram-bot",
