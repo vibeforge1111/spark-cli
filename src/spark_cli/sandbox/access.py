@@ -272,6 +272,15 @@ def level5_service_guardrail_state(
         pids = json.loads(pids_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pids = {}
+    setup_path = spark_home / "state" / "setup.json"
+    try:
+        setup_state = json.loads(setup_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        setup_state = {}
+    external_telegram_ingress = (
+        isinstance(setup_state, dict) and setup_state.get("telegram_ingress_mode") == "external"
+    )
+    state["telegram_ingress_mode"] = "external" if external_telegram_ingress else "local"
     telegram_profiles: list[str] = []
     skipped_telegram_profiles: list[str] = []
     for path in level5_telegram_env_paths(home=spark_home, env=env):
@@ -284,8 +293,12 @@ def level5_service_guardrail_state(
             telegram_profiles.append(profile)
         elif profile:
             skipped_telegram_profiles.append(profile)
-    telegram_service_labels = [f"spark-telegram-bot:{profile}" for profile in sorted(set(telegram_profiles))]
-    if not telegram_service_labels:
+    telegram_service_labels = (
+        []
+        if external_telegram_ingress
+        else [f"spark-telegram-bot:{profile}" for profile in sorted(set(telegram_profiles))]
+    )
+    if not telegram_service_labels and not external_telegram_ingress:
         telegram_service_labels = ["spark-telegram-bot"]
     expected = {"spawner-ui": False, **{label: False for label in telegram_service_labels}}
     modules: dict[str, Any] = {}

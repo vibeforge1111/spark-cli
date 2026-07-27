@@ -613,6 +613,40 @@ class AccessSetupTests(unittest.TestCase):
         self.assertEqual(payload["level5"]["full_permission_proof"]["missing"], [])
         self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
 
+    def test_access_level5_external_telegram_ingress_only_requires_spawner_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spark_home = Path(tmpdir) / "spark-home"
+            self.run_access("setup", "--level", "5", "--enable-high-agency", spark_home=spark_home)
+            state_dir = spark_home / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "setup.json").write_text(
+                json.dumps({"telegram_ingress_mode": "external"}),
+                encoding="utf-8",
+            )
+            (state_dir / "pids.json").write_text(
+                json.dumps(
+                    {
+                        "spawner-ui": {
+                            "pid": 111,
+                            "module": "spawner-ui",
+                            "started_at": "2999-01-01T00:00:00Z",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code, payload = self.run_access("status", "--level", "5", spark_home=spark_home)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["level5"]["activation_state"], "active_for_services")
+        self.assertTrue(payload["level5"]["service_enabled"])
+        self.assertEqual(payload["effective_access_level"], 5)
+        self.assertEqual(payload["level5"]["service_guardrails"]["telegram_ingress_mode"], "external")
+        self.assertEqual(payload["level5"]["service_guardrails"]["missing_or_stale_services"], [])
+        self.assertNotIn("spark-telegram-bot", payload["level5"]["service_guardrails"]["modules"])
+        self.assertTrue(payload["state_machine"]["service_can_operate_whole_computer"])
+
     def test_access_level5_service_proof_skips_unstartable_stale_telegram_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             spark_home = Path(tmpdir) / "spark-home"
