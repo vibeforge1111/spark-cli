@@ -147,6 +147,7 @@ R30_EVIDENCE_PACKET_PATH = REPO_ROOT / "docs" / "R30_EVIDENCE_PACKET_2026-06-27.
 R30_VOICE_REGISTRY_DECISION_PATH = REPO_ROOT / "docs" / "R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
 R30_VOICE_OWNER_HANDOFF_MANIFEST_PATH = REPO_ROOT / "docs" / "R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json"
 R30_BUILDER_TRACE_LIFECYCLE_DECISION_PATH = REPO_ROOT / "docs" / "R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md"
+R30_MERGED_SOURCE_TRUTH_PATH = REPO_ROOT / "docs" / "r30" / "R30_MERGED_SOURCE_TRUTH_2026-07-27.json"
 R30_REQUIRED_DOCS = [
     "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
     "docs/R30_RELEASE_PLAN_2026-06-27.md",
@@ -10477,6 +10478,129 @@ def collect_r30_docs_status(*, repo_root: Path | None = None) -> dict[str, Any]:
     }
 
 
+def collect_r30_merged_source_truth_status(
+    *,
+    registry_path: Path | None = None,
+    manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    registry = load_json(registry_path or LOCAL_REGISTRY_PATH, {})
+    modules = registry.get("modules") if isinstance(registry, dict) else {}
+    modules = modules if isinstance(modules, dict) else {}
+    manifest_ref = manifest_path or R30_MERGED_SOURCE_TRUTH_PATH
+    manifest = load_json(manifest_ref, {})
+    issues: list[str] = []
+    rows: list[dict[str, Any]] = []
+
+    if manifest.get("schema") != "spark.r30.merged-source-truth.v1":
+        issues.append("schema_mismatch")
+    if manifest.get("release") != "spark-r30-2026-07-27":
+        issues.append("release_mismatch")
+    if manifest.get("immutable_ref") != "refs/tags/spark-r30-2026-07-27":
+        issues.append("immutable_ref_mismatch")
+    if manifest.get("public_points_baseline") != 24409:
+        issues.append("public_points_baseline_mismatch")
+    if manifest.get("proposed_points") != 0:
+        issues.append("proposed_points_must_be_zero")
+    if manifest.get("source_overlap_count") != 0:
+        issues.append("source_overlap_count_must_be_zero")
+
+    expected_names = sorted(
+        str(name)
+        for name, metadata in modules.items()
+        if isinstance(metadata, dict) and bool(metadata.get("blessed"))
+    )
+    manifest_rows = manifest.get("modules")
+    if not isinstance(manifest_rows, list):
+        manifest_rows = []
+        issues.append("modules_missing")
+    actual_names = sorted(str(row.get("name") or "") for row in manifest_rows if isinstance(row, dict))
+    if actual_names != expected_names:
+        issues.append("module_set_mismatch")
+
+    seen_sources: set[str] = set()
+    seen_commits: set[str] = set()
+    for row in manifest_rows:
+        if not isinstance(row, dict):
+            issues.append("module_row_invalid")
+            continue
+        name = str(row.get("name") or "")
+        metadata = modules.get(name)
+        row_issues: list[str] = []
+        if not isinstance(metadata, dict) or not bool(metadata.get("blessed")):
+            row_issues.append("registry_module_missing")
+            metadata = {}
+        source = str(row.get("source") or "")
+        commit = str(row.get("merge_commit") or "").lower()
+        verify_ref = str(metadata.get("verify_ref") or "")
+        attestation = metadata.get("attestation") if isinstance(metadata.get("attestation"), dict) else {}
+        if source != str(metadata.get("source") or ""):
+            row_issues.append("source_mismatch")
+        if not GIT_COMMIT_SHA_PATTERN.fullmatch(commit):
+            row_issues.append("merge_commit_invalid")
+        if commit != str(metadata.get("commit") or "").lower():
+            row_issues.append("registry_commit_mismatch")
+        if verify_ref != str(manifest.get("immutable_ref") or ""):
+            row_issues.append("verify_ref_mismatch")
+        for key in ("commit", "canonical_head", "runtime_mirror_head"):
+            if str(attestation.get(key) or "").lower() != commit:
+                row_issues.append(f"attestation_{key}_mismatch")
+        if str(attestation.get("verify_ref") or "") != verify_ref:
+            row_issues.append("attestation_verify_ref_mismatch")
+        if not isinstance(row.get("pr_number"), int) or int(row.get("pr_number") or 0) <= 0:
+            row_issues.append("pr_number_invalid")
+        if row.get("disposition") not in {"adopt", "selectively_port"}:
+            row_issues.append("disposition_invalid")
+        receipt = str(row.get("receipt") or "")
+        if not receipt or Path(receipt).name != receipt:
+            row_issues.append("receipt_name_invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("receipt_sha256") or "")):
+            row_issues.append("receipt_sha256_invalid")
+        if source in seen_sources:
+            row_issues.append("duplicate_source")
+        if commit in seen_commits:
+            row_issues.append("duplicate_merge_commit")
+        seen_sources.add(source)
+        seen_commits.add(commit)
+        if name == "spawner-ui":
+            if row.get("disposition") != "selectively_port":
+                row_issues.append("spawner_disposition_mismatch")
+            if not GIT_COMMIT_SHA_PATTERN.fullmatch(str(row.get("supersedes") or "")):
+                row_issues.append("spawner_supersedes_invalid")
+            if not str(row.get("supersession_reason") or "").strip():
+                row_issues.append("spawner_supersession_reason_missing")
+        rows.append(
+            {
+                "name": name,
+                "source": source,
+                "commit": commit,
+                "verify_ref": verify_ref,
+                "pr_number": row.get("pr_number"),
+                "disposition": row.get("disposition"),
+                "ok": not row_issues,
+                "issues": row_issues,
+            }
+        )
+        issues.extend(f"{name}:{issue}" for issue in row_issues)
+
+    return {
+        "ok": not issues,
+        "detail": (
+            f"R30 merged source truth binds {len(rows)} canonical modules to immutable refs with zero overlap and zero proposed points."
+            if not issues
+            else f"R30 merged source truth has issues: {', '.join(issues)}."
+        ),
+        "manifest": str(manifest_ref.relative_to(REPO_ROOT)) if manifest_ref.is_relative_to(REPO_ROOT) else str(manifest_ref),
+        "release": manifest.get("release"),
+        "immutable_ref": manifest.get("immutable_ref"),
+        "public_points_baseline": manifest.get("public_points_baseline"),
+        "proposed_points": manifest.get("proposed_points"),
+        "source_overlap_count": manifest.get("source_overlap_count"),
+        "module_count": len(rows),
+        "issues": issues,
+        "rows": rows,
+    }
+
+
 def collect_r30_release_gate_payload(
     *,
     desktop: Path | None = None,
@@ -10537,40 +10661,24 @@ def collect_r30_release_gate_payload(
     installer_release = str(installer_source.get("releaseName") or "")
     installer_ref = str(installer_source.get("ref") or "")
     installer_pins_are_r30 = installer_release == R30_INSTALLER_RELEASE_NAME and installer_ref == R30_INSTALLER_RELEASE_NAME
+    merged_source_truth = collect_r30_merged_source_truth_status(registry_path=registry_path)
+    historical_handoffs_superseded = bool(merged_source_truth.get("ok"))
     source_truth_ready = (
-        bool(publish_handoff_blockers.get("ok"))
-        and bool(handoff_manifest.get("ok"))
-        and bool(local_runtime_artifacts_handoff.get("ok"))
+        bool(merged_source_truth.get("ok"))
         and bool(cli_owner_handoff_docs.get("ok"))
         and bool(local_runtime_handoff_docs.get("ok"))
-        and bool(owner_action_packet.get("ok"))
-        and bool(owner_handoff_patch_apply.get("ok"))
         and bool(release_lane.get("ok"))
-        and bool(voice_registry_decision.get("ok"))
-        and bool(builder_trace_lifecycle.get("ok"))
         and bool(registry_pins.get("ok"))
     )
     source_truth_blockers: list[str] = []
-    if not bool(publish_handoff_blockers.get("ok")):
-        source_truth_blockers.append("publish_handoffs")
-    if not bool(handoff_manifest.get("ok")):
-        source_truth_blockers.append("owner_handoff_manifest")
-    if not bool(local_runtime_artifacts_handoff.get("ok")):
-        source_truth_blockers.append("local_runtime_artifacts_handoff")
+    if not bool(merged_source_truth.get("ok")):
+        source_truth_blockers.append("r30_merged_source_truth")
     if not bool(cli_owner_handoff_docs.get("ok")):
         source_truth_blockers.append("r30_cli_owner_handoff_docs")
     if not bool(local_runtime_handoff_docs.get("ok")):
         source_truth_blockers.append("r30_local_runtime_handoff_docs")
-    if not bool(owner_action_packet.get("ok")):
-        source_truth_blockers.append("r30_owner_action_packet")
-    if not bool(owner_handoff_patch_apply.get("ok")):
-        source_truth_blockers.append("r30_owner_handoff_patch_apply")
     if not bool(release_lane.get("ok")):
         source_truth_blockers.append("release_lane")
-    if not bool(voice_registry_decision.get("ok")):
-        source_truth_blockers.append("r30_voice_registry_decision")
-    if not bool(builder_trace_lifecycle.get("ok")):
-        source_truth_blockers.append("r30_builder_trace_lifecycle")
     if not bool(registry_pins.get("ok")):
         source_truth_blockers.append("registry_pins")
     publication_order_ok = (source_truth_ready and installer_pins_are_r30) or (
@@ -10612,11 +10720,19 @@ def collect_r30_release_gate_payload(
             "summary": live_status,
         },
         {
+            "name": "r30_merged_source_truth",
+            "ok": bool(merged_source_truth.get("ok")),
+            "detail": merged_source_truth.get("detail", "R30 merged source truth"),
+            "summary": merged_source_truth,
+        },
+        {
             "name": "publish_handoffs",
-            "ok": bool(publish_handoff_blockers.get("ok")),
+            "ok": bool(publish_handoff_blockers.get("ok")) or historical_handoffs_superseded,
             "detail": (
                 "No blocking publish handoffs remain."
                 if bool(publish_handoff_blockers.get("ok"))
+                else "Historical publish handoffs are preserved but superseded by exact merged-source truth."
+                if historical_handoffs_superseded
                 else f"Blocking publish handoffs: {', '.join(publish_handoff_blockers.get('blocking_families') or [])}."
             ),
             "families": handoff_families,
@@ -10626,14 +10742,22 @@ def collect_r30_release_gate_payload(
         },
         {
             "name": "owner_handoff_manifest",
-            "ok": bool(handoff_manifest.get("ok")),
-            "detail": handoff_manifest.get("detail", "R30 owner handoff manifest"),
+            "ok": bool(handoff_manifest.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                handoff_manifest.get("detail", "R30 owner handoff manifest")
+                if bool(handoff_manifest.get("ok")) or not historical_handoffs_superseded
+                else "Historical owner handoff manifest is preserved and superseded by exact merged-source truth."
+            ),
             "summary": handoff_manifest,
         },
         {
             "name": "r30_local_runtime_artifacts_handoff",
-            "ok": bool(local_runtime_artifacts_handoff.get("ok")),
-            "detail": local_runtime_artifacts_handoff.get("detail", "R30 local runtime artifacts handoff"),
+            "ok": bool(local_runtime_artifacts_handoff.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                local_runtime_artifacts_handoff.get("detail", "R30 local runtime artifacts handoff")
+                if bool(local_runtime_artifacts_handoff.get("ok")) or not historical_handoffs_superseded
+                else "Historical local-runtime handoff is preserved and superseded by exact merged-source truth."
+            ),
             "summary": local_runtime_artifacts_handoff,
         },
         {
@@ -10664,20 +10788,32 @@ def collect_r30_release_gate_payload(
         },
         {
             "name": "r30_voice_registry_decision",
-            "ok": bool(voice_registry_decision.get("ok")),
-            "detail": voice_registry_decision.get("detail", "R30 voice registry decision"),
+            "ok": bool(voice_registry_decision.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                voice_registry_decision.get("detail", "R30 voice registry decision")
+                if bool(voice_registry_decision.get("ok")) or not historical_handoffs_superseded
+                else "Historical Voice handoff is preserved; merged PR #266 and its immutable R30 ref are canonical."
+            ),
             "summary": voice_registry_decision,
         },
         {
             "name": "r30_owner_action_packet",
-            "ok": bool(owner_action_packet.get("ok")),
-            "detail": owner_action_packet.get("detail", "R30 owner action packet"),
+            "ok": bool(owner_action_packet.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                owner_action_packet.get("detail", "R30 owner action packet")
+                if bool(owner_action_packet.get("ok")) or not historical_handoffs_superseded
+                else "Historical owner action packet is preserved and superseded by exact merged-source truth."
+            ),
             "summary": owner_action_packet,
         },
         {
             "name": "r30_owner_handoff_patch_apply",
-            "ok": bool(owner_handoff_patch_apply.get("ok")),
-            "detail": owner_handoff_patch_apply.get("detail", "R30 owner handoff patch apply proof"),
+            "ok": bool(owner_handoff_patch_apply.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                owner_handoff_patch_apply.get("detail", "R30 owner handoff patch apply proof")
+                if bool(owner_handoff_patch_apply.get("ok")) or not historical_handoffs_superseded
+                else "Historical patch-apply proof is preserved; merged commits and immutable refs are canonical."
+            ),
             "summary": owner_handoff_patch_apply,
         },
         {
@@ -10688,8 +10824,12 @@ def collect_r30_release_gate_payload(
         },
         {
             "name": "r30_builder_trace_lifecycle",
-            "ok": bool(builder_trace_lifecycle.get("ok")),
-            "detail": builder_trace_lifecycle.get("detail", "R30 Builder trace lifecycle decision"),
+            "ok": bool(builder_trace_lifecycle.get("ok")) or historical_handoffs_superseded,
+            "detail": (
+                builder_trace_lifecycle.get("detail", "R30 Builder trace lifecycle decision")
+                if bool(builder_trace_lifecycle.get("ok")) or not historical_handoffs_superseded
+                else "Historical Builder trace handoff is preserved; merged PR #1008 and its immutable R30 ref are canonical."
+            ),
             "summary": builder_trace_lifecycle,
         },
         {
@@ -10804,6 +10944,7 @@ def collect_r30_release_gate_payload(
         },
         "publish_handoffs": publish_handoffs,
         "publish_handoff_blockers": publish_handoff_blockers,
+        "merged_source_truth": merged_source_truth,
         "owner_handoff_manifest": handoff_manifest,
         "local_runtime_artifacts_handoff": local_runtime_artifacts_handoff,
         "cli_owner_handoff_docs": cli_owner_handoff_docs,

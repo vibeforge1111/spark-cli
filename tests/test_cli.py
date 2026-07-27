@@ -53,6 +53,7 @@ from spark_cli.cli import (
     collect_r30_builder_trace_lifecycle_status,
     collect_r30_docs_status,
     collect_r30_live_status_status,
+    collect_r30_merged_source_truth_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
     R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH,
@@ -14817,6 +14818,7 @@ class Sandbox:
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
+             patch("spark_cli.cli.collect_r30_merged_source_truth_status", return_value={"ok": False, "detail": "merged truth unavailable"}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-voice-comms", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
              patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-26-r29", "ref": "spark-cli-public-installer-2026-06-26-r29"}}):
@@ -14837,8 +14839,7 @@ class Sandbox:
         self.assertEqual(
             checks["publication_order"]["source_truth_blockers"],
             [
-                "publish_handoffs",
-                "owner_handoff_manifest",
+                "r30_merged_source_truth",
                 "release_lane",
                 "registry_pins",
             ],
@@ -14884,6 +14885,33 @@ class Sandbox:
         )
         self.assertTrue(fresh["ok"])
 
+    def test_r30_merged_source_truth_binds_every_registry_module(self) -> None:
+        payload = collect_r30_merged_source_truth_status()
+
+        self.assertTrue(payload["ok"], payload["issues"])
+        self.assertEqual(payload["module_count"], 10)
+        self.assertEqual(payload["public_points_baseline"], 24409)
+        self.assertEqual(payload["proposed_points"], 0)
+        self.assertEqual(payload["source_overlap_count"], 0)
+        self.assertEqual(payload["immutable_ref"], "refs/tags/spark-r30-2026-07-27")
+        self.assertTrue(all(row["ok"] for row in payload["rows"]))
+
+    def test_r30_merged_source_truth_rejects_point_and_spawner_supersession_drift(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "docs" / "r30" / "R30_MERGED_SOURCE_TRUTH_2026-07-27.json"
+        manifest = json.loads(source.read_text(encoding="utf-8"))
+        manifest["proposed_points"] = 10
+        spawner = next(row for row in manifest["modules"] if row["name"] == "spawner-ui")
+        spawner.pop("supersession_reason")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "merged-source-truth.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            payload = collect_r30_merged_source_truth_status(manifest_path=manifest_path)
+
+        self.assertFalse(payload["ok"])
+        self.assertIn("proposed_points_must_be_zero", payload["issues"])
+        self.assertIn("spawner-ui:spawner_supersession_reason_missing", payload["issues"])
+
     def test_r30_release_gate_blocks_premature_r30_installer_pins(self) -> None:
         compiled = {
             "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
@@ -14924,6 +14952,7 @@ class Sandbox:
              patch("spark_cli.cli.compile_summary", return_value=summary), \
              patch("spark_cli.cli.git_board_status", side_effect=fake_git_status), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
+             patch("spark_cli.cli.collect_r30_merged_source_truth_status", return_value={"ok": False, "detail": "merged truth unavailable"}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
              patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-06-27-r30", "ref": "spark-cli-public-installer-2026-06-27-r30"}}):
@@ -14935,7 +14964,7 @@ class Sandbox:
         self.assertEqual(
             checks["publication_order"]["source_truth_blockers"],
             [
-                "owner_handoff_manifest",
+                "r30_merged_source_truth",
                 "release_lane",
                 "registry_pins",
             ],
@@ -15014,7 +15043,7 @@ class Sandbox:
             "spark-cli-public-installer-2026-06-27-r30",
         )
 
-    def test_r30_publication_order_names_voice_and_builder_decision_blocks(self) -> None:
+    def test_r30_publication_order_supersedes_historical_voice_and_builder_handoffs(self) -> None:
         compiled = {
             "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
             "installed_modules": {
@@ -15052,6 +15081,7 @@ class Sandbox:
              patch("spark_cli.cli.collect_r30_owner_handoff_patch_apply_status", return_value={"ok": True}), \
              patch("spark_cli.cli.collect_r30_voice_registry_decision_status", return_value={"ok": False}), \
              patch("spark_cli.cli.collect_r30_builder_trace_lifecycle_status", return_value={"ok": False}), \
+             patch("spark_cli.cli.collect_r30_merged_source_truth_status", return_value={"ok": True, "detail": "merged truth current"}), \
              patch("spark_cli.cli.collect_status_payload", return_value={"ok": True, "summary": "runtime ok", "modules": []}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": True, "summary": "pins ok", "checks": []}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
@@ -15059,12 +15089,12 @@ class Sandbox:
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
-        self.assertTrue(checks["publication_order"]["ok"])
-        self.assertFalse(checks["publication_order"]["source_truth_ready"])
-        self.assertEqual(
-            checks["publication_order"]["source_truth_blockers"],
-            ["r30_voice_registry_decision", "r30_builder_trace_lifecycle"],
-        )
+        self.assertFalse(checks["publication_order"]["ok"])
+        self.assertTrue(checks["publication_order"]["source_truth_ready"])
+        self.assertEqual(checks["publication_order"]["source_truth_blockers"], [])
+        self.assertTrue(checks["r30_voice_registry_decision"]["ok"])
+        self.assertTrue(checks["r30_builder_trace_lifecycle"]["ok"])
+        self.assertIn("canonical", checks["r30_voice_registry_decision"]["detail"])
 
     def test_r30_live_status_status_reports_unhealthy_modules(self) -> None:
         payload = collect_r30_live_status_status(
