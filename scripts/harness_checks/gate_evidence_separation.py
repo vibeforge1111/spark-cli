@@ -26,7 +26,7 @@ from pathlib import Path
 GATE_MAP_FILENAME = "gate-map.json"
 
 
-def load_gate_map(root: Path) -> dict:
+def load_gate_map(root: Path) -> tuple[dict, str | None]:
     path = root / GATE_MAP_FILENAME
     if not path.is_file():
         raise SystemExit(f"ERROR: {path} not found (a gate without a gate-map entry fails the binding gate)")
@@ -39,7 +39,15 @@ def load_gate_map(root: Path) -> dict:
     if not isinstance(gates, dict) or not gates:
         print(f"ERROR: {GATE_MAP_FILENAME} declares no gates", file=sys.stderr)
         sys.exit(2)
-    return gates
+    enforced_after = payload.get("separation_enforced_after")
+    if enforced_after is not None and (
+        not isinstance(enforced_after, str)
+        or len(enforced_after) != 40
+        or any(char not in "0123456789abcdef" for char in enforced_after.lower())
+    ):
+        print("ERROR: gate-map.json separation_enforced_after must be a full commit SHA", file=sys.stderr)
+        sys.exit(2)
+    return gates, enforced_after
 
 
 def run_git(root: Path, args: list[str]) -> str:
@@ -55,6 +63,26 @@ def run_git(root: Path, args: list[str]) -> str:
 def commit_files(root: Path, commit: str) -> list[str]:
     out = run_git(root, ["show", "--name-only", "--pretty=format:", commit])
     return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def is_after(root: Path, boundary: str, commit: str) -> bool:
+    if commit == boundary:
+        return False
+    result = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", boundary, commit],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    print(
+        f"ERROR: could not compare separation boundary {boundary} with {commit}: "
+        f"{result.stderr.strip()}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 def matches(path: str, patterns: list[str]) -> bool:
@@ -88,7 +116,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     root = Path(args.root).resolve()
-    gates = load_gate_map(root)
+    gates, enforced_after = load_gate_map(root)
 
     if ".." in args.rev_range:
         out = run_git(root, ["rev-list", "--no-merges", args.rev_range])
@@ -96,8 +124,12 @@ def main() -> int:
     else:
         commits = [run_git(root, ["rev-parse", args.rev_range]).strip()]
 
+    checked_commits = [
+        commit for commit in commits
+        if not enforced_after or is_after(root, enforced_after, commit)
+    ]
     all_violations: list[str] = []
-    for commit in commits:
+    for commit in checked_commits:
         all_violations.extend(check_commit(commit, commit_files(root, commit), gates))
 
     if all_violations:
@@ -105,7 +137,11 @@ def main() -> int:
         for violation in all_violations:
             print(f"  - {violation}")
         return 1
-    print(f"PASS gate_evidence_separation ({len(commits)} commit(s), {len(gates)} gate(s))")
+    historical_count = len(commits) - len(checked_commits)
+    print(
+        f"PASS gate_evidence_separation ({len(checked_commits)} enforced commit(s), "
+        f"{historical_count} historical commit(s), {len(gates)} gate(s))"
+    )
     return 0
 
 

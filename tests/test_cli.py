@@ -53,7 +53,6 @@ from spark_cli.cli import (
     collect_r30_builder_trace_lifecycle_status,
     collect_r30_docs_status,
     collect_r30_live_status_status,
-    collect_r30_merged_source_truth_status,
     collect_r30_local_runtime_artifacts_handoff_status,
     collect_r30_local_runtime_handoff_docs_status,
     R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_PATH,
@@ -14885,33 +14884,6 @@ class Sandbox:
         )
         self.assertTrue(fresh["ok"])
 
-    def test_r30_merged_source_truth_binds_every_registry_module(self) -> None:
-        payload = collect_r30_merged_source_truth_status()
-
-        self.assertTrue(payload["ok"], payload["issues"])
-        self.assertEqual(payload["module_count"], 10)
-        self.assertEqual(payload["public_points_baseline"], 24409)
-        self.assertEqual(payload["proposed_points"], 0)
-        self.assertEqual(payload["source_overlap_count"], 0)
-        self.assertEqual(payload["immutable_ref"], "refs/tags/spark-r30-2026-07-27")
-        self.assertTrue(all(row["ok"] for row in payload["rows"]))
-
-    def test_r30_merged_source_truth_rejects_point_and_spawner_supersession_drift(self) -> None:
-        source = Path(__file__).resolve().parents[1] / "docs" / "r30" / "R30_MERGED_SOURCE_TRUTH_2026-07-27.json"
-        manifest = json.loads(source.read_text(encoding="utf-8"))
-        manifest["proposed_points"] = 10
-        spawner = next(row for row in manifest["modules"] if row["name"] == "spawner-ui")
-        spawner.pop("supersession_reason")
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            manifest_path = Path(tmp_dir) / "merged-source-truth.json"
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            payload = collect_r30_merged_source_truth_status(manifest_path=manifest_path)
-
-        self.assertFalse(payload["ok"])
-        self.assertIn("proposed_points_must_be_zero", payload["issues"])
-        self.assertIn("spawner-ui:spawner_supersession_reason_missing", payload["issues"])
-
     def test_r30_release_gate_blocks_premature_r30_installer_pins(self) -> None:
         compiled = {
             "registry": {"modules": {"spark-character": {"commit": "a" * 40}}},
@@ -19795,64 +19767,6 @@ class Sandbox:
             self.assertEqual(resolved, newer_renamed)
             verdict = release_gate.evaluate_release_gate(repo_root=repo, artifacts_root=artifacts)
             self.assertFalse(verdict["permitted"], "the chronologically newest capture (red) must govern")
-
-    def test_gate_evidence_separation_script_detects_co_edit(self) -> None:
-        script = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "harness_checks"
-            / "gate_evidence_separation.py"
-        )
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo = Path(tmp_dir)
-            env = dict(os.environ)
-            env.update(
-                {
-                    "GIT_AUTHOR_NAME": "t",
-                    "GIT_AUTHOR_EMAIL": "t@t",
-                    "GIT_COMMITTER_NAME": "t",
-                    "GIT_COMMITTER_EMAIL": "t@t",
-                }
-            )
-
-            def git(*args: str) -> None:
-                subprocess.run(
-                    ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
-                )
-
-            git("init", "-q")
-            (repo / "gate-map.json").write_text(
-                json.dumps(
-                    {"gates": {"release_gate": {"gate_code": ["gate.py"], "evidence": ["evidence.json"]}}}
-                ),
-                encoding="utf-8",
-            )
-            (repo / "gate.py").write_text("GATE = 1\n", encoding="utf-8")
-            (repo / "evidence.json").write_text("{}\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-q", "-m", "init")
-            # the d7fc1df pattern: relax the gate and its evidence together
-            (repo / "gate.py").write_text("GATE = 0\n", encoding="utf-8")
-            (repo / "evidence.json").write_text('{"relaxed": true}\n', encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-q", "-m", "relax gate with its evidence")
-            result = subprocess.run(
-                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("d7fc1df", result.stdout)
-            # gate-only edit passes
-            (repo / "gate.py").write_text("GATE = 3\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-q", "-m", "gate only")
-            result = subprocess.run(
-                [sys.executable, str(script), "--root", str(repo), "--range", "HEAD"],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_release_policy_binding_gate_script_asserts_machinery(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

@@ -1,6 +1,7 @@
 {
   "schema_version": "spark-gate-map.v1",
   "description": "Registers each gate's deciding code against the evidence it evaluates (research-repo docs/33 §3, the d7fc1df rule). gate_evidence_separation.py rejects any commit touching both sides of one gate; the release-gate capture tree-hashes every gate_code file so a gate edit invalidates prior captures.",
+  "separation_enforced_after": "222a9c6380a0076d1018aed17975f3e5be2a9e8f",
   "gates": {
     "release_gate": {
       "description": "spark verify --r30 (the 20/22-check release gate) + the binding machinery",
