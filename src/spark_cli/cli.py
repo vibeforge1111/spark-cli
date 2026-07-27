@@ -137,7 +137,8 @@ TELEGRAM_PROFILE_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
 AUTOSTART_TARGET_PATTERN = re.compile(r"^[a-z0-9-]+$")
 GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 INSTALLER_RELEASE_TAG_PATTERN = re.compile(r"^spark-cli-public-installer-\d{4}-\d{2}-\d{2}-r\d+(?:-v\d+)?$")
-R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
+R30_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-07-27-r30"
+R30_HISTORICAL_INSTALLER_RELEASE_NAME = "spark-cli-public-installer-2026-06-27-r30"
 R30_RELEASE_PLAN_PATH = REPO_ROOT / "docs" / "R30_RELEASE_PLAN_2026-06-27.md"
 R30_SOURCE_OWNER_AUDIT_PATH = REPO_ROOT / "docs" / "R30_SOURCE_OWNER_AUDIT_2026-06-27.md"
 R30_OWNER_HANDOFF_PACKET_PATH = REPO_ROOT / "docs" / "R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
@@ -8660,13 +8661,17 @@ def collect_r30_voice_registry_decision_status(release_lane_classification: dict
     else:
         expected_top_level = {
             "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
-            "release": R30_INSTALLER_RELEASE_NAME,
             "status": "blocked_before_registry_or_installer_publication",
             "module": "spark-voice-comms",
         }
         for key, expected in expected_top_level.items():
             if handoff_manifest.get(key) != expected:
                 manifest_issues.append(f"{key}_mismatch")
+        if handoff_manifest.get("release") not in {
+            R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+            R30_INSTALLER_RELEASE_NAME,
+        }:
+            manifest_issues.append("release_mismatch")
         publication_boundary = str(handoff_manifest.get("publication_boundary") or "").lower()
         voice_boundary_terms = [
             "no voice registry pin",
@@ -9734,7 +9739,10 @@ def collect_r30_handoff_manifest_status(
                     "live_proof_commands": live_proof_commands,
                 }
             )
-    if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
+    if manifest.get("release") not in {
+        R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+        R30_INSTALLER_RELEASE_NAME,
+    }:
         issues.append("release_mismatch")
     if manifest.get("status") != "blocked_before_registry_or_installer_publication":
         issues.append("handoff_status_not_blocked")
@@ -9842,7 +9850,10 @@ def collect_r30_local_runtime_artifacts_handoff_status(
             "issues": ["missing_or_invalid_manifest"],
             "owners": owners,
         }
-    if manifest.get("release") != R30_INSTALLER_RELEASE_NAME:
+    if manifest.get("release") not in {
+        R30_HISTORICAL_INSTALLER_RELEASE_NAME,
+        R30_INSTALLER_RELEASE_NAME,
+    }:
         issues.append("release_mismatch")
     if manifest.get("status") != "blocked_before_registry_or_installer_publication":
         issues.append("handoff_status_not_blocked")
