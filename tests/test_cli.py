@@ -15277,7 +15277,7 @@ class Sandbox:
                 json.dumps(
                     {
                         "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "module": "spark-voice-comms",
                         "publication_boundary": (
@@ -16296,7 +16296,7 @@ class Sandbox:
             manifest_path.write_text(
                 json.dumps(
                     {
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "publication_boundary": (
                             "No push, tag, deploy, registry pin update, installer pin update, "
@@ -16924,7 +16924,7 @@ class Sandbox:
             manifest_path.write_text(
                 json.dumps(
                     {
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "publication_boundary": (
                             "No Telegram or Spawner registry pin, installed metadata, installer pin, "
@@ -17462,7 +17462,7 @@ class Sandbox:
             publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spark-telegram-bot"]}}
             manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
             manifest = {
-                "release": "spark-cli-public-installer-2026-07-27-r30",
+                "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                 "status": "blocked_before_registry_or_installer_publication",
                 "publication_boundary": (
                     "No Telegram or Spawner registry pin, installed metadata, installer pin, "
