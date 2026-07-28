@@ -45,6 +45,11 @@ def test_unix_installer_retains_site_download_and_recovery_hardening() -> None:
     ("env_updates", "expected"),
     [
         ({"SPARK_PREFIX": "/tmp/spark$unsafe"}, "cannot be represented safely"),
+        ({"SPARK_PREFIX": "/tmp/spark`unsafe"}, "cannot be represented safely"),
+        ({"SPARK_PREFIX": '/tmp/spark"unsafe'}, "cannot be represented safely"),
+        ({"SPARK_PREFIX": "/tmp/spark\\unsafe"}, "cannot be represented safely"),
+        ({"SPARK_PREFIX": "/tmp/spark\nunsafe"}, "cannot be represented safely"),
+        ({"SPARK_PREFIX": "/tmp/spark\runsafe"}, "cannot be represented safely"),
         ({"SPARK_UV_VERSION": "0.11.7;unsafe"}, "Unsafe uv version value"),
         ({"SPARK_LLM_PROVIDER": "not-a-provider"}, "Unknown --llm-provider value"),
     ],
@@ -74,6 +79,7 @@ def test_windows_installer_selects_native_node_architecture() -> None:
     assert "function Get-NodePlatform" in script
     assert 'if ($arch -eq "ARM64")' in script
     assert 'return "win-arm64"' in script
+    assert 'return "win-x64"' in script
     assert '$nodePlatform = Get-NodePlatform' in script
     assert '"node-v$NodeVersion-$nodePlatform.zip"' in script
     assert '"node-v$NodeVersion-win-x64.zip"' not in script
