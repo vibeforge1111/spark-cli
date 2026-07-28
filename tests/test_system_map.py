@@ -5,14 +5,16 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 
 from spark_cli.cli import build_parser
 from spark_cli.system_map import (
     CONTRACT_FILE_HINTS,
+    CORE_REPOS,
     build_authority_view,
     build_capability_catalog,
     build_memory_movement_index,
@@ -22,8 +24,10 @@ from spark_cli.system_map import (
     build_trace_current_health,
     build_trace_repair_queue,
     build_spark_os_review_candidates,
+    build_trace_index,
     build_voice_surface_view,
     collect_repo_metadata,
+    compile_summary,
     compile_system_map,
     count_files_under,
     count_safe_jsonl,
@@ -46,6 +50,7 @@ from spark_cli.system_map import (
     parse_branch_status,
     read_json,
     read_toml,
+    repo_owner_surface,
     run_git,
     safe_builder_event_value,
     summarize_memory_run_artifacts,
@@ -290,6 +295,69 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertIn("not installed", " ".join(view["blockers"]))
         self.assertNotIn("README.md", encoded)
         self.assertNotIn("transcript body", encoded.lower())
+
+    def test_repo_board_names_installed_module_source_repos_by_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / ".spark" / "modules" / "spawner-ui" / "source"
+            repo.mkdir(parents=True)
+            (repo / ".git").mkdir()
+            (repo / "spark.toml").write_text(
+                "[module]\nname = \"spawner-ui\"\n",
+                encoding="utf-8",
+            )
+
+            board = build_repo_board(
+                {
+                    "registry": {"modules": {"spawner-ui": {}}},
+                    "installed_modules": {"spawner-ui": {"path": str(repo)}},
+                    "discovered_repos": [collect_repo_metadata(repo)],
+                }
+            )
+
+        row = board["repos"][0]
+        self.assertEqual(row["repo"], "spawner-ui")
+        self.assertEqual(row["repo_dir"], "source")
+        self.assertEqual(row["module_ids"], ["spawner-ui"])
+        self.assertEqual(board["next_actions"][0]["repo"], "spawner-ui")
+
+    def test_repo_board_preserves_named_checkout_identity_separately_from_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "local-spawner-fork"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            (repo / "spark.toml").write_text(
+                "[module]\nname = \"spawner-ui\"\n",
+                encoding="utf-8",
+            )
+
+            metadata = collect_repo_metadata(repo)
+            board = build_repo_board(
+                {
+                    "registry": {"modules": {"spawner-ui": {}}},
+                    "installed_modules": {},
+                    "discovered_repos": [metadata],
+                }
+            )
+
+        self.assertEqual(metadata["name"], "local-spawner-fork")
+        self.assertEqual(metadata["spark_toml"]["module_name"], "spawner-ui")
+        row = board["repos"][0]
+        self.assertEqual(row["repo"], "local-spawner-fork")
+        self.assertEqual(row["repo_dir"], "local-spawner-fork")
+        self.assertEqual(row["module_ids"], ["spawner-ui"])
+
+    def test_character_and_researcher_have_exact_core_owner_surfaces(self) -> None:
+        self.assertIn("spark-character", CORE_REPOS)
+        self.assertIn("spark-researcher", CORE_REPOS)
+        self.assertEqual(
+            repo_owner_surface("spark-character"),
+            "persona, voice consistency, scoring, and opt-in character evolution runtime",
+        )
+        self.assertEqual(
+            repo_owner_surface("spark-researcher"),
+            "research, advisory, memory packet, and bounded domain-chip authoring runtime",
+        )
 
     def test_spark_skill_manifest_schema_is_bounded_untrusted_contract(self) -> None:
         schema_path = Path(__file__).resolve().parents[1] / "schemas" / "spark-skill-manifest.v1.schema.json"
@@ -580,6 +648,47 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertTrue(item["evidence_details"]["release_branch_published"])
         self.assertIn("installer metadata batch", item["next_safe_action"])
 
+    def test_local_runtime_test_artifact_pin_drift_is_decision_caveat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / ".spark" / "modules" / "spark-telegram-bot" / "source"
+            runtime.mkdir(parents=True)
+            init_git_repo(runtime)
+
+            duplicate_truths = build_duplicate_truths(
+                {
+                    "installed_modules": {
+                        "spark-telegram-bot": {
+                            "path": str(runtime),
+                            "source": str(runtime),
+                            "registry_commit": "0" * 40,
+                            "registry_source": "https://example.test/telegram",
+                            "runtime_classification": "local_runtime_test_artifact",
+                            "runtime_classification_reason": "Local SparkRecursive proof branch; not installer truth.",
+                        }
+                    },
+                    "registry_modules": {
+                        "spark-telegram-bot": {
+                            "commit": "0" * 40,
+                            "source": "https://example.test/telegram",
+                        }
+                    },
+                }
+            )
+
+        item = next(
+            item for item in duplicate_truths["items"] if item["id"] == "spark-telegram-bot-runtime-registry-pin-drift"
+        )
+        self.assertEqual(item["classification"], "local_runtime_test_artifact")
+        self.assertEqual(item["severity"], "decision")
+        self.assertIn("local runtime test artifact", item["evidence"])
+        self.assertIn("local proof only", item["next_safe_action"])
+        self.assertEqual(item["evidence_details"]["runtime_classification"], "local_runtime_test_artifact")
+        self.assertEqual(
+            item["evidence_details"]["runtime_classification_reason"],
+            "Local SparkRecursive proof branch; not installer truth.",
+        )
+
     def test_voice_surface_uses_sanitized_runtime_state_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -645,6 +754,12 @@ class SparkSystemMapTests(unittest.TestCase):
 
         encoded = json.dumps(view)
         joined_blockers = " ".join(view["blockers"])
+        self.assertRegex(view["request_ref"], r"^request_ref:redacted:[a-f0-9]{12}$")
+        self.assertRegex(view["trace_ref"], r"^trace_ref:redacted:[a-f0-9]{12}$")
+        self.assertEqual(view["trace_continuity"]["authority"], "observability_non_authoritative")
+        self.assertFalse(view["trace_continuity"]["raw_audio_exported"])
+        self.assertFalse(view["trace_continuity"]["transcript_bodies_exported"])
+        self.assertEqual(view["trace_continuity"]["proof_status"], "not_execution_proof")
         self.assertEqual(view["mode"], "ingress")
         self.assertTrue(view["source_capability"]["installed_in_spark_state"])
         self.assertTrue(view["provider"]["configured"])
@@ -660,6 +775,101 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertIn("voice Telegram delivery is not proven", joined_blockers)
         self.assertIn("voice final-answer join evidence is not compiled", joined_blockers)
         self.assertNotIn("private transcript body", encoded)
+
+    def test_voice_surface_discovers_installed_source_checkout_by_module_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voice = root / "spark-voice-comms" / "source"
+            builder = root / "spark-intelligence-builder"
+            telegram = root / "spark-telegram-bot"
+            (voice / "src" / "voice_comms_chip").mkdir(parents=True)
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram").mkdir(parents=True)
+            (telegram / "src").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip" / "spark_hook.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
+
+            view = build_voice_surface_view(
+                {
+                    "installed_modules": {"spark-voice-comms": {"path": str(voice)}},
+                    "discovered_repos": [
+                        {
+                            "name": "source",
+                            "path": str(voice),
+                            "spark_toml": {"module_name": "spark-voice-comms"},
+                        },
+                        {"name": "spark-intelligence-builder", "path": str(builder)},
+                        {"name": "spark-telegram-bot", "path": str(telegram)},
+                    ],
+                }
+            )
+
+        self.assertTrue(view["source_capability"]["repo_discovered"])
+        self.assertNotIn("spark-voice-comms repo not discovered", view["blockers"])
+        self.assertEqual(view["source_capability"]["source_mode"], "duplex")
+
+    def test_voice_surface_marks_missing_transcription_runtime_as_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spark_home = root / ".spark"
+            voice = root / "spark-voice-comms"
+            builder = root / "spark-intelligence-builder"
+            telegram = root / "spark-telegram-bot"
+            (spark_home / "state" / "spark-voice-comms").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip").mkdir(parents=True)
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram").mkdir(parents=True)
+            (telegram / "src").mkdir(parents=True)
+            (voice / "src" / "voice_comms_chip" / "spark_hook.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (builder / "src" / "spark_intelligence" / "adapters" / "telegram" / "runtime.py").write_text(
+                "voice.status\nvoice.transcribe\nvoice.speak\n",
+                encoding="utf-8",
+            )
+            (telegram / "src" / "telegramVoiceBridge.ts").write_text("voice bridge", encoding="utf-8")
+            (spark_home / "state" / "spark-voice-comms" / "voice-runtime-state.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "spark.voice_runtime_state.v1",
+                        "stt": {"ready": False, "provider_kind": "local"},
+                        "tts": {"ready": True, "mode": "local", "voice_name": "spark_core"},
+                        "telegram_delivery": {"ready": True},
+                        "claim_levels": {
+                            "configured": True,
+                            "synthesis_ready": True,
+                            "delivery_ready": True,
+                            "conversation_ready": False,
+                        },
+                        "source_ledger": ["voice.status", "voice.speak"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            view = build_voice_surface_view(
+                {
+                    "source_roots": {"spark_home": str(spark_home)},
+                    "installed_modules": {"spark-voice-comms": {"path": str(voice)}},
+                    "discovered_repos": [
+                        {"name": "spark-voice-comms", "path": str(voice)},
+                        {"name": "spark-intelligence-builder", "path": str(builder)},
+                        {"name": "spark-telegram-bot", "path": str(telegram)},
+                    ],
+                }
+            )
+
+        self.assertEqual(view["source_capability"]["source_mode"], "duplex")
+        self.assertEqual(view["mode"], "egress")
+        self.assertFalse(view["provider"]["stt_ready"])
+        self.assertTrue(view["provider"]["tts_ready"])
+        self.assertIn("voice transcription is not ready", view["blockers"])
 
     def test_parse_branch_status_handles_unborn_branch(self) -> None:
         parsed = parse_branch_status("## No commits yet on master")
@@ -745,6 +955,231 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertEqual(queue[0]["temporal_scope"], "historical_backlog")
         self.assertEqual(queue[0]["current_window_missing_trace_ref_count"], 0)
         self.assertIn("historical", queue[0]["rank_reason"])
+
+    def test_trace_current_health_marks_24h_missing_refs_as_recent_backlog(self) -> None:
+        trace_index = {
+            "builder_trace_health": {
+                "missing_trace_ref_count": 53,
+                "recent_windows": [
+                    {"window": "1h", "row_count": 0, "missing_trace_ref_count": 0, "missing_trace_ref_ratio": 0.0},
+                    {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                    {"window": "7d", "row_count": 100, "missing_trace_ref_count": 53, "missing_trace_ref_ratio": 0.53},
+                ],
+            }
+        }
+
+        health = build_trace_current_health(trace_index)
+
+        self.assertEqual(health["status"], "recent_missing_trace_refs")
+        self.assertEqual(health["window"], "24h")
+        self.assertEqual(health["missing_trace_ref_count"], 3)
+        self.assertEqual(health["historical_missing_trace_ref_count"], 50)
+        self.assertEqual(health["repair_scope"], "recent_backlog")
+
+    def test_trace_current_health_keeps_1h_missing_refs_as_current(self) -> None:
+        trace_index = {
+            "builder_trace_health": {
+                "missing_trace_ref_count": 8,
+                "recent_windows": [
+                    {"window": "1h", "row_count": 4, "missing_trace_ref_count": 2, "missing_trace_ref_ratio": 0.5},
+                    {"window": "24h", "row_count": 8, "missing_trace_ref_count": 3, "missing_trace_ref_ratio": 0.375},
+                ],
+            }
+        }
+
+        health = build_trace_current_health(trace_index)
+
+        self.assertEqual(health["status"], "current_missing_trace_refs")
+        self.assertEqual(health["window"], "1h")
+        self.assertEqual(health["missing_trace_ref_count"], 2)
+        self.assertEqual(health["repair_scope"], "current")
+
+    def test_compile_summary_exposes_builder_trace_current_health_aggregates(self) -> None:
+        compiled = {
+            "system_map": {
+                "generated_at": "2026-06-25T12:00:00Z",
+                "modules": [],
+                "discovered_repos": [],
+                "gaps": [],
+                "privacy": {"raw_logs_read": False},
+            },
+            "capability_catalog": {},
+            "authority_view": {"observed_sources": {}},
+            "trace_index": {
+                "builder_events": {"row_count": 10},
+                "builder_event_samples": {"sample_count": 2},
+                "builder_trace_groups": {"group_count": 1},
+                "builder_trace_health": {
+                    "health_flags": ["missing_trace_refs"],
+                    "high_severity_open_count": 6,
+                    "unresolved_high_severity_open_count": 1,
+                    "current_unresolved_high_severity_open_count": 0,
+                    "recent_windows": [
+                        {
+                            "window": "1h",
+                            "row_count": 4,
+                            "missing_trace_ref_count": 0,
+                            "missing_trace_ref_ratio": 0.0,
+                            "high_severity_open_count": 0,
+                            "high_severity_open_ratio": 0.0,
+                        },
+                        {
+                            "window": "24h",
+                            "row_count": 8,
+                            "missing_trace_ref_count": 3,
+                            "missing_trace_ref_ratio": 0.375,
+                            "high_severity_open_count": 2,
+                            "high_severity_open_ratio": 0.25,
+                        },
+                    ],
+                    "missing_trace_ref_sources": {
+                        "rows": [
+                            {"repair_temporal_state": "latest_missing_trace_ref", "summary": "private latest gap"},
+                            {
+                                "repair_temporal_state": "latest_clean_historical_window_debt",
+                                "facts_json": "private historical debt",
+                            },
+                            {"repair_temporal_state": "latest_clean"},
+                        ]
+                    },
+                    "high_severity_open_sources": {
+                        "rows": [
+                            {
+                                "event_count": 5,
+                                "latest_lifecycle_state": "latest_resolved",
+                                "latest_event_created_at": "2026-06-25 12:00:00",
+                                "summary": "private resolved family",
+                            },
+                            {
+                                "event_count": 1,
+                                "latest_lifecycle_state": "latest_open_high_severity",
+                                "latest_event_created_at": "2026-06-02 09:03:25",
+                                "summary": "private unresolved family",
+                            },
+                        ]
+                    },
+                },
+                "trace_current_health": {
+                    "status": "current_missing_trace_refs",
+                    "window": "24h",
+                    "row_count": 8,
+                    "missing_trace_ref_count": 3,
+                    "historical_missing_trace_ref_count": 20,
+                    "total_missing_trace_ref_count": 23,
+                    "missing_trace_ref_ratio": 0.375,
+                },
+            },
+            "memory_movement_index": {},
+            "repo_board": {
+                "repos": [
+                    {
+                        "repo": "spark-intelligence-builder",
+                        "release_eligibility": "blocked",
+                        "risk_class": "critical",
+                        "do_not_merge_reason": "behind upstream",
+                        "next_safe_action": "pull or merge upstream before release",
+                        "behind": 12,
+                        "path": "/private/source",
+                    },
+                    {
+                        "repo": "unsafe/private",
+                        "release_eligibility": "blocked",
+                        "do_not_merge_reason": "behind upstream",
+                    },
+                ],
+                "duplicate_truths": {
+                    "summary": {
+                        "item_count": 2,
+                        "classification_counts": {"local_runtime_test_artifact": 2},
+                        "severity_counts": {"decision": 2},
+                    },
+                    "items": [
+                        {
+                            "classification": "local_runtime_test_artifact",
+                            "owner_repo": "spark-telegram-bot",
+                            "canonical_path": "/private/runtime/source",
+                        },
+                        {
+                            "classification": "local_runtime_test_artifact",
+                            "owner_repo": "spawner-ui",
+                            "duplicate_path": "/private/registry",
+                        },
+                        {
+                            "classification": "unsafe class",
+                            "owner_repo": "/private/not-safe",
+                        },
+                    ],
+                }
+            },
+            "voice_surface_view": {},
+        }
+
+        summary = compile_summary(compiled)
+
+        self.assertEqual(summary["builder_trace_health_flags"], ["missing_trace_refs"])
+        self.assertEqual(summary["builder_trace_current_health"]["status"], "current_missing_trace_refs")
+        self.assertEqual(summary["builder_trace_current_health"]["missing_trace_ref_count"], 3)
+        self.assertEqual(summary["builder_trace_current_health"]["historical_missing_trace_ref_count"], 20)
+        self.assertEqual(summary["builder_trace_current_health"]["high_severity_open_count"], 6)
+        self.assertEqual(summary["builder_trace_current_health"]["unresolved_high_severity_open_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["current_unresolved_high_severity_open_count"], 0)
+        self.assertEqual(summary["builder_trace_current_health"]["unresolved_high_severity_source_group_count"], 1)
+        self.assertEqual(
+            summary["builder_trace_current_health"]["latest_unresolved_high_severity_event_created_at"],
+            "2026-06-02 09:03:25",
+        )
+        self.assertEqual(
+            summary["builder_trace_current_health"]["repair_temporal_state_counts"],
+            {
+                "latest_clean": 1,
+                "latest_clean_historical_window_debt": 1,
+                "latest_missing_trace_ref": 1,
+            },
+        )
+        self.assertEqual(summary["builder_trace_current_health"]["latest_missing_source_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_historical_window_debt_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_missing_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_window_debt_group_count"], 1)
+        self.assertEqual(summary["builder_trace_current_health"]["latest_clean_group_count"], 1)
+        self.assertEqual(
+            summary["duplicate_truths"]["owner_sets"],
+            {"local_runtime_test_artifact": ["spark-telegram-bot", "spawner-ui"]},
+        )
+        self.assertEqual(summary["publish_handoffs"]["family_count"], 3)
+        self.assertEqual(
+            summary["publish_handoffs"]["families"],
+            ["repo_release_blocks", "local_runtime_test_artifacts", "builder_trace_health"],
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["blocked_release_repos"],
+            [
+                {
+                    "repo": "spark-intelligence-builder",
+                    "risk_class": "critical",
+                    "reason": "behind upstream",
+                    "next_safe_action": "pull or merge upstream before release",
+                    "behind": 12,
+                }
+            ],
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["local_runtime_test_artifacts"],
+            {"count": 2, "owners": ["spark-telegram-bot", "spawner-ui"]},
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["builder_trace_health"]["unresolved_high_severity_source_group_count"],
+            1,
+        )
+        self.assertEqual(
+            summary["publish_handoffs"]["builder_trace_health"]["latest_unresolved_high_severity_event_created_at"],
+            "2026-06-02 09:03:25",
+        )
+        self.assertNotIn("private", json.dumps(summary))
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["window"], "1h")
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["missing_trace_ref_count"], 0)
+        self.assertEqual(summary["builder_trace_recent_windows"][0]["high_severity_open_count"], 0)
+        self.assertEqual(summary["builder_trace_recent_windows"][1]["missing_trace_ref_ratio"], 0.375)
+        self.assertEqual(summary["builder_trace_recent_windows"][1]["high_severity_open_ratio"], 0.25)
 
     def test_builder_trace_repair_cards_are_source_owned_and_metadata_only(self) -> None:
         trace_index = {
@@ -1185,7 +1620,21 @@ class SparkSystemMapTests(unittest.TestCase):
             index = build_memory_movement_index(builder_home)
 
         encoded = json.dumps(index)
+        self.assertRegex(index["request_ref"], r"^request_ref:redacted:[a-f0-9]{12}$")
+        self.assertRegex(index["trace_ref"], r"^trace_ref:redacted:[a-f0-9]{12}$")
+        self.assertEqual(index["trace_continuity"]["authority"], "observability_non_authoritative")
+        self.assertFalse(index["trace_continuity"]["raw_memory_exported"])
+        self.assertEqual(index["trace_continuity"]["proof_status"], "not_execution_proof")
         self.assertEqual(index["safe_status_export"]["status"]["status"], "supported")
+        self.assertEqual(
+            index["safe_status_export"]["relative_path"],
+            "artifacts/memory-movement-index/memory-movement-status.json",
+        )
+        self.assertRegex(index["safe_status_export"]["path_ref"], r"^path:redacted:[a-f0-9]{12}$")
+        self.assertNotIn("path", index["safe_status_export"])
+        self.assertEqual(index["builder_memory_tables"]["relative_path"], "state.db")
+        self.assertRegex(index["builder_memory_tables"]["path_ref"], r"^path:redacted:[a-f0-9]{12}$")
+        self.assertNotIn("path", index["builder_memory_tables"])
         self.assertEqual(index["safe_status_export"]["status"]["movement_counts"]["accepted"], 3)
         self.assertEqual(index["memory_kb_artifacts"]["lane_counts"]["current_state"]["file_count"], 1)
         self.assertGreater(index["safe_status_export"]["raw_hint_key_count"], 0)
@@ -1224,6 +1673,7 @@ class SparkSystemMapTests(unittest.TestCase):
         self.assertNotIn("trace-private-1", encoded)
         self.assertNotIn("req-private-1", encoded)
         self.assertNotIn("private memory body", encoded)
+        self.assertNotIn(str(builder_home), encoded)
         self.assertNotIn("subject", index["safe_status_export"]["omitted_top_level_keys"])
 
     def test_capability_catalog_projects_labs_and_swarm_surfaces_without_bodies(self) -> None:
@@ -1566,6 +2016,61 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(observed["browser_policy"]["path"], str(browser_policy))
         self.assertTrue(observed["browser_policy"]["exists"])
 
+    def test_authority_view_reads_installed_spawner_and_browser_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            desktop = root / "Desktop"
+            spark_home = root / ".spark"
+            spawner_root = spark_home / "modules" / "spawner-ui" / "source"
+            browser_root = spark_home / "modules" / "spark-browser-extension" / "source"
+            desktop.mkdir()
+
+            spawner_lanes = spawner_root / "src" / "lib" / "server" / "access-execution-lanes.ts"
+            spawner_actions = spawner_root / "src" / "lib" / "server" / "access-execution-actions.ts"
+            browser_constants = browser_root / "src" / "protocol" / "constants.js"
+            for path in (spawner_lanes, spawner_actions, browser_constants):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            spawner_lanes.write_text(
+                "export type AccessExecutionLaneId = 'spark_workspace' | 'level5_operator';\n"
+                "export type AccessRunPolicy = 'auto_safe' | 'explicit_opt_in';\n",
+                encoding="utf-8",
+            )
+            spawner_actions.write_text(
+                """
+export const ACCESS_EXECUTION_ACTIONS = {
+  level5_enable: {
+    id: 'level5_enable',
+    laneId: 'level5_operator',
+    displayCommand: 'spark access setup --level 5 --enable-high-agency',
+    runPolicy: 'explicit_opt_in',
+    confirmation: 'Enable whole-computer operator mode',
+  }
+};
+""",
+                encoding="utf-8",
+            )
+            browser_constants.write_text(
+                """
+export const RISK_CLASSES = { READ_ONLY: "read_only", HIGH_RISK_ACTION: "high_risk_action" };
+export const APPROVAL_MODES = { NOT_REQUIRED: "not_required", ASK_ONCE: "ask_once" };
+export const HOOK_DEFINITIONS = {
+  status: { risk_class: RISK_CLASSES.READ_ONLY, approval_mode: APPROVAL_MODES.NOT_REQUIRED },
+  click: { risk_class: RISK_CLASSES.HIGH_RISK_ACTION, approval_mode: APPROVAL_MODES.ASK_ONCE }
+};
+""",
+                encoding="utf-8",
+            )
+
+            view = build_authority_view(desktop, {}, spark_home)
+
+        spawner = view["spawner_execution_policy"]
+        browser = view["browser_authority"]
+        self.assertEqual(spawner["lane_ids"], ["spark_workspace", "level5_operator"])
+        self.assertEqual(spawner["confirmation_gated_action_count"], 1)
+        self.assertTrue(spawner["sources"]["actions"]["exists"])
+        self.assertEqual(browser["risk_class_counts"], {"high_risk_action": 1, "read_only": 1})
+        self.assertTrue(browser["sources"]["constants"]["exists"])
+
     def test_authority_view_uses_running_cli_source_when_cli_module_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1847,9 +2352,327 @@ const REQUIRED_PUBLICATION_CHECKS = ["spark-insight-schema", "spark-insight-secr
         self.assertEqual(health["missing_trace_ref_sources"]["rows"][0]["recent_24h_missing_trace_ref_count"], 1)
         self.assertEqual(health["recent_windows"][0]["row_count"], 4)
         self.assertEqual(health["recent_windows"][0]["missing_trace_ref_count"], 1)
+        self.assertEqual(health["recent_windows"][0]["high_severity_open_count"], 1)
         self.assertIn("missing_trace_refs", health["health_flags"])
+        self.assertIn("open_high_severity_events", health["health_flags"])
         self.assertNotIn("private health summary", encoded)
         self.assertNotIn("private health body", encoded)
+
+    def test_builder_trace_health_marks_stale_high_severity_as_historical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text,
+                        facts_json text
+                    )
+                    """
+                )
+                old_created_at = "2026-01-01T00:00:00Z"
+                current_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary, facts_json
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-stale-open",
+                        old_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "req-old",
+                        "trace-old",
+                        None,
+                        "private stale summary",
+                        json.dumps({"message": "private stale body"}),
+                    ),
+                )
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary, facts_json
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-current-ok",
+                        current_created_at,
+                        "source_used",
+                        "recorded",
+                        "medium",
+                        "agent_event_model",
+                        "spark_intelligence_builder",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current summary",
+                        json.dumps({"message": "private current body"}),
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["recent_windows"][0]["high_severity_open_count"], 0)
+        self.assertEqual(health["recent_windows"][1]["high_severity_open_count"], 0)
+        self.assertNotIn("open_high_severity_events", health["health_flags"])
+        self.assertIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertNotIn("private stale summary", encoded)
+        self.assertNotIn("private current body", encoded)
+
+    def test_builder_trace_health_treats_sqlite_timestamp_as_current(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text
+                    )
+                    """
+                )
+                sqlite_created_at = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, request_id, trace_ref, parent_event_id, summary
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-current-sqlite",
+                        sqlite_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current sqlite summary",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["recent_windows"][1]["high_severity_open_count"], 1)
+        self.assertIn("open_high_severity_events", health["health_flags"])
+        self.assertNotIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertNotIn("private current sqlite summary", encoded)
+
+    def test_builder_trace_health_resolved_lifecycle_clears_open_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            builder_home = Path(tmp) / "spark-intelligence"
+            builder_home.mkdir()
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        evidence_lane text,
+                        reason_code text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text,
+                        summary text
+                    )
+                    """
+                )
+                open_created_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).replace(
+                    microsecond=0
+                ).isoformat().replace("+00:00", "Z")
+                resolved_created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+                    "+00:00", "Z"
+                )
+                rows = [
+                    (
+                        "evt-current-open",
+                        open_created_at,
+                        "tool_call_ledger_recorded",
+                        "blocked",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "realworld_validated",
+                        "tool_not_allowed_by_policy",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current open summary",
+                    ),
+                    (
+                        "evt-current-resolved",
+                        resolved_created_at,
+                        "tool_call_ledger_recorded",
+                        "recorded",
+                        "medium",
+                        "telegram_runtime",
+                        "telegram",
+                        "realworld_validated",
+                        "tool_not_allowed_by_policy",
+                        "req-current",
+                        "trace-current",
+                        None,
+                        "private current resolved summary",
+                    ),
+                ]
+                conn.executemany(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, evidence_lane, reason_code,
+                        request_id, trace_ref, parent_event_id, summary
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            health = inspect_builder_trace_health(builder_home)
+
+        encoded = json.dumps(health)
+        self.assertEqual(health["high_severity_open_count"], 1)
+        self.assertEqual(health["unresolved_high_severity_open_count"], 0)
+        self.assertEqual(health["current_unresolved_high_severity_open_count"], 0)
+        self.assertNotIn("open_high_severity_events", health["health_flags"])
+        self.assertNotIn("historical_open_high_severity_events", health["health_flags"])
+        self.assertEqual(
+            health["high_severity_open_sources"]["rows"][0]["latest_lifecycle_state"],
+            "latest_resolved",
+        )
+        self.assertNotIn("private current open summary", encoded)
+        self.assertNotIn("private current resolved summary", encoded)
+
+    def test_trace_index_output_redacts_paths_and_reason_codes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spark_home = root / ".spark"
+            spawner_state = spark_home / "state" / "spawner-ui"
+            builder_home = spark_home / "state" / "spark-intelligence"
+            spawner_state.mkdir(parents=True)
+            builder_home.mkdir(parents=True)
+            conn = sqlite3.connect(builder_home / "state.db")
+            try:
+                conn.execute(
+                    """
+                    create table builder_events(
+                        event_id text,
+                        created_at text,
+                        event_type text,
+                        status text,
+                        severity text,
+                        component text,
+                        target_surface text,
+                        reason_code text,
+                        request_id text,
+                        trace_ref text,
+                        parent_event_id text
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    insert into builder_events(
+                        event_id, created_at, event_type, status, severity,
+                        component, target_surface, reason_code, request_id, trace_ref, parent_event_id
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "evt-policy",
+                        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                        "policy_gate_blocked",
+                        "open",
+                        "high",
+                        "telegram_runtime",
+                        "telegram",
+                        "tool_not_allowed_by_policy",
+                        "req-policy",
+                        "",
+                        None,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            (spawner_state / "prd-auto-trace.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-06-24T00:00:00Z",
+                        "event": "authority_verdict_evaluated",
+                        "requestId": "req-policy",
+                        "traceRef": "trace-policy",
+                        "workspacePath": "/Users/alchemistab/private/workspace",
+                        "authorityVerdict": {
+                            "verdict": "denied",
+                            "actionFamily": "mission_execution",
+                            "sourcePolicy": "spawner_policy",
+                            "sourceRepo": "spawner-ui",
+                            "reasonCode": "tool_not_allowed_by_policy",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            trace_index = build_trace_index(spark_home, builder_home)
+
+        encoded = json.dumps(trace_index)
+        self.assertIn("path_ref", encoded)
+        self.assertIn("reason_code:redacted:", encoded)
+        self.assertNotIn("/Users/alchemistab", encoded)
+        self.assertNotIn("tool_not_allowed_by_policy", encoded)
+        self.assertNotIn('"path":', encoded)
 
     def test_os_compile_command_writes_redacted_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1974,8 +2797,8 @@ routes = []
             with redirect_stdout(capability_stdout):
                 capability_exit_code = capability_args.func(capability_args)
             capability_summary = json.loads(capability_stdout.getvalue())
-
             self.assertEqual(capability_exit_code, 0)
+            self.assertIs(capability_summary["ok"], True)
             self.assertEqual(capability_summary["schema_version"], "spark.os_capabilities.summary.v0")
             # A module that declares provides_capabilities now surfaces one
             # synthetic, explicitly-untrusted card (wave3 capability-cards
@@ -2001,8 +2824,8 @@ routes = []
             with redirect_stdout(authority_stdout):
                 authority_exit_code = authority_args.func(authority_args)
             authority_summary = json.loads(authority_stdout.getvalue())
-
             self.assertEqual(authority_exit_code, 0)
+            self.assertIs(authority_summary["ok"], True)
             self.assertEqual(authority_summary["schema_version"], "spark.os_authority.summary.v0")
             self.assertIn("guardrail_summary", authority_summary)
 
@@ -2023,8 +2846,8 @@ routes = []
             with redirect_stdout(trace_stdout):
                 trace_exit_code = trace_args.func(trace_args)
             trace_summary = json.loads(trace_stdout.getvalue())
-
             self.assertEqual(trace_exit_code, 0)
+            self.assertIs(trace_summary["ok"], True)
             self.assertEqual(trace_summary["schema_version"], "spark.os_trace.summary.v0")
             self.assertIn("cross_system_trace", trace_summary)
 
@@ -2045,8 +2868,8 @@ routes = []
             with redirect_stdout(memory_stdout):
                 memory_exit_code = memory_args.func(memory_args)
             memory_summary = json.loads(memory_stdout.getvalue())
-
             self.assertEqual(memory_exit_code, 0)
+            self.assertIs(memory_summary["ok"], True)
             self.assertEqual(memory_summary["schema_version"], "spark.os_memory.summary.v0")
             self.assertIn("movement_counts", memory_summary)
 

@@ -1,0 +1,105 @@
+{
+  "schema": "spark.r30.merged-source-truth.v1",
+  "release": "spark-r30-2026-07-27",
+  "generated_at": "2026-07-27T07:30:00Z",
+  "public_points_baseline": 24409,
+  "proposed_points": 0,
+  "source_overlap_count": 0,
+  "immutable_ref": "refs/tags/spark-r30-2026-07-27",
+  "modules": [
+    {
+      "name": "spark-harness-core",
+      "source": "https://github.com/vibeforge1111/spark-harness-core",
+      "pr_number": 13,
+      "merge_commit": "f3641143f1c3f28f55178faefcea57fd443c98bc",
+      "disposition": "adopt",
+      "receipt": "spark-r30-harness-schema-discovery-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "b974ec1ca1919e18a56d6915fb5f10acd4e429b596e28748cefa9be17a9b0b2f"
+    },
+    {
+      "name": "spark-researcher",
+      "source": "https://github.com/vibeforge1111/spark-researcher",
+      "pr_number": 574,
+      "merge_commit": "a067d98e332e2dab99e01191aea662844117e953",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "spark-character",
+      "source": "https://github.com/vibeforge1111/spark-character",
+      "pr_number": 328,
+      "merge_commit": "7ac95d3230e81cfbb8c0b808bfffaf0ec5f74c3a",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "domain-chip-memory",
+      "source": "https://github.com/vibeforge1111/domain-chip-memory",
+      "pr_number": 80,
+      "merge_commit": "94c0526b435c619d6479a3c54dd421ea7f5f6c71",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "spark-skill-graphs",
+      "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+      "pr_number": 4,
+      "merge_commit": "1606442cb5e128dbdee03850afbebff192c4db4e",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "domain-chip-spark-qa-evidence-lane",
+      "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+      "pr_number": 4,
+      "merge_commit": "3afeff10dc08895519c6c0da3faa8e56d61e64ef",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "spark-intelligence-builder",
+      "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+      "pr_number": 1008,
+      "merge_commit": "cc289472ea0f65bfe5173514d46556f954405fea",
+      "disposition": "adopt",
+      "receipt": "spark-r30-builder-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "dd49bb9481dcfb2107637789aa047a3f534fd8ead7f288b5887594f0e2ca408d"
+    },
+    {
+      "name": "spark-voice-comms",
+      "source": "https://github.com/vibeforge1111/spark-voice-comms",
+      "pr_number": 266,
+      "merge_commit": "e0be919b47a0c271b709361f0f2026be580a272f",
+      "disposition": "adopt",
+      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
+      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+    },
+    {
+      "name": "spawner-ui",
+      "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+      "pr_number": 889,
+      "merge_commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
+      "immutable_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
+      "disposition": "selectively_port",
+      "receipt": "spark-r30-spawner-level5-followup-merge-receipt-2026-07-27.md",
+      "receipt_sha256": "43044e5fdf1151afc7d0c9e0772cdbb96d03b61559438fdb5722680e76a89168",
+      "extends_merge_commit": "db6abca434d325336930f9f277c77c05390f06da",
+      "supersedes": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "supersession_reason": "PR #889 extends the canonical PR #888 merge lane with the retained Level 5 sandbox behavior from the divergent source chain, preserving useful work and attribution without treating the provisional source-squash head as release truth."
+    },
+    {
+      "name": "spark-telegram-bot",
+      "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+      "pr_number": 861,
+      "merge_commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+      "disposition": "adopt",
+      "receipt": "spark-r30-telegram-merge-receipt-2026-07-27.md",
+      "receipt_sha256": "25c4f5bc9c935919c28bbdbd8fe8d7d8ff8848fb31b10d2a76a2c783f2f72254"
+    }
+  ]
+}

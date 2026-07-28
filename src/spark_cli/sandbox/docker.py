@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 from typing import Any
 
 from .capabilities import CapabilityManifest
 from .output import bound_sandbox_output
+from .paths import os_family as docker_os_family
 
 
 DEFAULT_SANDBOX_IMAGE = "spark-cli-sandbox:local"
@@ -25,17 +25,6 @@ def docker_capabilities() -> CapabilityManifest:
         inbound="none",
         cost="free-local",
     )
-
-
-def docker_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
 
 
 def docker_repair_hint(family: str) -> str:
@@ -178,6 +167,8 @@ def collect_docker_smoke_payload(
             docker_path,
             "run",
             "--rm",
+            "--user",
+            "1000:1000",
             "--network",
             network_mode,
             "--read-only",
@@ -185,10 +176,18 @@ def collect_docker_smoke_payload(
             "ALL",
             "--security-opt",
             "no-new-privileges",
+            "--pids-limit",
+            "128",
+            "--memory",
+            "512m",
+            "--memory-swap",
+            "512m",
+            "--cpus",
+            "1.0",
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=256m",
             "--tmpfs",
-            "/sandbox:rw,nosuid,uid=1000,gid=1000,size=512m",
+            "/sandbox:rw,noexec,nosuid,uid=1000,gid=1000,size=512m",
             image_name,
             "status",
             "--help",

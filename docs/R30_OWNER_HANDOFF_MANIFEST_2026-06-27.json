@@ -1,0 +1,192 @@
+{
+  "schema_version": "spark.r30.owner_handoff_manifest.v0",
+  "generated_at": "2026-07-01T18:48:38Z",
+  "release": "spark-cli-public-installer-2026-06-27-r30",
+  "status": "blocked_before_registry_or_installer_publication",
+  "publication_boundary": "No push, tag, deploy, registry pin update, installer pin update, or hosted publication is authorized by this manifest.",
+  "direct_blockers": [],
+  "supporting_hygiene": [],
+  "resolved_direct_blockers": [
+    {
+      "module": "domain-chip-memory",
+      "expected_registry_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+      "local_range": "origin/codex/turnintent-memory-boundary-20260531..1fd272e519b562afc118ca46ff7da175d735dc44",
+      "owner_refs": {
+        "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+        "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+        "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+        "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a"
+      },
+      "owner_truth": "owner branch 3116ccaa3977; remote main/tag spark-ship-2026-06-26 at 72a660a69c0c; registry baseline tag spark-ship-2026-06-22 at f7f16a6ea8ee",
+      "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+        "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+        "line_count": 34,
+        "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+        "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+        "apply_check": "git checkout 3116ccaa3977279581cb09d6e02353485de8a9b3 && git apply docs/r30/patches/r30-memory-authority-proof.patch && git add -A && test \"$(git write-tree)\" = \"ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0\"",
+        "proof_command": "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts",
+        "proof_result": "5 normalized contracts; 4 official adapters; 1 shadow adapter",
+        "publication_authority": false
+      },
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-intelligence-builder",
+      "expected_registry_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "local_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+      "local_range": "origin/codex/turnintent-builder-boundary-20260531..ca21e183c6c04a658260b218e22fad7b67e02cc7",
+      "owner_refs": {
+        "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+        "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+        "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+        "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131"
+      },
+      "owner_truth": "owner branch c94eac853fed; remote main/tag spark-ship-2026-06-26 at 9d7bdefaa9a0; registry baseline tag spark-ship-2026-06-22 at e7f80fbf03bd",
+      "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+        "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+        "line_count": 5901,
+        "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+        "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+        "apply_check": "git checkout c94eac853fed935ac09bed1c56912968f3365c14 && git apply docs/r30/patches/r30-builder-trace-proof-stack.patch && git add -A && test \"$(git write-tree)\" = \"a9aedb619481ffc9fa22d6289e82df47400948cf\"",
+        "proof_command": "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py",
+        "proof_result": "208 passed; 26 subtests passed",
+        "publication_authority": false
+      },
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-telegram-bot",
+      "expected_registry_commit": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "local_head": "3323a656b890f88262e88d862e2787c9a2f092ae",
+      "local_range": "e5a1bd0409865ddb3024c15ed35ccd0038e31776..3323a656b890f88262e88d862e2787c9a2f092ae",
+      "owner_refs": {
+        "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "harness_discipline_line_count_gate": null,
+        "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+      },
+      "owner_truth": "remote main/tag spark-ship-2026-06-26 at 67ad9e6ed297; registry baseline tag spark-ship-2026-06-22 at e5a1bd040986; no owner branch for harness-discipline-line-count-gate found",
+      "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+      "proof_commands": [
+        "npm test -- --run tests/domainChipLabsCreator.test.ts",
+        "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+        "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+        "npm run build",
+        "npm run control:proof:reliability",
+        "npm run check:line-count",
+        "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+        "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+        "sha256": "f17efcc8da0be884dab605cf40fdddfb6da855543e0b1f86a2014fa43c09d89a",
+        "line_count": 106366,
+        "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "expected_tree": "58fa67eb52e9e7f27e0162ce971b0ac137e9aa69",
+        "apply_check": "git checkout 67ad9e6ed297baf6c9daa74b879fa45bc45bd579 && git apply docs/r30/patches/r30-telegram-control-reliability-stack.patch && git add -A && test \"$(git write-tree)\" = \"58fa67eb52e9e7f27e0162ce971b0ac137e9aa69\"",
+        "proof_command": "npm test -- --run tests/domainChipLabsCreator.test.ts && npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts && npm test -- --run tests/buildE2E.test.ts && npm run build && npm run check:line-count",
+        "proof_result": "DCL creator tests passed; route/Spawner tests passed; loop status readability and future-chip registry lookup gates passed; buildE2E passed; build passed; line-count passed",
+        "publication_authority": false,
+        "latest_proof_checked_at": "2026-07-01T18:48:38Z"
+      },
+      "local_proof": "passed"
+    },
+    {
+      "module": "spark-voice-comms",
+      "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
+      "local_head": "c502ec096cefb48839e3279d3392343231884415",
+      "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
+      "owner_refs": {
+        "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+        "r30_voice_release_branch": null,
+        "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee"
+      },
+      "owner_truth": "owner branch 12bddc9bd0bd; remote main/tag spark-ship-2026-06-26 at c74490d68ece; registry pin 21a9467e9bd4",
+      "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+      "proof_commands": [
+        "PYTHONPATH=src python3 -m pytest -q",
+        "spark os compile --json",
+        "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+        "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+      ],
+      "local_proof": "passed"
+    },
+    {
+      "module": "spawner-ui",
+      "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "local_range": "19b7d0bff14471f2df7d6f0790d72146e9825d95..1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+      "owner_refs": {
+        "main": "451d009aad84142092e9a21bda7788cf07910975",
+        "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+        "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+      },
+      "owner_truth": "owner branch fdb8fded4744; remote main/tag spark-ship-2026-06-26 at 451d009aad84; registry baseline tag spark-ship-2026-06-22 at 19b7d0bff144",
+      "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+      "proof_commands": [
+        "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+        "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+        "npm run build",
+        "npm run check"
+      ],
+      "owner_handoff_patch": {
+        "patch_type": "tree_diff",
+        "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+        "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+        "line_count": 2574,
+        "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+        "apply_check": "git checkout fdb8fded47447417dbf146130bddd0967e1f6bc0 && git apply docs/r30/patches/r30-spawner-runtime-artifact-tree.patch && git add -A && test \"$(git write-tree)\" = \"b5c43beb7035eac0d59b8b1d1517a66ab52e0be3\"",
+        "proof_command": "npm test -- --run src/lib/server/access-execution-actions.test.ts src/lib/server/high-agency-workers.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts && npm run build",
+        "proof_result": "44 passed; build passed",
+        "publication_authority": false
+      },
+      "local_proof": "passed"
+    }
+  ],
+  "resolved_supporting_hygiene": [
+    {
+      "module": "domain-chip-spark-qa-evidence-lane",
+      "issues": [
+        "installed_metadata_differs_from_registry"
+      ],
+      "expected_registry_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "local_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+      "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+      "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+      "proof_commands": [
+        "spark verify --r30 --json"
+      ],
+      "local_proof": "passed"
+    }
+  ],
+  "required_after_owner_handoffs": [
+    "spark os compile --json",
+    "spark live status --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --provenance --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --installers --json"
+  ],
+  "hosted_gate_after_authorized_deploy": [
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --hosted-installers --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --installers --hosted-installers --json"
+  ]
+}

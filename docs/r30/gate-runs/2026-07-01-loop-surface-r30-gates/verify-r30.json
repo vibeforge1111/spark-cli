@@ -1,0 +1,2187 @@
+{
+  "ok": false,
+  "summary": "Spark R30 release gate",
+  "release": "spark-cli-public-installer-2026-06-27-r30",
+  "hosted": false,
+  "checks": [
+    {
+      "name": "r30_docs",
+      "ok": true,
+      "detail": "R30 documentation packet is present.",
+      "required_docs": [
+        "docs/R30_DOCUMENTATION_INDEX_2026-06-27.md",
+        "docs/R30_RELEASE_PLAN_2026-06-27.md",
+        "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+        "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+        "docs/R30_OWNER_CONVERGENCE_QUEUE_2026-06-28.md",
+        "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+        "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
+        "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+        "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+        "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+        "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
+        "docs/R30_INSTALLER_PREP_2026-06-27.md",
+        "docs/R30_DOMAIN_CHIP_LABS_TELEGRAM_CREATOR_PLAN_2026-06-28.md",
+        "docs/R30_DCL_SPAWNER_READINESS_SPEC_2026-06-28.md",
+        "docs/R30_DCL_SPAWNER_RELIABILITY_WORKFLOWS_2026-06-28.md",
+        "docs/R30_DCL_SYSTEM_SOURCE_MAP_2026-06-28.md",
+        "docs/R30_DCL_SPAWNER_QA_PLAN_2026-06-28.md",
+        "docs/R30_DCL_SPAWNER_TELEGRAM_CONTINUATION_HANDOFF_2026-06-28.md",
+        "docs/R30_TELEGRAM_LIVE_TRACE_RECAPTURE_2026-06-28.md",
+        "docs/R30_STABILITY_DCL_SPAWNER_GOAL_PROMPT_2026-06-28.md",
+        "docs/R30_RELEASE_NOTE_DRAFT_2026-06-27.md",
+        "docs/R30_GOAL_PROMPT_2026-06-27.md"
+      ],
+      "missing": []
+    },
+    {
+      "name": "os_compile",
+      "ok": true,
+      "detail": "dirty_repo_count=0, blocked_release_count=0, critical_duplicate_truth_count=0"
+    },
+    {
+      "name": "r30_live_status",
+      "ok": true,
+      "detail": "Spark live status is green.",
+      "summary": {
+        "ok": true,
+        "detail": "Spark live status is green.",
+        "summary": "Spark CLI spike status",
+        "unhealthy_modules": [],
+        "repair_hints": []
+      }
+    },
+    {
+      "name": "publish_handoffs",
+      "ok": false,
+      "detail": "Blocking publish handoffs: local_runtime_test_artifacts, builder_trace_health.",
+      "families": [
+        "local_runtime_test_artifacts",
+        "builder_trace_health"
+      ],
+      "blocking_families": [
+        "local_runtime_test_artifacts",
+        "builder_trace_health"
+      ],
+      "carried_families": [],
+      "summary": {
+        "schema_version": "spark.publish_handoffs.summary.v0",
+        "family_count": 2,
+        "families": [
+          "local_runtime_test_artifacts",
+          "builder_trace_health"
+        ],
+        "blocked_release_repos": [],
+        "local_runtime_test_artifacts": {
+          "count": 2,
+          "owners": [
+            "spark-telegram-bot",
+            "spawner-ui"
+          ]
+        },
+        "builder_trace_health": {
+          "flags": [
+            "open_high_severity_events"
+          ],
+          "high_severity_open_count": 221,
+          "unresolved_high_severity_open_count": 176,
+          "current_unresolved_high_severity_open_count": 66,
+          "unresolved_high_severity_source_group_count": 2,
+          "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07"
+        }
+      }
+    },
+    {
+      "name": "owner_handoff_manifest",
+      "ok": false,
+      "detail": "R30 owner handoff manifest has issues: supporting_hygiene_mismatch, commit_metadata_mismatch.",
+      "summary": {
+        "ok": false,
+        "path": "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+        "detail": "R30 owner handoff manifest has issues: supporting_hygiene_mismatch, commit_metadata_mismatch.",
+        "issues": [
+          "supporting_hygiene_mismatch",
+          "commit_metadata_mismatch"
+        ],
+        "commit_mismatches": [
+          {
+            "module": "domain-chip-memory",
+            "issues": [
+              "expected_registry_commit_mismatch"
+            ],
+            "manifest_expected_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+            "live_expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "manifest_local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "live_actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44"
+          },
+          {
+            "module": "spark-intelligence-builder",
+            "issues": [
+              "expected_registry_commit_mismatch",
+              "local_head_mismatch"
+            ],
+            "manifest_expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+            "live_expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "manifest_local_head": "ca21e183c6c04a658260b218e22fad7b67e02cc7",
+            "live_actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176"
+          },
+          {
+            "module": "spark-telegram-bot",
+            "issues": [
+              "expected_registry_commit_mismatch",
+              "local_head_mismatch"
+            ],
+            "manifest_expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+            "live_expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "manifest_local_head": "0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
+            "live_actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf"
+          },
+          {
+            "module": "spark-voice-comms",
+            "issues": [
+              "expected_registry_commit_mismatch"
+            ],
+            "manifest_expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+            "live_expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "manifest_local_head": "c502ec096cefb48839e3279d3392343231884415",
+            "live_actual_commit": "c502ec096cefb48839e3279d3392343231884415"
+          },
+          {
+            "module": "spawner-ui",
+            "issues": [
+              "expected_registry_commit_mismatch",
+              "local_head_mismatch"
+            ],
+            "manifest_expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+            "live_expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "manifest_local_head": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
+            "live_actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028"
+          }
+        ],
+        "instruction_mismatches": [],
+        "owner_ref_mismatches": [],
+        "remote_ref_audit": {
+          "ok": true,
+          "detail": "R30 owner handoff refs match live remote refs.",
+          "checks": [
+            {
+              "module": "domain-chip-memory",
+              "ok": true,
+              "source": "https://github.com/vibeforge1111/domain-chip-memory",
+              "refs": {
+                "refs/heads/codex/turnintent-memory-boundary-20260531": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+                "refs/heads/main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+                "refs/tags/spark-ship-2026-06-26": "72a660a69c0c4d0ae73cf006c0be9907449295d8"
+              },
+              "issues": []
+            },
+            {
+              "module": "spark-intelligence-builder",
+              "ok": true,
+              "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+              "refs": {
+                "refs/heads/codex/turnintent-builder-boundary-20260531": "c94eac853fed935ac09bed1c56912968f3365c14",
+                "refs/heads/main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+                "refs/tags/spark-ship-2026-06-26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790"
+              },
+              "issues": []
+            },
+            {
+              "module": "spark-telegram-bot",
+              "ok": true,
+              "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+              "refs": {
+                "refs/heads/main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+                "refs/tags/spark-ship-2026-06-22": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+                "refs/tags/spark-ship-2026-06-26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579"
+              },
+              "issues": []
+            },
+            {
+              "module": "spark-voice-comms",
+              "ok": true,
+              "source": "https://github.com/vibeforge1111/spark-voice-comms",
+              "refs": {
+                "refs/heads/codex/turnintent-voice-policy-20260531": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+                "refs/heads/main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+                "refs/tags/spark-ship-2026-06-26": "c74490d68ece65ffad21dc5b88f44602e1afa703"
+              },
+              "issues": []
+            },
+            {
+              "module": "spawner-ui",
+              "ok": true,
+              "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+              "refs": {
+                "refs/heads/main": "451d009aad84142092e9a21bda7788cf07910975",
+                "refs/heads/release/stability-2026-06-02-spawner-authority": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+                "refs/tags/spark-ship-2026-06-22": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+                "refs/tags/spark-ship-2026-06-26": "451d009aad84142092e9a21bda7788cf07910975"
+              },
+              "issues": []
+            }
+          ],
+          "issues": []
+        },
+        "patch_mismatches": [],
+        "direct_blockers": [
+          "domain-chip-memory",
+          "spark-intelligence-builder",
+          "spark-telegram-bot",
+          "spark-voice-comms",
+          "spawner-ui"
+        ],
+        "supporting_hygiene": []
+      }
+    },
+    {
+      "name": "r30_local_runtime_artifacts_handoff",
+      "ok": false,
+      "detail": "R30 local runtime artifacts handoff manifest has issues: artifact_metadata_mismatch.",
+      "summary": {
+        "ok": false,
+        "path": "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
+        "detail": "R30 local runtime artifacts handoff manifest has issues: artifact_metadata_mismatch.",
+        "issues": [
+          "artifact_metadata_mismatch"
+        ],
+        "mismatches": [
+          {
+            "module": "spark-telegram-bot",
+            "issues": [
+              "expected_registry_commit_mismatch",
+              "local_head_mismatch"
+            ]
+          },
+          {
+            "module": "spawner-ui",
+            "issues": [
+              "expected_registry_commit_mismatch",
+              "local_head_mismatch"
+            ]
+          }
+        ],
+        "owners": [
+          "spark-telegram-bot",
+          "spawner-ui"
+        ],
+        "artifacts": [
+          "spark-telegram-bot",
+          "spawner-ui"
+        ]
+      }
+    },
+    {
+      "name": "r30_cli_owner_handoff_docs",
+      "ok": true,
+      "detail": "R30 CLI owner handoff docs use live spark-cli head verification and contain no known stale R30 CLI head.",
+      "summary": {
+        "ok": true,
+        "detail": "R30 CLI owner handoff docs use live spark-cli head verification and contain no known stale R30 CLI head.",
+        "issues": [],
+        "spark_cli_head": "a8da466cabde748786d00421ca63b59b526c0975",
+        "spark_cli_short_head": "a8da466cabde",
+        "docs": [
+          "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+          "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
+        ]
+      }
+    },
+    {
+      "name": "r30_local_runtime_handoff_docs",
+      "ok": true,
+      "detail": "R30 local runtime handoff docs match structured artifact heads, ranges, required subjects, and proof commands.",
+      "summary": {
+        "ok": true,
+        "detail": "R30 local runtime handoff docs match structured artifact heads, ranges, required subjects, and proof commands.",
+        "issues": [],
+        "docs": [
+          "docs/R30_RELEASE_PLAN_2026-06-27.md",
+          "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+          "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+          "docs/R30_EVIDENCE_PACKET_2026-06-27.md"
+        ],
+        "artifacts": [
+          "spark-telegram-bot",
+          "spawner-ui"
+        ]
+      }
+    },
+    {
+      "name": "release_lane",
+      "ok": false,
+      "detail": "1 dirty release repos; 7 release-lane issues (5 direct R30, 2 supporting)",
+      "summary": {
+        "scope": "release-lane",
+        "ok": false,
+        "dirty_repo_count": 1,
+        "critical_duplicate_truth_count": 0,
+        "issue_count": 7,
+        "module_count": 11,
+        "rows": [
+          {
+            "module": "spark-cli",
+            "path": "/Users/alchemistab/.spark/tools/spark-cli",
+            "expected_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+            "actual_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+            "installed_registry_commit": null,
+            "dirty_tracked_count": 0,
+            "untracked_count": 1,
+            "issues": [
+              "dirty_repo"
+            ]
+          },
+          {
+            "module": "domain-chip-memory",
+            "path": "/Users/alchemistab/.spark/modules/domain-chip-memory/source",
+            "expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          },
+          {
+            "module": "domain-chip-spark-qa-evidence-lane",
+            "path": "/Users/alchemistab/.spark/modules/domain-chip-spark-qa-evidence-lane/source",
+            "expected_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+            "actual_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+            "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          },
+          {
+            "module": "spark-character",
+            "path": "/Users/alchemistab/.spark/modules/spark-character/source",
+            "expected_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+            "actual_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+            "installed_registry_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": []
+          },
+          {
+            "module": "spark-harness-core",
+            "path": "/Users/alchemistab/.spark/modules/spark-harness-core/source",
+            "expected_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+            "actual_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+            "installed_registry_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": []
+          },
+          {
+            "module": "spark-intelligence-builder",
+            "path": "/Users/alchemistab/.spark/modules/spark-intelligence-builder/source",
+            "expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          },
+          {
+            "module": "spark-researcher",
+            "path": "/Users/alchemistab/.spark/modules/spark-researcher/source",
+            "expected_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+            "actual_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+            "installed_registry_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": []
+          },
+          {
+            "module": "spark-skill-graphs",
+            "path": "/Users/alchemistab/.spark/modules/spark-skill-graphs/source",
+            "expected_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+            "actual_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+            "installed_registry_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": []
+          },
+          {
+            "module": "spark-telegram-bot",
+            "path": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+            "expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          },
+          {
+            "module": "spark-voice-comms",
+            "path": "/Users/alchemistab/.spark/modules/spark-voice-comms/source",
+            "expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "actual_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          },
+          {
+            "module": "spawner-ui",
+            "path": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+            "expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+            "dirty_tracked_count": 0,
+            "untracked_count": 0,
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ]
+          }
+        ]
+      },
+      "classification": {
+        "schema_version": "spark.r30.release_lane_classification.v0",
+        "direct_blocker_count": 5,
+        "supporting_hygiene_count": 2,
+        "direct_blockers": [
+          {
+            "module": "domain-chip-memory",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+            "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+            ]
+          },
+          {
+            "module": "spark-intelligence-builder",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+            "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+            ]
+          },
+          {
+            "module": "spark-telegram-bot",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+            "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+            "proof_commands": [
+              "npm test -- --run tests/domainChipLabsCreator.test.ts",
+              "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+              "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+              "npm run build",
+              "npm run control:proof:reliability",
+              "npm run check:line-count",
+              "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+              "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+            ]
+          },
+          {
+            "module": "spark-voice-comms",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "actual_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+            "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m pytest -q",
+              "spark os compile --json",
+              "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+              "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+            ]
+          },
+          {
+            "module": "spawner-ui",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+            "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+            "proof_commands": [
+              "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+              "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+              "npm run build",
+              "npm run check"
+            ]
+          }
+        ],
+        "supporting_hygiene": [
+          {
+            "module": "spark-cli",
+            "issues": [
+              "dirty_repo"
+            ],
+            "expected_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+            "actual_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+            "installed_registry_commit": null,
+            "next_action": "Converge owner source, registry pin, and installed runtime metadata before R30 publication.",
+            "proof_commands": [
+              "spark verify --r30 --json"
+            ]
+          },
+          {
+            "module": "domain-chip-spark-qa-evidence-lane",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+            "actual_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+            "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+            "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+            "proof_commands": [
+              "spark verify --r30 --json"
+            ]
+          }
+        ]
+      },
+      "direct_blockers": [
+        "domain-chip-memory",
+        "spark-intelligence-builder",
+        "spark-telegram-bot",
+        "spark-voice-comms",
+        "spawner-ui"
+      ],
+      "supporting_hygiene": [
+        "spark-cli",
+        "domain-chip-spark-qa-evidence-lane"
+      ]
+    },
+    {
+      "name": "r30_voice_registry_decision",
+      "ok": false,
+      "detail": "spark-voice-comms remains blocked for R30: port/tag the local trace/governor commits or equivalent owner-source proof before updating registry or installer truth.",
+      "summary": {
+        "ok": false,
+        "decision": "owner_source_required_before_registry_pin",
+        "detail": "spark-voice-comms remains blocked for R30: port/tag the local trace/governor commits or equivalent owner-source proof before updating registry or installer truth.",
+        "doc": "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+        "doc_present": true,
+        "handoff_manifest": "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+        "handoff_manifest_present": true,
+        "handoff_manifest_issues": [
+          "expected_registry_commit_mismatch"
+        ],
+        "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "local_head": "c502ec096cefb48839e3279d3392343231884415",
+        "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+        "candidate_owner_release_branch_remote_exists": false,
+        "remote_ref_audit": {
+          "ok": true,
+          "detail": "Voice remote refs still match the R30 handoff decision.",
+          "issues": [],
+          "refs": {
+            "refs/heads/codex/turnintent-voice-policy-20260531": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "refs/heads/main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "refs/tags/spark-ship-2026-06-26": "c74490d68ece65ffad21dc5b88f44602e1afa703"
+          },
+          "candidate_owner_release_branch_remote_exists": false
+        },
+        "remote_audit_at": "2026-06-28T09:31:26Z",
+        "prepared_lane_proof_checked_at": "2026-06-28T09:31:26Z",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m pytest -q",
+          "spark os compile --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+        ]
+      }
+    },
+    {
+      "name": "r30_owner_action_packet",
+      "ok": true,
+      "detail": "R30 owner action packet is ready for source-owner handoff.",
+      "summary": {
+        "ok": true,
+        "detail": "R30 owner action packet is ready for source-owner handoff.",
+        "direct_blocker_count": 5,
+        "actions": [
+          {
+            "module": "domain-chip-memory",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_registry_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+            "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+            "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+            ],
+            "owner_refs": {
+              "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+              "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+              "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+              "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a"
+            },
+            "owner_handoff_patch": {
+              "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+              "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+              "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+              "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+              "publication_authority": false
+            },
+            "registry_movement_allowed": false
+          },
+          {
+            "module": "spark-intelligence-builder",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_registry_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "local_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+            "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+            "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+            ],
+            "owner_refs": {
+              "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+              "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+              "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+              "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131"
+            },
+            "owner_handoff_patch": {
+              "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+              "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+              "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+              "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+              "publication_authority": false
+            },
+            "registry_movement_allowed": false
+          },
+          {
+            "module": "spark-telegram-bot",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_registry_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "local_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+            "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+            "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+            "proof_commands": [
+              "npm test -- --run tests/domainChipLabsCreator.test.ts",
+              "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+              "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+              "npm run build",
+              "npm run control:proof:reliability",
+              "npm run check:line-count",
+              "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+              "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+            ],
+            "owner_refs": {
+              "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+              "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+              "harness_discipline_line_count_gate": null,
+              "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+            },
+            "owner_handoff_patch": {
+              "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+              "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+              "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+              "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+              "publication_authority": false
+            },
+            "registry_movement_allowed": false
+          },
+          {
+            "module": "spark-voice-comms",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
+            "local_head": "c502ec096cefb48839e3279d3392343231884415",
+            "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+            "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+            "proof_commands": [
+              "PYTHONPATH=src python3 -m pytest -q",
+              "spark os compile --json",
+              "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+              "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+            ],
+            "owner_refs": {
+              "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+              "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+              "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+              "r30_voice_release_branch": null,
+              "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee"
+            },
+            "owner_handoff_patch": {
+              "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+              "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+              "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+              "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+              "publication_authority": false
+            },
+            "registry_movement_allowed": false
+          },
+          {
+            "module": "spawner-ui",
+            "issues": [
+              "installed_metadata_differs_from_registry"
+            ],
+            "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+            "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+            "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+            "proof_commands": [
+              "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+              "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+              "npm run build",
+              "npm run check"
+            ],
+            "owner_refs": {
+              "main": "451d009aad84142092e9a21bda7788cf07910975",
+              "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+              "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+              "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+            },
+            "owner_handoff_patch": {
+              "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+              "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+              "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+              "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+              "publication_authority": false
+            },
+            "registry_movement_allowed": false
+          }
+        ],
+        "issues": [],
+        "publication_boundary": "Read-only handoff packet. It does not authorize push, tag, deploy, registry pin update, installer pin update, or hosted publication."
+      }
+    },
+    {
+      "name": "r30_owner_handoff_patch_apply",
+      "ok": true,
+      "detail": "All R30 owner handoff patches apply to their recorded owner bases and produce the recorded trees.",
+      "summary": {
+        "ok": true,
+        "detail": "All R30 owner handoff patches apply to their recorded owner bases and produce the recorded trees.",
+        "checks": [
+          {
+            "module": "domain-chip-memory",
+            "ok": true,
+            "source_path": "/Users/alchemistab/.spark/modules/domain-chip-memory/source",
+            "patch": "docs/r30/patches/r30-memory-authority-proof.patch",
+            "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+            "actual_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+            "apply_mode": "git apply",
+            "issues": []
+          },
+          {
+            "module": "spark-intelligence-builder",
+            "ok": true,
+            "source_path": "/Users/alchemistab/.spark/modules/spark-intelligence-builder/source",
+            "patch": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+            "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+            "actual_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+            "apply_mode": "git apply",
+            "issues": []
+          },
+          {
+            "module": "spark-telegram-bot",
+            "ok": true,
+            "source_path": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+            "patch": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+            "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+            "actual_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+            "apply_mode": "git apply",
+            "issues": []
+          },
+          {
+            "module": "spark-voice-comms",
+            "ok": true,
+            "source_path": "/Users/alchemistab/.spark/modules/spark-voice-comms/source",
+            "patch": "docs/r30/patches/r30-voice-trace-governor.patch",
+            "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+            "actual_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+            "apply_mode": "git am",
+            "issues": []
+          },
+          {
+            "module": "spawner-ui",
+            "ok": true,
+            "source_path": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+            "patch": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+            "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+            "actual_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+            "apply_mode": "git apply",
+            "issues": []
+          }
+        ],
+        "issues": [],
+        "publication_boundary": "Patch apply proof is read-only handoff verification. It does not authorize push, tag, deploy, registry pin update, installer pin update, or hosted publication."
+      }
+    },
+    {
+      "name": "r30_voice_runtime_truth",
+      "ok": true,
+      "detail": "R30 docs match compiled voice runtime truth: mode=egress, blockers=1.",
+      "summary": {
+        "ok": true,
+        "detail": "R30 docs match compiled voice runtime truth: mode=egress, blockers=1.",
+        "mode": "egress",
+        "source_mode": "duplex",
+        "requires_confirmation_for_actions": true,
+        "blocker_count": 1,
+        "blockers": [
+          "voice transcription is not ready"
+        ],
+        "docs": [
+          "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+          "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
+        ],
+        "missing_docs": [],
+        "issues": []
+      }
+    },
+    {
+      "name": "r30_builder_trace_lifecycle",
+      "ok": false,
+      "detail": "Builder trace lifecycle has current unresolved high-severity evidence and must remain a publish blocker.",
+      "summary": {
+        "ok": false,
+        "decision": "builder_trace_lifecycle_owner_closure_required",
+        "detail": "Builder trace lifecycle has current unresolved high-severity evidence and must remain a publish blocker.",
+        "doc": "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
+        "doc_present": true,
+        "doc_issues": [
+          "builder_trace_lifecycle_doc_missing_exact_family"
+        ],
+        "release_packet_docs": [
+          "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+          "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
+        ],
+        "release_packet_issues": [],
+        "flags": [
+          "open_high_severity_events"
+        ],
+        "high_severity_open_count": 221,
+        "unresolved_high_severity_open_count": 176,
+        "current_unresolved_high_severity_open_count": 66,
+        "unresolved_high_severity_source_group_count": 2,
+        "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07"
+      }
+    },
+    {
+      "name": "r30_access_level5_codex_sandbox",
+      "ok": true,
+      "detail": "Installed Spawner and Telegram sources prove Access 5 activates high-agency guardrails and all known Codex lanes inherit Level 5 danger-full-access.",
+      "summary": {
+        "ok": true,
+        "detail": "Installed Spawner and Telegram sources prove Access 5 activates high-agency guardrails and all known Codex lanes inherit Level 5 danger-full-access.",
+        "spawner_source": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+        "telegram_source": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+        "files": {
+          "client": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/provider-clients/codex-cli-client.ts",
+          "client_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/provider-clients/codex-cli-client.test.ts",
+          "high_agency_workers": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/high-agency-workers.ts",
+          "high_agency_workers_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/high-agency-workers.test.ts",
+          "prd_auto": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/prd-auto-dispatch.ts",
+          "prd_auto_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/prd-auto-dispatch.test.ts",
+          "prd_bridge": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/routes/api/prd-bridge/write/+server.ts",
+          "prd_bridge_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/routes/api/prd-bridge/write/clarification-policy.test.ts",
+          "telegram_actions": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/accessActions.ts",
+          "telegram_actions_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/accessActions.test.ts",
+          "telegram_level5_runtime_env": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/level5RuntimeEnv.ts",
+          "telegram_level5_runtime_env_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/level5RuntimeEnv.test.ts",
+          "telegram_recursive": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/recursive.ts",
+          "telegram_recursive_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/recursiveLevel5RuntimeEnv.test.ts",
+          "cli_access": "/Users/alchemistab/.spark/tools/spark-cli/src/spark_cli/sandbox/access.py",
+          "cli_access_test": "/Users/alchemistab/.spark/tools/spark-cli/tests/test_access.py"
+        },
+        "live_env_state": {
+          "spawner": {
+            "path": "/Users/alchemistab/.spark/config/modules/spawner-ui.env",
+            "exists": true,
+            "ok": true,
+            "missing_or_stale": []
+          },
+          "telegram": {
+            "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.env",
+            "exists": true,
+            "ok": true,
+            "missing_or_stale": []
+          },
+          "telegram_profile:primary": {
+            "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.primary.env",
+            "exists": true,
+            "ok": true,
+            "missing_or_stale": []
+          },
+          "telegram_profile:sparkqa-bot": {
+            "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.sparkqa-bot.env",
+            "exists": true,
+            "ok": true,
+            "missing_or_stale": []
+          }
+        },
+        "live_service_state": {
+          "enabled": true,
+          "activation_state": "active",
+          "configured_at": "2026-05-11T20:44:53Z",
+          "modules": {
+            "spawner-ui": {
+              "active": true,
+              "pid": 82357,
+              "profile": "default",
+              "started_at": "2026-07-01T15:56:07Z"
+            },
+            "spark-telegram-bot": {
+              "active": true,
+              "pid": 82393,
+              "profile": "primary",
+              "started_at": "2026-07-01T15:56:08Z"
+            }
+          },
+          "skipped_unstartable_telegram_profiles": [
+            "sparkqa-bot"
+          ],
+          "missing_or_stale_services": []
+        },
+        "live_access_state": {
+          "effective_access_level": 5,
+          "level5": {
+            "activation_state": "active_for_services",
+            "service_enabled": true,
+            "current_process_codex_sandbox": "workspace-write",
+            "service_codex_sandbox": "danger-full-access",
+            "effective_codex_sandbox": "danger-full-access"
+          },
+          "state_machine": {
+            "service_can_operate_whole_computer": true
+          }
+        },
+        "docs_checked": [
+          "docs/R30_RELEASE_PLAN_2026-06-27.md",
+          "docs/R30_EVIDENCE_PACKET_2026-06-27.md"
+        ],
+        "checks": {
+          "cli_level5_env_requires_danger_full_access": true,
+          "cli_lower_to_level5_transition_test_exists": true,
+          "cli_lower_to_level5_repairs_stale_read_only_test_exists": true,
+          "cli_level5_named_telegram_profile_env_tests_exist": true,
+          "cli_level5_named_telegram_profile_service_tests_exist": true,
+          "client_exists": true,
+          "client_test_exists": true,
+          "client_uses_shared_sandbox_resolver": true,
+          "spawner_resolver_uses_persisted_level5_env": true,
+          "spawner_test_proves_stale_process_env_inherits_level5": true,
+          "client_adds_default_sandbox_arg": true,
+          "client_honors_explicit_sandbox_arg": true,
+          "client_test_proves_level5_danger_full_access": true,
+          "client_test_proves_default_workspace_write": true,
+          "prd_auto_uses_shared_sandbox_resolver": true,
+          "prd_auto_test_proves_level5_danger_full_access": true,
+          "prd_bridge_uses_shared_sandbox_resolver": true,
+          "prd_bridge_test_proves_level5_danger_full_access": true,
+          "telegram_level5_action_uses_high_agency_setup": true,
+          "telegram_level5_reply_reports_active_sandbox": true,
+          "telegram_level5_reply_reads_cli_level5_sandbox": true,
+          "telegram_test_proves_level5_setup_command": true,
+          "telegram_effective_level5_runtime_env_helper_exists": true,
+          "telegram_level5_runtime_env_test_proves_stale_read_only_promotion": true,
+          "telegram_spark_cli_runner_uses_effective_level5_env": true,
+          "telegram_recursive_bridge_uses_effective_level5_env": true,
+          "telegram_recursive_bridge_test_proves_effective_env": true,
+          "live_level5_env_files_all_profiled_services_full_access": true,
+          "live_level5_services_restarted_after_guardrail_configure": true,
+          "live_level5_named_telegram_profiles_restarted_after_guardrail_configure": true,
+          "live_level5_effective_access_is_full_permission": true,
+          "live_level5_effective_codex_sandbox_is_danger_full_access": true,
+          "docs_preserve_level5_profile_env_proof": true
+        },
+        "issues": []
+      }
+    },
+    {
+      "name": "r30_unattended_identity_guard",
+      "ok": true,
+      "detail": "R30 unattended identity setup smoke fails closed before generated config/state writes.",
+      "summary": {
+        "ok": true,
+        "detail": "R30 unattended identity setup smoke fails closed before generated config/state writes.",
+        "issues": [],
+        "checks": {
+          "exit_code_2": true,
+          "blocked_identity_access_mutation": true,
+          "no_generated_module_or_state_files": true,
+          "no_secret_or_dashboard_residue": true
+        },
+        "exit_code": 2,
+        "stdout_contains_identity_access_mutation": true,
+        "generated_files": [],
+        "forbidden_hits": []
+      }
+    },
+    {
+      "name": "registry_pins",
+      "ok": true,
+      "detail": "Spark registry pin drift verification",
+      "failures": []
+    },
+    {
+      "name": "local_installers",
+      "ok": true,
+      "detail": "Spark installer integrity verification"
+    },
+    {
+      "name": "publication_order",
+      "ok": true,
+      "detail": "Source/registry truth is not green yet, and installer pins have not been advanced to R30.",
+      "source_truth_ready": false,
+      "source_truth_blockers": [
+        "publish_handoffs",
+        "owner_handoff_manifest",
+        "local_runtime_artifacts_handoff",
+        "release_lane",
+        "r30_voice_registry_decision",
+        "r30_builder_trace_lifecycle"
+      ],
+      "installer_pins_are_r30": false
+    },
+    {
+      "name": "r30_installer_pins",
+      "ok": false,
+      "detail": "Installer still points at spark-cli-public-installer-2026-06-26-r29 / spark-cli-public-installer-2026-06-26-r29.",
+      "expected_release": "spark-cli-public-installer-2026-06-27-r30",
+      "actual_release": "spark-cli-public-installer-2026-06-26-r29",
+      "actual_ref": "spark-cli-public-installer-2026-06-26-r29"
+    }
+  ],
+  "os_compile": {
+    "ok": true,
+    "dirty_repo_count": 0,
+    "blocked_release_count": 0,
+    "critical_duplicate_truth_count": 0
+  },
+  "publish_handoffs": {
+    "schema_version": "spark.publish_handoffs.summary.v0",
+    "family_count": 2,
+    "families": [
+      "local_runtime_test_artifacts",
+      "builder_trace_health"
+    ],
+    "blocked_release_repos": [],
+    "local_runtime_test_artifacts": {
+      "count": 2,
+      "owners": [
+        "spark-telegram-bot",
+        "spawner-ui"
+      ]
+    },
+    "builder_trace_health": {
+      "flags": [
+        "open_high_severity_events"
+      ],
+      "high_severity_open_count": 221,
+      "unresolved_high_severity_open_count": 176,
+      "current_unresolved_high_severity_open_count": 66,
+      "unresolved_high_severity_source_group_count": 2,
+      "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07"
+    }
+  },
+  "publish_handoff_blockers": {
+    "ok": false,
+    "families": [
+      "local_runtime_test_artifacts",
+      "builder_trace_health"
+    ],
+    "blocking_families": [
+      "local_runtime_test_artifacts",
+      "builder_trace_health"
+    ],
+    "carried_families": [],
+    "reasons": {
+      "local_runtime_test_artifacts": "owner-source or registry closure evidence is still required",
+      "builder_trace_health": "owner-source or registry closure evidence is still required"
+    }
+  },
+  "owner_handoff_manifest": {
+    "ok": false,
+    "path": "docs/R30_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "detail": "R30 owner handoff manifest has issues: supporting_hygiene_mismatch, commit_metadata_mismatch.",
+    "issues": [
+      "supporting_hygiene_mismatch",
+      "commit_metadata_mismatch"
+    ],
+    "commit_mismatches": [
+      {
+        "module": "domain-chip-memory",
+        "issues": [
+          "expected_registry_commit_mismatch"
+        ],
+        "manifest_expected_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        "live_expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "manifest_local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "live_actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44"
+      },
+      {
+        "module": "spark-intelligence-builder",
+        "issues": [
+          "expected_registry_commit_mismatch",
+          "local_head_mismatch"
+        ],
+        "manifest_expected_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        "live_expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "manifest_local_head": "ca21e183c6c04a658260b218e22fad7b67e02cc7",
+        "live_actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176"
+      },
+      {
+        "module": "spark-telegram-bot",
+        "issues": [
+          "expected_registry_commit_mismatch",
+          "local_head_mismatch"
+        ],
+        "manifest_expected_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        "live_expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "manifest_local_head": "0cf6e5c1624bfbe2e7c17163e2edce8c48d91032",
+        "live_actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf"
+      },
+      {
+        "module": "spark-voice-comms",
+        "issues": [
+          "expected_registry_commit_mismatch"
+        ],
+        "manifest_expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+        "live_expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "manifest_local_head": "c502ec096cefb48839e3279d3392343231884415",
+        "live_actual_commit": "c502ec096cefb48839e3279d3392343231884415"
+      },
+      {
+        "module": "spawner-ui",
+        "issues": [
+          "expected_registry_commit_mismatch",
+          "local_head_mismatch"
+        ],
+        "manifest_expected_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        "live_expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "manifest_local_head": "d7737038dc855897dc0435d41c7b12ad1ca2d754",
+        "live_actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028"
+      }
+    ],
+    "instruction_mismatches": [],
+    "owner_ref_mismatches": [],
+    "remote_ref_audit": {
+      "ok": true,
+      "detail": "R30 owner handoff refs match live remote refs.",
+      "checks": [
+        {
+          "module": "domain-chip-memory",
+          "ok": true,
+          "source": "https://github.com/vibeforge1111/domain-chip-memory",
+          "refs": {
+            "refs/heads/codex/turnintent-memory-boundary-20260531": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+            "refs/heads/main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+            "refs/tags/spark-ship-2026-06-26": "72a660a69c0c4d0ae73cf006c0be9907449295d8"
+          },
+          "issues": []
+        },
+        {
+          "module": "spark-intelligence-builder",
+          "ok": true,
+          "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+          "refs": {
+            "refs/heads/codex/turnintent-builder-boundary-20260531": "c94eac853fed935ac09bed1c56912968f3365c14",
+            "refs/heads/main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+            "refs/tags/spark-ship-2026-06-26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790"
+          },
+          "issues": []
+        },
+        {
+          "module": "spark-telegram-bot",
+          "ok": true,
+          "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+          "refs": {
+            "refs/heads/main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+            "refs/tags/spark-ship-2026-06-22": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+            "refs/tags/spark-ship-2026-06-26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579"
+          },
+          "issues": []
+        },
+        {
+          "module": "spark-voice-comms",
+          "ok": true,
+          "source": "https://github.com/vibeforge1111/spark-voice-comms",
+          "refs": {
+            "refs/heads/codex/turnintent-voice-policy-20260531": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+            "refs/heads/main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+            "refs/tags/spark-ship-2026-06-26": "c74490d68ece65ffad21dc5b88f44602e1afa703"
+          },
+          "issues": []
+        },
+        {
+          "module": "spawner-ui",
+          "ok": true,
+          "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+          "refs": {
+            "refs/heads/main": "451d009aad84142092e9a21bda7788cf07910975",
+            "refs/heads/release/stability-2026-06-02-spawner-authority": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+            "refs/tags/spark-ship-2026-06-22": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+            "refs/tags/spark-ship-2026-06-26": "451d009aad84142092e9a21bda7788cf07910975"
+          },
+          "issues": []
+        }
+      ],
+      "issues": []
+    },
+    "patch_mismatches": [],
+    "direct_blockers": [
+      "domain-chip-memory",
+      "spark-intelligence-builder",
+      "spark-telegram-bot",
+      "spark-voice-comms",
+      "spawner-ui"
+    ],
+    "supporting_hygiene": []
+  },
+  "local_runtime_artifacts_handoff": {
+    "ok": false,
+    "path": "docs/R30_LOCAL_RUNTIME_ARTIFACTS_HANDOFF_MANIFEST_2026-06-27.json",
+    "detail": "R30 local runtime artifacts handoff manifest has issues: artifact_metadata_mismatch.",
+    "issues": [
+      "artifact_metadata_mismatch"
+    ],
+    "mismatches": [
+      {
+        "module": "spark-telegram-bot",
+        "issues": [
+          "expected_registry_commit_mismatch",
+          "local_head_mismatch"
+        ]
+      },
+      {
+        "module": "spawner-ui",
+        "issues": [
+          "expected_registry_commit_mismatch",
+          "local_head_mismatch"
+        ]
+      }
+    ],
+    "owners": [
+      "spark-telegram-bot",
+      "spawner-ui"
+    ],
+    "artifacts": [
+      "spark-telegram-bot",
+      "spawner-ui"
+    ]
+  },
+  "cli_owner_handoff_docs": {
+    "ok": true,
+    "detail": "R30 CLI owner handoff docs use live spark-cli head verification and contain no known stale R30 CLI head.",
+    "issues": [],
+    "spark_cli_head": "a8da466cabde748786d00421ca63b59b526c0975",
+    "spark_cli_short_head": "a8da466cabde",
+    "docs": [
+      "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+      "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
+    ]
+  },
+  "local_runtime_handoff_docs": {
+    "ok": true,
+    "detail": "R30 local runtime handoff docs match structured artifact heads, ranges, required subjects, and proof commands.",
+    "issues": [],
+    "docs": [
+      "docs/R30_RELEASE_PLAN_2026-06-27.md",
+      "docs/R30_SOURCE_OWNER_AUDIT_2026-06-27.md",
+      "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md",
+      "docs/R30_EVIDENCE_PACKET_2026-06-27.md"
+    ],
+    "artifacts": [
+      "spark-telegram-bot",
+      "spawner-ui"
+    ]
+  },
+  "voice_registry_decision": {
+    "ok": false,
+    "decision": "owner_source_required_before_registry_pin",
+    "detail": "spark-voice-comms remains blocked for R30: port/tag the local trace/governor commits or equivalent owner-source proof before updating registry or installer truth.",
+    "doc": "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md",
+    "doc_present": true,
+    "handoff_manifest": "docs/R30_VOICE_OWNER_HANDOFF_MANIFEST_2026-06-27.json",
+    "handoff_manifest_present": true,
+    "handoff_manifest_issues": [
+      "expected_registry_commit_mismatch"
+    ],
+    "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
+    "local_head": "c502ec096cefb48839e3279d3392343231884415",
+    "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+    "candidate_owner_release_branch_remote_exists": false,
+    "remote_ref_audit": {
+      "ok": true,
+      "detail": "Voice remote refs still match the R30 handoff decision.",
+      "issues": [],
+      "refs": {
+        "refs/heads/codex/turnintent-voice-policy-20260531": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+        "refs/heads/main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "refs/tags/spark-ship-2026-06-26": "c74490d68ece65ffad21dc5b88f44602e1afa703"
+      },
+      "candidate_owner_release_branch_remote_exists": false
+    },
+    "remote_audit_at": "2026-06-28T09:31:26Z",
+    "prepared_lane_proof_checked_at": "2026-06-28T09:31:26Z",
+    "issues": [
+      "installed_metadata_differs_from_registry"
+    ],
+    "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+    "proof_commands": [
+      "PYTHONPATH=src python3 -m pytest -q",
+      "spark os compile --json",
+      "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+      "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+    ]
+  },
+  "owner_action_packet": {
+    "ok": true,
+    "detail": "R30 owner action packet is ready for source-owner handoff.",
+    "direct_blocker_count": 5,
+    "actions": [
+      {
+        "module": "domain-chip-memory",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_registry_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "local_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+        ],
+        "owner_refs": {
+          "main": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+          "spark_ship_2026_06_26": "72a660a69c0c4d0ae73cf006c0be9907449295d8",
+          "owner_branch": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+          "registry_baseline": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a"
+        },
+        "owner_handoff_patch": {
+          "path": "docs/r30/patches/r30-memory-authority-proof.patch",
+          "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+          "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+          "sha256": "58640eacefecf560df09e99a077cbbd767d37dadc37614da9d927445ec6dac83",
+          "publication_authority": false
+        },
+        "registry_movement_allowed": false
+      },
+      {
+        "module": "spark-intelligence-builder",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_registry_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "local_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+        ],
+        "owner_refs": {
+          "main": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+          "spark_ship_2026_06_26": "9d7bdefaa9a09d609798ecd33a3e692a3d759790",
+          "owner_branch": "c94eac853fed935ac09bed1c56912968f3365c14",
+          "registry_baseline": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131"
+        },
+        "owner_handoff_patch": {
+          "path": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+          "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+          "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+          "sha256": "48ee6c2658d571026831c0efc311d8d58303694d732b49c4b18439c79130797d",
+          "publication_authority": false
+        },
+        "registry_movement_allowed": false
+      },
+      {
+        "module": "spark-telegram-bot",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_registry_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "local_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "proof_commands": [
+          "npm test -- --run tests/domainChipLabsCreator.test.ts",
+          "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+          "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+          "npm run build",
+          "npm run control:proof:reliability",
+          "npm run check:line-count",
+          "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+          "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+        ],
+        "owner_refs": {
+          "main": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+          "spark_ship_2026_06_26": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+          "harness_discipline_line_count_gate": null,
+          "registry_baseline": "e5a1bd0409865ddb3024c15ed35ccd0038e31776"
+        },
+        "owner_handoff_patch": {
+          "path": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+          "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+          "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+          "sha256": "3939d4947f4ae8e797bc31137671a5eec7f1fb2ee70ba1c4f982e13c0acd5e2e",
+          "publication_authority": false
+        },
+        "registry_movement_allowed": false
+      },
+      {
+        "module": "spark-voice-comms",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_registry_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "local_head": "c502ec096cefb48839e3279d3392343231884415",
+        "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+        "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m pytest -q",
+          "spark os compile --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+        ],
+        "owner_refs": {
+          "main": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+          "spark_ship_2026_06_26": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+          "owner_branch": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+          "r30_voice_release_branch": null,
+          "registry_baseline": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee"
+        },
+        "owner_handoff_patch": {
+          "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+          "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+          "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+          "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+          "publication_authority": false
+        },
+        "registry_movement_allowed": false
+      },
+      {
+        "module": "spawner-ui",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_registry_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "local_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "proof_commands": [
+          "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+          "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+          "npm run build",
+          "npm run check"
+        ],
+        "owner_refs": {
+          "main": "451d009aad84142092e9a21bda7788cf07910975",
+          "spark_ship_2026_06_26": "451d009aad84142092e9a21bda7788cf07910975",
+          "owner_release_branch": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+          "registry_baseline": "19b7d0bff14471f2df7d6f0790d72146e9825d95"
+        },
+        "owner_handoff_patch": {
+          "path": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+          "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+          "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+          "sha256": "bbe6a0addc9adbde8a993dd39e2e4196740ab85d8dbae8f4c3494511d17a0010",
+          "publication_authority": false
+        },
+        "registry_movement_allowed": false
+      }
+    ],
+    "issues": [],
+    "publication_boundary": "Read-only handoff packet. It does not authorize push, tag, deploy, registry pin update, installer pin update, or hosted publication."
+  },
+  "owner_handoff_patch_apply": {
+    "ok": true,
+    "detail": "All R30 owner handoff patches apply to their recorded owner bases and produce the recorded trees.",
+    "checks": [
+      {
+        "module": "domain-chip-memory",
+        "ok": true,
+        "source_path": "/Users/alchemistab/.spark/modules/domain-chip-memory/source",
+        "patch": "docs/r30/patches/r30-memory-authority-proof.patch",
+        "base_commit": "3116ccaa3977279581cb09d6e02353485de8a9b3",
+        "expected_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+        "actual_tree": "ae30034f03acbf57a2e7ac5c39103c9ac5ccf3a0",
+        "apply_mode": "git apply",
+        "issues": []
+      },
+      {
+        "module": "spark-intelligence-builder",
+        "ok": true,
+        "source_path": "/Users/alchemistab/.spark/modules/spark-intelligence-builder/source",
+        "patch": "docs/r30/patches/r30-builder-trace-proof-stack.patch",
+        "base_commit": "c94eac853fed935ac09bed1c56912968f3365c14",
+        "expected_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+        "actual_tree": "a9aedb619481ffc9fa22d6289e82df47400948cf",
+        "apply_mode": "git apply",
+        "issues": []
+      },
+      {
+        "module": "spark-telegram-bot",
+        "ok": true,
+        "source_path": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+        "patch": "docs/r30/patches/r30-telegram-control-reliability-stack.patch",
+        "base_commit": "67ad9e6ed297baf6c9daa74b879fa45bc45bd579",
+        "expected_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+        "actual_tree": "8bda5f8a97a56ac6dc8910dd29636d682955908c",
+        "apply_mode": "git apply",
+        "issues": []
+      },
+      {
+        "module": "spark-voice-comms",
+        "ok": true,
+        "source_path": "/Users/alchemistab/.spark/modules/spark-voice-comms/source",
+        "patch": "docs/r30/patches/r30-voice-trace-governor.patch",
+        "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+        "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+        "actual_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+        "apply_mode": "git am",
+        "issues": []
+      },
+      {
+        "module": "spawner-ui",
+        "ok": true,
+        "source_path": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+        "patch": "docs/r30/patches/r30-spawner-runtime-artifact-tree.patch",
+        "base_commit": "fdb8fded47447417dbf146130bddd0967e1f6bc0",
+        "expected_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+        "actual_tree": "b5c43beb7035eac0d59b8b1d1517a66ab52e0be3",
+        "apply_mode": "git apply",
+        "issues": []
+      }
+    ],
+    "issues": [],
+    "publication_boundary": "Patch apply proof is read-only handoff verification. It does not authorize push, tag, deploy, registry pin update, installer pin update, or hosted publication."
+  },
+  "voice_runtime_truth": {
+    "ok": true,
+    "detail": "R30 docs match compiled voice runtime truth: mode=egress, blockers=1.",
+    "mode": "egress",
+    "source_mode": "duplex",
+    "requires_confirmation_for_actions": true,
+    "blocker_count": 1,
+    "blockers": [
+      "voice transcription is not ready"
+    ],
+    "docs": [
+      "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+      "docs/R30_VOICE_REGISTRY_DECISION_2026-06-27.md"
+    ],
+    "missing_docs": [],
+    "issues": []
+  },
+  "builder_trace_lifecycle": {
+    "ok": false,
+    "decision": "builder_trace_lifecycle_owner_closure_required",
+    "detail": "Builder trace lifecycle has current unresolved high-severity evidence and must remain a publish blocker.",
+    "doc": "docs/R30_BUILDER_TRACE_LIFECYCLE_DECISION_2026-06-27.md",
+    "doc_present": true,
+    "doc_issues": [
+      "builder_trace_lifecycle_doc_missing_exact_family"
+    ],
+    "release_packet_docs": [
+      "docs/R30_EVIDENCE_PACKET_2026-06-27.md",
+      "docs/R30_OWNER_HANDOFF_PACKET_2026-06-27.md"
+    ],
+    "release_packet_issues": [],
+    "flags": [
+      "open_high_severity_events"
+    ],
+    "high_severity_open_count": 221,
+    "unresolved_high_severity_open_count": 176,
+    "current_unresolved_high_severity_open_count": 66,
+    "unresolved_high_severity_source_group_count": 2,
+    "latest_unresolved_high_severity_event_created_at": "2026-07-01 18:36:07"
+  },
+  "access_level5_codex_sandbox": {
+    "ok": true,
+    "detail": "Installed Spawner and Telegram sources prove Access 5 activates high-agency guardrails and all known Codex lanes inherit Level 5 danger-full-access.",
+    "spawner_source": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+    "telegram_source": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+    "files": {
+      "client": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/provider-clients/codex-cli-client.ts",
+      "client_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/provider-clients/codex-cli-client.test.ts",
+      "high_agency_workers": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/high-agency-workers.ts",
+      "high_agency_workers_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/high-agency-workers.test.ts",
+      "prd_auto": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/prd-auto-dispatch.ts",
+      "prd_auto_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/lib/server/prd-auto-dispatch.test.ts",
+      "prd_bridge": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/routes/api/prd-bridge/write/+server.ts",
+      "prd_bridge_test": "/Users/alchemistab/.spark/modules/spawner-ui/source/src/routes/api/prd-bridge/write/clarification-policy.test.ts",
+      "telegram_actions": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/accessActions.ts",
+      "telegram_actions_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/accessActions.test.ts",
+      "telegram_level5_runtime_env": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/level5RuntimeEnv.ts",
+      "telegram_level5_runtime_env_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/level5RuntimeEnv.test.ts",
+      "telegram_recursive": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/src/recursive.ts",
+      "telegram_recursive_test": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source/tests/recursiveLevel5RuntimeEnv.test.ts",
+      "cli_access": "/Users/alchemistab/.spark/tools/spark-cli/src/spark_cli/sandbox/access.py",
+      "cli_access_test": "/Users/alchemistab/.spark/tools/spark-cli/tests/test_access.py"
+    },
+    "live_env_state": {
+      "spawner": {
+        "path": "/Users/alchemistab/.spark/config/modules/spawner-ui.env",
+        "exists": true,
+        "ok": true,
+        "missing_or_stale": []
+      },
+      "telegram": {
+        "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.env",
+        "exists": true,
+        "ok": true,
+        "missing_or_stale": []
+      },
+      "telegram_profile:primary": {
+        "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.primary.env",
+        "exists": true,
+        "ok": true,
+        "missing_or_stale": []
+      },
+      "telegram_profile:sparkqa-bot": {
+        "path": "/Users/alchemistab/.spark/config/modules/spark-telegram-bot.sparkqa-bot.env",
+        "exists": true,
+        "ok": true,
+        "missing_or_stale": []
+      }
+    },
+    "live_service_state": {
+      "enabled": true,
+      "activation_state": "active",
+      "configured_at": "2026-05-11T20:44:53Z",
+      "modules": {
+        "spawner-ui": {
+          "active": true,
+          "pid": 82357,
+          "profile": "default",
+          "started_at": "2026-07-01T15:56:07Z"
+        },
+        "spark-telegram-bot": {
+          "active": true,
+          "pid": 82393,
+          "profile": "primary",
+          "started_at": "2026-07-01T15:56:08Z"
+        }
+      },
+      "skipped_unstartable_telegram_profiles": [
+        "sparkqa-bot"
+      ],
+      "missing_or_stale_services": []
+    },
+    "live_access_state": {
+      "effective_access_level": 5,
+      "level5": {
+        "activation_state": "active_for_services",
+        "service_enabled": true,
+        "current_process_codex_sandbox": "workspace-write",
+        "service_codex_sandbox": "danger-full-access",
+        "effective_codex_sandbox": "danger-full-access"
+      },
+      "state_machine": {
+        "service_can_operate_whole_computer": true
+      }
+    },
+    "docs_checked": [
+      "docs/R30_RELEASE_PLAN_2026-06-27.md",
+      "docs/R30_EVIDENCE_PACKET_2026-06-27.md"
+    ],
+    "checks": {
+      "cli_level5_env_requires_danger_full_access": true,
+      "cli_lower_to_level5_transition_test_exists": true,
+      "cli_lower_to_level5_repairs_stale_read_only_test_exists": true,
+      "cli_level5_named_telegram_profile_env_tests_exist": true,
+      "cli_level5_named_telegram_profile_service_tests_exist": true,
+      "client_exists": true,
+      "client_test_exists": true,
+      "client_uses_shared_sandbox_resolver": true,
+      "spawner_resolver_uses_persisted_level5_env": true,
+      "spawner_test_proves_stale_process_env_inherits_level5": true,
+      "client_adds_default_sandbox_arg": true,
+      "client_honors_explicit_sandbox_arg": true,
+      "client_test_proves_level5_danger_full_access": true,
+      "client_test_proves_default_workspace_write": true,
+      "prd_auto_uses_shared_sandbox_resolver": true,
+      "prd_auto_test_proves_level5_danger_full_access": true,
+      "prd_bridge_uses_shared_sandbox_resolver": true,
+      "prd_bridge_test_proves_level5_danger_full_access": true,
+      "telegram_level5_action_uses_high_agency_setup": true,
+      "telegram_level5_reply_reports_active_sandbox": true,
+      "telegram_level5_reply_reads_cli_level5_sandbox": true,
+      "telegram_test_proves_level5_setup_command": true,
+      "telegram_effective_level5_runtime_env_helper_exists": true,
+      "telegram_level5_runtime_env_test_proves_stale_read_only_promotion": true,
+      "telegram_spark_cli_runner_uses_effective_level5_env": true,
+      "telegram_recursive_bridge_uses_effective_level5_env": true,
+      "telegram_recursive_bridge_test_proves_effective_env": true,
+      "live_level5_env_files_all_profiled_services_full_access": true,
+      "live_level5_services_restarted_after_guardrail_configure": true,
+      "live_level5_named_telegram_profiles_restarted_after_guardrail_configure": true,
+      "live_level5_effective_access_is_full_permission": true,
+      "live_level5_effective_codex_sandbox_is_danger_full_access": true,
+      "docs_preserve_level5_profile_env_proof": true
+    },
+    "issues": []
+  },
+  "unattended_identity_guard": {
+    "ok": true,
+    "detail": "R30 unattended identity setup smoke fails closed before generated config/state writes.",
+    "issues": [],
+    "checks": {
+      "exit_code_2": true,
+      "blocked_identity_access_mutation": true,
+      "no_generated_module_or_state_files": true,
+      "no_secret_or_dashboard_residue": true
+    },
+    "exit_code": 2,
+    "stdout_contains_identity_access_mutation": true,
+    "generated_files": [],
+    "forbidden_hits": []
+  },
+  "live_status": {
+    "ok": true,
+    "detail": "Spark live status is green.",
+    "summary": "Spark CLI spike status",
+    "unhealthy_modules": [],
+    "repair_hints": []
+  },
+  "release_lane": {
+    "scope": "release-lane",
+    "ok": false,
+    "dirty_repo_count": 1,
+    "critical_duplicate_truth_count": 0,
+    "issue_count": 7,
+    "module_count": 11,
+    "rows": [
+      {
+        "module": "spark-cli",
+        "path": "/Users/alchemistab/.spark/tools/spark-cli",
+        "expected_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+        "actual_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+        "installed_registry_commit": null,
+        "dirty_tracked_count": 0,
+        "untracked_count": 1,
+        "issues": [
+          "dirty_repo"
+        ]
+      },
+      {
+        "module": "domain-chip-memory",
+        "path": "/Users/alchemistab/.spark/modules/domain-chip-memory/source",
+        "expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      },
+      {
+        "module": "domain-chip-spark-qa-evidence-lane",
+        "path": "/Users/alchemistab/.spark/modules/domain-chip-spark-qa-evidence-lane/source",
+        "expected_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "actual_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      },
+      {
+        "module": "spark-character",
+        "path": "/Users/alchemistab/.spark/modules/spark-character/source",
+        "expected_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "actual_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "installed_registry_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": []
+      },
+      {
+        "module": "spark-harness-core",
+        "path": "/Users/alchemistab/.spark/modules/spark-harness-core/source",
+        "expected_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "actual_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "installed_registry_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": []
+      },
+      {
+        "module": "spark-intelligence-builder",
+        "path": "/Users/alchemistab/.spark/modules/spark-intelligence-builder/source",
+        "expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      },
+      {
+        "module": "spark-researcher",
+        "path": "/Users/alchemistab/.spark/modules/spark-researcher/source",
+        "expected_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+        "actual_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+        "installed_registry_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": []
+      },
+      {
+        "module": "spark-skill-graphs",
+        "path": "/Users/alchemistab/.spark/modules/spark-skill-graphs/source",
+        "expected_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "actual_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "installed_registry_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": []
+      },
+      {
+        "module": "spark-telegram-bot",
+        "path": "/Users/alchemistab/.spark/modules/spark-telegram-bot/source",
+        "expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      },
+      {
+        "module": "spark-voice-comms",
+        "path": "/Users/alchemistab/.spark/modules/spark-voice-comms/source",
+        "expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "actual_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      },
+      {
+        "module": "spawner-ui",
+        "path": "/Users/alchemistab/.spark/modules/spawner-ui/source",
+        "expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        "dirty_tracked_count": 0,
+        "untracked_count": 0,
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ]
+      }
+    ]
+  },
+  "release_lane_classification": {
+    "schema_version": "spark.r30.release_lane_classification.v0",
+    "direct_blocker_count": 5,
+    "supporting_hygiene_count": 2,
+    "direct_blockers": [
+      {
+        "module": "domain-chip-memory",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "actual_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "installed_registry_commit": "f7f16a6ea8eee47566140fab5e1cd8142a8ff20a",
+        "next_action": "Review/push the vNext memory write authority proof against the current owner release base or replace it with equivalent owner-source proof before registry movement.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m domain_chip_memory.cli benchmark-contracts"
+        ]
+      },
+      {
+        "module": "spark-intelligence-builder",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "actual_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "installed_registry_commit": "e7f80fbf03bda196fe7b40a49b8ce5a69ff21131",
+        "next_action": "Review/push or rebase the Builder trace/proof stack against the current owner release base, then keep the historical trace lifecycle visible or close it with owner evidence.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m pytest -q tests/test_bridge_authority.py tests/test_memory_orchestrator.py tests/test_gateway_ask_telegram.py tests/test_user_instructions_authority.py"
+        ]
+      },
+      {
+        "module": "spark-telegram-bot",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "actual_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "installed_registry_commit": "e5a1bd0409865ddb3024c15ed35ccd0038e31776",
+        "next_action": "Port or push the Telegram reliability ladder/release-packet stack plus the /access 5 activation proof, Level 5 Codex sandbox confirmation fix, effective sandbox Telegram surface proof, read-only contradiction full-access copy block, effective Level 5 sandbox-before-operator-claims guard, Level 5 status sandbox guard, proof-oracle Level 5 runtime validation, effective-sandbox-only setup reply guard, operator-chat Level 5 status proof, state-plus-temp runner preflight, health-token preservation fix, active Telegram profile stale read-only env proof, startup profile-env refresh over stale read-only process env, Telegram Level 5 full-permission proof, the Level 5 full-permission audit doc, natural confirmed Level 1/3/4 to Level 5 proof preservation, mixed access/build Level 5 full-permission proof hardening, the DCL creator-preview guard, and DCL full creator mission routing onto the current owner release base, then rerun Telegram gates before registry pin movement.",
+        "proof_commands": [
+          "npm test -- --run tests/domainChipLabsCreator.test.ts",
+          "npm test -- --run tests/conversationIntent.test.ts tests/naturalRouteDecision.test.ts tests/spawner.test.ts",
+          "npm test -- --run tests/accessLevel5Natural.test.ts tests/runnerPreflight.test.ts tests/accessActions.test.ts tests/buildE2E.test.ts",
+          "npm run build",
+          "npm run control:proof:reliability",
+          "npm run check:line-count",
+          "npm test -- --run tests/accessActions.test.ts tests/accessPolicy.test.ts tests/telegramCommandAuthority.test.ts",
+          "npm test -- --run tests/healthPolling.test.ts tests/profileEnv.test.ts tests/accessActions.test.ts"
+        ]
+      },
+      {
+        "module": "spark-voice-comms",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "actual_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+        "next_action": "Create or select a stable voice owner release ref from the current public owner base, port the local voice trace/governor commits or equivalent source-owned proof there, then update registry and installed metadata before any R30 voice claim.",
+        "proof_commands": [
+          "PYTHONPATH=src python3 -m pytest -q",
+          "spark os compile --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+          "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+        ]
+      },
+      {
+        "module": "spawner-ui",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "actual_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "installed_registry_commit": "19b7d0bff14471f2df7d6f0790d72146e9825d95",
+        "next_action": "Port or push the Spawner PRD proof-continuity commits plus direct-client, PRD-lane, persisted Level 5 Codex sandbox, shared effective-env worker access/path validation, Codex worker env propagation fixes, active Level 5 full-access lane classification, and Spawner access-action Level 5 env promotion onto the current owner release base, then rerun Spawner checks before registry pin movement.",
+        "proof_commands": [
+          "npm test -- --run src/lib/server/access-execution-lanes.test.ts src/routes/api/access/execution-lanes/access-execution-lanes.integration.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts",
+          "npm test -- --run src/lib/server/prd-auto-dispatch.test.ts src/routes/api/prd-bridge/write/clarification-policy.test.ts src/lib/server/provider-clients/codex-cli-client.test.ts src/lib/services/spark-agent-bridge.test.ts src/lib/server/provider-clients/spark-harness-client.test.ts src/lib/server/high-agency-workers.test.ts",
+          "npm run build",
+          "npm run check"
+        ]
+      }
+    ],
+    "supporting_hygiene": [
+      {
+        "module": "spark-cli",
+        "issues": [
+          "dirty_repo"
+        ],
+        "expected_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+        "actual_commit": "a8da466cabde748786d00421ca63b59b526c0975",
+        "installed_registry_commit": null,
+        "next_action": "Converge owner source, registry pin, and installed runtime metadata before R30 publication.",
+        "proof_commands": [
+          "spark verify --r30 --json"
+        ]
+      },
+      {
+        "module": "domain-chip-spark-qa-evidence-lane",
+        "issues": [
+          "installed_metadata_differs_from_registry"
+        ],
+        "expected_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "actual_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "installed_registry_commit": "476644de047edc7e3f42a5d28ac842877ffb522f",
+        "next_action": "Converge QA Evidence Lane owner source and installed metadata before claiming full Spark-wide publish truth.",
+        "proof_commands": [
+          "spark verify --r30 --json"
+        ]
+      }
+    ]
+  },
+  "source_truth_ready": false,
+  "source_truth_blockers": [
+    "publish_handoffs",
+    "owner_handoff_manifest",
+    "local_runtime_artifacts_handoff",
+    "release_lane",
+    "r30_voice_registry_decision",
+    "r30_builder_trace_lifecycle"
+  ],
+  "installer_pins_are_r30": false,
+  "registry_pins": {
+    "ok": true,
+    "summary": "Spark registry pin drift verification",
+    "unverified": 0,
+    "checks": [
+      {
+        "name": "domain-chip-memory",
+        "source": "https://github.com/vibeforge1111/domain-chip-memory",
+        "pinned_commit": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "remote_ref": "refs/heads/release/r30-memory-authority-20260701",
+        "remote_head": "1fd272e519b562afc118ca46ff7da175d735dc44",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-memory-authority-20260701"
+      },
+      {
+        "name": "domain-chip-spark-qa-evidence-lane",
+        "source": "https://github.com/vibeforge1111/domain-chip-spark-qa-evidence-lane",
+        "pinned_commit": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "remote_ref": "refs/heads/release/r30-evidence-lane-20260701",
+        "remote_head": "18e09b209c31260723cebaed659abdb9c7f8c7b5",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-evidence-lane-20260701"
+      },
+      {
+        "name": "spark-character",
+        "source": "https://github.com/vibeforge1111/spark-character",
+        "pinned_commit": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "remote_ref": "refs/tags/spark-ship-2026-06-22",
+        "remote_head": "6901e2e2ab0acfd0ccccc3760add2aab3418a11e",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/tags/spark-ship-2026-06-22"
+      },
+      {
+        "name": "spark-harness-core",
+        "source": "https://github.com/vibeforge1111/spark-harness-core",
+        "pinned_commit": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "remote_ref": "refs/tags/v1.0.0-rc.2",
+        "remote_head": "71e564b36b932474738ced79b48ab9e1716da5e4",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/tags/v1.0.0-rc.2"
+      },
+      {
+        "name": "spark-intelligence-builder",
+        "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
+        "pinned_commit": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "remote_ref": "refs/heads/release/r30-builder-loop-proof-20260701",
+        "remote_head": "dc3a122d3654b4a88b6c6e1562ac2deff1e0a176",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-builder-loop-proof-20260701"
+      },
+      {
+        "name": "spark-researcher",
+        "source": "https://github.com/vibeforge1111/spark-researcher",
+        "pinned_commit": "906592e2bb025ef485c6320339f714433714c9b6",
+        "remote_ref": "refs/tags/spark-ship-2026-06-22",
+        "remote_head": "906592e2bb025ef485c6320339f714433714c9b6",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/tags/spark-ship-2026-06-22"
+      },
+      {
+        "name": "spark-skill-graphs",
+        "source": "https://github.com/vibeforge1111/spark-skill-graphs",
+        "pinned_commit": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "remote_ref": "refs/heads/reconcile/20260610-metadata-authority",
+        "remote_head": "59c211afc6f0acce58bc1be1b77a9ff06dfffedd",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/reconcile/20260610-metadata-authority"
+      },
+      {
+        "name": "spark-telegram-bot",
+        "source": "https://github.com/vibeforge1111/spark-telegram-bot",
+        "pinned_commit": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "remote_ref": "refs/heads/release/r30-telegram-loop-engineering-20260701",
+        "remote_head": "505270251656cf3fb05f16e66125bb50217fcdaf",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-telegram-loop-engineering-20260701"
+      },
+      {
+        "name": "spark-voice-comms",
+        "source": "https://github.com/vibeforge1111/spark-voice-comms",
+        "pinned_commit": "c502ec096cefb48839e3279d3392343231884415",
+        "remote_ref": "refs/heads/release/r30-voice-trace-governor-20260701",
+        "remote_head": "c502ec096cefb48839e3279d3392343231884415",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-voice-trace-governor-20260701"
+      },
+      {
+        "name": "spawner-ui",
+        "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
+        "pinned_commit": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "remote_ref": "refs/heads/release/r30-spawner-source-squash-20260701",
+        "remote_head": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
+        "ok": true,
+        "verified": true,
+        "verification_status": "verified",
+        "detail": "registry pin matches remote refs/heads/release/r30-spawner-source-squash-20260701"
+      }
+    ]
+  },
+  "local_installers": {
+    "ok": true,
+    "summary": "Spark installer integrity verification",
+    "manifest": "scripts/installer-manifest.json",
+    "checks": [
+      {
+        "name": "local_release_metadata",
+        "ok": true,
+        "expected_release": "spark-cli-public-installer-2026-06-26-r29",
+        "actual_release": "spark-cli-public-installer-2026-06-26-r29",
+        "expected_ref": "spark-cli-public-installer-2026-06-26-r29",
+        "actual_ref": "spark-cli-public-installer-2026-06-26-r29",
+        "detail": "Installer release pins match committed installer manifest metadata."
+      },
+      {
+        "name": "local_release_ref_reachable",
+        "ok": true,
+        "expected_ref": "spark-cli-public-installer-2026-06-26-r29",
+        "detail": "Installer source release tag has a valid Spark public release-tag shape."
+      },
+      {
+        "name": "local_install.sh",
+        "ok": true,
+        "expected_sha256": "139837199c24b39f9aac8b647beec0cf623badebdaf74aa88f5315b3b6b30414",
+        "actual_sha256": "139837199c24b39f9aac8b647beec0cf623badebdaf74aa88f5315b3b6b30414",
+        "detail": "install.sh matches committed installer manifest."
+      },
+      {
+        "name": "local_install.ps1",
+        "ok": true,
+        "expected_sha256": "4f111cca7ac28fe09d5f2a824d9fb70c30abe204e1dbbba2570c566dbeaec81b",
+        "actual_sha256": "4f111cca7ac28fe09d5f2a824d9fb70c30abe204e1dbbba2570c566dbeaec81b",
+        "detail": "install.ps1 matches committed installer manifest."
+      }
+    ]
+  },
+  "hosted_installers": null
+}

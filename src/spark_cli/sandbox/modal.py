@@ -170,6 +170,16 @@ def modal_smoke_script() -> str:
             return str(value or "")
 
 
+        def _cleanup_warning(action, error):
+            error_type = "".join(
+                char for char in error.__class__.__name__
+                if char.isalnum() or char == "_"
+            )[:80] or "Exception"
+            sys.stderr.write(
+                f"SPARK_MODAL_CLEANUP_WARNING action={{action}} error={{error_type}}\\n"
+            )
+
+
         sandbox = None
         try:
             app = modal.App.lookup({MODAL_APP_NAME!r}, create_if_missing=True)
@@ -200,12 +210,12 @@ def modal_smoke_script() -> str:
             if sandbox is not None:
                 try:
                     sandbox.terminate()
-                except Exception:
-                    pass
+                except Exception as error:
+                    _cleanup_warning("terminate", error)
                 try:
                     sandbox.detach()
-                except Exception:
-                    pass
+                except Exception as error:
+                    _cleanup_warning("detach", error)
         """
     ).strip()
 

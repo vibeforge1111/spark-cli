@@ -90,7 +90,7 @@ spark setup \
   --admin-telegram-ids "<YOUR_TELEGRAM_NUMERIC_ID>" \
   --llm-provider openai \
   --openai-api-key "<OPENAI_API_KEY>" \
-  --openai-model "gpt-5.5"
+  --openai-model "gpt-5.6-sol"
 ```
 
 ### Anthropic

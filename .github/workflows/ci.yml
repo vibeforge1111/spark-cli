@@ -18,6 +18,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  browser-use-dependency-compatibility:
+    name: browser-use-dependencies (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Prove browser-use dependency compatibility
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[browser-use]'
+          python -m pip check
+          python -c "import browser_use, litellm"
+
   test-and-audit:
     name: test-and-audit
     runs-on: ubuntu-latest
@@ -58,6 +84,12 @@ jobs:
       - name: Assert expected unverified private pins
         run: |
           python -m spark_cli.cli verify --registry-pins --json | python -c "import json,sys; d=json.load(sys.stdin); n=int(d.get('unverified', 0)); assert n <= 3, f'unexpected unverified pins: {n}'; print('unverified:', n)"
+
+      - name: release_policy_binding_gate
+        run: python scripts/harness_checks/release_policy_binding_gate.py --root . --range "${{ github.event.pull_request.base.sha && format('{0}..{1}', github.event.pull_request.base.sha, github.sha) || 'HEAD' }}"
+
+      - name: gate_evidence_separation
+        run: python scripts/harness_checks/gate_evidence_separation.py --root . --range "${{ github.event.pull_request.base.sha && format('{0}..{1}', github.event.pull_request.base.sha, github.sha) || 'HEAD' }}"
 
   secret-scan:
     name: secret-scan

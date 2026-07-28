@@ -1,0 +1,4 @@
+command=env PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json 
+exit_code=1
+started_at=2026-07-01T18:47:52Z
+finished_at=2026-07-01T18:48:18Z

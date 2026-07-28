@@ -1,0 +1,4 @@
+command=env PYTHONPATH=src python3 -m spark_cli.cli live status --json 
+exit_code=0
+started_at=2026-07-01T18:48:30Z
+finished_at=2026-07-01T18:48:32Z

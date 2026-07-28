@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..env_files import normalize_env_file_value
+from ..env_files import parse_env_file_bytes, serialize_env_file
 from .audit import sandbox_audit_ref, write_audit_event
 from .docker import collect_docker_doctor_payload
 from .modal import modal_auth_markers, modal_sdk_available
+from .paths import os_family as access_os_family
 from .ssh import load_ssh_targets
 
 
@@ -51,24 +51,20 @@ LOWER_ACCESS_PROFILES: dict[int, dict[str, str]] = {
 }
 
 
-def access_os_family(platform: str | None = None) -> str:
-    value = platform or sys.platform
-    if value == "darwin":
-        return "macos"
-    if value.startswith("win"):
-        return "windows"
-    if value.startswith("linux"):
-        return "linux"
-    return "unknown"
+def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
+    if home is not None:
+        return home
+    env_values = os.environ if env is None else env
+    configured = env_values.get("SPARK_HOME")
+    return Path(configured).expanduser() if configured else (Path.home() / ".spark").expanduser()
 
 
 def spark_workspace_root(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
+    env_values = os.environ if env is None else env
     configured = env_values.get("SPARK_WORKSPACE_ROOT") or env_values.get("SPAWNER_WORKSPACE_ROOT")
     if configured:
         return Path(configured).expanduser()
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "workspaces"
+    return home_or_default(home=home, env=env_values) / "workspaces"
 
 
 def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
@@ -79,29 +75,21 @@ def ensure_level4_workspace(*, home: Path | None = None, env: dict[str, str] | N
 
 
 def module_env_dir(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    spark_home = home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
-    return spark_home / "config" / "modules"
+    return home_or_default(home=home, env=env) / "config" / "modules"
 
 
 def read_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
     if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key.strip().lstrip("\ufeff")] = normalize_env_file_value(value)
-    return values
+        return {}
+    return parse_env_file_bytes(path.read_bytes())
 
 
 def write_env_file(path: Path, values: dict[str, str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Strip newlines from values to prevent env var injection
-    sanitized = {k: v.replace("\n", "").replace("\r", "") for k, v in values.items()}
-    path.write_text("\n".join(f"{key}={value}" for key, value in sanitized.items()) + "\n", encoding="utf-8")
+    # Import lazily because the CLI exposes the canonical private atomic writer
+    # and imports this access module lazily from its command handlers.
+    from ..cli import atomic_write_text
+
+    atomic_write_text(path, serialize_env_file(values))
 
 
 def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Path]:
@@ -112,26 +100,62 @@ def level5_env_paths(*, home: Path | None = None, env: dict[str, str] | None = N
     }
 
 
+def level5_telegram_env_paths(*, home: Path | None = None, env: dict[str, str] | None = None) -> list[Path]:
+    root = module_env_dir(home=home, env=env)
+    paths = [root / "spark-telegram-bot.env"]
+    paths.extend(sorted(root.glob("spark-telegram-bot.*.env")))
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if path not in seen:
+            unique.append(path)
+            seen.add(path)
+    return unique
+
+
+def level5_env_file_state(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    paths = level5_env_paths(home=home, env=env)
+    entries: dict[str, Path] = {"spawner": paths["spawner"]}
+    for path in level5_telegram_env_paths(home=home, env=env):
+        label = "telegram" if path.name == "spark-telegram-bot.env" else f"telegram_profile:{path.stem.removeprefix('spark-telegram-bot.')}"
+        entries[label] = path
+    state: dict[str, dict[str, Any]] = {}
+    for label, path in entries.items():
+        values = read_env_file(path)
+        missing_or_stale = [key for key, expected in LEVEL5_ENV.items() if values.get(key) != expected]
+        state[label] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "ok": not missing_or_stale,
+            "missing_or_stale": missing_or_stale,
+        }
+    return state
+
+
 def persist_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
     paths = level5_env_paths(home=home, env=env)
     spawner_env = read_env_file(paths["spawner"])
-    telegram_env = read_env_file(paths["telegram"])
     spawner_env.update(LEVEL5_ENV)
-    telegram_env.update(LEVEL5_ENV)
     write_env_file(paths["spawner"], spawner_env)
-    write_env_file(paths["telegram"], telegram_env)
+    written_paths = {"spawner": str(paths["spawner"])}
+    for telegram_path in level5_telegram_env_paths(home=home, env=env):
+        telegram_env = read_env_file(telegram_path)
+        telegram_env.update(LEVEL5_ENV)
+        write_env_file(telegram_path, telegram_env)
+        label = "telegram" if telegram_path.name == "spark-telegram-bot.env" else f"telegram_profile:{telegram_path.stem.removeprefix('spark-telegram-bot.')}"
+        written_paths[label] = str(telegram_path)
     write_audit_event(
         "access",
         "level5",
         {
             "action_id": "level5_guardrails_configure",
             "changed_keys": sorted(LEVEL5_ENV),
-            "env_files": {key: str(path) for key, path in paths.items()},
+            "env_files": written_paths,
             "rollback_command": "spark access disable-level5",
         },
         home=home,
     )
-    return {key: str(path) for key, path in paths.items()}
+    return written_paths
 
 
 def _remove_env_keys(path: Path, keys: set[str]) -> bool:
@@ -150,24 +174,26 @@ def _remove_env_keys(path: Path, keys: set[str]) -> bool:
 
 def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
     paths = level5_env_paths(home=home, env=env)
-    changed = {
-        "spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV)),
-        "telegram": _remove_env_keys(paths["telegram"], set(LEVEL5_ENV)),
-    }
+    changed = {"spawner": _remove_env_keys(paths["spawner"], set(LEVEL5_ENV))}
+    env_files = {"spawner": str(paths["spawner"])}
+    for telegram_path in level5_telegram_env_paths(home=home, env=env):
+        label = "telegram" if telegram_path.name == "spark-telegram-bot.env" else f"telegram_profile:{telegram_path.stem.removeprefix('spark-telegram-bot.')}"
+        changed[label] = _remove_env_keys(telegram_path, set(LEVEL5_ENV))
+        env_files[label] = str(telegram_path)
     write_audit_event(
         "access",
         "level5",
         {
             "action_id": "level5_guardrails_disable",
             "changed": changed,
-            "env_files": {key: str(path) for key, path in paths.items()},
+            "env_files": env_files,
             "rollback_command": "spark access setup --level 5 --enable-high-agency",
         },
         home=home,
     )
     return {
         "changed": changed,
-        "env_files": {key: str(path) for key, path in paths.items()},
+        "env_files": env_files,
         "audit": sandbox_audit_ref("access", "level5"),
     }
 
@@ -175,14 +201,9 @@ def disable_level5_guardrails(*, home: Path | None = None, env: dict[str, str] |
 def generated_level5_env(*, home: Path | None = None, env: dict[str, str] | None = None) -> dict[str, str]:
     paths = level5_env_paths(home=home, env=env)
     merged: dict[str, str] = {}
-    for path in paths.values():
+    for path in [paths["spawner"], *level5_telegram_env_paths(home=home, env=env)]:
         merged.update(read_env_file(path))
     return merged
-
-
-def home_or_default(*, home: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env_values = env or os.environ
-    return home or Path(env_values.get("SPARK_HOME", Path.home() / ".spark")).expanduser()
 
 
 def _parse_utc_timestamp(value: object) -> float | None:
@@ -241,6 +262,7 @@ def level5_service_guardrail_state(
         "activation_state": "blocked" if not configured else "restart_required",
         "configured_at": None,
         "modules": {},
+        "skipped_unstartable_telegram_profiles": [],
     }
     if configured_at is None:
         return state
@@ -250,30 +272,71 @@ def level5_service_guardrail_state(
         pids = json.loads(pids_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pids = {}
-    expected = {
-        "spawner-ui": False,
-        "spark-telegram-bot": False,
-    }
+    setup_path = spark_home / "state" / "setup.json"
+    try:
+        setup_state = json.loads(setup_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        setup_state = {}
+    external_telegram_ingress = (
+        isinstance(setup_state, dict) and setup_state.get("telegram_ingress_mode") == "external"
+    )
+    state["telegram_ingress_mode"] = "external" if external_telegram_ingress else "local"
+    telegram_profiles: list[str] = []
+    skipped_telegram_profiles: list[str] = []
+    for path in level5_telegram_env_paths(home=spark_home, env=env):
+        if path.name == "spark-telegram-bot.env":
+            continue
+        profile = path.stem.removeprefix("spark-telegram-bot.")
+        values = read_env_file(path)
+        has_visible_token = bool(values.get("BOT_TOKEN") or values.get("TELEGRAM_BOT_TOKEN"))
+        if profile and has_visible_token:
+            telegram_profiles.append(profile)
+        elif profile:
+            skipped_telegram_profiles.append(profile)
+    telegram_service_labels = (
+        []
+        if external_telegram_ingress
+        else [f"spark-telegram-bot:{profile}" for profile in sorted(set(telegram_profiles))]
+    )
+    if not telegram_service_labels and not external_telegram_ingress:
+        telegram_service_labels = ["spark-telegram-bot"]
+    expected = {"spawner-ui": False, **{label: False for label in telegram_service_labels}}
     modules: dict[str, Any] = {}
     if isinstance(pids, dict):
         for key, record in pids.items():
             if not isinstance(record, dict):
                 continue
             module = str(record.get("module") or key.split(":", 1)[0])
-            if module not in expected:
+            profile = str(record.get("profile") or "")
+            service_label = f"{module}:{profile}" if module == "spark-telegram-bot" and profile else module
+            if service_label not in expected and module == "spark-telegram-bot" and "spark-telegram-bot" in expected:
+                service_label = "spark-telegram-bot"
+            if service_label not in expected and module == "spark-telegram-bot":
+                expected[service_label] = False
+            if service_label not in expected:
                 continue
             started_at = _parse_utc_timestamp(record.get("started_at"))
             active = bool(started_at is not None and started_at >= configured_at)
-            previous = modules.get(module)
+            previous = modules.get(service_label)
             if previous is None or active:
-                modules[module] = {
+                modules[service_label] = {
                     "active": active,
                     "pid": record.get("pid"),
+                    "profile": profile or None,
                     "started_at": record.get("started_at"),
                 }
             if active:
-                expected[module] = True
+                expected[service_label] = True
+    missing = [label for label, active in expected.items() if not active]
+    active_telegram_profiles = {
+        str(item.get("profile") or "")
+        for label, item in modules.items()
+        if label.startswith("spark-telegram-bot") and isinstance(item, dict) and item.get("active") and item.get("profile")
+    }
+    skipped_telegram_profiles = [profile for profile in skipped_telegram_profiles if profile not in active_telegram_profiles]
     state["modules"] = modules
+    state["missing_or_stale_services"] = missing
+    state["skipped_unstartable_telegram_profiles"] = sorted(set(skipped_telegram_profiles))
     state["enabled"] = all(expected.values())
     if state["enabled"]:
         state["activation_state"] = "active"
@@ -584,6 +647,56 @@ def access_automation_payload(
     }
 
 
+def level5_full_permission_proof(
+    *,
+    level: int,
+    effective_access_level: int,
+    level5_enabled: bool,
+    level5_configured: bool,
+    level5_activation_state: str,
+    level5_service_active: bool,
+    level5_process_active: bool,
+    level5_restart_required: bool,
+    effective_codex_sandbox: str,
+    env_file_state: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    checks = {
+        "requested_level_is_5": level >= 5,
+        "effective_access_level_is_5": effective_access_level == 5,
+        "whole_computer_capability_active": level5_enabled,
+        "service_or_process_active": level5_service_active or level5_process_active,
+        "guardrail_env_files_current": bool(env_file_state) and all(bool(item.get("ok")) for item in env_file_state.values()),
+        "guardrails_configured": level5_configured,
+        "restart_not_required": not level5_restart_required,
+        "effective_codex_sandbox_full_access": effective_codex_sandbox == "danger-full-access",
+    }
+    ok = all(checks.values())
+    missing = [name for name, passed in checks.items() if not passed]
+    return {
+        "ok": ok,
+        "state": "full_access" if ok else "blocked_or_partial",
+        "checks": checks,
+        "missing": missing,
+        "required": [
+            "requested_level_is_5",
+            "effective_access_level_is_5",
+            "whole_computer_capability_active",
+            "service_or_process_active",
+            "guardrail_env_files_current",
+            "guardrails_configured",
+            "restart_not_required",
+            "effective_codex_sandbox_full_access",
+        ],
+        "summary": (
+            "Level 5 is full permission for this Spark service lane."
+            if ok
+            else "Level 5 must stay blocked or partial until every full-permission proof check passes."
+        ),
+        "activation_state": level5_activation_state,
+        "effective_codex_sandbox": effective_codex_sandbox,
+    }
+
+
 def access_lane_payload(
     *,
     level: int = 4,
@@ -687,6 +800,7 @@ def access_lane_payload(
     ]
     ssh_ready = bool(trusted_ssh_targets)
     generated_env = generated_level5_env(home=home, env=env_values)
+    env_file_state = level5_env_file_state(home=home, env=env_values)
     level5_process_enabled = enabled(env_values.get("SPARK_ALLOW_HIGH_AGENCY_WORKERS"))
     level5_external_paths = enabled(env_values.get("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS"))
     level5_full_sandbox = env_values.get("SPARK_CODEX_SANDBOX") == "danger-full-access"
@@ -694,18 +808,29 @@ def access_lane_payload(
         enabled(generated_env.get("SPARK_ALLOW_HIGH_AGENCY_WORKERS"))
         and enabled(generated_env.get("SPARK_ALLOW_EXTERNAL_PROJECT_PATHS"))
         and generated_env.get("SPARK_CODEX_SANDBOX") == "danger-full-access"
+        and all(item.get("ok") for item in env_file_state.values())
     )
     level5_process_active = level5_process_enabled and level5_external_paths and level5_full_sandbox
     level5_service_state = level5_service_guardrail_state(home=home, env=env_values, configured=level5_configured)
     level5_service_active = bool(level5_service_state.get("enabled"))
     level5_enabled = level5_process_active or level5_service_active
     level5_restart_required = level5_configured and not level5_enabled
+    current_process_codex_sandbox = env_values.get("SPARK_CODEX_SANDBOX") or DEFAULT_CODEX_SANDBOX
+    configured_codex_sandbox = generated_env.get("SPARK_CODEX_SANDBOX") or ""
+    service_codex_sandbox = configured_codex_sandbox if level5_service_active else ""
+    effective_codex_sandbox = (
+        "danger-full-access"
+        if level >= 5 and (level5_process_active or level5_service_active)
+        else current_process_codex_sandbox
+    )
     if level5_process_active and level5_configured:
         level5_activation_state = "active"
     elif level5_service_active:
         level5_activation_state = "active_for_services"
     elif level5_process_active:
         level5_activation_state = "session_only"
+    elif level5_configured and level5_service_state.get("activation_state") == "partial":
+        level5_activation_state = "partial"
     elif level5_restart_required:
         level5_activation_state = "restart_required"
     elif any((
@@ -841,6 +966,18 @@ def access_lane_payload(
         ok = bool(workspace_preflight.get("writable"))
         if level >= 5:
             ok = ok and bool(level5_enabled or level5_restart_required)
+    full_permission_proof = level5_full_permission_proof(
+        level=level,
+        effective_access_level=effective_access_level,
+        level5_enabled=level5_enabled,
+        level5_configured=level5_configured,
+        level5_activation_state=level5_activation_state,
+        level5_service_active=level5_service_active,
+        level5_process_active=level5_process_active,
+        level5_restart_required=level5_restart_required,
+        effective_codex_sandbox=effective_codex_sandbox,
+        env_file_state=env_file_state,
+    )
 
     return {
         "ok": ok,
@@ -859,8 +996,13 @@ def access_lane_payload(
             "service_enabled": level5_service_active,
             "service_guardrails": level5_service_state,
             "external_paths": level5_external_paths,
-            "codex_sandbox": env_values.get("SPARK_CODEX_SANDBOX") or "workspace-write",
-            "configured_codex_sandbox": generated_env.get("SPARK_CODEX_SANDBOX") or "",
+            "codex_sandbox": current_process_codex_sandbox,
+            "current_process_codex_sandbox": current_process_codex_sandbox,
+            "service_codex_sandbox": service_codex_sandbox,
+            "effective_codex_sandbox": effective_codex_sandbox,
+            "configured_codex_sandbox": configured_codex_sandbox,
+            "env_file_state": env_file_state,
+            "full_permission_proof": full_permission_proof,
             "restart_required": level5_restart_required,
             "env_files": written_level5_env,
             "audit": sandbox_audit_ref("access", "level5") if written_level5_env else {},

@@ -1,0 +1,34 @@
+diff --git a/src/domain_chip_memory/sdk.py b/src/domain_chip_memory/sdk.py
+index e476474..1022f42 100644
+--- a/src/domain_chip_memory/sdk.py
++++ b/src/domain_chip_memory/sdk.py
+@@ -74,8 +74,10 @@ DASHBOARD_MOVEMENT_STATES: tuple[str, ...] = (
+     "dropped",
+ )
+ MEMORY_WRITE_TOOL_NAME = "domain-chip-memory.memory.write"
++MEMORY_WRITE_VNEXT_TOOL_NAME = "memory.write"
+ MEMORY_WRITE_CAPABILITY_ID = "capability:domain-chip-memory:memory.write"
+-MEMORY_WRITE_ACTION_TYPE = "memory.write"
++MEMORY_WRITE_ACTION_TYPE = "write_memory"
++MEMORY_WRITE_LEGACY_ACTION_TYPE = "memory.write"
+ 
+ 
+ def _runtime_memory_architecture(value: str | None = None) -> str:
+@@ -103,7 +105,7 @@ def _matching_write_governor_action(decision: JsonDict) -> JsonDict | None:
+         if (
+             isinstance(action, dict)
+             and action.get("capability_id") == MEMORY_WRITE_CAPABILITY_ID
+-            and action.get("action_type") == MEMORY_WRITE_ACTION_TYPE
++            and action.get("action_type") in {MEMORY_WRITE_ACTION_TYPE, MEMORY_WRITE_LEGACY_ACTION_TYPE}
+             and str(action.get("action_id") or "").strip()
+         ):
+             return action
+@@ -144,7 +146,7 @@ def _matching_write_governor_ledger(
+         authorization = ledger.get("authorization") if isinstance(ledger.get("authorization"), dict) else {}
+         if (
+             ledger.get("schema_version") == "tool-call-ledger-v1"
+-            and ledger.get("tool_name") == MEMORY_WRITE_TOOL_NAME
++            and ledger.get("tool_name") in {MEMORY_WRITE_TOOL_NAME, MEMORY_WRITE_VNEXT_TOOL_NAME}
+             and ledger.get("capability_id") == MEMORY_WRITE_CAPABILITY_ID
+             and ledger.get("action_id") == action_id
+             and ledger.get("turn_id") == turn_id

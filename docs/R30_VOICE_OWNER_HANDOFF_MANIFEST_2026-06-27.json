@@ -1,0 +1,105 @@
+{
+  "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
+  "generated_at": "2026-06-27",
+  "release": "spark-cli-public-installer-2026-06-27-r30",
+  "status": "blocked_before_registry_or_installer_publication",
+  "module": "spark-voice-comms",
+  "decision": "owner_source_required_before_registry_pin",
+  "publication_boundary": "No voice registry pin, installed metadata, installer pin, tag, deploy, or hosted publication is authorized by this manifest.",
+  "expected_registry_commit": "21a9467e9bd4eebd54b06a72a4c21afcfcd316ee",
+  "remote_audit_at": "2026-06-28T09:31:26Z",
+  "remote_main_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+  "existing_public_ref": "refs/tags/spark-ship-2026-06-26",
+  "existing_public_ref_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+  "existing_public_ref_final_r30_claim_allowed": false,
+  "required_owner_release_base_ref": "refs/heads/main",
+  "required_owner_release_base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+  "candidate_owner_release_branch": "release/r30-voice-trace-governor",
+  "candidate_owner_release_branch_remote_ref": "refs/heads/release/r30-voice-trace-governor",
+  "candidate_owner_release_branch_remote_exists": false,
+  "owner_branch": "origin/codex/turnintent-voice-policy-20260531",
+  "owner_branch_commit": "12bddc9bd0bdd719df6ae7d4701779e7b7adfdd4",
+  "local_head": "c502ec096cefb48839e3279d3392343231884415",
+  "prepared_local_release_lane": {
+    "branch": "release/r30-voice-trace-governor",
+    "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+    "head_commit": "c502ec096cefb48839e3279d3392343231884415",
+    "pushed_or_tagged": false,
+    "registry_truth": false,
+    "installed_metadata_truth": false,
+    "proof_checked_at": "2026-06-28T09:31:26Z",
+    "proof_command": "PYTHONPATH=src python3 -m pytest -q",
+    "proof_result": "132 passed",
+    "ported_commits": [
+      {
+        "commit": "4eef348",
+        "commit_full": "4eef348bae135ca3c0d85d4921bf3d4bc28f5e4f",
+        "source_commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+        "subject": "Join voice runtime state traces"
+      },
+      {
+        "commit": "c502ec0",
+        "commit_full": "c502ec096cefb48839e3279d3392343231884415",
+        "source_commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+        "subject": "Accept media transcription governor authority"
+      }
+    ]
+  },
+  "installed_registry_commit": "0d6e366fd04d68a00c4d6afb515f3ddee49a2ae3",
+  "local_range": "origin/codex/turnintent-voice-policy-20260531..c502ec096cefb48839e3279d3392343231884415",
+  "changed_files": [
+    "src/voice_comms_chip/runtime_state.py",
+    "src/voice_comms_chip/spark_hook.py",
+    "tests/test_runtime_state.py",
+    "tests/test_spark_hook.py"
+  ],
+  "diffstat": {
+    "files_changed": 4,
+    "insertions": 731,
+    "deletions": 8
+  },
+  "owner_handoff_patch": {
+    "path": "docs/r30/patches/r30-voice-trace-governor.patch",
+    "sha256": "f4fc2e654b227c4ec53aef8dc013aaf409eab29196c54bd531e522a872c15dff",
+    "line_count": 954,
+    "base_commit": "c74490d68ece65ffad21dc5b88f44602e1afa703",
+    "expected_tree": "e3e1f881497011917fd9baa4f56db811ebccff7e",
+    "apply_check": "git checkout c74490d68ece65ffad21dc5b88f44602e1afa703 && git am docs/r30/patches/r30-voice-trace-governor.patch && test \"$(git write-tree)\" = \"e3e1f881497011917fd9baa4f56db811ebccff7e\" && PYTHONPATH=src python3 -m pytest -q",
+    "apply_result": "132 passed",
+    "publication_authority": false
+  },
+  "required_local_commits": [
+    {
+      "commit": "8a246af",
+      "commit_full": "8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+      "subject": "Join voice runtime state traces"
+    },
+    {
+      "commit": "7555a36",
+      "commit_full": "7555a363d7638537b1a9ec1ee377e460d2343323",
+      "subject": "Accept media transcription governor authority"
+    }
+  ],
+  "owner_action": "Create or select a stable voice owner release ref from the current public owner base, refs/heads/main at c74490d68ece, then port the two local trace/governor commits or equivalent source-owned commits there before any R30 voice registry claim.",
+  "owner_lane_recipe": [
+    "git fetch origin --tags",
+    "git switch -c release/r30-voice-trace-governor c74490d68ece65ffad21dc5b88f44602e1afa703",
+    "git cherry-pick 8a246af1eb0732aec432d88e4e4c2b6411023b7c",
+    "git cherry-pick 7555a363d7638537b1a9ec1ee377e460d2343323",
+    "PYTHONPATH=src python3 -m pytest -q"
+  ],
+  "registry_action_after_owner_source": "Update registry.json only after the stable owner release ref contains the required commits and local proof passes on that ref.",
+  "installed_metadata_action_after_registry": "Update installed runtime metadata through the normal Spark install/update path, not by hand-editing local state.",
+  "proof_commands": [
+    "PYTHONPATH=src python3 -m pytest -q",
+    "spark os compile --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --registry-pins --json",
+    "PYTHONPATH=src python3 -m spark_cli.cli verify --r30 --json"
+  ],
+  "required_voice_runtime_truth_after_update": {
+    "voice_surface_mode": "egress",
+    "voice_surface_blockers": 1,
+    "voice_surface_blocker": "voice transcription is not ready",
+    "requires_confirmation_for_actions": true
+  }
+}

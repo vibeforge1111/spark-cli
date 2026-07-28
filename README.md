@@ -458,6 +458,10 @@ Use `spark <cmd> --help` for full flags.
 | `spark secrets list|set|get|delete` | Keychain-backed secret store |
 | `spark config get|set|unset|list` | User config at `~/.spark/config/config.json` |
 
+`spark doctor llm` rejects provider URLs containing credentials, query strings, fragments, unsafe schemes, or private/metadata targets. For direct provider calls it validates every DNS answer, pins the request to the validated address while preserving TLS hostname verification, and does not follow redirects.
+
+`spark os compile` writes memory-movement and voice-surface read models with redacted `request_ref`/`trace_ref` compile metadata. Those refs prove compiled read-model lineage; they do not authorize memory movement, cleanup, promotion, voice transcription, speech synthesis, Telegram delivery, or execution.
+
 `spark update` checks all selected installed-runtime clones for local edits before it stops services or runs install commands. Use `spark update --stash-local-runtime` for intentional local hotfix testing, `spark update --skip-dirty` to update only clean modules, and `spark update --continue` after manually fixing a preflight stop. If runtime processes were stopped and `SPARK_AUTOSTART=1`, update restarts Spark Live and prints a compact post-update health summary; use `--no-live-restart` to keep the stack manual.
 
 ## State Layout

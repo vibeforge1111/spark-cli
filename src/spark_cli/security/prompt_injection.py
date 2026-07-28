@@ -22,11 +22,13 @@ CONTEXT_FILE_NAMES = {
 
 CONTEXT_FILE_SUFFIXES = {".md", ".mdx", ".txt", ".rst"}
 
+INVISIBLE_SCAN_CHARACTERS = str.maketrans("", "", "\u00ad\u180e\u200b\u200c\u200d\u2060\ufeff")
+
 PROMPT_INJECTION_PATTERNS = (
     (
         "prompt-injection-override",
         "medium",
-        re.compile(r"\b(?:ignore|disregard|forget|override)\b.{0,80}\b(?:previous|prior|system|developer|higher[- ]priority)\b.{0,80}\b(?:instructions?|prompts?|rules?)", re.IGNORECASE | re.DOTALL),
+        re.compile(r"\b(?:ignore|disregard|forget|override|neglect|dismiss|skip|omit|discard|bypass)\b.{0,80}\b(?:previous|prior|system|developer|higher[- ]priority)\b.{0,80}\b(?:instructions?|prompts?|rules?)", re.IGNORECASE | re.DOTALL),
         "context file appears to tell an agent to ignore higher-priority instructions",
     ),
     (
@@ -45,7 +47,7 @@ PROMPT_INJECTION_PATTERNS = (
 
 
 # Map of common Unicode homoglyphs to their ASCII equivalents.
-# This covers Cyrillic, Greek, and other scripts that have visually 
+# This covers Cyrillic, Greek, and other scripts that have visually
 # similar characters to Latin letters used in English.
 HOMOGLYPH_MAP = {
     # Cyrillic lowercase → Latin
@@ -129,24 +131,24 @@ class PromptInjectionFinding:
 def normalize_unicode(text: str) -> str:
     """
     Normalize Unicode text using NFKD decomposition and homoglyph mapping.
-    
-    Unicode homoglyphs (e.g., Cyrillic 'о' U+043E vs Latin 'o' U+006F) 
-    are visually similar but have different byte representations. This 
+
+    Unicode homoglyphs (e.g., Cyrillic 'о' U+043E vs Latin 'o' U+006F)
+    are visually similar but have different byte representations. This
     function:
     1. Applies NFKD normalization to decompose compatibility characters
     2. Maps known homoglyphs to their ASCII equivalents
-    
+
     This prevents bypass attacks using visually similar characters from
     other scripts (Cyrillic, Greek, etc.) to evade pattern matching.
     """
     # First apply NFKD decomposition
     normalized = unicodedata.normalize("NFKD", text)
-    
+
     # Then map homoglyphs to ASCII equivalents
     result = []
     for char in normalized:
         result.append(HOMOGLYPH_MAP.get(char, char))
-    
+
     return "".join(result)
 
 
@@ -164,10 +166,10 @@ def scan_prompt_injection_text(path_label: str, text: str) -> list[PromptInjecti
     if not is_agent_context_path(path_label):
         return []
     findings: list[PromptInjectionFinding] = []
-    
-    # Normalize Unicode to collapse homoglyphs before pattern matching
-    normalized_text = normalize_unicode(text)
-    
+
+    # Collapse invisible characters and homoglyphs before pattern matching.
+    normalized_text = normalize_unicode(text.translate(INVISIBLE_SCAN_CHARACTERS))
+
     for category, severity, pattern, detail in PROMPT_INJECTION_PATTERNS:
         if pattern.search(normalized_text):
             findings.append(PromptInjectionFinding(category, severity, path_label, detail))
