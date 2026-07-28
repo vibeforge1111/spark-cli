@@ -110,26 +110,26 @@ Per-module runtimes are declared in each module's `spark.toml`. The installer ch
 
 ## Install The CLI
 
-Recommended macOS/Linux/WSL install. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading the managed Node runtime:
+Recommended macOS/Linux/WSL install. Download the hosted installer, inspect its dry-run plan, then run the same file. The shell installer auto-detects Apple Silicon, Intel Mac, Linux x64, Linux arm64, and WSL before downloading the managed Node runtime:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.sh
-less install.sh
-bash ./install.sh
+curl -fsSL https://agent.sparkswarm.ai/install.sh -o spark-install.sh
+bash spark-install.sh --dry-run
+bash spark-install.sh
 ```
 
 Recommended Windows PowerShell install:
 
 ```powershell
-iwr https://raw.githubusercontent.com/vibeforge1111/spark-cli/master/scripts/install.ps1 -OutFile .\install.ps1
-Get-Content .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+iwr https://agent.sparkswarm.ai/install.ps1 -OutFile spark-install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\spark-install.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\spark-install.ps1
 ```
 
 Windows scripted setup can pass the normal onboarding values directly to the installer:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+powershell -ExecutionPolicy Bypass -File .\spark-install.ps1 `
   -NonInteractiveSetup `
   -BotToken $env:TELEGRAM_BOT_TOKEN `
   -AdminTelegramIds $env:TELEGRAM_ADMIN_IDS `
@@ -138,7 +138,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 `
 
 The Windows installer adds `~\.spark\bin` to your user PATH so a new CMD or PowerShell can run `spark status` directly. If the current terminal still finds another `spark.exe`, reopen it or use the direct wrapper path: `%USERPROFILE%\.spark\bin\spark.cmd status`.
 
-The launch docs intentionally avoid piping remote scripts directly into a shell. The installer also verifies the managed Node archive against Node's published `SHASUMS256.txt` before extraction.
+The launch docs intentionally avoid piping remote scripts directly into a shell. Before installing, compare the downloaded file with the hosted [checksums](https://agent.sparkswarm.ai/install/checksums.txt) and [release manifest](https://agent.sparkswarm.ai/install/release-manifest.json); [attestation guidance](https://agent.sparkswarm.ai/install/attestations.md) is also available. The installer verifies the managed Node archive against Node's published `SHASUMS256.txt` before extraction.
 If a good Node/npm is already installed, the installer uses it to avoid a slow first-run download; pass `-ManagedNode` on Windows or `--managed-node` on macOS/Linux to force Spark's verified managed Node runtime.
 Before deploying installer changes, verify the committed script manifest locally with `spark verify --installers`. After deploying `agent.sparkswarm.ai`, run `spark verify --installers --hosted-installers` to catch stale hosted copies, stale hosted checksums, stale `/install/commands.json`, and stale `/install/release-manifest.json`.
 For production pushes, use the full gate in [docs/LAUNCH_RUNBOOK.md](./docs/LAUNCH_RUNBOOK.md) so installer, sandbox, hosted, and paired-repo checks ship together.

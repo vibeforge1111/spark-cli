@@ -1,7 +1,7 @@
 param(
     [string]$Prefix = "$HOME\.spark",
     [string]$Source = "https://github.com/vibeforge1111/spark-cli",
-    [string]$Ref = "spark-cli-public-installer-2026-07-27-r30",
+    [string]$Ref = "spark-cli-public-installer-2026-07-27-r30-v2",
     [string]$NodeVersion = "22.18.0",
     [string]$PythonVersion = "3.11",
     [string]$UvVersion = "0.11.7",
@@ -36,7 +36,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SparkCliReleaseName = "spark-cli-public-installer-2026-07-27-r30"
+$SparkCliReleaseName = "spark-cli-public-installer-2026-07-27-r30-v2"
 $RefWasProvided = $PSBoundParameters.ContainsKey("Ref")
 $Script:InstallLockDir = ""
 $Script:PythonExe = ""
@@ -181,6 +181,20 @@ function Get-UvPlatform {
         return "x86_64-pc-windows-msvc"
     }
     throw "Unsupported Windows architecture for uv: $arch"
+}
+
+function Get-NodePlatform {
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    }
+    if ($arch -eq "ARM64") {
+        return "win-arm64"
+    }
+    if ($arch -eq "AMD64" -or $arch -eq "x86_64" -or $arch -eq "X64") {
+        return "win-x64"
+    }
+    throw "Unsupported Windows architecture for Node: $arch"
 }
 
 function Get-UvAssetSha256 {
@@ -385,7 +399,7 @@ function Show-DryRunPlan {
     Write-Host "Details:"
     Write-Host "  Dry-run safety:     no network and no writes in -DryRun mode"
     Write-Host "  Prefix:              $Script:SparkPrefix"
-    Write-Host "  Node platform:       win-x64"
+    Write-Host "  Node platform:       $(Get-NodePlatform)"
     Write-Host "  Node version:        $NodeVersion"
     Write-Host "  Python version:      $PythonVersion"
     Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
@@ -601,7 +615,8 @@ function Install-Node {
     }
 
     $toolsDir = Join-Path $Script:SparkPrefix "tools"
-    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-win-x64"
+    $nodePlatform = Get-NodePlatform
+    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform"
     $nodeExe = Join-Path $nodeDir "node.exe"
     if (Test-Path $nodeExe) {
         Write-SparkLog "Node $NodeVersion already installed at $nodeDir"
@@ -609,9 +624,9 @@ function Install-Node {
     }
 
     New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
-    $archive = Join-Path $toolsDir "node-v$NodeVersion-win-x64.zip"
+    $archive = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform.zip"
     $shasums = Join-Path $toolsDir "node-v$NodeVersion-SHASUMS256.txt"
-    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
+    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-$nodePlatform.zip"
     $shasumsUrl = "https://nodejs.org/dist/v$NodeVersion/SHASUMS256.txt"
     Write-SparkLog "Downloading Node $NodeVersion"
     Invoke-WebRequest -Uri $url -OutFile $archive

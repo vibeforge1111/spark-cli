@@ -14928,7 +14928,7 @@ class Sandbox:
              patch("spark_cli.cli.collect_r30_merged_source_truth_status", return_value={"ok": False, "detail": "merged truth unavailable"}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
-             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-07-27-r30", "ref": "spark-cli-public-installer-2026-07-27-r30"}}):
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-07-27-r30-v2", "ref": "spark-cli-public-installer-2026-07-27-r30-v2"}}):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
@@ -15013,7 +15013,7 @@ class Sandbox:
         )
         self.assertEqual(
             checks["r30_hosted_publication_contract"]["expected_release"],
-            "spark-cli-public-installer-2026-07-27-r30",
+            "spark-cli-public-installer-2026-07-27-r30-v2",
         )
 
     def test_r30_publication_order_supersedes_historical_voice_and_builder_handoffs(self) -> None:
@@ -15277,7 +15277,7 @@ class Sandbox:
                 json.dumps(
                     {
                         "schema_version": "spark.r30.voice_owner_handoff_manifest.v0",
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "module": "spark-voice-comms",
                         "publication_boundary": (
@@ -16296,7 +16296,7 @@ class Sandbox:
             manifest_path.write_text(
                 json.dumps(
                     {
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "publication_boundary": (
                             "No push, tag, deploy, registry pin update, installer pin update, "
@@ -16924,7 +16924,7 @@ class Sandbox:
             manifest_path.write_text(
                 json.dumps(
                     {
-                        "release": "spark-cli-public-installer-2026-07-27-r30",
+                        "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                         "status": "blocked_before_registry_or_installer_publication",
                         "publication_boundary": (
                             "No Telegram or Spawner registry pin, installed metadata, installer pin, "
@@ -17462,7 +17462,7 @@ class Sandbox:
             publish_handoffs = {"local_runtime_test_artifacts": {"owners": ["spark-telegram-bot"]}}
             manifest_path = Path(tmp_dir) / "local-runtime-handoff.json"
             manifest = {
-                "release": "spark-cli-public-installer-2026-07-27-r30",
+                "release": "spark-cli-public-installer-2026-07-27-r30-v2",
                 "status": "blocked_before_registry_or_installer_publication",
                 "publication_boundary": (
                     "No Telegram or Spawner registry pin, installed metadata, installer pin, "
@@ -19058,7 +19058,7 @@ class Sandbox:
         self.assertIn("Ensure-PythonRuntime", script)
         self.assertIn("Python >=3.11,<3.14 not found", script)
         self.assertIn("pinned uv", script)
-        self.assertIn("node-v$NodeVersion-win-x64.zip", script)
+        self.assertIn("node-v$NodeVersion-$nodePlatform.zip", script)
         self.assertIn("Using system Node", script)
         self.assertIn("SHASUMS256.txt", script)
         self.assertIn("Test-NodeArchiveHash", script)
