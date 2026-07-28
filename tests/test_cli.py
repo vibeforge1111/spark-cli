@@ -18879,7 +18879,7 @@ class Sandbox:
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
 
         def hint(os_name: str, package_manager: str = "") -> str:
-            manager_function = f"{package_manager}() {{ :; }};" if package_manager else "PATH=/nonexistent;"
+            manager_function = f"PATH=/nonexistent; {package_manager}() {{ :; }};" if package_manager else "PATH=/nonexistent;"
             result = subprocess.run(
                 [
                     bash,
