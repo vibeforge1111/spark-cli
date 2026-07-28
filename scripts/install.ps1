@@ -185,10 +185,13 @@ function Get-UvPlatform {
 
 function Get-NodePlatform {
     $arch = $env:PROCESSOR_ARCHITECTURE
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    }
     if ($arch -eq "ARM64") {
         return "win-arm64"
     }
-    if ($arch -eq "AMD64" -or $arch -eq "x86_64") {
+    if ($arch -eq "AMD64" -or $arch -eq "x86_64" -or $arch -eq "X64") {
         return "win-x64"
     }
     throw "Unsupported Windows architecture for Node: $arch"

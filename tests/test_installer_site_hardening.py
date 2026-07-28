@@ -77,8 +77,10 @@ def test_windows_installer_selects_native_node_architecture() -> None:
     script = WINDOWS_INSTALLER.read_text(encoding="utf-8")
 
     assert "function Get-NodePlatform" in script
+    assert "[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()" in script
     assert 'if ($arch -eq "ARM64")' in script
     assert 'return "win-arm64"' in script
+    assert '$arch -eq "X64"' in script
     assert 'return "win-x64"' in script
     assert '$nodePlatform = Get-NodePlatform' in script
     assert '"node-v$NodeVersion-$nodePlatform.zip"' in script
