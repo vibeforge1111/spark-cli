@@ -19058,7 +19058,7 @@ class Sandbox:
         self.assertIn("Ensure-PythonRuntime", script)
         self.assertIn("Python >=3.11,<3.14 not found", script)
         self.assertIn("pinned uv", script)
-        self.assertIn("node-v$NodeVersion-win-x64.zip", script)
+        self.assertIn("node-v$NodeVersion-$nodePlatform.zip", script)
         self.assertIn("Using system Node", script)
         self.assertIn("SHASUMS256.txt", script)
         self.assertIn("Test-NodeArchiveHash", script)

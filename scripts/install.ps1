@@ -183,6 +183,17 @@ function Get-UvPlatform {
     throw "Unsupported Windows architecture for uv: $arch"
 }
 
+function Get-NodePlatform {
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    if ($arch -eq "ARM64") {
+        return "win-arm64"
+    }
+    if ($arch -eq "AMD64" -or $arch -eq "x86_64") {
+        return "win-x64"
+    }
+    throw "Unsupported Windows architecture for Node: $arch"
+}
+
 function Get-UvAssetSha256 {
     param([string]$Asset)
     switch ($Asset) {
@@ -385,7 +396,7 @@ function Show-DryRunPlan {
     Write-Host "Details:"
     Write-Host "  Dry-run safety:     no network and no writes in -DryRun mode"
     Write-Host "  Prefix:              $Script:SparkPrefix"
-    Write-Host "  Node platform:       win-x64"
+    Write-Host "  Node platform:       $(Get-NodePlatform)"
     Write-Host "  Node version:        $NodeVersion"
     Write-Host "  Python version:      $PythonVersion"
     Write-Host "  Python source:       existing Python >=3.11,<3.14 or pinned uv $UvVersion if needed"
@@ -601,7 +612,8 @@ function Install-Node {
     }
 
     $toolsDir = Join-Path $Script:SparkPrefix "tools"
-    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-win-x64"
+    $nodePlatform = Get-NodePlatform
+    $nodeDir = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform"
     $nodeExe = Join-Path $nodeDir "node.exe"
     if (Test-Path $nodeExe) {
         Write-SparkLog "Node $NodeVersion already installed at $nodeDir"
@@ -609,9 +621,9 @@ function Install-Node {
     }
 
     New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
-    $archive = Join-Path $toolsDir "node-v$NodeVersion-win-x64.zip"
+    $archive = Join-Path $toolsDir "node-v$NodeVersion-$nodePlatform.zip"
     $shasums = Join-Path $toolsDir "node-v$NodeVersion-SHASUMS256.txt"
-    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
+    $url = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-$nodePlatform.zip"
     $shasumsUrl = "https://nodejs.org/dist/v$NodeVersion/SHASUMS256.txt"
     Write-SparkLog "Downloading Node $NodeVersion"
     Invoke-WebRequest -Uri $url -OutFile $archive

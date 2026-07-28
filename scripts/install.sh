@@ -478,7 +478,7 @@ install_uv() {
   fi
   mkdir -p "$tools_dir" "$uv_dir"
   log "Downloading pinned uv $SPARK_UV_VERSION for $uv_platform"
-  curl -fsSL "https://github.com/astral-sh/uv/releases/download/$SPARK_UV_VERSION/$asset" -o "$archive"
+  curl -fsSL --connect-timeout 15 --max-time 300 "https://github.com/astral-sh/uv/releases/download/$SPARK_UV_VERSION/$asset" -o "$archive"
   if command -v sha256sum >/dev/null 2>&1; then
     printf '%s  %s\n' "$expected" "$archive" | sha256sum -c -
   else
@@ -548,6 +548,17 @@ validate_install_settings() {
       ;;
   esac
 
+  # The prefix is embedded in generated double-quoted Bash assignments.
+  # Reject only bytes that can terminate or re-enter that shell context;
+  # punctuation such as spaces, semicolons, ampersands and parentheses remains
+  # valid path data while quoted.
+  if [[ "$SPARK_PREFIX" =~ [\`\"\$\\] ]] ||
+    [[ "$SPARK_PREFIX" == *$'\n'* ]] ||
+    [[ "$SPARK_PREFIX" == *$'\r'* ]]; then
+    echo "Refusing install prefix that cannot be represented safely in generated shell files." >&2
+    exit 1
+  fi
+
   case "$SPARK_NODE_VERSION" in
     *[!0-9.]*|.*|*..*|*.)
       echo "Unsafe Node version value: $SPARK_NODE_VERSION" >&2
@@ -562,10 +573,26 @@ validate_install_settings() {
       ;;
   esac
 
+  case "$SPARK_UV_VERSION" in
+    *[!0-9.]*|.*|*..*|*.)
+      echo "Unsafe uv version value: $SPARK_UV_VERSION" >&2
+      exit 1
+      ;;
+  esac
+
   case "$SPARK_NODE_PLATFORM" in
     ""|linux-x64|linux-arm64|darwin-x64|darwin-arm64) ;;
     *)
       echo "Unsafe managed Node platform value: $SPARK_NODE_PLATFORM" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$SPARK_LLM_PROVIDER" in
+    ""|codex|anthropic|zai|kimi|openrouter|huggingface|lmstudio|minimax|ollama|openai) ;;
+    *)
+      echo "Unknown --llm-provider value: '$SPARK_LLM_PROVIDER'" >&2
+      echo "Valid providers: codex, anthropic, zai, kimi, openrouter, huggingface, lmstudio, minimax, ollama, openai" >&2
       exit 1
       ;;
   esac
@@ -892,9 +919,13 @@ install_node() {
   local tools_dir="$SPARK_PREFIX/tools"
   local node_dir="$tools_dir/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM"
   SPARK_NODE_BIN_DIR="$node_dir/bin"
-  if [ -x "$node_dir/bin/node" ]; then
+  if [ -x "$node_dir/bin/node" ] && [ -x "$node_dir/bin/npm" ]; then
     log "Node $SPARK_NODE_VERSION already installed at $node_dir"
     return
+  fi
+  if [ -d "$node_dir" ]; then
+    log "Removing partial Node $SPARK_NODE_VERSION tree at $node_dir"
+    rm -rf "$node_dir"
   fi
 
   need_cmd curl
@@ -905,8 +936,8 @@ install_node() {
   local url="https://nodejs.org/dist/v$SPARK_NODE_VERSION/node-v$SPARK_NODE_VERSION-$SPARK_NODE_PLATFORM.tar.xz"
   local shasums_url="https://nodejs.org/dist/v$SPARK_NODE_VERSION/SHASUMS256.txt"
   log "Downloading Node $SPARK_NODE_VERSION for $SPARK_NODE_PLATFORM"
-  curl -fsSL "$url" -o "$archive"
-  curl -fsSL "$shasums_url" -o "$shasums"
+  curl -fsSL --connect-timeout 15 --max-time 300 "$url" -o "$archive"
+  curl -fsSL --connect-timeout 15 --max-time 300 "$shasums_url" -o "$shasums"
   verify_node_archive "$archive" "$shasums"
   tar -C "$tools_dir" -xf "$archive"
 }
@@ -972,9 +1003,17 @@ checkout_cli() {
   fi
 
   need_cmd git
-  if [ -d "$target/.git" ]; then
+  local checkout_ok=0
+  if [ -d "$target/.git" ] &&
+    git -C "$target" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    checkout_ok=1
+  fi
+  if [ "$checkout_ok" = "1" ]; then
     log "Updating existing spark-cli checkout"
   else
+    if [ -d "$target/.git" ]; then
+      log "Removing partial spark-cli checkout at $target (no HEAD)"
+    fi
     log "Cloning spark-cli from $SPARK_CLI_SOURCE"
     rm -rf "$target"
     if printf '%s' "$SPARK_CLI_REF" | grep -Eq '^[0-9a-f]{40}$'; then
@@ -1285,9 +1324,9 @@ main() {
   enforce_existing_install_policy
   confirm_install
   mkdir -p "$SPARK_PREFIX"
+  acquire_install_lock
   ensure_python_runtime
   start_install_log
-  acquire_install_lock
   install_node
   export PATH="$SPARK_NODE_BIN_DIR:$PATH"
   log "Node runtime: $(node -v)"
