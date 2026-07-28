@@ -187,6 +187,27 @@ def evidence_tree_hash(repo_root: Path, gate_map: dict[str, Any]) -> dict[str, A
 # ---------------------------------------------------------------------------
 
 
+def _installed_module_source(
+    modules_root: Path,
+    name: str,
+    entry: dict[str, Any] | None,
+) -> Path:
+    record = entry if isinstance(entry, dict) else {}
+    for key in ("path", "source"):
+        raw = str(record.get(key) or "").strip()
+        if not raw:
+            continue
+        candidate = Path(raw).expanduser()
+        if any((candidate / marker).exists() for marker in ("spark.toml", "package.json", ".git")):
+            return candidate
+        nested = candidate / "source"
+        if nested.is_dir():
+            return nested
+        if candidate.is_dir():
+            return candidate
+    return modules_root / name / "source"
+
+
 def collect_git_state(
     repo_root: Path,
     *,
@@ -212,7 +233,7 @@ def collect_git_state(
     targets: list[tuple[str, Path]] = [("spark-cli", repo_root)]
     installed_map = installed if isinstance(installed, dict) else {}
     for name in sorted(installed_map):
-        source = modules_root / name / "source"
+        source = _installed_module_source(modules_root, name, installed_map.get(name))
         if source.is_dir():
             targets.append((name, source))
     all_ok = True
@@ -253,7 +274,7 @@ def collect_chip_gates(
         if not isinstance(entry, dict) or entry.get("kind") != "chip-pack":
             continue
         row: dict[str, Any] = {"name": f"chip_gate:{name}", "ok": False}
-        source = modules_root / name / "source"
+        source = _installed_module_source(modules_root, name, entry)
         toml_path = source / "spark.toml"
         if not toml_path.is_file():
             row["detail"] = f"spark.toml missing at {toml_path}"
@@ -285,6 +306,7 @@ def collect_chip_gates(
 def collect_readiness_audit(
     *,
     modules_root: Path = DEFAULT_MODULES_ROOT,
+    installed: dict[str, Any] | None = None,
     runner: Callable[..., tuple[int, str, str]] = run_command,
     module_name: str = "spark-telegram-bot",
     strict_script: str = "r30:loop-readiness:strict",
@@ -296,7 +318,8 @@ def collect_readiness_audit(
     incomplete audit is red or waived. A missing module/script is red (fail closed, waivable).
     """
     name = "readiness_audit_strict"
-    source = modules_root / module_name / "source"
+    installed_map = installed if isinstance(installed, dict) else {}
+    source = _installed_module_source(modules_root, module_name, installed_map.get(module_name))
     package_json = source / "package.json"
     if not package_json.is_file():
         return {"name": name, "ok": False, "detail": f"{module_name} source not installed at {source}"}
@@ -410,7 +433,11 @@ def write_release_gate_capture(
     chip_rows = collect_chip_gates(
         modules_root=modules_root, installed=installed, runner=command_runner
     )
-    readiness = collect_readiness_audit(modules_root=modules_root, runner=command_runner)
+    readiness = collect_readiness_audit(
+        modules_root=modules_root,
+        installed=installed,
+        runner=command_runner,
+    )
 
     gates_table: list[dict[str, Any]] = [verify_row]
     for check in verify_payload.get("checks", []) or []:
