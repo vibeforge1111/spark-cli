@@ -14928,7 +14928,7 @@ class Sandbox:
              patch("spark_cli.cli.collect_r30_merged_source_truth_status", return_value={"ok": False, "detail": "merged truth unavailable"}), \
              patch("spark_cli.cli.collect_registry_pin_drift_payload", return_value={"ok": False, "summary": "pin drift", "checks": [{"name": "spark-character", "ok": False}]}), \
              patch("spark_cli.cli.collect_installer_integrity_payload", return_value={"ok": True, "summary": "installers ok", "checks": []}), \
-             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-07-27-r30", "ref": "spark-cli-public-installer-2026-07-27-r30"}}):
+             patch("spark_cli.cli.installer_manifest_payload", return_value={"source": {"releaseName": "spark-cli-public-installer-2026-07-27-r30-v2", "ref": "spark-cli-public-installer-2026-07-27-r30-v2"}}):
             payload = collect_r30_release_gate_payload()
 
         checks = {check["name"]: check for check in payload["checks"]}
@@ -15013,7 +15013,7 @@ class Sandbox:
         )
         self.assertEqual(
             checks["r30_hosted_publication_contract"]["expected_release"],
-            "spark-cli-public-installer-2026-07-27-r30",
+            "spark-cli-public-installer-2026-07-27-r30-v2",
         )
 
     def test_r30_publication_order_supersedes_historical_voice_and_builder_handoffs(self) -> None:
