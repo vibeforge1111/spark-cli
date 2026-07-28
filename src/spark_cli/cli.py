@@ -15888,6 +15888,8 @@ def cmd_providers(args: argparse.Namespace) -> int:
     if args.providers_command == "list":
         payload = provider_catalog_payload()
         if args.json:
+            # The catalog contains setup guidance and capability metadata, never credential values.
+            # codeql[py/clear-text-logging-sensitive-data]
             print(json.dumps(payload, indent=2))
             return 0 if payload.get("ok") else 1
         print("Spark LLM providers")
@@ -15897,6 +15899,8 @@ def cmd_providers(args: argparse.Namespace) -> int:
             print(f"{provider['id']:<10} {provider['label']:<16} auth={auth}; oauth={oauth}")
             print(f"           setup: {provider['setup']}")
             if provider.get("secret_entry"):
+                # `secret_entry` is fixed operator guidance, not a secret or credential value.
+                # codeql[py/clear-text-logging-sensitive-data]
                 print(f"           secret: {provider['secret_entry']}")
         return 0
     if args.providers_command == "status":
@@ -20241,6 +20245,8 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_secrets_list(args: argparse.Namespace) -> int:
+    # This renderer emits only secret IDs and backend labels, never stored values.
+    # codeql[py/clear-text-logging-sensitive-data]
     print(render_stored_secret_listing(list_stored_secrets(), json_output=bool(getattr(args, "json", False))))
     return 0
 
@@ -20268,6 +20274,8 @@ def cmd_secrets_get(args: argparse.Namespace) -> int:
     value = fetch_secret(args.secret_id)
     if bool(getattr(args, "json", False)):
         is_set = value is not None
+        # Presence JSON contains the ID, a boolean, and a fixed `***` marker only.
+        # codeql[py/clear-text-logging-sensitive-data]
         print(render_secret_presence(args.secret_id, is_set=is_set))
         return 0 if is_set else 1
     if value is None:
