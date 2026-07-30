@@ -35,14 +35,14 @@ def resolve_runtime_executable(name: str) -> str:
     )
 
 
-_NPM_ALLOWED_SUBCOMMANDS: frozenset[str] = frozenset({"install", "ci"})
+_NPM_INSTALL_ALLOWED_SUBCOMMANDS: frozenset[str] = frozenset({"install", "ci"})
 
 
-def npm_runtime_command_argv(args: list[str]) -> list[str]:
-    if not args or args[0].lower() not in _NPM_ALLOWED_SUBCOMMANDS:
-        allowed = ", ".join(sorted(_NPM_ALLOWED_SUBCOMMANDS))
+def npm_install_command_argv(args: list[str]) -> list[str]:
+    if not args or args[0].lower() not in _NPM_INSTALL_ALLOWED_SUBCOMMANDS:
+        allowed = ", ".join(sorted(_NPM_INSTALL_ALLOWED_SUBCOMMANDS))
         raise SystemExit(
-            f"npm subcommand {args[0]!r} is not permitted in Spark module commands. "
+            f"npm subcommand {args[0]!r} is not permitted in Spark install commands. "
             f"Allowed: {allowed}."
         )
     npm_path = resolve_runtime_executable("npm")
@@ -63,7 +63,8 @@ def runtime_command_argv(command: str) -> list[str]:
     if executable == "node":
         return [resolve_runtime_executable("node"), *parts[1:]]
     if executable == "npm":
-        return npm_runtime_command_argv(parts[1:])
+        npm_path = resolve_runtime_executable("npm")
+        return [npm_path, *parts[1:]]
     if executable == "uv" and len(parts) >= 2 and parts[1] == "run":
         return [resolve_runtime_executable("uv"), *parts[1:]]
     raise SystemExit(

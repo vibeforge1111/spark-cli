@@ -36,7 +36,7 @@ from xml.sax.saxutils import escape as xml_escape
 import tomllib
 
 from .env_files import normalize_env_file_value
-from .runtime_policy import run_runtime_command, runtime_command_argv, split_single_argv_command
+from .runtime_policy import npm_install_command_argv, run_runtime_command, runtime_command_argv, split_single_argv_command
 from .security.approval import CommandContext, approval_required_for_command
 from .security.prompt_injection import scan_prompt_injection_text
 from .security.url_policy import UrlPolicy, validate_url_safety
@@ -7354,7 +7354,7 @@ def install_command_argv(command: str) -> list[str]:
     if executable == "uv" and len(parts) >= 2 and parts[1] == "pip":
         return [str(Path(sys.executable)), "-m", "pip", *parts[2:]]
     if executable == "npm":
-        return [resolve_install_executable("npm"), *parts[1:]]
+        return npm_install_command_argv(parts[1:])
     raise SystemExit(
         "Unsupported install command executable. Allowed install commands must start with "
         "python, python3, pip, pip3, uv pip, or npm."
