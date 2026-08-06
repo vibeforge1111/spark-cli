@@ -39,7 +39,7 @@ timeout_seconds = 60
 success_hint = "Spark CLI operator runtime is importable and can inspect local module health."
 failure_hint = "Run `python -m spark_cli.cli status --json` from the spark-cli repo for detail."
 
-[profiles.telegram_starter]
+[profiles.telegram-starter]
 role = "operator-cli-and-system-map-owner"
 owns = [
   "spark.install",
