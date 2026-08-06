@@ -1650,7 +1650,8 @@ def harden_secret_file(path: Any) -> None:
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
     """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
     ensure_state_dirs()
-    index = load_secrets_index()
+    if preferred == "keychain" and (index := load_secrets_index()).get(secret_id) == "keychain" and fetch_secret(secret_id) == value:
+        return "keychain"
     if preferred == "keychain" and keychain_available():
         try:
             _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
