@@ -1650,7 +1650,7 @@ def harden_secret_file(path: Any) -> None:
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
     """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
     ensure_state_dirs()
-    if preferred == "keychain" and (index := load_secrets_index()).get(secret_id) == "keychain" and fetch_secret(secret_id) == value:
+    if (index := load_secrets_index()) and preferred == "keychain" and index.get(secret_id) == "keychain" and fetch_secret(secret_id) == value:
         return "keychain"
     if preferred == "keychain" and keychain_available():
         try:
