@@ -11,8 +11,22 @@ if [ -n "${SPARK_CLI_REF:-}" ]; then
 fi
 SPARK_CLI_REF="${SPARK_CLI_REF:-$SPARK_DEFAULT_CLI_REF}"
 SPARK_NODE_VERSION="${SPARK_NODE_VERSION:-22.18.0}"
+# Validate semver-like format to prevent path traversal or injection via --node-version
+case "$SPARK_NODE_VERSION" in
+  *[!0-9.a-zA-Z_-]*)
+    echo "Invalid SPARK_NODE_VERSION: $SPARK_NODE_VERSION. Only digits, dots, hyphens, and underscores are allowed." >&2
+    exit 1
+    ;;
+esac
 SPARK_PYTHON_VERSION="${SPARK_PYTHON_VERSION:-3.11}"
 SPARK_UV_VERSION="${SPARK_UV_VERSION:-0.11.7}"
+# Validate semver-like format to prevent path traversal or injection via --uv-version
+case "$SPARK_UV_VERSION" in
+  *[!0-9.a-zA-Z_-]*)
+    echo "Invalid SPARK_UV_VERSION: $SPARK_UV_VERSION. Only digits, dots, hyphens, and underscores are allowed." >&2
+    exit 1
+    ;;
+esac
 SPARK_SKIP_SETUP="${SPARK_SKIP_SETUP:-0}"
 SPARK_AUTOSTART_USER_SET=0
 if [ -n "${SPARK_AUTOSTART+x}" ]; then
