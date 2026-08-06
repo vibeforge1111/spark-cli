@@ -4784,7 +4784,72 @@ HOSTED_SPAWNER_PARENT_ENV_KEYS = (
 )
 
 
-def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str]) -> dict[str, dict[str, str]]:
+def shared_spawner_bridge_api_key(
+    *,
+    generated_envs: dict[str, dict[str, str]] | None = None,
+    forbidden_secrets: Iterable[str] = (),
+) -> str:
+    if generated_envs is None:
+        generated_envs = {
+            module_name: read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+            for module_name in ("spawner-ui", "spark-telegram-bot")
+        }
+    explicit = (os.environ.get("SPARK_BRIDGE_API_KEY") or "").strip()
+    existing_keys = {
+        (env_values.get("SPARK_BRIDGE_API_KEY") or "").strip()
+        for env_values in generated_envs.values()
+        if (env_values.get("SPARK_BRIDGE_API_KEY") or "").strip()
+    }
+    if not explicit and len(existing_keys) > 1:
+        raise SystemExit(
+            "Telegram and Spawner have mismatched SPARK_BRIDGE_API_KEY values. "
+            "Rotate them together before restarting Spark."
+        )
+
+    bridge_key = explicit or next(iter(existing_keys), "") or py_secrets.token_urlsafe(32)
+    lowered = bridge_key.lower()
+    if (
+        len(bridge_key) < 24
+        or any(char.isspace() for char in bridge_key)
+        or lowered in {"changeme", "change-me", "default", "password", "secret", "spark", "test", "token"}
+        or any(marker in lowered for marker in ("changeme", "password", "placeholder"))
+    ):
+        raise SystemExit("SPARK_BRIDGE_API_KEY must be a strong secret of at least 24 characters.")
+
+    reserved_control_keys = {
+        "EVENTS_API_KEY",
+        "MCP_API_KEY",
+        "SPARK_GOVERNOR_HMAC_KEY",
+        "SPARK_UI_API_KEY",
+        "TELEGRAM_RELAY_SECRET",
+    }
+    reserved_values = {
+        str(value).strip()
+        for value in (
+            *forbidden_secrets,
+            *((os.environ.get(key) or "").strip() for key in reserved_control_keys),
+            *(
+                (env_values.get(key) or "").strip()
+                for env_values in generated_envs.values()
+                for key in reserved_control_keys
+            ),
+        )
+        if str(value).strip()
+    }
+    if bridge_key in reserved_values:
+        raise SystemExit(
+            "SPARK_BRIDGE_API_KEY must be different from UI, relay, provider, and other control secrets."
+        )
+    return bridge_key
+
+
+def build_module_envs(
+    args: argparse.Namespace,
+    modules_by_name: dict[str, Module],
+    secret_values: dict[str, str],
+    *,
+    existing_module_envs: dict[str, dict[str, str]] | None = None,
+) -> dict[str, dict[str, str]]:
     gateway = modules_by_name["spark-telegram-bot"]
     spawner = modules_by_name["spawner-ui"]
     builder = modules_by_name["spark-intelligence-builder"]
@@ -4794,6 +4859,10 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     builder_home = spark_builder_home()
     _, llm_env = build_llm_env(args, secret_values)
     relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
+    bridge_api_key = shared_spawner_bridge_api_key(
+        generated_envs=existing_module_envs or {},
+        forbidden_secrets=(relay_secret, *secret_values.values(), *llm_env.values()),
+    )
     workspace_root = str(SPARK_HOME / "workspaces")
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
@@ -4813,6 +4882,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ONBOARDING_SESSION": str(getattr(args, "onboarding_session", "") or ""),
         "SPARK_ONBOARDING_EVENT_PATH": str(TELEGRAM_FIRST_MESSAGE_EVENTS_PATH),
         "SPARK_WORKSPACE_ROOT": workspace_root,
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
         "SPARK_ACCESS_LEVEL_DEFAULT": "4",
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
     }
@@ -4833,6 +4903,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
@@ -7632,7 +7703,16 @@ def write_setup_runtime_config(
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
     persist_governor_hmac_secret(secret_values)
-    generated_envs = build_module_envs(args, modules, secret_values)
+    existing_module_envs = {
+        module_name: read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
+        for module_name in ("spawner-ui", "spark-telegram-bot")
+    }
+    generated_envs = build_module_envs(
+        args,
+        modules,
+        secret_values,
+        existing_module_envs=existing_module_envs,
+    )
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
         env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)

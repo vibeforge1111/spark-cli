@@ -36,6 +36,7 @@ from spark_cli.cli import (
     build_parser,
     build_status_repair_hints,
     build_module_envs,
+    shared_spawner_bridge_api_key,
     call_llm_doctor,
     command_with_managed_python,
     collect_secret_requirements,
@@ -8971,6 +8972,76 @@ class Sandbox:
         self.assertEqual(refreshed_profile["SPARK_SWARM_BRIDGE_SRC"], str(swarm / "apps" / "bridge" / "src"))
         self.assertEqual(refreshed_base["SPARK_SWARM_SPECIALIZATION_PATH_STARTUP_YC_REPO"], str(path_root))
 
+    def test_shared_spawner_bridge_api_key_generates_once_when_missing(self) -> None:
+        generated = "spark-bridge-" + "x" * 32
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("spark_cli.cli.read_generated_env", return_value={}), \
+             patch("spark_cli.cli.py_secrets.token_urlsafe", return_value=generated):
+            self.assertEqual(shared_spawner_bridge_api_key(), generated)
+
+    def test_shared_spawner_bridge_api_key_preserves_matching_existing_key(self) -> None:
+        existing = "spark-bridge-" + "e" * 32
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("spark_cli.cli.read_generated_env", return_value={"SPARK_BRIDGE_API_KEY": existing}), \
+             patch("spark_cli.cli.py_secrets.token_urlsafe") as generate:
+            self.assertEqual(shared_spawner_bridge_api_key(), existing)
+        generate.assert_not_called()
+
+    def test_shared_spawner_bridge_api_key_repairs_one_sided_key_and_explicit_rotation(self) -> None:
+        existing = "spark-bridge-" + "e" * 32
+        rotated = "spark-bridge-" + "r" * 32
+        one_sided = {
+            "spawner-ui": {"SPARK_BRIDGE_API_KEY": existing},
+            "spark-telegram-bot": {},
+        }
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                shared_spawner_bridge_api_key(generated_envs=one_sided),
+                existing,
+            )
+        mismatched = {
+            "spawner-ui": {"SPARK_BRIDGE_API_KEY": existing},
+            "spark-telegram-bot": {"SPARK_BRIDGE_API_KEY": "spark-bridge-" + "b" * 32},
+        }
+        with patch.dict(os.environ, {"SPARK_BRIDGE_API_KEY": rotated}, clear=True):
+            self.assertEqual(
+                shared_spawner_bridge_api_key(generated_envs=mismatched),
+                rotated,
+            )
+
+    def test_shared_spawner_bridge_api_key_rejects_mismatch_weakness_and_ui_reuse(self) -> None:
+        strong_a = "spark-bridge-" + "a" * 32
+        strong_b = "spark-bridge-" + "b" * 32
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "spark_cli.cli.read_generated_env",
+            side_effect=[{"SPARK_BRIDGE_API_KEY": strong_a}, {"SPARK_BRIDGE_API_KEY": strong_b}],
+        ):
+            with self.assertRaisesRegex(SystemExit, "mismatched"):
+                shared_spawner_bridge_api_key()
+        with patch.dict(os.environ, {"SPARK_BRIDGE_API_KEY": "changeme"}, clear=True), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            with self.assertRaisesRegex(SystemExit, "strong secret"):
+                shared_spawner_bridge_api_key()
+        with patch.dict(
+            os.environ,
+            {"SPARK_BRIDGE_API_KEY": strong_a, "SPARK_UI_API_KEY": strong_a},
+            clear=True,
+        ), patch("spark_cli.cli.read_generated_env", return_value={}):
+            with self.assertRaisesRegex(SystemExit, "must be different"):
+                shared_spawner_bridge_api_key()
+        with patch.dict(os.environ, {"SPARK_BRIDGE_API_KEY": strong_a}, clear=True), \
+             patch("spark_cli.cli.read_generated_env", return_value={}):
+            with self.assertRaisesRegex(SystemExit, "must be different"):
+                shared_spawner_bridge_api_key(forbidden_secrets=("relay-secret", strong_a))
+        with patch.dict(os.environ, {"SPARK_BRIDGE_API_KEY": strong_a}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "must be different"):
+                shared_spawner_bridge_api_key(
+                    generated_envs={
+                        "spawner-ui": {"MCP_API_KEY": strong_a},
+                        "spark-telegram-bot": {},
+                    }
+                )
+
     def test_build_module_envs_routes_telegram_secret_only_to_gateway(self) -> None:
         gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
         builder = make_module("spark-intelligence-builder", ["spark.runtime"])
@@ -9012,6 +9083,15 @@ class Sandbox:
         self.assertEqual(envs["spark-intelligence-builder"]["SPARK_DOMAIN_CHIP_MEMORY_ROOT"], str(memory.path))
         self.assertEqual(
             envs["spark-telegram-bot"]["TELEGRAM_RELAY_SECRET"],
+            envs["spawner-ui"]["TELEGRAM_RELAY_SECRET"],
+        )
+        self.assertEqual(
+            envs["spark-telegram-bot"]["SPARK_BRIDGE_API_KEY"],
+            envs["spawner-ui"]["SPARK_BRIDGE_API_KEY"],
+        )
+        self.assertGreaterEqual(len(envs["spawner-ui"]["SPARK_BRIDGE_API_KEY"]), 24)
+        self.assertNotEqual(
+            envs["spawner-ui"]["SPARK_BRIDGE_API_KEY"],
             envs["spawner-ui"]["TELEGRAM_RELAY_SECRET"],
         )
         self.assertEqual(envs["spawner-ui"]["SPARK_WORKSPACE_ROOT"], str(SPARK_HOME / "workspaces"))
@@ -9446,7 +9526,7 @@ class Sandbox:
                 "SPARK_HOSTED_PRIVATE_PREVIEW": "1",
                 "SPARK_WORKSPACE_ID": "spark-railway-smoke-20260502",
                 "SPARK_UI_API_KEY": "ui-key",
-                "SPARK_BRIDGE_API_KEY": "bridge-key",
+                "SPARK_BRIDGE_API_KEY": "bridge-key-abcdefghijklmnopqrstuvwxyz",
                 "SPARK_ALLOWED_HOSTS": "spark-live-production.up.railway.app",
                 "OPENAI_API_KEY": "parent-openai",
             },
@@ -9469,7 +9549,8 @@ class Sandbox:
         self.assertEqual(spawner_env["SPARK_HOSTED_PRIVATE_PREVIEW"], "1")
         self.assertEqual(spawner_env["SPARK_WORKSPACE_ID"], "spark-railway-smoke-20260502")
         self.assertEqual(spawner_env["SPARK_UI_API_KEY"], "ui-key")
-        self.assertEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "bridge-key")
+        self.assertEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "bridge-key-abcdefghijklmnopqrstuvwxyz")
+        self.assertEqual(envs["spark-telegram-bot"]["SPARK_BRIDGE_API_KEY"], spawner_env["SPARK_BRIDGE_API_KEY"])
         self.assertEqual(spawner_env["SPARK_ALLOWED_HOSTS"], "spark-live-production.up.railway.app")
         self.assertNotIn("OPENAI_API_KEY", spawner_env)
 
