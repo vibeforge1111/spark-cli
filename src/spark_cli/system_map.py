@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import ast
 import json
+import os
 import re
 import sqlite3
 import subprocess
+import tempfile
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6068,7 +6070,16 @@ def compile_system_map(desktop: Path, spark_home: Path, registry_path: Path) -> 
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    content = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
 
 
 # Match real absolute filesystem paths only: Windows drive paths, ~ home paths,
@@ -6124,7 +6135,16 @@ def write_gaps_markdown(path: Path, gaps: list[dict[str, str]], system_map: dict
         ]
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    content = "\n".join(lines)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
 
 
 def write_compiled_outputs(out_dir: Path, compiled: dict[str, Any], *, validate_path: Callable[[Path], None] | None = None) -> dict[str, str]:
