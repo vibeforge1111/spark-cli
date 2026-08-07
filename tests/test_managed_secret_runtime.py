@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from io import StringIO
@@ -255,6 +256,45 @@ class ManagedBridgeRuntimeTests(unittest.TestCase):
             self.assertTrue(cli.start_module(make_module("spawner-ui")))
             self.assertTrue(cli.stop_tracked_process_key("spark-telegram-bot:primary"))
 
+    def test_stop_command_reads_pid_registry_only_after_rotation_lock(self) -> None:
+        rotation_lock = threading.Lock()
+        entered = threading.Event()
+        finished = threading.Event()
+        stopped: list[str] = []
+
+        @contextmanager
+        def shared_lock(*_args: object, **_kwargs: object):
+            with rotation_lock:
+                yield
+
+        def load_pids() -> dict[str, Any]:
+            entered.set()
+            return {"spawner-ui": {"pid": 71}}
+
+        def run_stop() -> None:
+            args = cli.build_parser().parse_args(["stop", "spawner-ui"])
+            cli.cmd_stop_plain(args)
+            finished.set()
+
+        rotation_lock.acquire()
+        try:
+            with patch.object(cli, "process_log_lock", side_effect=shared_lock), patch.object(
+                cli, "load_pids", side_effect=load_pids
+            ), patch.object(cli, "resolve_installed_modules", return_value={"spawner-ui": make_module("spawner-ui")}), patch.object(
+                cli, "resolve_exact_stop_module_names", return_value=["spawner-ui"]
+            ), patch.object(cli, "_stop_tracked_process_key_unlocked", side_effect=lambda key: stopped.append(key) or True):
+                worker = threading.Thread(target=run_stop)
+                worker.start()
+                self.assertFalse(entered.wait(0.05))
+                rotation_lock.release()
+                self.assertTrue(finished.wait(1.0))
+                worker.join(timeout=1.0)
+        finally:
+            if rotation_lock.locked():
+                rotation_lock.release()
+
+        self.assertEqual(stopped, ["spawner-ui"])
+
     def test_start_resolves_child_environment_inside_pid_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             module = make_module("lock-probe", root=Path(tmp_dir))
@@ -303,8 +343,18 @@ class BridgeRotationTests(unittest.TestCase):
         modules = {"spawner-ui": make_module("spawner-ui"), "spark-telegram-bot": make_module("spark-telegram-bot")}
         writes: dict[Path, dict[str, str]] = {}
         stopped: list[str] = []
+        index = {key: "keychain" for key in stored}
         live_pids = pids if pids is not None else {}
         running = {int(item.get("pid") or 0) for item in live_pids.values() if isinstance(item, dict)}
+
+        class FakeKeyring:
+            @staticmethod
+            def get_password(_service: str, account: str) -> str | None:
+                return stored.get(account)
+
+            @staticmethod
+            def delete_password(_service: str, account: str) -> None:
+                stored.pop(account, None)
 
         def read(path: Path) -> dict[str, str]:
             return dict(generated.get(path.stem, {}))
@@ -314,14 +364,16 @@ class BridgeRotationTests(unittest.TestCase):
             generated[path.stem] = dict(values)
 
         def fetch(secret_id: str) -> str | None:
-            return stored.get(secret_id)
+            return stored.get(secret_id) if secret_id in index else None
 
         def store(secret_id: str, value: str, preferred: str = "keychain") -> str:
             stored[secret_id] = value
+            index[secret_id] = preferred
             return preferred
 
-        def delete(secret_id: str) -> bool:
-            return stored.pop(secret_id, None) is not None
+        def save_index(values: dict[str, str]) -> None:
+            index.clear()
+            index.update(values)
 
         def stop(process_key: str, pid: int) -> None:
             stopped.append(process_key)
@@ -334,8 +386,17 @@ class BridgeRotationTests(unittest.TestCase):
             write_generated_env=write,
             fetch_secret=fetch,
             store_secret=store,
-            delete_secret=delete,
-            list_stored_secrets=lambda: {key: "keychain" for key in stored},
+            list_stored_secrets=lambda: dict(index),
+            load_secrets_index=lambda: dict(index),
+            save_secrets_index=save_index,
+            HAS_KEYRING=True,
+            _keyring=FakeKeyring(),
+            keychain_account=lambda secret_id: secret_id,
+            default_home_uses_legacy_keychain=lambda: False,
+            MODULE_CONFIG_DIR=Path("C:/tmp/generated"),
+            SECRETS_FILE_PATH=Path("C:/tmp/generated/secrets.local.json"),
+            save_json=lambda *_args, **_kwargs: None,
+            harden_secret_file=lambda _path: None,
             process_log_lock=unlocked,
             pid_file_lock=unlocked,
             load_pids=lambda: live_pids,
@@ -375,6 +436,72 @@ class BridgeRotationTests(unittest.TestCase):
         self.assertNotIn("spark.bridge_api_key.pending", stored)
         self.assertEqual(generated, original)
 
+    def test_rotation_lock_timeout_never_stages_or_mutates_runtime(self) -> None:
+        stored: dict[str, str] = {}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        patches, writes, stopped = self.rotation_patches(stored=stored, generated=generated)
+
+        @contextmanager
+        def unavailable_lock(*_args: object, **_kwargs: object):
+            raise TimeoutError("busy")
+            yield
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "process_log_lock", side_effect=unavailable_lock
+        ), self.assertRaises(TimeoutError):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(stored, {})
+        self.assertEqual(writes, {})
+        self.assertEqual(stopped, [])
+
+    def test_rotation_holds_lock_from_pending_stage_through_cleanup(self) -> None:
+        stored = {"spark.bridge_api_key": "old-bridge-" + "o" * 32}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        patches, _writes, _stopped = self.rotation_patches(stored=stored, generated=generated)
+        held = False
+        events: list[str] = []
+
+        @contextmanager
+        def tracked_lock(*_args: object, **_kwargs: object):
+            nonlocal held
+            held = True
+            events.append("lock-enter")
+            try:
+                yield
+            finally:
+                events.append("lock-exit")
+                held = False
+
+        def store(secret_id: str, value: str, preferred: str = "keychain") -> str:
+            self.assertTrue(held)
+            events.append("stage" if secret_id.endswith(".pending") else "promote")
+            stored[secret_id] = value
+            index = cli.load_secrets_index()
+            index[secret_id] = preferred
+            cli.save_secrets_index(index)
+            return preferred
+
+        original_purge = managed._purge_secret_backends
+
+        def purge(runtime: Any, secret_id: str) -> None:
+            self.assertTrue(held)
+            events.append("cleanup" if secret_id.endswith(".pending") else "purge-stable")
+            original_purge(runtime, secret_id)
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "process_log_lock", side_effect=tracked_lock
+        ), patch.object(cli, "store_secret", side_effect=store), patch.object(
+            managed, "_purge_secret_backends", side_effect=purge
+        ):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(events[0], "lock-enter")
+        self.assertEqual(events[-1], "lock-exit")
+        self.assertLess(events.index("stage"), events.index("promote"))
+        self.assertLess(events.index("promote"), len(events) - 1)
+        self.assertGreaterEqual(events.count("cleanup"), 2)
+
     def test_rotation_rejects_collision_with_other_managed_secret_before_staging(self) -> None:
         collision = "provider-secret-" + "p" * 32
         stored = {"llm.openai.api_key": collision}
@@ -387,6 +514,174 @@ class BridgeRotationTests(unittest.TestCase):
             managed.rotate_managed_bridge_api_key(cli, collision, backend="keychain")
 
         self.assertNotIn("spark.bridge_api_key.pending", stored)
+
+    def test_rotation_rejects_named_profile_and_generated_provider_collisions(self) -> None:
+        for filename, key in (
+            ("spark-telegram-bot.primary", "TELEGRAM_RELAY_SECRET"),
+            ("spark-intelligence-builder", "OPENAI_API_KEY"),
+        ):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as tmp_dir:
+                candidate = "collision-" + "c" * 32
+                (Path(tmp_dir) / f"{filename}.env").touch()
+                stored: dict[str, str] = {}
+                generated = {
+                    "spawner-ui": {},
+                    "spark-telegram-bot": {},
+                    filename: {key: candidate},
+                }
+                patches, writes, stopped = self.rotation_patches(stored=stored, generated=generated)
+                profile_paths = [Path(tmp_dir) / f"{filename}.env"] if "primary" in filename else []
+                with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+                    cli, "MODULE_CONFIG_DIR", Path(tmp_dir)
+                ), patch.object(cli, "telegram_generated_env_paths", return_value=profile_paths), self.assertRaisesRegex(
+                    SystemExit, "must be different"
+                ):
+                    managed.rotate_managed_bridge_api_key(cli, candidate, backend="keychain")
+
+                self.assertNotIn("spark.bridge_api_key.pending", stored)
+                self.assertEqual(writes, {})
+                self.assertEqual(stopped, [])
+
+    def test_backend_replacement_and_rollback_leave_one_exact_copy(self) -> None:
+        for old_backend, new_backend in (("file", "keychain"), ("keychain", "file")):
+            with self.subTest(old_backend=old_backend, new_backend=new_backend):
+                self._assert_backend_replacement_and_rollback(old_backend, new_backend)
+
+    def _assert_backend_replacement_and_rollback(self, old_backend: str, new_backend: str) -> None:
+        secret_id = managed.BRIDGE_API_KEY_SECRET_ID
+        index = {secret_id: old_backend}
+        keychain: dict[str, str] = {}
+        file_values: dict[str, str] = {}
+        target = keychain if old_backend == "keychain" else file_values
+        target[secret_id] = "old-secret"
+
+        class FakeKeyring:
+            def get_password(self, _service: str, account: str) -> str | None:
+                return keychain.get(account)
+
+            def delete_password(self, _service: str, account: str) -> None:
+                keychain.pop(account, None)
+
+        def load_json(_path: Path, default: Any) -> dict[str, str]:
+            return dict(file_values) if file_values else dict(default)
+
+        def save_json(_path: Path, values: dict[str, str]) -> None:
+            file_values.clear()
+            file_values.update(values)
+
+        def save_index(values: dict[str, str]) -> None:
+            index.clear()
+            index.update(values)
+
+        def fetch(requested: str) -> str | None:
+            return (keychain if index.get(requested) == "keychain" else file_values).get(requested)
+
+        def store(requested: str, value: str, preferred: str = "keychain") -> str:
+            (keychain if preferred == "keychain" else file_values)[requested] = value
+            index[requested] = preferred
+            return preferred
+
+        with patch.multiple(
+            cli,
+            HAS_KEYRING=True,
+            _keyring=FakeKeyring(),
+            KEYCHAIN_SERVICE="test",
+            SECRETS_FILE_PATH=Path("C:/tmp/secrets.json"),
+            keychain_account=lambda requested: requested,
+            default_home_uses_legacy_keychain=lambda: False,
+            load_json=load_json,
+            save_json=save_json,
+            harden_secret_file=lambda _path: None,
+            dpapi_unprotect=lambda value: value,
+            load_secrets_index=lambda: dict(index),
+            save_secrets_index=save_index,
+            fetch_secret=fetch,
+            store_secret=store,
+        ):
+            actual, prior = managed._replace_secret_backend(cli, secret_id, "new-secret", new_backend)
+            self.assertEqual((actual, prior), (new_backend, old_backend))
+            self.assertEqual(index[secret_id], new_backend)
+            self.assertEqual((keychain if new_backend == "keychain" else file_values)[secret_id], "new-secret")
+            self.assertNotIn(secret_id, file_values if new_backend == "keychain" else keychain)
+            managed._restore_bridge_generation(
+                cli,
+                old_stored="old-secret",
+                old_backend=old_backend,
+                legacy_snapshot=[],
+            )
+
+        self.assertEqual(index[secret_id], old_backend)
+        self.assertEqual(target[secret_id], "old-secret")
+        self.assertNotIn(secret_id, file_values if old_backend == "keychain" else keychain)
+
+    def test_backend_delete_failure_aborts_and_transient_cleanup_restores_old_copy(self) -> None:
+        secret_id = managed.BRIDGE_API_KEY_SECRET_ID
+        index = {secret_id: "keychain"}
+        keychain = {secret_id: "old-secret"}
+        file_values: dict[str, str] = {}
+        delete_calls = 0
+
+        class FlakyKeyring:
+            def get_password(self, _service: str, account: str) -> str | None:
+                return keychain.get(account)
+
+            def delete_password(self, _service: str, account: str) -> None:
+                nonlocal delete_calls
+                delete_calls += 1
+                if delete_calls == 1:
+                    raise RuntimeError("backend unavailable")
+                keychain.pop(account, None)
+
+        def load_json(_path: Path, default: Any) -> dict[str, str]:
+            return dict(file_values) if file_values else dict(default)
+
+        def save_json(_path: Path, values: dict[str, str]) -> None:
+            file_values.clear()
+            file_values.update(values)
+
+        def save_index(values: dict[str, str]) -> None:
+            index.clear()
+            index.update(values)
+
+        def fetch(requested: str) -> str | None:
+            return (keychain if index.get(requested) == "keychain" else file_values).get(requested)
+
+        def store(requested: str, value: str, preferred: str = "keychain") -> str:
+            (keychain if preferred == "keychain" else file_values)[requested] = value
+            index[requested] = preferred
+            return preferred
+
+        with patch.multiple(
+            cli,
+            HAS_KEYRING=True,
+            _keyring=FlakyKeyring(),
+            KEYCHAIN_SERVICE="test",
+            SECRETS_FILE_PATH=Path("C:/tmp/secrets.json"),
+            keychain_account=lambda requested: requested,
+            default_home_uses_legacy_keychain=lambda: False,
+            load_json=load_json,
+            save_json=save_json,
+            harden_secret_file=lambda _path: None,
+            dpapi_unprotect=lambda value: value,
+            load_secrets_index=lambda: dict(index),
+            save_secrets_index=save_index,
+            fetch_secret=fetch,
+            store_secret=store,
+        ), self.assertRaisesRegex(SystemExit, "prior secret backend"):
+            try:
+                managed._replace_secret_backend(cli, secret_id, "new-secret", "file")
+            except SystemExit:
+                managed._restore_bridge_generation(
+                    cli,
+                    old_stored="old-secret",
+                    old_backend="keychain",
+                    legacy_snapshot=[],
+                )
+                raise
+
+        self.assertEqual(index, {secret_id: "keychain"})
+        self.assertEqual(keychain, {secret_id: "old-secret"})
+        self.assertNotIn(secret_id, file_values)
 
     def test_keyboard_interrupt_rolls_back_and_cleans_pending_secret(self) -> None:
         old = "old-bridge-" + "o" * 32
@@ -411,6 +706,45 @@ class BridgeRotationTests(unittest.TestCase):
 
         self.assertEqual(stored["spark.bridge_api_key"], old)
         self.assertNotIn("spark.bridge_api_key.pending", stored)
+
+    def test_keyboard_interrupt_during_success_cleanup_rolls_back_inside_lock(self) -> None:
+        old = "old-bridge-" + "o" * 32
+        stored = {"spark.bridge_api_key": old}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        patches, _writes, _stopped = self.rotation_patches(
+            stored=stored,
+            generated=generated,
+            pids={"spawner-ui": {"pid": 22}},
+        )
+        original_cleanup = managed._delete_pending_or_raise
+        cleanup_calls = 0
+        held = False
+
+        @contextmanager
+        def tracked_lock(*_args: object, **_kwargs: object):
+            nonlocal held
+            held = True
+            try:
+                yield
+            finally:
+                held = False
+
+        def cleanup(runtime: Any) -> None:
+            nonlocal cleanup_calls
+            self.assertTrue(held)
+            cleanup_calls += 1
+            if cleanup_calls == 1:
+                raise KeyboardInterrupt
+            original_cleanup(runtime)
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "process_log_lock", side_effect=tracked_lock
+        ), patch.object(managed, "_delete_pending_or_raise", side_effect=cleanup), self.assertRaises(KeyboardInterrupt):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(cleanup_calls, 2)
+        self.assertEqual(stored[managed.BRIDGE_API_KEY_SECRET_ID], old)
+        self.assertNotIn(managed.BRIDGE_API_KEY_PENDING_SECRET_ID, stored)
 
     def test_rotation_keeps_exact_running_profiles_and_ignores_unrelated_process(self) -> None:
         old = "old-bridge-" + "o" * 32

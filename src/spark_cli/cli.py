@@ -18878,6 +18878,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_stop_plain(args: argparse.Namespace) -> int:
+    return managed_secret_runtime.run_stop_command_locked(sys.modules[__name__], args)
+def _cmd_stop_plain_unlocked(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
     if not pids:
@@ -18898,7 +18900,7 @@ def cmd_stop_plain(args: argparse.Namespace) -> int:
         else:
             target_names = resolve_exact_stop_module_names(args.target, installed_modules, pids)
     for name in target_names:
-        if not stop_tracked_process_key(name):
+        if not _stop_tracked_process_key_unlocked(name):
             print(f"Skipping {name}: no tracked pid")
     return 0
 

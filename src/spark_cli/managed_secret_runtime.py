@@ -336,7 +336,11 @@ def restore_legacy_bridge_key_files(runtime: Any, snapshot: list[tuple[Path, Any
                 runtime.update_env_file(env_path, values)
 
 
-def _rotation_forbidden_values(runtime: Any, generated_envs: dict[str, dict[str, str]]) -> list[str]:
+def _rotation_forbidden_values(
+    runtime: Any,
+    generated_envs: dict[str, dict[str, str]],
+    legacy_snapshot: list[tuple[Path, Any | None, dict[str, str]]],
+) -> list[str]:
     values = [
         str(env.get(key) or "").strip()
         for env in generated_envs.values()
@@ -346,30 +350,115 @@ def _rotation_forbidden_values(runtime: Any, generated_envs: dict[str, dict[str,
         (os.environ.get(key) or "").strip()
         for key in ({BRIDGE_API_KEY_ENV} | RESERVED_CONTROL_KEYS | set(runtime.STATIC_PROVIDER_ENV_BLOCKLIST))
     )
+    values.extend(
+        str(value).strip()
+        for _path, _module, env in legacy_snapshot
+        for key, value in env.items()
+        if key in runtime.STATIC_PROVIDER_ENV_BLOCKLIST
+        or key in RESERVED_CONTROL_KEYS
+        or key.endswith(("API_KEY", "TOKEN", "SECRET"))
+    )
+    if runtime.MODULE_CONFIG_DIR.exists():
+        for path in runtime.MODULE_CONFIG_DIR.glob("*.env"):
+            env = runtime.read_generated_env(path)
+            values.extend(
+                str(value).strip()
+                for key, value in env.items()
+                if key in runtime.STATIC_PROVIDER_ENV_BLOCKLIST
+                or key in RESERVED_CONTROL_KEYS
+                or key.endswith(("API_KEY", "TOKEN", "SECRET"))
+            )
     for secret_id in runtime.list_stored_secrets():
         if secret_id not in {BRIDGE_API_KEY_SECRET_ID, BRIDGE_API_KEY_PENDING_SECRET_ID}:
             values.append((runtime.fetch_secret(secret_id) or "").strip())
     return [value for value in values if value]
 
 
+def _remove_secret_backend(runtime: Any, secret_id: str, backend: str) -> None:
+    if backend == "keychain" and not runtime.HAS_KEYRING:
+        raise SystemExit("Bridge key rotation stopped because the system secret backend is unavailable.")
+    if backend == "keychain":
+        accounts = [runtime.keychain_account(secret_id)]
+        if runtime.default_home_uses_legacy_keychain() and secret_id not in accounts:
+            accounts.append(secret_id)
+        for account in accounts:
+            try:
+                runtime._keyring.delete_password(runtime.KEYCHAIN_SERVICE, account)
+            except Exception:  # noqa: BLE001,S110 - absence is verified afterward without disclosing details
+                pass
+    elif backend == "file":
+        values = runtime.load_json(runtime.SECRETS_FILE_PATH, {})
+        if secret_id in values:
+            values.pop(secret_id)
+            runtime.save_json(runtime.SECRETS_FILE_PATH, values)
+            runtime.harden_secret_file(runtime.SECRETS_FILE_PATH)
+
+
+def _backend_secret_value(runtime: Any, secret_id: str, backend: str) -> str | None:
+    if backend == "keychain" and runtime.HAS_KEYRING:
+        accounts = [runtime.keychain_account(secret_id)]
+        if runtime.default_home_uses_legacy_keychain() and secret_id not in accounts:
+            accounts.append(secret_id)
+        for account in accounts:
+            try:
+                if (value := runtime._keyring.get_password(runtime.KEYCHAIN_SERVICE, account)) is not None:
+                    return value
+            except Exception:  # noqa: BLE001,S112 - backend absence must remain non-disclosing
+                continue
+    elif backend == "file":
+        value = runtime.load_json(runtime.SECRETS_FILE_PATH, {}).get(secret_id)
+        return runtime.dpapi_unprotect(value) if isinstance(value, str) else None
+    return None
+
+
+def _purge_secret_backends(runtime: Any, secret_id: str) -> None:
+    _remove_secret_backend(runtime, secret_id, "keychain")
+    _remove_secret_backend(runtime, secret_id, "file")
+    if _backend_secret_value(runtime, secret_id, "keychain") is not None or _backend_secret_value(
+        runtime, secret_id, "file"
+    ) is not None:
+        raise SystemExit("Bridge key rotation stopped because a superseded secret copy could not be removed.")
+    index = runtime.load_secrets_index()
+    index.pop(secret_id, None)
+    runtime.save_secrets_index(index)
+
+
+def _replace_secret_backend(runtime: Any, secret_id: str, value: str, preferred: str) -> tuple[str, str | None]:
+    old_backend = runtime.load_secrets_index().get(secret_id)
+    new_backend = runtime.store_secret(secret_id, value, preferred=preferred)
+    if runtime.fetch_secret(secret_id) != value:
+        raise SystemExit("Bridge key rotation stopped because promoted secret verification failed.")
+    if old_backend and old_backend != new_backend:
+        _remove_secret_backend(runtime, secret_id, old_backend)
+        if _backend_secret_value(runtime, secret_id, old_backend) is not None:
+            raise SystemExit("Bridge key rotation stopped because the prior secret backend could not be purged.")
+    return new_backend, old_backend
+
+
 def _restore_bridge_generation(
     runtime: Any,
     *,
     old_stored: str,
-    backend: str,
+    old_backend: str | None,
     legacy_snapshot: list[tuple[Path, Any | None, dict[str, str]]],
 ) -> None:
-    if old_stored:
-        runtime.store_secret(BRIDGE_API_KEY_SECRET_ID, old_stored, preferred=backend)
-    else:
-        runtime.delete_secret(BRIDGE_API_KEY_SECRET_ID)
+    _purge_secret_backends(runtime, BRIDGE_API_KEY_SECRET_ID)
+    if old_stored and old_backend:
+        restored_backend = runtime.store_secret(BRIDGE_API_KEY_SECRET_ID, old_stored, preferred=old_backend)
+        if restored_backend != old_backend or runtime.fetch_secret(BRIDGE_API_KEY_SECRET_ID) != old_stored:
+            raise SystemExit("Bridge key rotation failed because the prior secret backend could not be restored.")
     restore_legacy_bridge_key_files(runtime, legacy_snapshot)
 
 
 def _delete_pending_or_raise(runtime: Any) -> None:
-    runtime.delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
+    _purge_secret_backends(runtime, BRIDGE_API_KEY_PENDING_SECRET_ID)
     if runtime.fetch_secret(BRIDGE_API_KEY_PENDING_SECRET_ID) is not None:
         raise SystemExit("Bridge key rotation stopped because the staged secret could not be removed.")
+
+
+def run_stop_command_locked(runtime: Any, args: Any) -> int:
+    with runtime.process_log_lock(runtime.BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+        return runtime._cmd_stop_plain_unlocked(args)
 
 
 def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str) -> str:
@@ -381,32 +470,34 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
         raise SystemExit(
             "Install the Telegram starter stack before rotating the local bridge key: " + ", ".join(missing)
         )
-    generated_envs = load_generated_bridge_envs(runtime.MODULE_CONFIG_DIR, runtime.read_generated_env)
-    old_stored = (runtime.fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
-    old_values = {
-        str(env.get(BRIDGE_API_KEY_ENV) or "").strip() for env in generated_envs.values()
-    } - {""}
-    if old_stored:
-        old_values.add(old_stored)
-    candidate = resolve_shared_spawner_bridge_api_key(
-        {},
-        explicit=new_value,
-        forbidden_secrets=(*old_values, *_rotation_forbidden_values(runtime, generated_envs)),
-    )
-
-    runtime.store_secret(BRIDGE_API_KEY_PENDING_SECRET_ID, candidate, preferred=backend)
-    if runtime.fetch_secret(BRIDGE_API_KEY_PENDING_SECRET_ID) != candidate:
-        _delete_pending_or_raise(runtime)
-        raise SystemExit("Bridge key rotation stopped because staged secret verification failed.")
-
-    snapshot: list[str] = []
-    legacy_snapshot = legacy_bridge_key_file_snapshot(runtime, installed)
-    promoted = False
-    promotion_attempted = False
-    promoted_backend = backend
-    failure: BaseException | None = None
     with runtime.process_log_lock(runtime.BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+        generated_envs = load_generated_bridge_envs(runtime.MODULE_CONFIG_DIR, runtime.read_generated_env)
+        legacy_snapshot = legacy_bridge_key_file_snapshot(runtime, installed)
+        old_backend = runtime.load_secrets_index().get(BRIDGE_API_KEY_SECRET_ID)
+        old_stored = (runtime.fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
+        old_values = {
+            str(env.get(BRIDGE_API_KEY_ENV) or "").strip() for env in generated_envs.values()
+        } - {""}
+        if old_stored:
+            old_values.add(old_stored)
+        candidate = resolve_shared_spawner_bridge_api_key(
+            {},
+            explicit=new_value,
+            forbidden_secrets=(
+                *old_values,
+                *_rotation_forbidden_values(runtime, generated_envs, legacy_snapshot),
+            ),
+        )
+        snapshot: list[str] = []
+        consumers_stopped = False
+        promotion_attempted = False
+        promoted_backend = backend
+        failure: BaseException | None = None
         try:
+            _purge_secret_backends(runtime, BRIDGE_API_KEY_PENDING_SECRET_ID)
+            runtime.store_secret(BRIDGE_API_KEY_PENDING_SECRET_ID, candidate, preferred=backend)
+            if runtime.fetch_secret(BRIDGE_API_KEY_PENDING_SECRET_ID) != candidate:
+                raise SystemExit("Bridge key rotation stopped because staged secret verification failed.")
             with runtime.pid_file_lock(timeout_seconds=30.0):
                 pids = runtime.load_pids()
                 snapshot = [
@@ -416,6 +507,7 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
                     and int(pids[key].get("pid") or 0)
                     and runtime.pid_is_running(int(pids[key].get("pid") or 0))
                 ]
+                consumers_stopped = True
                 for process_key in snapshot:
                     record = pids.get(process_key, {})
                     pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
@@ -428,34 +520,35 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
                     pids.pop(process_key, None)
                 runtime.save_pids(pids)
                 promotion_attempted = True
-                promoted_backend = runtime.store_secret(BRIDGE_API_KEY_SECRET_ID, candidate, preferred=backend)
-                if runtime.fetch_secret(BRIDGE_API_KEY_SECRET_ID) != candidate:
-                    raise SystemExit("Bridge key rotation stopped because promoted secret verification failed.")
-                promoted = True
+                promoted_backend, observed_old_backend = _replace_secret_backend(
+                    runtime, BRIDGE_API_KEY_SECRET_ID, candidate, backend
+                )
+                if observed_old_backend != old_backend:
+                    raise SystemExit("Bridge key rotation stopped because the prior secret backend changed.")
                 scrub_legacy_bridge_key_files(runtime, installed)
             if not start_bridge_consumer_snapshot(runtime, snapshot, installed):
                 raise SystemExit("A bridge consumer did not become healthy with the new key.")
+            _delete_pending_or_raise(runtime)
         except (SystemExit, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001 - rollback every operational failure
             failure = exc
-            stop_live_bridge_consumers(runtime)
-            if promoted or promotion_attempted:
+            if consumers_stopped:
+                stop_live_bridge_consumers(runtime)
+            if promotion_attempted:
                 _restore_bridge_generation(
                     runtime,
                     old_stored=old_stored,
-                    backend=backend,
+                    old_backend=old_backend,
                     legacy_snapshot=legacy_snapshot,
                 )
-            rollback_started = start_bridge_consumer_snapshot(runtime, snapshot, installed)
+            rollback_started = not consumers_stopped or start_bridge_consumer_snapshot(runtime, snapshot, installed)
             _delete_pending_or_raise(runtime)
             if not rollback_started:
                 raise SystemExit(
                     "Bridge key rotation failed and the prior consumer set could not be fully restored."
                 ) from None
-
-    if failure is not None:
-        if isinstance(failure, (SystemExit, KeyboardInterrupt)):
-            raise failure
-        raise SystemExit("Bridge key rotation failed and the prior generation was restored.") from None
-    _delete_pending_or_raise(runtime)
+        if failure is not None:
+            if isinstance(failure, (SystemExit, KeyboardInterrupt)):
+                raise failure
+            raise SystemExit("Bridge key rotation failed and the prior generation was restored.") from None
     runtime.remember_setup_secret_key(BRIDGE_API_KEY_SECRET_ID)
     return promoted_backend
