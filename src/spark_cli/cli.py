@@ -40,6 +40,7 @@ import tomllib
 
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
+from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
 from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
 from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
 from .provider_auth import effective_provider_auth_mode
@@ -1649,7 +1650,8 @@ def harden_secret_file(path: Any) -> None:
 def store_secret(secret_id: str, value: str, preferred: str = "keychain") -> str:
     """Store a secret value. Returns the backend actually used ('keychain' or 'file')."""
     ensure_state_dirs()
-    index = load_secrets_index()
+    if (index := load_secrets_index()) and preferred == "keychain" and index.get(secret_id) == "keychain" and fetch_secret(secret_id) == value:
+        return "keychain"
     if preferred == "keychain" and keychain_available():
         try:
             _keyring.set_password(KEYCHAIN_SERVICE, keychain_account(secret_id), value)
@@ -4779,12 +4781,11 @@ HOSTED_SPAWNER_PARENT_ENV_KEYS = (
     "SPARK_HOSTED_PRIVATE_PREVIEW",
     "SPARK_WORKSPACE_ID",
     "SPARK_UI_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_ALLOWED_HOSTS",
 )
 
 
-def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str]) -> dict[str, dict[str, str]]:
+def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Module], secret_values: dict[str, str], existing_module_envs: dict[str, dict[str, str]] | None = None) -> dict[str, dict[str, str]]:
     gateway = modules_by_name["spark-telegram-bot"]
     spawner = modules_by_name["spawner-ui"]
     builder = modules_by_name["spark-intelligence-builder"]
@@ -4794,6 +4795,12 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     builder_home = spark_builder_home()
     _, llm_env = build_llm_env(args, secret_values)
     relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
+    bridge_api_key = resolve_shared_spawner_bridge_api_key(
+        existing_module_envs or {},
+        explicit=(os.environ.get("SPARK_BRIDGE_API_KEY") or "").strip(),
+        forbidden_secrets=(relay_secret, *secret_values.values(), *llm_env.values()),
+        parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
+    )
     workspace_root = str(SPARK_HOME / "workspaces")
     setup_state = load_json(CONFIG_PATH, {})
     primary_profile = primary_telegram_profile(setup_state)
@@ -4813,6 +4820,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ONBOARDING_SESSION": str(getattr(args, "onboarding_session", "") or ""),
         "SPARK_ONBOARDING_EVENT_PATH": str(TELEGRAM_FIRST_MESSAGE_EVENTS_PATH),
         "SPARK_WORKSPACE_ROOT": workspace_root,
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
         "SPARK_ACCESS_LEVEL_DEFAULT": "4",
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
     }
@@ -4833,6 +4841,7 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         "SPARK_ACCESS_DEFAULT_LANE": "spark_workspace",
         "SPARK_WORKSPACE_BOUNDARY_KIND": "workspace_write",
         "SPARK_CODEX_SANDBOX": "workspace-write",
+        "SPARK_BRIDGE_API_KEY": bridge_api_key,
     }
     for key in HOSTED_SPAWNER_PARENT_ENV_KEYS:
         value = os.environ.get(key)
@@ -7632,7 +7641,12 @@ def write_setup_runtime_config(
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
     persist_governor_hmac_secret(secret_values)
-    generated_envs = build_module_envs(args, modules, secret_values)
+    generated_envs = build_module_envs(
+        args,
+        modules,
+        secret_values,
+        load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env),
+    )
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
         env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)

@@ -8,3 +8,6 @@
 f8ed470be11cc068c7c7e58e5ad6f0ab66ccf23b:tests/test_cli.py:generic-api-key:9537
 cacca70220360c4b20b310486251003cee1e349e:tests/test_cli.py:generic-api-key:391
 de95056ecf039887f9b534365717adbf7dd1a4f8:tests/test_cli.py:private-key:991
+5a019f2761598cafffbe832de405dbe8941047ac:tests/test_trust_scanner_fixtures.py:private-key:9
+728f4c1ff76e83ff19ad5c36303a7b0f5d4acb80:tests/test_cli_healthcheck_summary.py:generic-api-key:40
+24b0c6841994386d1481c019762823b9b83b35d0:tests/test_cli.py:generic-api-key:2654
