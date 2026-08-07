@@ -831,6 +831,75 @@ class BridgeRotationTests(unittest.TestCase):
         self.assertEqual(stored[managed.BRIDGE_API_KEY_SECRET_ID], old)
         self.assertNotIn(managed.BRIDGE_API_KEY_PENDING_SECRET_ID, stored)
 
+    def test_cleanup_failure_after_restore_leaves_bridge_consumers_stopped(self) -> None:
+        old = "old-bridge-" + "o" * 32
+        stored = {managed.BRIDGE_API_KEY_SECRET_ID: old}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        pids: dict[str, Any] = {"spawner-ui": {"pid": 22}}
+        patches, _writes, _stopped = self.rotation_patches(
+            stored=stored,
+            generated=generated,
+            pids=pids,
+        )
+        next_pid = 80
+
+        def start(module: Module, *, profile: str | None = None, **_kwargs: object) -> bool:
+            nonlocal next_pid
+            key = cli.module_process_key(module.name, profile)
+            next_pid += 1
+            pids[key] = {"pid": next_pid}
+            return True
+
+        def stop(key: str, _pid: int | None = None) -> bool:
+            pids.pop(key, None)
+            return True
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "pid_is_running", side_effect=lambda pid: any(item.get("pid") == pid for item in pids.values())
+        ), patch.object(cli, "stop_module", side_effect=stop), patch.object(
+            cli, "_stop_tracked_process_key_unlocked", side_effect=stop
+        ), patch.object(cli, "_start_module_unlocked", side_effect=start), patch.object(
+            managed, "_delete_pending_or_raise", side_effect=SystemExit("cleanup unavailable")
+        ), self.assertRaisesRegex(SystemExit, "bridge consumers remain stopped"):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(managed.bridge_consumer_process_keys(pids), [])
+
+    def test_partial_rollback_restart_is_stopped_before_failure_returns(self) -> None:
+        old = "old-bridge-" + "o" * 32
+        stored = {managed.BRIDGE_API_KEY_SECRET_ID: old}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        pids: dict[str, Any] = {
+            "spawner-ui": {"pid": 22},
+            "spark-telegram-bot:primary": {"pid": 23},
+        }
+        patches, _writes, _stopped = self.rotation_patches(stored=stored, generated=generated, pids=pids)
+        outcomes = iter((False, True, False))
+        next_pid = 90
+
+        def start(module: Module, *, profile: str | None = None, **_kwargs: object) -> bool:
+            nonlocal next_pid
+            outcome = next(outcomes)
+            if outcome:
+                next_pid += 1
+                pids[cli.module_process_key(module.name, profile)] = {"pid": next_pid}
+            return outcome
+
+        def stop(key: str, _pid: int | None = None) -> bool:
+            pids.pop(key, None)
+            return True
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "pid_is_running", side_effect=lambda pid: any(item.get("pid") == pid for item in pids.values())
+        ), patch.object(cli, "stop_module", side_effect=stop), patch.object(
+            cli, "_stop_tracked_process_key_unlocked", side_effect=stop
+        ), patch.object(cli, "_start_module_unlocked", side_effect=start), self.assertRaisesRegex(
+            SystemExit, "bridge consumers remain stopped"
+        ):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(managed.bridge_consumer_process_keys(pids), [])
+
     def test_rotation_keeps_exact_running_profiles_and_ignores_unrelated_process(self) -> None:
         old = "old-bridge-" + "o" * 32
         stored = {"spark.bridge_api_key": old}

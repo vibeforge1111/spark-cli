@@ -294,11 +294,24 @@ def start_bridge_consumer_snapshot(
     return True
 
 
-def stop_live_bridge_consumers(runtime: Any) -> None:
+def stop_live_bridge_consumers(runtime: Any) -> bool:
     with runtime.pid_file_lock():
-        process_keys = bridge_consumer_process_keys(runtime.load_pids())
+        pids = runtime.load_pids()
+        process_keys = bridge_consumer_process_keys(pids)
+        process_ids = [
+            int(pids[key].get("pid") or 0)
+            for key in process_keys
+            if isinstance(pids.get(key), dict)
+        ]
+    stopped = True
     for process_key in process_keys:
-        runtime._stop_tracked_process_key_unlocked(process_key)
+        try:
+            stopped = runtime._stop_tracked_process_key_unlocked(process_key) and stopped
+        except BaseException:  # noqa: BLE001 - continue best-effort containment across every consumer
+            stopped = False
+    with runtime.pid_file_lock():
+        remaining = bridge_consumer_process_keys(runtime.load_pids())
+    return stopped and not remaining and all(not pid or not runtime.pid_is_running(pid) for pid in process_ids)
 
 
 def legacy_bridge_key_file_snapshot(
@@ -546,12 +559,14 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
         except (SystemExit, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001 - rollback every operational failure
             failure = exc
             rollback_failed = False
+            consumer_state_uncertain = False
             if consumers_stopped:
                 try:
-                    stop_live_bridge_consumers(runtime)
+                    consumer_state_uncertain = not stop_live_bridge_consumers(runtime)
                 except BaseException:  # noqa: BLE001 - leave uncertain consumers stopped and report repair
-                    rollback_failed = True
-            if promotion_attempted and not rollback_failed:
+                    consumer_state_uncertain = True
+                rollback_failed = consumer_state_uncertain
+            if promotion_attempted and not consumer_state_uncertain:
                 try:
                     _restore_bridge_generation(
                         runtime,
@@ -561,18 +576,24 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
                     )
                 except BaseException:  # noqa: BLE001 - do not restart against an uncertain generation
                     rollback_failed = True
+            try:
+                _delete_pending_or_raise(runtime)
+            except BaseException:  # noqa: BLE001 - pending cleanup is part of the atomicity contract
+                rollback_failed = True
             if consumers_stopped and not rollback_failed:
                 try:
                     rollback_failed = not start_bridge_consumer_snapshot(runtime, snapshot, installed)
                 except BaseException:  # noqa: BLE001 - report the incomplete rollback without leaking details
                     rollback_failed = True
-            try:
-                _delete_pending_or_raise(runtime)
-            except BaseException:  # noqa: BLE001 - pending cleanup is part of the atomicity contract
-                rollback_failed = True
+                if rollback_failed:
+                    try:
+                        consumer_state_uncertain = not stop_live_bridge_consumers(runtime)
+                    except BaseException:  # noqa: BLE001 - report uncertainty instead of claiming containment
+                        consumer_state_uncertain = True
             if rollback_failed:
+                state = "consumer state is uncertain" if consumer_state_uncertain else "bridge consumers remain stopped"
                 raise SystemExit(
-                    "Bridge key rotation failed and rollback could not complete; bridge consumers remain stopped."
+                    f"Bridge key rotation failed and rollback could not complete; {state}."
                 ) from None
         if failure is not None:
             if isinstance(failure, (SystemExit, KeyboardInterrupt)):
