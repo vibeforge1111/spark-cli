@@ -20270,10 +20270,10 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
         backend = managed_secret_runtime.rotate_managed_bridge_api_key(
             sys.modules[__name__], value, backend=args.backend
         )
+        # codeql[py/clear-text-logging-sensitive-data]
         print(f"Rotated {args.secret_id} in {backend}; restored the prior bridge consumer set.")
         return 0
     backend = store_secret(args.secret_id, value, preferred=args.backend)
-    # This prints the secret label and backend, never the stored value.
     # codeql[py/clear-text-logging-sensitive-data]
     print(f"Stored {args.secret_id} in {backend}.")
     return 0
