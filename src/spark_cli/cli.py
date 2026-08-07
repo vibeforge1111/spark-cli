@@ -343,6 +343,11 @@ MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
 DEFAULT_GRAPHITI_GROUP_ID = "spark-memory"
 VOICE_MODULE_NAME = "spark-voice-comms"
+VOICE_OPENAI_SECRET_ID = "voice.openai.api_key"
+VOICE_OPENAI_SECRET_ENV = "VOICE_OPENAI_API_KEY"
+VOICE_ELEVENLABS_SECRET_ID = "voice.elevenlabs.api_key"
+VOICE_ELEVENLABS_SECRET_ENV = "ELEVENLABS_API_KEY"
+TELEGRAM_VOICE_TTS_SECRET_REF_ENV = "SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
@@ -397,6 +402,7 @@ SAFE_PARENT_ENV_PREFIXES = ("XDG_",)
 STATIC_PROVIDER_ENV_BLOCKLIST = {
     "ANTHROPIC_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "ELEVENLABS_API_KEY",
     "GOOGLE_API_KEY",
     "KIMI_API_KEY",
     "MINIMAX_API_KEY",
@@ -408,6 +414,7 @@ STATIC_PROVIDER_ENV_BLOCKLIST = {
     "SUPABASE_URL",
     "TELEGRAM_API_BASE",
     "TELEGRAM_BOT_TOKEN",
+    "VOICE_OPENAI_API_KEY",
     "ZAI_API_KEY",
     "ZAI_BASE_URL",
 }
@@ -3800,6 +3807,12 @@ def fetch_generated_secret_value(requirement: dict[str, Any]) -> str | None:
         value = values.get(str(env_var))
         if value:
             return value
+    if str(env_var) in {VOICE_OPENAI_SECRET_ENV, VOICE_ELEVENLABS_SECRET_ENV}:
+        setup_state = load_json(CONFIG_PATH, {})
+        for path in telegram_generated_env_paths(setup_state):
+            value = read_generated_env(path).get(str(env_var))
+            if value:
+                return value
     return None
 
 
@@ -3990,6 +4003,15 @@ def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, 
             env.pop("BOT_TOKEN", None)
             env.pop("TELEGRAM_BOT_TOKEN", None)
         env.update(profile_env)
+        voice_secret_ref = str(env.get(TELEGRAM_VOICE_TTS_SECRET_REF_ENV) or "").strip()
+        voice_secret_binding = {
+            VOICE_OPENAI_SECRET_ENV: VOICE_OPENAI_SECRET_ID,
+            VOICE_ELEVENLABS_SECRET_ENV: VOICE_ELEVENLABS_SECRET_ID,
+        }.get(voice_secret_ref)
+        if voice_secret_binding:
+            voice_secret = fetch_secret(voice_secret_binding)
+            if voice_secret:
+                env[voice_secret_ref] = voice_secret
     env.update(resolve_runtime_provider_secret_env(module.name, env, LLM_PROVIDER_ENV, fetch_secret))
     return write_boundary_env(env)
 
@@ -4874,11 +4896,23 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     voice = modules_by_name.get(VOICE_MODULE_NAME)
     if voice is not None:
         builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
-        if secret_values.get("voice.elevenlabs.api_key"):
-            builder_env["ELEVENLABS_API_KEY"] = secret_values["voice.elevenlabs.api_key"]
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_PROVIDER", "elevenlabs")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF", "ELEVENLABS_API_KEY")
-            builder_env.setdefault("SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+        gateway_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
+        voice_config: dict[str, str] = {}
+        if secret_values.get(VOICE_ELEVENLABS_SECRET_ID):
+            builder_env[VOICE_ELEVENLABS_SECRET_ENV] = secret_values[VOICE_ELEVENLABS_SECRET_ID]
+            voice_config = {
+                "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "elevenlabs",
+                TELEGRAM_VOICE_TTS_SECRET_REF_ENV: VOICE_ELEVENLABS_SECRET_ENV,
+                "SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID": "eleven_multilingual_v2",
+            }
+        elif secret_values.get(VOICE_OPENAI_SECRET_ID):
+            builder_env[VOICE_OPENAI_SECRET_ENV] = secret_values[VOICE_OPENAI_SECRET_ID]
+            voice_config = {
+                "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "openai-realtime",
+                TELEGRAM_VOICE_TTS_SECRET_REF_ENV: VOICE_OPENAI_SECRET_ENV,
+            }
+        builder_env.update(voice_config)
+        gateway_env.update(voice_config)
 
     # Governor HMAC signing key: inject the SAME value into the signer (spawner) and
     # verifier (builder + gateway harness paths) so signatures validate across

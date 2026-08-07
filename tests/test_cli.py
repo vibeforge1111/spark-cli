@@ -120,6 +120,7 @@ from spark_cli.cli import (
     pause_revoke_all_missions,
     spawner_state_dir_for_revoke_all,
     fetch_secret,
+    fetch_generated_secret_value,
     infer_module_name_from_url,
     initial_follow_log_lines,
     initialize_builder_runtime_home,
@@ -8174,10 +8175,20 @@ class Sandbox:
                 "eleven-secret",
             ]
         )
-        builder = make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.elevenlabs.api_key"])
+        builder = make_module(
+            "spark-intelligence-builder",
+            ["spark.runtime"],
+            ["voice.elevenlabs.api_key", "voice.openai.api_key"],
+        )
         builder.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
-        voice = make_module("spark-voice-comms", ["spark.voice"], ["voice.elevenlabs.api_key"])
+        builder.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
+        voice = make_module(
+            "spark-voice-comms",
+            ["spark.voice"],
+            ["voice.elevenlabs.api_key", "voice.openai.api_key"],
+        )
         voice.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
+        voice.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
         modules = {
             "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"], ["telegram.bot_token", "telegram.admin_ids", "telegram.relay_secret"]),
             "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
@@ -8192,6 +8203,7 @@ class Sandbox:
             "telegram.admin_ids": "111",
             "telegram.relay_secret": "relay",
             "voice.elevenlabs.api_key": "eleven-secret",
+            "voice.openai.api_key": "openai-voice-secret",
         }
 
         envs = build_module_envs(args, modules, secret_values)
@@ -8199,10 +8211,106 @@ class Sandbox:
         self.assertEqual(builder_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
         self.assertEqual(builder_env["ELEVENLABS_API_KEY"], "eleven-secret")
         self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
+        self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"], "ELEVENLABS_API_KEY")
+        gateway_env = envs["spark-telegram-bot"]
+        self.assertEqual(gateway_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
+        self.assertEqual(gateway_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
+        self.assertNotIn("ELEVENLABS_API_KEY", gateway_env)
+        self.assertNotIn("VOICE_OPENAI_API_KEY", gateway_env)
 
         persisted_builder_env = strip_keychain_env_vars(builder_env, builder)
         self.assertNotIn("ELEVENLABS_API_KEY", persisted_builder_env)
+        self.assertNotIn("VOICE_OPENAI_API_KEY", persisted_builder_env)
         self.assertEqual(persisted_builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"], "ELEVENLABS_API_KEY")
+
+    def test_voice_setup_uses_dedicated_openai_key_when_elevenlabs_is_absent(self) -> None:
+        args = build_parser().parse_args(["setup", "telegram-voice-starter", "--non-interactive"])
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.openai.api_key"])
+        builder.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
+        voice = make_module("spark-voice-comms", ["spark.voice"], ["voice.openai.api_key"])
+        voice.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
+        modules = {
+            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
+            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
+            "spark-intelligence-builder": builder,
+            "spark-voice-comms": voice,
+        }
+
+        envs = build_module_envs(
+            args,
+            modules,
+            {"telegram.relay_secret": "relay", "voice.openai.api_key": "openai-voice-secret"},
+        )
+
+        builder_env = envs["spark-intelligence-builder"]
+        gateway_env = envs["spark-telegram-bot"]
+        self.assertEqual(builder_env["VOICE_OPENAI_API_KEY"], "openai-voice-secret")
+        self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "openai-realtime")
+        self.assertEqual(
+            builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"],
+            "VOICE_OPENAI_API_KEY",
+        )
+        self.assertEqual(gateway_env["SPARK_VOICE_COMMS_ROOT"], str(voice.path))
+        self.assertEqual(gateway_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "openai-realtime")
+        self.assertNotIn("VOICE_OPENAI_API_KEY", gateway_env)
+
+    def test_fetch_generated_voice_secret_migrates_named_telegram_profile_copy(self) -> None:
+        profile_path = Path("C:/tmp/spark-telegram-bot.primary.env")
+
+        def fake_read(path: Path) -> dict[str, str]:
+            if path == profile_path:
+                return {"VOICE_OPENAI_API_KEY": "legacy-voice-secret"}
+            return {}
+
+        requirement = {
+            "env_var": "VOICE_OPENAI_API_KEY",
+            "modules": ["spark-intelligence-builder", "spark-voice-comms"],
+        }
+        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read), patch(
+            "spark_cli.cli.telegram_generated_env_paths", return_value=[profile_path]
+        ), patch("spark_cli.cli.load_json", return_value={}):
+            self.assertEqual(fetch_generated_secret_value(requirement), "legacy-voice-secret")
+
+    def test_telegram_runtime_injects_only_selected_managed_voice_secret(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        generated = {
+            "SPARK_VOICE_COMMS_ROOT": "C:/tmp/spark-voice-comms",
+            "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "openai-realtime",
+            "SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF": "VOICE_OPENAI_API_KEY",
+            "VOICE_OPENAI_API_KEY": "legacy-generated-copy",
+            "ELEVENLABS_API_KEY": "unselected-legacy-copy",
+        }
+
+        def fake_fetch(secret_id: str) -> str | None:
+            return {
+                "voice.openai.api_key": "managed-openai-voice-secret",
+                "voice.elevenlabs.api_key": "managed-eleven-secret",
+            }.get(secret_id)
+
+        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
+            "spark_cli.cli.read_generated_env", return_value=generated
+        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
+            "spark_cli.cli.keychain_env_for_telegram_profile", return_value={}
+        ), patch("spark_cli.cli.fetch_secret", side_effect=fake_fetch):
+            env = module_runtime_env(gateway)
+
+        self.assertEqual(env["VOICE_OPENAI_API_KEY"], "managed-openai-voice-secret")
+        self.assertNotIn("ELEVENLABS_API_KEY", env)
+
+    def test_telegram_runtime_does_not_inject_unselected_voice_secret(self) -> None:
+        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
+        generated = {
+            "SPARK_VOICE_COMMS_ROOT": "C:/tmp/spark-voice-comms",
+            "VOICE_OPENAI_API_KEY": "legacy-generated-copy",
+        }
+        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
+            "spark_cli.cli.read_generated_env", return_value=generated
+        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
+            "spark_cli.cli.keychain_env_for_telegram_profile", return_value={}
+        ), patch("spark_cli.cli.fetch_secret", return_value="managed-openai-voice-secret"):
+            env = module_runtime_env(gateway)
+
+        self.assertNotIn("VOICE_OPENAI_API_KEY", env)
 
     def test_voice_setup_state_records_telegram_checks(self) -> None:
         args = build_parser().parse_args(

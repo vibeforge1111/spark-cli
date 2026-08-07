@@ -111,6 +111,9 @@ generated config, terminal output, and model-visible context.
   tests.
 - Generated module env files must not contain raw cloud API keys when the module
   declares the matching keychain-backed secret.
+- Hosted OpenAI voice uses the dedicated `voice.openai.api_key` secret. Spark
+  exposes it as `VOICE_OPENAI_API_KEY` only to the configured Voice path instead
+  of reusing the Agent role's potentially different `OPENAI_API_KEY`.
 
 ## Files That Must Never Be Committed
 
