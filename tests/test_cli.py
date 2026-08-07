@@ -120,7 +120,6 @@ from spark_cli.cli import (
     pause_revoke_all_missions,
     spawner_state_dir_for_revoke_all,
     fetch_secret,
-    fetch_generated_secret_value,
     infer_module_name_from_url,
     initial_follow_log_lines,
     initialize_builder_runtime_home,
@@ -140,7 +139,6 @@ from spark_cli.cli import (
     runtime_supply_chain_warnings,
     purge_spark_home,
     schedule_deferred_windows_purge,
-    scrub_legacy_bridge_key_files,
     resolve_install_executable,
     resolve_remote_git_ref,
     install_module_record,
@@ -231,7 +229,6 @@ from spark_cli.cli import (
     non_secret_llm_env,
     read_clipboard_text,
     read_secret_interactive,
-    ready_check_headers,
     redact_secret_surface_logs,
     resolve_secret_input,
     runtime_command_argv,
@@ -286,7 +283,6 @@ from spark_cli.cli import (
     required_runtimes_for_modules,
     render_llm_doctor_prompt,
     resolve_runtime_binary,
-    rotate_managed_bridge_api_key,
     run_llm_provider_wizard,
     run_setup_wizard,
     shell_command_env,
@@ -3234,7 +3230,7 @@ class Sandbox:
             spawner_env = read_generated_env(spawner_env_path)
             gateway_env = read_generated_env(gateway_env_path)
             self.assertEqual(spawner_env["MCP_ALLOW_CUSTOM_CONFIG"], "0")
-            self.assertNotEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "old-bridge")
+            self.assertNotIn("SPARK_BRIDGE_API_KEY", spawner_env)
             self.assertNotEqual(spawner_env["SPARK_UI_API_KEY"], "old-ui")
             self.assertEqual(spawner_env["TELEGRAM_RELAY_SECRET"], gateway_env["TELEGRAM_RELAY_SECRET"])
             self.assertNotEqual(spawner_env["TELEGRAM_RELAY_SECRET"], "old-relay")
@@ -8178,20 +8174,10 @@ class Sandbox:
                 "eleven-secret",
             ]
         )
-        builder = make_module(
-            "spark-intelligence-builder",
-            ["spark.runtime"],
-            ["voice.elevenlabs.api_key", "voice.openai.api_key"],
-        )
+        builder = make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.elevenlabs.api_key"])
         builder.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
-        builder.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
-        voice = make_module(
-            "spark-voice-comms",
-            ["spark.voice"],
-            ["voice.elevenlabs.api_key", "voice.openai.api_key"],
-        )
+        voice = make_module("spark-voice-comms", ["spark.voice"], ["voice.elevenlabs.api_key"])
         voice.manifest["secrets"]["voice_elevenlabs_api_key"]["env_var"] = "ELEVENLABS_API_KEY"
-        voice.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
         modules = {
             "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"], ["telegram.bot_token", "telegram.admin_ids", "telegram.relay_secret"]),
             "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
@@ -8206,7 +8192,6 @@ class Sandbox:
             "telegram.admin_ids": "111",
             "telegram.relay_secret": "relay",
             "voice.elevenlabs.api_key": "eleven-secret",
-            "voice.openai.api_key": "openai-voice-secret",
         }
 
         envs = build_module_envs(args, modules, secret_values)
@@ -8214,106 +8199,10 @@ class Sandbox:
         self.assertEqual(builder_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
         self.assertEqual(builder_env["ELEVENLABS_API_KEY"], "eleven-secret")
         self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
-        self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"], "ELEVENLABS_API_KEY")
-        gateway_env = envs["spark-telegram-bot"]
-        self.assertEqual(gateway_env["SPARK_VOICE_COMMS_ROOT"], str(Path("C:/tmp/spark-voice-comms")))
-        self.assertEqual(gateway_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "elevenlabs")
-        self.assertNotIn("ELEVENLABS_API_KEY", gateway_env)
-        self.assertNotIn("VOICE_OPENAI_API_KEY", gateway_env)
 
         persisted_builder_env = strip_keychain_env_vars(builder_env, builder)
         self.assertNotIn("ELEVENLABS_API_KEY", persisted_builder_env)
-        self.assertNotIn("VOICE_OPENAI_API_KEY", persisted_builder_env)
         self.assertEqual(persisted_builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"], "ELEVENLABS_API_KEY")
-
-    def test_voice_setup_uses_dedicated_openai_key_when_elevenlabs_is_absent(self) -> None:
-        args = build_parser().parse_args(["setup", "telegram-voice-starter", "--non-interactive"])
-        builder = make_module("spark-intelligence-builder", ["spark.runtime"], ["voice.openai.api_key"])
-        builder.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
-        voice = make_module("spark-voice-comms", ["spark.voice"], ["voice.openai.api_key"])
-        voice.manifest["secrets"]["voice_openai_api_key"]["env_var"] = "VOICE_OPENAI_API_KEY"
-        modules = {
-            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
-            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
-            "spark-intelligence-builder": builder,
-            "spark-voice-comms": voice,
-        }
-
-        envs = build_module_envs(
-            args,
-            modules,
-            {"telegram.relay_secret": "relay", "voice.openai.api_key": "openai-voice-secret"},
-        )
-
-        builder_env = envs["spark-intelligence-builder"]
-        gateway_env = envs["spark-telegram-bot"]
-        self.assertEqual(builder_env["VOICE_OPENAI_API_KEY"], "openai-voice-secret")
-        self.assertEqual(builder_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "openai-realtime")
-        self.assertEqual(
-            builder_env["SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"],
-            "VOICE_OPENAI_API_KEY",
-        )
-        self.assertEqual(gateway_env["SPARK_VOICE_COMMS_ROOT"], str(voice.path))
-        self.assertEqual(gateway_env["SPARK_TELEGRAM_VOICE_TTS_PROVIDER"], "openai-realtime")
-        self.assertNotIn("VOICE_OPENAI_API_KEY", gateway_env)
-
-    def test_fetch_generated_voice_secret_migrates_named_telegram_profile_copy(self) -> None:
-        profile_path = Path("C:/tmp/spark-telegram-bot.primary.env")
-
-        def fake_read(path: Path) -> dict[str, str]:
-            if path == profile_path:
-                return {"VOICE_OPENAI_API_KEY": "legacy-voice-secret"}
-            return {}
-
-        requirement = {
-            "env_var": "VOICE_OPENAI_API_KEY",
-            "modules": ["spark-intelligence-builder", "spark-voice-comms"],
-        }
-        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read), patch(
-            "spark_cli.cli.telegram_generated_env_paths", return_value=[profile_path]
-        ), patch("spark_cli.cli.load_json", return_value={}):
-            self.assertEqual(fetch_generated_secret_value(requirement), "legacy-voice-secret")
-
-    def test_telegram_runtime_injects_only_selected_managed_voice_secret(self) -> None:
-        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
-        generated = {
-            "SPARK_VOICE_COMMS_ROOT": "C:/tmp/spark-voice-comms",
-            "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "openai-realtime",
-            "SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF": "VOICE_OPENAI_API_KEY",
-            "VOICE_OPENAI_API_KEY": "legacy-generated-copy",
-            "ELEVENLABS_API_KEY": "unselected-legacy-copy",
-        }
-
-        def fake_fetch(secret_id: str) -> str | None:
-            return {
-                "voice.openai.api_key": "managed-openai-voice-secret",
-                "voice.elevenlabs.api_key": "managed-eleven-secret",
-            }.get(secret_id)
-
-        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
-            "spark_cli.cli.read_generated_env", return_value=generated
-        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
-            "spark_cli.cli.keychain_env_for_telegram_profile", return_value={}
-        ), patch("spark_cli.cli.fetch_secret", side_effect=fake_fetch):
-            env = module_runtime_env(gateway)
-
-        self.assertEqual(env["VOICE_OPENAI_API_KEY"], "managed-openai-voice-secret")
-        self.assertNotIn("ELEVENLABS_API_KEY", env)
-
-    def test_telegram_runtime_does_not_inject_unselected_voice_secret(self) -> None:
-        gateway = make_module("spark-telegram-bot", ["telegram.ingress"])
-        generated = {
-            "SPARK_VOICE_COMMS_ROOT": "C:/tmp/spark-voice-comms",
-            "VOICE_OPENAI_API_KEY": "legacy-generated-copy",
-        }
-        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
-            "spark_cli.cli.read_generated_env", return_value=generated
-        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
-            "spark_cli.cli.keychain_env_for_telegram_profile", return_value={}
-        ), patch("spark_cli.cli.fetch_secret", return_value="managed-openai-voice-secret"):
-            env = module_runtime_env(gateway)
-
-        self.assertNotIn("VOICE_OPENAI_API_KEY", env)
 
     def test_voice_setup_state_records_telegram_checks(self) -> None:
         args = build_parser().parse_args(
@@ -10176,117 +10065,6 @@ class Sandbox:
             self.assertTrue(popen.call_args.kwargs["start_new_session"])
             self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
 
-    def test_start_module_resolves_runtime_env_inside_pid_lock(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            module = Module(
-                name="lock-probe",
-                path=Path(tmp_dir),
-                manifest={
-                    "module": {"name": "lock-probe", "version": "0.1.0", "kind": "app", "plane": "execution"},
-                    "run": {"default": {"command": "npm run dev", "ready_check": "process"}},
-                },
-            )
-            lock_held = False
-
-            @contextmanager
-            def tracked_lock(*_args: object, **_kwargs: object):
-                nonlocal lock_held
-                self.assertFalse(lock_held)
-                lock_held = True
-                try:
-                    yield
-                finally:
-                    lock_held = False
-
-            def resolve_env(*_args: object, **_kwargs: object) -> dict[str, str]:
-                self.assertTrue(lock_held)
-                return {}
-
-            class RunningProcess:
-                pid = 444
-
-                def poll(self) -> None:
-                    return None
-
-            with patch("spark_cli.cli.pid_file_lock", side_effect=tracked_lock), patch(
-                "spark_cli.cli.load_pids", return_value={}
-            ), patch("spark_cli.cli.save_pids"), patch(
-                "spark_cli.cli.LOG_DIR", Path(tmp_dir) / "logs"
-            ), patch("spark_cli.cli.module_runtime_env", side_effect=resolve_env), patch(
-                "spark_cli.cli.subprocess.Popen", return_value=RunningProcess()
-            ), patch("spark_cli.cli.wait_for_ready_check", return_value=(True, "ready")), patch(
-                "spark_cli.cli.spawner_ready_listener_conflict_detail", return_value=None
-            ), patch("spark_cli.cli.discover_runtime_pid", return_value=444), patch(
-                "spark_cli.cli.update_tracked_runtime_pid"
-            ), patch("sys.stdout", new_callable=StringIO):
-                self.assertTrue(start_module(module))
-
-    def test_bridge_runtime_prefers_managed_secret_and_scrubs_legacy_copy(self) -> None:
-        spawner = make_module("spawner-ui", ["mission.execution"])
-        generated = {"SPARK_BRIDGE_API_KEY": "legacy-bridge-" + "l" * 32}
-        managed = "managed-bridge-" + "m" * 32
-        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
-            "spark_cli.cli.read_generated_env", return_value=generated
-        ), patch(
-            "spark_cli.cli.load_generated_bridge_envs",
-            return_value={"spawner-ui": generated, "spark-telegram-bot": generated},
-        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
-            "spark_cli.cli.fetch_secret",
-            side_effect=lambda secret_id: managed if secret_id == "spark.bridge_api_key" else None,
-        ):
-            env = module_runtime_env(spawner)
-
-        self.assertEqual(env["SPARK_BRIDGE_API_KEY"], managed)
-        self.assertNotEqual(env["SPARK_BRIDGE_API_KEY"], generated["SPARK_BRIDGE_API_KEY"])
-
-    def test_local_ready_check_uses_managed_bridge_secret(self) -> None:
-        managed = "managed-bridge-" + "m" * 32
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "spark_cli.cli.fetch_secret",
-            side_effect=lambda secret_id: managed if secret_id == "spark.bridge_api_key" else None,
-        ):
-            headers = ready_check_headers("http://127.0.0.1:3333/api/health/live")
-
-        self.assertEqual(headers, {"x-spawner-ui-key": managed, "x-api-key": managed})
-
-    def test_unrelated_runtime_never_receives_bridge_secret(self) -> None:
-        module = make_module("spark-character", ["spark.character"])
-        with patch("spark_cli.cli.shell_command_env", return_value={}), patch(
-            "spark_cli.cli.read_generated_env",
-            return_value={"SPARK_BRIDGE_API_KEY": "legacy-bridge-" + "l" * 32},
-        ), patch("spark_cli.cli.keychain_env_for_module", return_value={}), patch(
-            "spark_cli.cli.fetch_secret", return_value="managed-bridge-" + "m" * 32
-        ):
-            env = module_runtime_env(module)
-
-        self.assertNotIn("SPARK_BRIDGE_API_KEY", env)
-
-    def test_scrub_legacy_bridge_key_files_removes_generated_copies(self) -> None:
-        modules = {
-            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
-            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
-        }
-        profile_path = Path("C:/tmp/spark-telegram-bot.primary.env")
-        writes: dict[Path, dict[str, str]] = {}
-
-        def fake_read(path: Path) -> dict[str, str]:
-            return {
-                "SPARK_BRIDGE_API_KEY": "legacy-bridge-" + "l" * 32,
-                "KEEP": path.name,
-            }
-
-        with patch("spark_cli.cli.read_generated_env", side_effect=fake_read), patch(
-            "spark_cli.cli.write_generated_env",
-            side_effect=lambda path, values: writes.__setitem__(path, dict(values)),
-        ), patch("spark_cli.cli.telegram_generated_env_paths", return_value=[profile_path]), patch(
-            "spark_cli.cli.load_json", return_value={}
-        ):
-            scrub_legacy_bridge_key_files(modules)
-
-        self.assertEqual(len(writes), 3)
-        self.assertTrue(all("SPARK_BRIDGE_API_KEY" not in values for values in writes.values()))
-        self.assertTrue(all("KEEP" in values for values in writes.values()))
-
     def test_shell_command_env_prepends_managed_node_on_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             spark_home = Path(tmp_dir) / ".spark"
@@ -11222,134 +11000,6 @@ class Sandbox:
                 self.assertTrue(stored.startswith(DPAPI_SECRET_PREFIX))
             else:
                 self.assertTrue(stored.startswith(INSECURE_FILE_SECRET_PREFIX))
-
-    def test_bridge_secret_rejects_argv_value_before_any_rotation(self) -> None:
-        args = build_parser().parse_args(
-            ["secrets", "set", "spark.bridge_api_key", "--value", "not-safe-in-argv"]
-        )
-        with patch("spark_cli.cli.rotate_managed_bridge_api_key") as rotate:
-            with self.assertRaisesRegex(SystemExit, "Refusing --value"):
-                cmd_secrets_set(args)
-        rotate.assert_not_called()
-
-    def test_bridge_secret_generate_rotates_without_printing_the_value(self) -> None:
-        args = build_parser().parse_args(
-            ["secrets", "set", "spark.bridge_api_key", "--generate"]
-        )
-        generated = "generated-bridge-" + "g" * 32
-        with patch("spark_cli.cli.py_secrets.token_urlsafe", return_value=generated), patch(
-            "spark_cli.cli.rotate_managed_bridge_api_key", return_value="keychain"
-        ) as rotate, patch("sys.stdout", new_callable=StringIO) as stdout:
-            self.assertEqual(cmd_secrets_set(args), 0)
-
-        rotate.assert_called_once_with(generated, backend="keychain")
-        self.assertNotIn(generated, stdout.getvalue())
-        self.assertIn("spark.bridge_api_key", stdout.getvalue())
-
-    def test_rotate_bridge_secret_stages_stops_promotes_and_restores_exact_consumers(self) -> None:
-        old = "old-bridge-" + "o" * 32
-        new = "new-bridge-" + "n" * 32
-        stored = {"spark.bridge_api_key": old}
-        store_calls: list[tuple[str, str]] = []
-        deleted: list[str] = []
-        stopped: list[str] = []
-        started: list[list[str]] = []
-        pids = {
-            "spark-telegram-bot:primary": {"pid": 11},
-            "spawner-ui": {"pid": 22},
-            "unrelated": {"pid": 33},
-        }
-        running = {11, 22, 33}
-
-        @contextmanager
-        def unlocked(*_args: object, **_kwargs: object):
-            yield
-
-        def fake_store(secret_id: str, value: str, preferred: str = "keychain") -> str:
-            store_calls.append((secret_id, value))
-            stored[secret_id] = value
-            return preferred
-
-        def fake_delete(secret_id: str) -> bool:
-            deleted.append(secret_id)
-            stored.pop(secret_id, None)
-            return True
-
-        def fake_stop(process_key: str, pid: int) -> None:
-            stopped.append(process_key)
-            running.discard(pid)
-
-        modules = {
-            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
-            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
-        }
-        with patch("spark_cli.cli.resolve_installed_modules", return_value=modules), patch(
-            "spark_cli.cli.load_generated_bridge_envs", return_value={}
-        ), patch("spark_cli.cli.fetch_secret", side_effect=lambda secret_id: stored.get(secret_id)), patch(
-            "spark_cli.cli.store_secret", side_effect=fake_store
-        ), patch("spark_cli.cli.delete_secret", side_effect=fake_delete), patch(
-            "spark_cli.cli.process_log_lock", side_effect=unlocked
-        ), patch("spark_cli.cli.pid_file_lock", side_effect=unlocked), patch(
-            "spark_cli.cli.load_pids", return_value=pids
-        ), patch("spark_cli.cli.save_pids"), patch(
-            "spark_cli.cli.pid_is_running", side_effect=lambda pid: pid in running
-        ), patch("spark_cli.cli.stop_module", side_effect=fake_stop), patch(
-            "spark_cli.cli.scrub_legacy_bridge_key_files"
-        ) as scrub, patch(
-            "spark_cli.cli.start_bridge_consumer_snapshot",
-            side_effect=lambda keys, _modules: started.append(list(keys)) or True,
-        ), patch("spark_cli.cli.remember_setup_secret_key"):
-            self.assertEqual(rotate_managed_bridge_api_key(new, backend="keychain"), "keychain")
-
-        self.assertEqual(stopped, ["spark-telegram-bot:primary", "spawner-ui"])
-        self.assertEqual(started, [["spark-telegram-bot:primary", "spawner-ui"]])
-        self.assertEqual(stored["spark.bridge_api_key"], new)
-        self.assertNotIn("spark.bridge_api_key.pending", stored)
-        self.assertEqual(store_calls[:2], [("spark.bridge_api_key.pending", new), ("spark.bridge_api_key", new)])
-        self.assertIn("spark.bridge_api_key.pending", deleted)
-        self.assertIn("unrelated", pids)
-        scrub.assert_called_once_with(modules)
-
-    def test_rotate_bridge_secret_rolls_back_before_returning_failure(self) -> None:
-        old = "old-bridge-" + "o" * 32
-        new = "new-bridge-" + "n" * 32
-        stored = {"spark.bridge_api_key": old}
-        start_results = iter([False, True])
-        pids: dict[str, Any] = {}
-
-        @contextmanager
-        def unlocked(*_args: object, **_kwargs: object):
-            yield
-
-        def fake_store(secret_id: str, value: str, preferred: str = "keychain") -> str:
-            stored[secret_id] = value
-            return preferred
-
-        modules = {
-            "spawner-ui": make_module("spawner-ui", ["mission.execution"]),
-            "spark-telegram-bot": make_module("spark-telegram-bot", ["telegram.ingress"]),
-        }
-        with patch("spark_cli.cli.resolve_installed_modules", return_value=modules), patch(
-            "spark_cli.cli.load_generated_bridge_envs", return_value={}
-        ), patch("spark_cli.cli.fetch_secret", side_effect=lambda secret_id: stored.get(secret_id)), patch(
-            "spark_cli.cli.store_secret", side_effect=fake_store
-        ), patch(
-            "spark_cli.cli.delete_secret",
-            side_effect=lambda secret_id: stored.pop(secret_id, None) is not None,
-        ), patch("spark_cli.cli.process_log_lock", side_effect=unlocked), patch(
-            "spark_cli.cli.pid_file_lock", side_effect=unlocked
-        ), patch("spark_cli.cli.load_pids", return_value=pids), patch(
-            "spark_cli.cli.save_pids"
-        ), patch(
-            "spark_cli.cli.start_bridge_consumer_snapshot",
-            side_effect=lambda *_args: next(start_results),
-        ), patch("spark_cli.cli.stop_live_bridge_consumers"), self.assertRaisesRegex(
-            SystemExit, "did not become healthy"
-        ):
-            rotate_managed_bridge_api_key(new, backend="keychain")
-
-        self.assertEqual(stored["spark.bridge_api_key"], old)
-        self.assertNotIn("spark.bridge_api_key.pending", stored)
 
     def test_secrets_set_help_keeps_direct_secrets_out_of_the_default_path(self) -> None:
         with patch("sys.stdout", new_callable=StringIO) as stdout, self.assertRaises(SystemExit) as raised:
@@ -18503,7 +18153,7 @@ class Sandbox:
     def test_ready_check_headers_use_hosted_ui_key_for_loopback_only(self) -> None:
         with patch.dict(os.environ, {"SPARK_UI_API_KEY": "ui-key", "SPARK_BRIDGE_API_KEY": "bridge-key"}, clear=True):
             self.assertEqual(
-                ready_check_headers("http://127.0.0.1:3333/api/providers"),
+                ready_check_headers("http://127.0.0.1:3333/api/providers", module_name="spawner-ui"),
                 {"x-spawner-ui-key": "ui-key", "x-api-key": "ui-key"},
             )
             self.assertEqual(ready_check_headers("https://spark-live.example.test/api/providers"), {})

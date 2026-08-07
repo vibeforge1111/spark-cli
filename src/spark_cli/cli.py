@@ -40,20 +40,11 @@ import tomllib
 
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
-from .bridge_key import (
-    BRIDGE_API_KEY_ENV,
-    BRIDGE_API_KEY_PENDING_SECRET_ID,
-    BRIDGE_API_KEY_SECRET_ID,
-    BRIDGE_CONSUMER_MODULES,
-    RESERVED_CONTROL_KEYS,
-    bridge_consumer_process_keys,
-    bridge_consumer_start_order,
-    load_generated_bridge_envs,
-    resolve_existing_bridge_api_key,
-    resolve_shared_spawner_bridge_api_key,
-)
+from .bridge_key import BRIDGE_API_KEY_ENV, BRIDGE_API_KEY_SECRET_ID, BRIDGE_CONSUMER_MODULES
+from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
 from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
 from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
+from . import managed_secret_runtime
 from .provider_auth import effective_provider_auth_mode
 from .provider_secrets import redaction_followup, resolve_runtime_provider_secret_env, store_provider_secrets, strip_provider_secret_values
 from .provider_status_scope import render_provider_status_heading, with_configuration_readiness_scope
@@ -354,12 +345,6 @@ MEMORY_SIDECAR_CHOICES = {"graphiti-kuzu"}
 MEMORY_SIDECAR_DISABLE_CHOICES = {"none", "off", "disabled"}
 DEFAULT_GRAPHITI_KUZU_DB_PATH = "{home}/sidecars/graphiti/kuzu/graphiti.kuzu"
 DEFAULT_GRAPHITI_GROUP_ID = "spark-memory"
-VOICE_MODULE_NAME = "spark-voice-comms"
-VOICE_OPENAI_SECRET_ID = "voice.openai.api_key"
-VOICE_OPENAI_SECRET_ENV = "VOICE_OPENAI_API_KEY"
-VOICE_ELEVENLABS_SECRET_ID = "voice.elevenlabs.api_key"
-VOICE_ELEVENLABS_SECRET_ENV = "ELEVENLABS_API_KEY"
-TELEGRAM_VOICE_TTS_SECRET_REF_ENV = "SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"
 TELEGRAM_VOICE_BUNDLE = "telegram-voice-starter"
 BROWSER_USE_STATUS_DIR = STATE_DIR / "browser-use"
 BROWSER_USE_STATUS_PATH = BROWSER_USE_STATUS_DIR / "status.json"
@@ -3236,29 +3221,6 @@ def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
     remember_setup_secret_key(secret_id)
 
 
-def ensure_managed_bridge_api_key(secret_values: dict[str, str]) -> str:
-    """Migrate or generate the shared local bridge key into managed storage."""
-    generated_envs = load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env)
-    stored = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
-    parent = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
-    value = resolve_existing_bridge_api_key(
-        generated_envs,
-        stored=stored,
-        parent=parent,
-        forbidden_secrets=secret_values.values(),
-        parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
-    )
-    if stored != value:
-        store_secret(BRIDGE_API_KEY_SECRET_ID, value, preferred="keychain")
-    remember_setup_secret_key(BRIDGE_API_KEY_SECRET_ID)
-    return value
-
-
-def strip_managed_runtime_secret_values(env_values: dict[str, str]) -> dict[str, str]:
-    blocked = {BRIDGE_API_KEY_ENV, VOICE_OPENAI_SECRET_ENV, VOICE_ELEVENLABS_SECRET_ENV}
-    return {key: value for key, value in env_values.items() if key not in blocked}
-
-
 def stdin_is_tty() -> bool:
     try:
         return bool(sys.stdin.isatty())
@@ -3835,21 +3797,7 @@ def prompt_for_secret(secret_id: str, requirement: dict[str, Any]) -> str:
 
 
 def fetch_generated_secret_value(requirement: dict[str, Any]) -> str | None:
-    env_var = requirement.get("env_var")
-    if not env_var:
-        return None
-    for module_name in requirement.get("modules", []):
-        values = read_generated_env(MODULE_CONFIG_DIR / f"{module_name}.env")
-        value = values.get(str(env_var))
-        if value:
-            return value
-    if str(env_var) in {VOICE_OPENAI_SECRET_ENV, VOICE_ELEVENLABS_SECRET_ENV}:
-        setup_state = load_json(CONFIG_PATH, {})
-        for path in telegram_generated_env_paths(setup_state):
-            value = read_generated_env(path).get(str(env_var))
-            if value:
-                return value
-    return None
+    return managed_secret_runtime.fetch_generated_secret_value(sys.modules[__name__], requirement)
 
 
 def run_setup_wizard(
@@ -4028,60 +3976,7 @@ def read_generated_env(path: Path) -> dict[str, str]:
 
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
     env = shell_command_env(filtered=True)
-    generated_env = read_generated_env(generated_module_env_path(module))
-    legacy_bridge_values = {
-        str(generated_env.get(BRIDGE_API_KEY_ENV) or "").strip()
-    } - {""}
-    if module.name in BRIDGE_CONSUMER_MODULES:
-        for values in load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env).values():
-            legacy_value = str(values.get(BRIDGE_API_KEY_ENV) or "").strip()
-            if legacy_value:
-                legacy_bridge_values.add(legacy_value)
-    env.update(strip_reserved_workspace_env(generated_env))
-    named_telegram_profile = module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile)
-    if named_telegram_profile:
-        profile_generated_env = read_generated_env(generated_module_env_path(module, profile))
-        profile_bridge_value = str(profile_generated_env.get(BRIDGE_API_KEY_ENV) or "").strip()
-        if profile_bridge_value:
-            legacy_bridge_values.add(profile_bridge_value)
-        env.update(strip_reserved_workspace_env(profile_generated_env))
-    env.update(keychain_env_for_module(module))
-    if module.name in BRIDGE_CONSUMER_MODULES:
-        managed_bridge_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
-        if managed_bridge_key:
-            env[BRIDGE_API_KEY_ENV] = resolve_shared_spawner_bridge_api_key(
-                {},
-                explicit=managed_bridge_key,
-            )
-        elif len(legacy_bridge_values) > 1:
-            raise SystemExit(
-                "Telegram and Spawner have mismatched legacy SPARK_BRIDGE_API_KEY values. "
-                "Rotate them together with `spark secrets set spark.bridge_api_key --generate`."
-            )
-        elif legacy_bridge_values:
-            env[BRIDGE_API_KEY_ENV] = next(iter(legacy_bridge_values))
-        else:
-            hosted_parent_bridge = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
-            if hosted_parent_bridge:
-                env[BRIDGE_API_KEY_ENV] = resolve_shared_spawner_bridge_api_key(
-                    {},
-                    explicit=hosted_parent_bridge,
-                )
-    if module.name == "spark-telegram-bot":
-        profile_env = keychain_env_for_telegram_profile(profile)
-        if named_telegram_profile:
-            env.pop("BOT_TOKEN", None)
-            env.pop("TELEGRAM_BOT_TOKEN", None)
-        env.update(profile_env)
-        voice_secret_ref = str(env.get(TELEGRAM_VOICE_TTS_SECRET_REF_ENV) or "").strip()
-        voice_secret_binding = {
-            VOICE_OPENAI_SECRET_ENV: VOICE_OPENAI_SECRET_ID,
-            VOICE_ELEVENLABS_SECRET_ENV: VOICE_ELEVENLABS_SECRET_ID,
-        }.get(voice_secret_ref)
-        if voice_secret_binding:
-            voice_secret = fetch_secret(voice_secret_binding)
-            if voice_secret:
-                env[voice_secret_ref] = voice_secret
+    managed_secret_runtime.apply_managed_secret_runtime_env(sys.modules[__name__], module, profile, env)
     env.update(resolve_runtime_provider_secret_env(module.name, env, LLM_PROVIDER_ENV, fetch_secret))
     return write_boundary_env(env)
 
@@ -4887,10 +4782,9 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     builder_home = spark_builder_home()
     _, llm_env = build_llm_env(args, secret_values)
     relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
-    managed_bridge_api_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
     bridge_api_key = resolve_shared_spawner_bridge_api_key(
         existing_module_envs or {},
-        explicit=managed_bridge_api_key or (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip(),
+        explicit=managed_secret_runtime.setup_bridge_explicit(sys.modules[__name__]),
         forbidden_secrets=(relay_secret, *secret_values.values(), *llm_env.values()),
         parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
     )
@@ -4964,26 +4858,9 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
         builder_env["SPARK_CHARACTER_ROOT"] = str(character.path)
     if memory is not None:
         builder_env["SPARK_DOMAIN_CHIP_MEMORY_ROOT"] = str(memory.path)
-    voice = modules_by_name.get(VOICE_MODULE_NAME)
+    voice = modules_by_name.get(managed_secret_runtime.VOICE_MODULE_NAME)
     if voice is not None:
-        builder_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
-        gateway_env["SPARK_VOICE_COMMS_ROOT"] = str(voice.path)
-        voice_config: dict[str, str] = {}
-        if secret_values.get(VOICE_ELEVENLABS_SECRET_ID):
-            builder_env[VOICE_ELEVENLABS_SECRET_ENV] = secret_values[VOICE_ELEVENLABS_SECRET_ID]
-            voice_config = {
-                "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "elevenlabs",
-                TELEGRAM_VOICE_TTS_SECRET_REF_ENV: VOICE_ELEVENLABS_SECRET_ENV,
-                "SPARK_TELEGRAM_VOICE_TTS_ELEVENLABS_MODEL_ID": "eleven_multilingual_v2",
-            }
-        elif secret_values.get(VOICE_OPENAI_SECRET_ID):
-            builder_env[VOICE_OPENAI_SECRET_ENV] = secret_values[VOICE_OPENAI_SECRET_ID]
-            voice_config = {
-                "SPARK_TELEGRAM_VOICE_TTS_PROVIDER": "openai-realtime",
-                TELEGRAM_VOICE_TTS_SECRET_REF_ENV: VOICE_OPENAI_SECRET_ENV,
-            }
-        builder_env.update(voice_config)
-        gateway_env.update(voice_config)
+        managed_secret_runtime.configure_voice_owner_envs(builder_env, gateway_env, voice.path, secret_values)
 
     # Governor HMAC signing key: inject the SAME value into the signer (spawner) and
     # verifier (builder + gateway harness paths) so signatures validate across
@@ -5271,14 +5148,14 @@ def initialize_builder_runtime_home(
                 config_manager.set_path("spark.memory.sidecars.graphiti.enabled", False)
                 notes.append("disabled optional Graphiti memory sidecar")
 
-        voice = modules_by_name.get(VOICE_MODULE_NAME)
+        voice = modules_by_name.get(managed_secret_runtime.VOICE_MODULE_NAME)
         if voice is not None:
             add_attachment_root(config_manager, target="chips", root=str(voice.path))
             config_manager.set_path("spark.voice.enabled", True)
             config_manager.set_path("spark.voice.comms_root", str(voice.path))
-            activate_chip(config_manager, chip_key=VOICE_MODULE_NAME)
+            activate_chip(config_manager, chip_key=managed_secret_runtime.VOICE_MODULE_NAME)
             sync_attachment_snapshot(config_manager=config_manager, state_db=state_db)
-            notes.append(f"activated {VOICE_MODULE_NAME}")
+            notes.append(f"activated {managed_secret_runtime.VOICE_MODULE_NAME}")
 
         setup_secrets = secret_values or {}
         telegram_bot_token = setup_secrets.get("telegram.bot_token") or None
@@ -6125,7 +6002,7 @@ def evaluate_module_health(module: Module) -> dict[str, Any]:
         failure_hint = str(module.manifest.get("healthcheck", {}).get("failure_hint", "")).strip() or None
         success_hint = str(module.manifest.get("healthcheck", {}).get("success_hint", "")).strip() or None
         try:
-            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url))
+            request = urllib.request.Request(health_url, headers=ready_check_headers(health_url, module_name=module.name))
             with local_health_urlopen(request, timeout=ready_timeout_seconds(module)) as response:
                 healthy = 200 <= int(response.status) < 300
                 detail = f"Spawner UI live health {'OK' if healthy else 'failed'}: HTTP {response.status}"
@@ -6607,16 +6484,16 @@ def apply_setup_feature_aliases(args: argparse.Namespace) -> None:
             raise SystemExit(f"`--with-voice` requires the `{TELEGRAM_VOICE_BUNDLE}` bundle in registry.json.")
         setattr(args, "bundle", TELEGRAM_VOICE_BUNDLE)
         return
-    if VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
-        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{VOICE_MODULE_NAME}`.")
+    if managed_secret_runtime.VOICE_MODULE_NAME not in resolve_bundle_names(str(getattr(args, "bundle", ""))):
+        raise SystemExit(f"`--with-voice` is only supported with `telegram-starter` or a bundle that includes `{managed_secret_runtime.VOICE_MODULE_NAME}`.")
 
 
 def voice_setup_state(args: argparse.Namespace, bundle: list[Module], secret_values: dict[str, str]) -> dict[str, Any] | None:
-    if not any(module.name == VOICE_MODULE_NAME for module in bundle):
+    if not any(module.name == managed_secret_runtime.VOICE_MODULE_NAME for module in bundle):
         return None
     return {
         "enabled": True,
-        "module": VOICE_MODULE_NAME,
+        "module": managed_secret_runtime.VOICE_MODULE_NAME,
         "elevenlabs_secret_configured": bool(secret_values.get("voice.elevenlabs.api_key")),
         "telegram_checks": ["/voice self-test", "/voice provider", "/voice speak Clean reset, Cem. Latest message wins."],
     }
@@ -7746,12 +7623,7 @@ def write_setup_runtime_config(
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
     persist_governor_hmac_secret(secret_values)
-    bridge_backend = None
-    if {"spawner-ui", "spark-telegram-bot"}.issubset(modules):
-        ensure_managed_bridge_api_key(secret_values)
-        bridge_backend = list_stored_secrets().get(BRIDGE_API_KEY_SECRET_ID)
-        if bridge_backend:
-            keychain_report[BRIDGE_API_KEY_SECRET_ID] = bridge_backend
+    managed_secret_runtime.add_setup_bridge_report(sys.modules[__name__], modules, secret_values, keychain_report)
     generated_envs = build_module_envs(
         args,
         modules,
@@ -7761,7 +7633,7 @@ def write_setup_runtime_config(
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
         env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)
-        env_values = strip_managed_runtime_secret_values(env_values)
+        env_values = managed_secret_runtime.strip_managed_runtime_secret_values(env_values)
         env_values = preserve_level5_guardrails(module.name, env_values)
         generated_path = generated_module_env_path(module)
         write_generated_env(generated_path, env_values)
@@ -12054,14 +11926,12 @@ def cmd_support(args: argparse.Namespace) -> int:
 REVOKE_ALL_ROTATABLE_ENV_KEYS = {
     "EVENTS_API_KEY",
     "MCP_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_UI_API_KEY",
     "TELEGRAM_RELAY_SECRET",
 }
 REVOKE_ALL_SPAWNER_REQUIRED_KEYS = {
     "EVENTS_API_KEY",
     "MCP_API_KEY",
-    "SPARK_BRIDGE_API_KEY",
     "SPARK_UI_API_KEY",
 }
 REVOKE_ALL_NON_TERMINAL_PROVIDER_STATUSES = {"idle", "queued", "running"}
@@ -12168,10 +12038,11 @@ def rotate_revoke_all_env_keys(*, dry_run: bool = False) -> dict[str, Any]:
         keys = {key for key in REVOKE_ALL_ROTATABLE_ENV_KEYS if key in values}
         if path.name == "spawner-ui.env":
             keys.update(REVOKE_ALL_SPAWNER_REQUIRED_KEYS)
-        if not keys:
+        if not keys and BRIDGE_API_KEY_ENV not in values:
             continue
         try:
             next_values = dict(values)
+            next_values.pop(BRIDGE_API_KEY_ENV, None)
             for key in sorted(keys):
                 generated_values.setdefault(key, revoke_all_token_value(key))
                 next_values[key] = generated_values[key]
@@ -12862,9 +12733,8 @@ def local_control_surface_errors() -> list[str]:
         if exposed_bind and not allowed_hosts:
             errors.append(f"Spawner appears publicly bound to {spawner_host!r} but SPARK_ALLOWED_HOSTS is not configured.")
         ui_key = effective_generated_module_env_value(spawner_env, "SPARK_UI_API_KEY")
-        bridge_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip() or effective_generated_module_env_value(
-            spawner_env,
-            BRIDGE_API_KEY_ENV,
+        bridge_key = managed_secret_runtime.control_surface_bridge_explicit(sys.modules[__name__]) or (
+            effective_generated_module_env_value(spawner_env, BRIDGE_API_KEY_ENV)
         )
         errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
     return errors
@@ -16796,7 +16666,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             "repair": "spark update spark-intelligence-builder --skip-dirty --skip-install-commands",
         }
     )
-    voice_expected = VOICE_MODULE_NAME in expected_modules or bool(
+    voice_expected = managed_secret_runtime.VOICE_MODULE_NAME in expected_modules or bool(
         isinstance(setup_state, dict)
         and isinstance(setup_state.get("voice"), dict)
         and setup_state["voice"].get("enabled")
@@ -16808,7 +16678,7 @@ def collect_verify_payload(*, deep: bool = False) -> dict[str, Any]:
             and setup_state["voice"].get("elevenlabs_secret_configured")
         )
         voice_ok = (
-            VOICE_MODULE_NAME in installed_names
+            managed_secret_runtime.VOICE_MODULE_NAME in installed_names
             and bool(builder_env.get("SPARK_VOICE_COMMS_ROOT"))
             and "ELEVENLABS_API_KEY" not in builder_env
             and (not voice_secret_expected or "voice.elevenlabs.api_key" in secret_keys)
@@ -18351,7 +18221,10 @@ def wait_for_ready_check(
                 return False, f"process exited with code {exit_code}"
         if ready_check.startswith(("http://", "https://")):
             try:
-                request = urllib.request.Request(ready_check, headers=ready_check_headers(ready_check))
+                request = urllib.request.Request(
+                    ready_check,
+                    headers=ready_check_headers(ready_check, module_name=module.name),
+                )
                 with local_health_urlopen(request, timeout=2) as response:
                     if 200 <= int(response.status) < 400:
                         return True, ready_check
@@ -18382,20 +18255,8 @@ def wait_for_ready_check(
     return False, f"ready check did not pass within {timeout_seconds}s: {last_error}"
 
 
-def ready_check_headers(ready_check: str) -> dict[str, str]:
-    if not ready_check.startswith(("http://", "https://")):
-        return {}
-    parsed = urllib.parse.urlparse(ready_check)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        return {}
-    key = (
-        os.environ.get("SPARK_UI_API_KEY")
-        or fetch_secret(BRIDGE_API_KEY_SECRET_ID)
-        or os.environ.get(BRIDGE_API_KEY_ENV)
-    )
-    if not key:
-        return {}
-    return {"x-spawner-ui-key": key, "x-api-key": key}
+def ready_check_headers(ready_check: str, *, module_name: str | None = None) -> dict[str, str]:
+    return managed_secret_runtime.ready_check_headers(sys.modules[__name__], ready_check, module_name=module_name)
 
 
 class _RejectLocalHealthRedirects(urllib.request.HTTPRedirectHandler):
@@ -18787,6 +18648,13 @@ def terminate_same_user_listener_on_port(port: int, *, label: str) -> str | None
 
 
 def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: str | None = None) -> bool:
+    if module.name in BRIDGE_CONSUMER_MODULES:
+        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+            return _start_module_unlocked(module, allow_boot_warnings=allow_boot_warnings, profile=profile)
+    return _start_module_unlocked(module, allow_boot_warnings=allow_boot_warnings, profile=profile)
+
+
+def _start_module_unlocked(module: Module, *, allow_boot_warnings: bool = False, profile: str | None = None) -> bool:
     command = module.run_command
     if not command:
         return True
@@ -18817,27 +18685,11 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         # Resolve the complete child environment while the PID lock is held. A
         # bridge-key promotion holds the same lock, so a concurrent start cannot
         # precompute an old generation and spawn it after promotion.
-        subprocess_env = module_runtime_env(module, profile)
-        argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
-        ready_check = module_runtime_ready_check(module, subprocess_env)
-        relay_port = 0
-        if module.name == "spark-telegram-bot":
-            relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
-            try:
-                relay_port = int(relay_port_raw or "0")
-            except ValueError:
-                relay_port = 0
-        popen_kwargs: dict[str, Any] = {
-            "cwd": str(module.path),
-            "shell": False,
-            "stdin": subprocess.DEVNULL,
-            "stderr": subprocess.STDOUT,
-            "env": subprocess_env,
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = windows_service_creationflags()
-        else:
-            popen_kwargs["start_new_session"] = True
+        subprocess_env, argv, ready_check, relay_port, popen_kwargs = (
+            managed_secret_runtime.prepare_module_launch(
+                sys.modules[__name__], module, command, profile
+            )
+        )
         if module.name == "spark-telegram-bot" and relay_port:
             stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
             if stale_listener_note:
@@ -18999,6 +18851,13 @@ def stop_module(name: str, pid: int) -> None:
 
 
 def stop_tracked_process_key(process_key: str) -> bool:
+    if process_key == "spawner-ui" or process_key.startswith("spark-telegram-bot"):
+        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+            return _stop_tracked_process_key_unlocked(process_key)
+    return _stop_tracked_process_key_unlocked(process_key)
+
+
+def _stop_tracked_process_key_unlocked(process_key: str) -> bool:
     with pid_file_lock():
         pids = load_pids()
         record = pids.get(process_key)
@@ -20386,145 +20245,6 @@ def cmd_secrets_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def bridge_process_profile(process_key: str) -> str | None:
-    if process_key == "spark-telegram-bot":
-        return DEFAULT_TELEGRAM_PROFILE
-    prefix = "spark-telegram-bot:"
-    if process_key.startswith(prefix):
-        return normalize_telegram_profile(process_key[len(prefix) :])
-    return None
-
-
-def start_bridge_consumer_snapshot(
-    process_keys: Iterable[str],
-    installed_modules: dict[str, Module],
-) -> bool:
-    ok = True
-    for process_key in bridge_consumer_start_order(process_keys):
-        if process_key == "spawner-ui":
-            module = installed_modules.get("spawner-ui")
-            profile = None
-        else:
-            module = installed_modules.get("spark-telegram-bot")
-            profile = bridge_process_profile(process_key)
-        if module is None or not start_module(module, profile=profile):
-            ok = False
-            break
-    return ok
-
-
-def stop_live_bridge_consumers() -> None:
-    with pid_file_lock():
-        process_keys = bridge_consumer_process_keys(load_pids())
-    for process_key in process_keys:
-        stop_tracked_process_key(process_key)
-
-
-def scrub_legacy_bridge_key_files(installed_modules: dict[str, Module]) -> None:
-    paths: list[tuple[Path, Module | None]] = []
-    for module_name in sorted(BRIDGE_CONSUMER_MODULES):
-        module = installed_modules.get(module_name)
-        if module is not None:
-            paths.append((generated_module_env_path(module), module))
-    setup_state = load_json(CONFIG_PATH, {})
-    for path in telegram_generated_env_paths(setup_state):
-        if all(path != existing for existing, _module in paths):
-            paths.append((path, None))
-    for path, module in paths:
-        values = read_generated_env(path)
-        if BRIDGE_API_KEY_ENV not in values:
-            continue
-        values.pop(BRIDGE_API_KEY_ENV, None)
-        write_generated_env(path, values)
-        if module is not None:
-            env_path = module_env_path(module)
-            if env_path is not None:
-                update_env_file(env_path, values)
-
-
-def rotate_managed_bridge_api_key(new_value: str, *, backend: str) -> str:
-    installed_modules = resolve_installed_modules()
-    missing = sorted(BRIDGE_CONSUMER_MODULES - set(installed_modules))
-    if missing:
-        raise SystemExit(
-            "Install the Telegram starter stack before rotating the local bridge key: "
-            + ", ".join(missing)
-        )
-    generated_envs = load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env)
-    old_stored = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
-    parent = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
-    old_value = resolve_existing_bridge_api_key(
-        generated_envs,
-        stored=old_stored,
-        parent=parent,
-    )
-    candidate = resolve_shared_spawner_bridge_api_key(
-        {},
-        explicit=new_value,
-        forbidden_secrets=(old_value,),
-    )
-    if candidate == old_value:
-        raise SystemExit("Refusing to reuse the current Spark bridge API key.")
-
-    store_secret(BRIDGE_API_KEY_PENDING_SECRET_ID, candidate, preferred=backend)
-    if fetch_secret(BRIDGE_API_KEY_PENDING_SECRET_ID) != candidate:
-        delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
-        raise SystemExit("Bridge key rotation stopped because staged secret verification failed.")
-
-    snapshot: list[str] = []
-    promoted = False
-    promotion_attempted = False
-    promoted_backend = backend
-    try:
-        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
-            with pid_file_lock(timeout_seconds=30.0):
-                pids = load_pids()
-                snapshot = [
-                    key
-                    for key in bridge_consumer_process_keys(pids)
-                    if isinstance(pids.get(key), dict)
-                    and int(pids[key].get("pid") or 0)
-                    and pid_is_running(int(pids[key].get("pid") or 0))
-                ]
-                for process_key in snapshot:
-                    record = pids.get(process_key, {})
-                    pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
-                    if pid:
-                        stop_module(process_key, pid)
-                    if pid and pid_is_running(pid):
-                        raise SystemExit(
-                            f"Bridge key rotation stopped because {process_key} did not exit cleanly."
-                        )
-                    pids.pop(process_key, None)
-                save_pids(pids)
-                promotion_attempted = True
-                promoted_backend = store_secret(BRIDGE_API_KEY_SECRET_ID, candidate, preferred=backend)
-                if fetch_secret(BRIDGE_API_KEY_SECRET_ID) != candidate:
-                    raise SystemExit("Bridge key rotation stopped because promoted secret verification failed.")
-                promoted = True
-                scrub_legacy_bridge_key_files(installed_modules)
-
-            if not start_bridge_consumer_snapshot(snapshot, installed_modules):
-                raise SystemExit("A bridge consumer did not become healthy with the new key.")
-    except (SystemExit, Exception) as exc:
-        stop_live_bridge_consumers()
-        if promoted or promotion_attempted:
-            store_secret(BRIDGE_API_KEY_SECRET_ID, old_value, preferred=backend)
-        rollback_started = start_bridge_consumer_snapshot(snapshot, installed_modules)
-        delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
-        if not rollback_started:
-            raise SystemExit(
-                "Bridge key rotation failed and the prior consumer set could not be fully restored."
-            ) from None
-        if isinstance(exc, SystemExit):
-            raise
-        raise SystemExit("Bridge key rotation failed and the prior generation was restored.") from None
-
-    delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
-    remember_setup_secret_key(BRIDGE_API_KEY_SECRET_ID)
-    return promoted_backend
-
-
 def cmd_secrets_set(args: argparse.Namespace) -> int:
     if args.secret_id == BRIDGE_API_KEY_SECRET_ID and args.value is not None:
         raise SystemExit(
@@ -20545,7 +20265,9 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
     if args.secret_id == BRIDGE_API_KEY_SECRET_ID:
-        backend = rotate_managed_bridge_api_key(value, backend=args.backend)
+        backend = managed_secret_runtime.rotate_managed_bridge_api_key(
+            sys.modules[__name__], value, backend=args.backend
+        )
         print(f"Rotated {args.secret_id} in {backend}; restored the prior bridge consumer set.")
         return 0
     backend = store_secret(args.secret_id, value, preferred=args.backend)
