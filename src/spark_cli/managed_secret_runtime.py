@@ -374,9 +374,11 @@ def _rotation_forbidden_values(
     return [value for value in values if value]
 
 
-def _remove_secret_backend(runtime: Any, secret_id: str, backend: str) -> None:
+def _remove_secret_backend(runtime: Any, secret_id: str, backend: str, *, required: bool = True) -> None:
     if backend == "keychain" and not runtime.HAS_KEYRING:
-        raise SystemExit("Bridge key rotation stopped because the system secret backend is unavailable.")
+        if required:
+            raise SystemExit("Bridge key rotation stopped because the system secret backend is unavailable.")
+        return
     if backend == "keychain":
         accounts = [runtime.keychain_account(secret_id)]
         if runtime.default_home_uses_legacy_keychain() and secret_id not in accounts:
@@ -403,8 +405,8 @@ def _backend_secret_value(runtime: Any, secret_id: str, backend: str) -> str | N
             try:
                 if (value := runtime._keyring.get_password(runtime.KEYCHAIN_SERVICE, account)) is not None:
                     return value
-            except Exception:  # noqa: BLE001,S112 - backend absence must remain non-disclosing
-                continue
+            except Exception as error:
+                raise SystemExit("Bridge key rotation stopped because the system secret backend could not be read.") from error
     elif backend == "file":
         value = runtime.load_json(runtime.SECRETS_FILE_PATH, {}).get(secret_id)
         return runtime.dpapi_unprotect(value) if isinstance(value, str) else None
@@ -412,7 +414,8 @@ def _backend_secret_value(runtime: Any, secret_id: str, backend: str) -> str | N
 
 
 def _purge_secret_backends(runtime: Any, secret_id: str) -> None:
-    _remove_secret_backend(runtime, secret_id, "keychain")
+    indexed_backend = runtime.load_secrets_index().get(secret_id)
+    _remove_secret_backend(runtime, secret_id, "keychain", required=indexed_backend == "keychain")
     _remove_secret_backend(runtime, secret_id, "file")
     if _backend_secret_value(runtime, secret_id, "keychain") is not None or _backend_secret_value(
         runtime, secret_id, "file"

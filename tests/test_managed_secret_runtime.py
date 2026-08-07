@@ -683,6 +683,35 @@ class BridgeRotationTests(unittest.TestCase):
         self.assertEqual(keychain, {secret_id: "old-secret"})
         self.assertNotIn(secret_id, file_values)
 
+    def test_file_backend_cleanup_does_not_require_a_system_keyring(self) -> None:
+        secret_id = managed.BRIDGE_API_KEY_PENDING_SECRET_ID
+        index = {secret_id: "file"}
+        file_values = {secret_id: "staged-secret"}
+
+        def save_json(_path: Path, values: dict[str, str]) -> None:
+            file_values.clear()
+            file_values.update(values)
+
+        def save_index(values: dict[str, str]) -> None:
+            index.clear()
+            index.update(values)
+
+        with patch.multiple(
+            cli,
+            HAS_KEYRING=False,
+            SECRETS_FILE_PATH=Path("C:/tmp/secrets.json"),
+            load_json=lambda _path, _default: dict(file_values),
+            save_json=save_json,
+            harden_secret_file=lambda _path: None,
+            dpapi_unprotect=lambda value: value,
+            load_secrets_index=lambda: dict(index),
+            save_secrets_index=save_index,
+        ):
+            managed._purge_secret_backends(cli, secret_id)
+
+        self.assertEqual(index, {})
+        self.assertEqual(file_values, {})
+
     def test_keyboard_interrupt_rolls_back_and_cleans_pending_secret(self) -> None:
         old = "old-bridge-" + "o" * 32
         stored = {"spark.bridge_api_key": old}

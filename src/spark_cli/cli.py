@@ -18682,9 +18682,7 @@ def _start_module_unlocked(module: Module, *, allow_boot_warnings: bool = False,
                 print(f"Skipping {display_name}: already running (pid {existing_pid})")
                 return True
             pids.pop(process_key, None)
-        # Resolve the complete child environment while the PID lock is held. A
-        # bridge-key promotion holds the same lock, so a concurrent start cannot
-        # precompute an old generation and spawn it after promotion.
+        # Resolve under the PID lock so promotion cannot spawn a stale generation.
         subprocess_env, argv, ready_check, relay_port, popen_kwargs = (
             managed_secret_runtime.prepare_module_launch(
                 sys.modules[__name__], module, command, profile
@@ -18879,6 +18877,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 def cmd_stop_plain(args: argparse.Namespace) -> int:
     return managed_secret_runtime.run_stop_command_locked(sys.modules[__name__], args)
+
+
 def _cmd_stop_plain_unlocked(args: argparse.Namespace) -> int:
     with pid_file_lock():
         pids = load_pids()
