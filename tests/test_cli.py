@@ -9455,7 +9455,7 @@ class Sandbox:
                 "SPARK_HOSTED_PRIVATE_PREVIEW": "1",
                 "SPARK_WORKSPACE_ID": "spark-railway-smoke-20260502",
                 "SPARK_UI_API_KEY": "ui-key",
-                "SPARK_BRIDGE_API_KEY": "bridge-key-abcdefghijklmnopqrstuvwxyz",
+                "SPARK_BRIDGE_API_KEY": "  bridge-key-abcdefghijklmnopqrstuvwxyz  ",
                 "SPARK_ALLOWED_HOSTS": "spark-live-production.up.railway.app",
                 "OPENAI_API_KEY": "parent-openai",
             },
