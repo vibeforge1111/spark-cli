@@ -24,6 +24,11 @@ VOICE_OPENAI_SECRET_ENV = "VOICE_OPENAI_API_KEY"
 VOICE_ELEVENLABS_SECRET_ID = "voice.elevenlabs.api_key"
 VOICE_ELEVENLABS_SECRET_ENV = "ELEVENLABS_API_KEY"
 TELEGRAM_VOICE_TTS_SECRET_REF_ENV = "SPARK_TELEGRAM_VOICE_TTS_SECRET_ENV_REF"
+SECRET_ENV_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTHORIZATION")
+
+
+def is_secret_env_name(key: str) -> bool:
+    return any(marker in key.upper() for marker in SECRET_ENV_MARKERS)
 
 
 def ensure_managed_bridge_api_key(runtime: Any, secret_values: dict[str, str]) -> str:
@@ -340,7 +345,13 @@ def _rotation_forbidden_values(
     runtime: Any,
     generated_envs: dict[str, dict[str, str]],
     legacy_snapshot: list[tuple[Path, Any | None, dict[str, str]]],
+    installed_modules: dict[str, Any],
 ) -> list[str]:
+    declared_secret_envs = {
+        binding["env_var"]
+        for module in installed_modules.values()
+        for binding in runtime.module_secret_env_bindings(module)
+    }
     values = [
         str(env.get(key) or "").strip()
         for env in generated_envs.values()
@@ -354,9 +365,7 @@ def _rotation_forbidden_values(
         str(value).strip()
         for _path, _module, env in legacy_snapshot
         for key, value in env.items()
-        if key in runtime.STATIC_PROVIDER_ENV_BLOCKLIST
-        or key in RESERVED_CONTROL_KEYS
-        or key.endswith(("API_KEY", "TOKEN", "SECRET"))
+        if key in declared_secret_envs or key in RESERVED_CONTROL_KEYS or is_secret_env_name(key)
     )
     if runtime.MODULE_CONFIG_DIR.exists():
         for path in runtime.MODULE_CONFIG_DIR.glob("*.env"):
@@ -364,9 +373,7 @@ def _rotation_forbidden_values(
             values.extend(
                 str(value).strip()
                 for key, value in env.items()
-                if key in runtime.STATIC_PROVIDER_ENV_BLOCKLIST
-                or key in RESERVED_CONTROL_KEYS
-                or key.endswith(("API_KEY", "TOKEN", "SECRET"))
+                if key in declared_secret_envs or key in RESERVED_CONTROL_KEYS or is_secret_env_name(key)
             )
     for secret_id in runtime.list_stored_secrets():
         if secret_id not in {BRIDGE_API_KEY_SECRET_ID, BRIDGE_API_KEY_PENDING_SECRET_ID}:
@@ -477,7 +484,11 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
         generated_envs = load_generated_bridge_envs(runtime.MODULE_CONFIG_DIR, runtime.read_generated_env)
         legacy_snapshot = legacy_bridge_key_file_snapshot(runtime, installed)
         old_backend = runtime.load_secrets_index().get(BRIDGE_API_KEY_SECRET_ID)
-        old_stored = (runtime.fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
+        old_stored = (
+            (_backend_secret_value(runtime, BRIDGE_API_KEY_SECRET_ID, old_backend) or "").strip()
+            if old_backend
+            else ""
+        )
         old_values = {
             str(env.get(BRIDGE_API_KEY_ENV) or "").strip() for env in generated_envs.values()
         } - {""}
@@ -488,7 +499,7 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
             explicit=new_value,
             forbidden_secrets=(
                 *old_values,
-                *_rotation_forbidden_values(runtime, generated_envs, legacy_snapshot),
+                *_rotation_forbidden_values(runtime, generated_envs, legacy_snapshot, installed),
             ),
         )
         snapshot: list[str] = []
@@ -534,20 +545,34 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
             _delete_pending_or_raise(runtime)
         except (SystemExit, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001 - rollback every operational failure
             failure = exc
+            rollback_failed = False
             if consumers_stopped:
-                stop_live_bridge_consumers(runtime)
-            if promotion_attempted:
-                _restore_bridge_generation(
-                    runtime,
-                    old_stored=old_stored,
-                    old_backend=old_backend,
-                    legacy_snapshot=legacy_snapshot,
-                )
-            rollback_started = not consumers_stopped or start_bridge_consumer_snapshot(runtime, snapshot, installed)
-            _delete_pending_or_raise(runtime)
-            if not rollback_started:
+                try:
+                    stop_live_bridge_consumers(runtime)
+                except BaseException:  # noqa: BLE001 - leave uncertain consumers stopped and report repair
+                    rollback_failed = True
+            if promotion_attempted and not rollback_failed:
+                try:
+                    _restore_bridge_generation(
+                        runtime,
+                        old_stored=old_stored,
+                        old_backend=old_backend,
+                        legacy_snapshot=legacy_snapshot,
+                    )
+                except BaseException:  # noqa: BLE001 - do not restart against an uncertain generation
+                    rollback_failed = True
+            if consumers_stopped and not rollback_failed:
+                try:
+                    rollback_failed = not start_bridge_consumer_snapshot(runtime, snapshot, installed)
+                except BaseException:  # noqa: BLE001 - report the incomplete rollback without leaking details
+                    rollback_failed = True
+            try:
+                _delete_pending_or_raise(runtime)
+            except BaseException:  # noqa: BLE001 - pending cleanup is part of the atomicity contract
+                rollback_failed = True
+            if rollback_failed:
                 raise SystemExit(
-                    "Bridge key rotation failed and the prior consumer set could not be fully restored."
+                    "Bridge key rotation failed and rollback could not complete; bridge consumers remain stopped."
                 ) from None
         if failure is not None:
             if isinstance(failure, (SystemExit, KeyboardInterrupt)):

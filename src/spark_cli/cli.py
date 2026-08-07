@@ -3430,7 +3430,7 @@ def provider_secret_env_blocklist() -> set[str]:
     blocked = {
         key
         for key in STATIC_PROVIDER_ENV_BLOCKLIST
-        if any(marker in key.upper() for marker in ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+        if managed_secret_runtime.is_secret_env_name(key)
     }
     for spec in LLM_PROVIDER_ENV.values():
         value = spec.get("api_key_env")

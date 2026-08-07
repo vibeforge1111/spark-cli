@@ -519,6 +519,7 @@ class BridgeRotationTests(unittest.TestCase):
         for filename, key in (
             ("spark-telegram-bot.primary", "TELEGRAM_RELAY_SECRET"),
             ("spark-intelligence-builder", "OPENAI_API_KEY"),
+            ("spark-database", "POSTGRES_PASSWORD"),
         ):
             with self.subTest(filename=filename), tempfile.TemporaryDirectory() as tmp_dir:
                 candidate = "collision-" + "c" * 32
@@ -541,6 +542,61 @@ class BridgeRotationTests(unittest.TestCase):
                 self.assertNotIn("spark.bridge_api_key.pending", stored)
                 self.assertEqual(writes, {})
                 self.assertEqual(stopped, [])
+
+    def test_rotation_rejects_manifest_declared_nonstandard_secret_env_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            candidate = "collision-" + "c" * 32
+            secret_module = make_module("community-module", secrets=["community.access"])
+            secret_module.manifest["secrets"]["community_access"]["env_var"] = "SERVICE_ACCESS"
+            modules = {
+                "spawner-ui": make_module("spawner-ui"),
+                "spark-telegram-bot": make_module("spark-telegram-bot"),
+                "community-module": secret_module,
+            }
+            generated = {
+                "spawner-ui": {},
+                "spark-telegram-bot": {},
+                "community-module": {"SERVICE_ACCESS": candidate},
+            }
+            (Path(tmp_dir) / "community-module.env").touch()
+            stored: dict[str, str] = {}
+            patches, writes, stopped = self.rotation_patches(stored=stored, generated=generated)
+            with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+                cli, "MODULE_CONFIG_DIR", Path(tmp_dir)
+            ), patch.object(cli, "resolve_installed_modules", return_value=modules), self.assertRaisesRegex(
+                SystemExit, "must be different"
+            ):
+                managed.rotate_managed_bridge_api_key(cli, candidate, backend="keychain")
+
+            self.assertNotIn(managed.BRIDGE_API_KEY_PENDING_SECRET_ID, stored)
+            self.assertEqual(writes, {})
+            self.assertEqual(stopped, [])
+
+    def test_stable_keychain_read_failure_aborts_before_pending_stage(self) -> None:
+        old = "old-bridge-" + "o" * 32
+        stored = {managed.BRIDGE_API_KEY_SECRET_ID: old}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        patches, writes, stopped = self.rotation_patches(stored=stored, generated=generated)
+
+        class StableReadFailure:
+            @staticmethod
+            def get_password(_service: str, account: str) -> str | None:
+                if account == managed.BRIDGE_API_KEY_SECRET_ID:
+                    raise RuntimeError("unavailable")
+                return stored.get(account)
+
+            @staticmethod
+            def delete_password(_service: str, account: str) -> None:
+                stored.pop(account, None)
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "_keyring", StableReadFailure()
+        ), self.assertRaisesRegex(SystemExit, "could not be read"):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(stored, {managed.BRIDGE_API_KEY_SECRET_ID: old})
+        self.assertEqual(writes, {})
+        self.assertEqual(stopped, [])
 
     def test_backend_replacement_and_rollback_leave_one_exact_copy(self) -> None:
         for old_backend, new_backend in (("file", "keychain"), ("keychain", "file")):
