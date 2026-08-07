@@ -40,7 +40,18 @@ import tomllib
 
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
-from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
+from .bridge_key import (
+    BRIDGE_API_KEY_ENV,
+    BRIDGE_API_KEY_PENDING_SECRET_ID,
+    BRIDGE_API_KEY_SECRET_ID,
+    BRIDGE_CONSUMER_MODULES,
+    RESERVED_CONTROL_KEYS,
+    bridge_consumer_process_keys,
+    bridge_consumer_start_order,
+    load_generated_bridge_envs,
+    resolve_existing_bridge_api_key,
+    resolve_shared_spawner_bridge_api_key,
+)
 from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
 from .machine_output import emit_json_payload, render_module_listing, resolve_os_json_output_path
 from .provider_auth import effective_provider_auth_mode
@@ -98,6 +109,7 @@ SETUP_PENDING_PATH = STATE_DIR / "setup.pending.json"
 TELEGRAM_FIRST_MESSAGE_EVENTS_PATH = STATE_DIR / "onboarding" / "telegram-first-message.jsonl"
 PID_PATH = STATE_DIR / "pids.json"
 PID_LOCK_PATH = STATE_DIR / "pids.json.lock"
+BRIDGE_ROTATION_LOCK_PATH = STATE_DIR / "bridge-api-key.rotation.lock"
 INSTALL_PROGRESS_PATH = STATE_DIR / "install_progress.json"
 USER_CONFIG_PATH = CONFIG_DIR / "config.json"
 SECRETS_INDEX_PATH = CONFIG_DIR / "secrets_index.json"
@@ -409,6 +421,7 @@ STATIC_PROVIDER_ENV_BLOCKLIST = {
     "MOONSHOT_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_API_KEY",
+    "SPARK_BRIDGE_API_KEY",
     "SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_URL",
@@ -3223,6 +3236,29 @@ def ensure_runtime_telegram_relay_secret(modules: Iterable[Module]) -> None:
     remember_setup_secret_key(secret_id)
 
 
+def ensure_managed_bridge_api_key(secret_values: dict[str, str]) -> str:
+    """Migrate or generate the shared local bridge key into managed storage."""
+    generated_envs = load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env)
+    stored = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
+    parent = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
+    value = resolve_existing_bridge_api_key(
+        generated_envs,
+        stored=stored,
+        parent=parent,
+        forbidden_secrets=secret_values.values(),
+        parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
+    )
+    if stored != value:
+        store_secret(BRIDGE_API_KEY_SECRET_ID, value, preferred="keychain")
+    remember_setup_secret_key(BRIDGE_API_KEY_SECRET_ID)
+    return value
+
+
+def strip_managed_runtime_secret_values(env_values: dict[str, str]) -> dict[str, str]:
+    blocked = {BRIDGE_API_KEY_ENV, VOICE_OPENAI_SECRET_ENV, VOICE_ELEVENLABS_SECRET_ENV}
+    return {key: value for key, value in env_values.items() if key not in blocked}
+
+
 def stdin_is_tty() -> bool:
     try:
         return bool(sys.stdin.isatty())
@@ -3976,8 +4012,8 @@ def spark_builder_home() -> Path:
 
 def write_generated_env(path: Path, values: dict[str, str]) -> None:
     require_write_allowed(path, subject="generated module env write")
-    # Generated module env files hold control-plane keys (SPARK_BRIDGE_API_KEY,
-    # SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
+    # Generated module env files may hold legacy control-plane keys
+    # (SPARK_UI_API_KEY, EVENTS_API_KEY, MCP_API_KEY) in plaintext. Harden them to
     # owner-only from the first byte and replace them atomically so a reader never
     # observes a partial file. The helper also refuses linked write paths and breaks
     # inherited ACL access on Windows.
@@ -3992,11 +4028,45 @@ def read_generated_env(path: Path) -> dict[str, str]:
 
 def module_runtime_env(module: Module, profile: str | None = None) -> dict[str, str]:
     env = shell_command_env(filtered=True)
-    env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module))))
+    generated_env = read_generated_env(generated_module_env_path(module))
+    legacy_bridge_values = {
+        str(generated_env.get(BRIDGE_API_KEY_ENV) or "").strip()
+    } - {""}
+    if module.name in BRIDGE_CONSUMER_MODULES:
+        for values in load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env).values():
+            legacy_value = str(values.get(BRIDGE_API_KEY_ENV) or "").strip()
+            if legacy_value:
+                legacy_bridge_values.add(legacy_value)
+    env.update(strip_reserved_workspace_env(generated_env))
     named_telegram_profile = module.name == "spark-telegram-bot" and not telegram_profile_is_default(profile)
     if named_telegram_profile:
-        env.update(strip_reserved_workspace_env(read_generated_env(generated_module_env_path(module, profile))))
+        profile_generated_env = read_generated_env(generated_module_env_path(module, profile))
+        profile_bridge_value = str(profile_generated_env.get(BRIDGE_API_KEY_ENV) or "").strip()
+        if profile_bridge_value:
+            legacy_bridge_values.add(profile_bridge_value)
+        env.update(strip_reserved_workspace_env(profile_generated_env))
     env.update(keychain_env_for_module(module))
+    if module.name in BRIDGE_CONSUMER_MODULES:
+        managed_bridge_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
+        if managed_bridge_key:
+            env[BRIDGE_API_KEY_ENV] = resolve_shared_spawner_bridge_api_key(
+                {},
+                explicit=managed_bridge_key,
+            )
+        elif len(legacy_bridge_values) > 1:
+            raise SystemExit(
+                "Telegram and Spawner have mismatched legacy SPARK_BRIDGE_API_KEY values. "
+                "Rotate them together with `spark secrets set spark.bridge_api_key --generate`."
+            )
+        elif legacy_bridge_values:
+            env[BRIDGE_API_KEY_ENV] = next(iter(legacy_bridge_values))
+        else:
+            hosted_parent_bridge = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
+            if hosted_parent_bridge:
+                env[BRIDGE_API_KEY_ENV] = resolve_shared_spawner_bridge_api_key(
+                    {},
+                    explicit=hosted_parent_bridge,
+                )
     if module.name == "spark-telegram-bot":
         profile_env = keychain_env_for_telegram_profile(profile)
         if named_telegram_profile:
@@ -4817,9 +4887,10 @@ def build_module_envs(args: argparse.Namespace, modules_by_name: dict[str, Modul
     builder_home = spark_builder_home()
     _, llm_env = build_llm_env(args, secret_values)
     relay_secret = secret_values.get("telegram.relay_secret") or py_secrets.token_urlsafe(32)
+    managed_bridge_api_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
     bridge_api_key = resolve_shared_spawner_bridge_api_key(
         existing_module_envs or {},
-        explicit=(os.environ.get("SPARK_BRIDGE_API_KEY") or "").strip(),
+        explicit=managed_bridge_api_key or (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip(),
         forbidden_secrets=(relay_secret, *secret_values.values(), *llm_env.values()),
         parent_control_values=((os.environ.get(key) or "").strip() for key in RESERVED_CONTROL_KEYS),
     )
@@ -7675,6 +7746,12 @@ def write_setup_runtime_config(
     builder_notes = initialize_builder_runtime_home(modules, secret_values, setup_state)
     keychain_report = persist_keychain_secrets(bundle, secret_values)
     persist_governor_hmac_secret(secret_values)
+    bridge_backend = None
+    if {"spawner-ui", "spark-telegram-bot"}.issubset(modules):
+        ensure_managed_bridge_api_key(secret_values)
+        bridge_backend = list_stored_secrets().get(BRIDGE_API_KEY_SECRET_ID)
+        if bridge_backend:
+            keychain_report[BRIDGE_API_KEY_SECRET_ID] = bridge_backend
     generated_envs = build_module_envs(
         args,
         modules,
@@ -7684,6 +7761,7 @@ def write_setup_runtime_config(
     for module in bundle:
         env_values = strip_keychain_env_vars(generated_envs.get(module.name, {}), module)
         env_values = strip_provider_secret_values(env_values, LLM_PROVIDER_ENV)
+        env_values = strip_managed_runtime_secret_values(env_values)
         env_values = preserve_level5_guardrails(module.name, env_values)
         generated_path = generated_module_env_path(module)
         write_generated_env(generated_path, env_values)
@@ -12784,7 +12862,10 @@ def local_control_surface_errors() -> list[str]:
         if exposed_bind and not allowed_hosts:
             errors.append(f"Spawner appears publicly bound to {spawner_host!r} but SPARK_ALLOWED_HOSTS is not configured.")
         ui_key = effective_generated_module_env_value(spawner_env, "SPARK_UI_API_KEY")
-        bridge_key = effective_generated_module_env_value(spawner_env, "SPARK_BRIDGE_API_KEY")
+        bridge_key = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip() or effective_generated_module_env_value(
+            spawner_env,
+            BRIDGE_API_KEY_ENV,
+        )
         errors.extend(hosted_api_key_strength_errors(ui_key, bridge_key))
     return errors
 
@@ -18307,7 +18388,11 @@ def ready_check_headers(ready_check: str) -> dict[str, str]:
     parsed = urllib.parse.urlparse(ready_check)
     if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
         return {}
-    key = os.environ.get("SPARK_UI_API_KEY") or os.environ.get("SPARK_BRIDGE_API_KEY")
+    key = (
+        os.environ.get("SPARK_UI_API_KEY")
+        or fetch_secret(BRIDGE_API_KEY_SECRET_ID)
+        or os.environ.get(BRIDGE_API_KEY_ENV)
+    )
     if not key:
         return {}
     return {"x-spawner-ui-key": key, "x-api-key": key}
@@ -18720,28 +18805,6 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
         profile=profile,
     )
 
-    subprocess_env = module_runtime_env(module, profile)
-    argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
-    ready_check = module_runtime_ready_check(module, subprocess_env)
-    relay_port = 0
-    if module.name == "spark-telegram-bot":
-        relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
-        try:
-            relay_port = int(relay_port_raw or "0")
-        except ValueError:
-            relay_port = 0
-    popen_kwargs: dict[str, Any] = {
-        "cwd": str(module.path),
-        "shell": False,
-        "stdin": subprocess.DEVNULL,
-        "stderr": subprocess.STDOUT,
-        "env": subprocess_env,
-    }
-    if os.name == "nt":
-        popen_kwargs["creationflags"] = windows_service_creationflags()
-    else:
-        popen_kwargs["start_new_session"] = True
-
     with pid_file_lock():
         pids = load_pids()
         existing = pids.get(process_key)
@@ -18751,6 +18814,30 @@ def start_module(module: Module, *, allow_boot_warnings: bool = False, profile: 
                 print(f"Skipping {display_name}: already running (pid {existing_pid})")
                 return True
             pids.pop(process_key, None)
+        # Resolve the complete child environment while the PID lock is held. A
+        # bridge-key promotion holds the same lock, so a concurrent start cannot
+        # precompute an old generation and spawn it after promotion.
+        subprocess_env = module_runtime_env(module, profile)
+        argv = module_runtime_command_argv(module, command, module.path, subprocess_env)
+        ready_check = module_runtime_ready_check(module, subprocess_env)
+        relay_port = 0
+        if module.name == "spark-telegram-bot":
+            relay_port_raw = (subprocess_env.get("TELEGRAM_RELAY_PORT") or "").strip()
+            try:
+                relay_port = int(relay_port_raw or "0")
+            except ValueError:
+                relay_port = 0
+        popen_kwargs: dict[str, Any] = {
+            "cwd": str(module.path),
+            "shell": False,
+            "stdin": subprocess.DEVNULL,
+            "stderr": subprocess.STDOUT,
+            "env": subprocess_env,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = windows_service_creationflags()
+        else:
+            popen_kwargs["start_new_session"] = True
         if module.name == "spark-telegram-bot" and relay_port:
             stale_listener_note = terminate_same_user_listener_on_port(relay_port, label=display_name)
             if stale_listener_note:
@@ -20299,8 +20386,154 @@ def cmd_secrets_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def bridge_process_profile(process_key: str) -> str | None:
+    if process_key == "spark-telegram-bot":
+        return DEFAULT_TELEGRAM_PROFILE
+    prefix = "spark-telegram-bot:"
+    if process_key.startswith(prefix):
+        return normalize_telegram_profile(process_key[len(prefix) :])
+    return None
+
+
+def start_bridge_consumer_snapshot(
+    process_keys: Iterable[str],
+    installed_modules: dict[str, Module],
+) -> bool:
+    ok = True
+    for process_key in bridge_consumer_start_order(process_keys):
+        if process_key == "spawner-ui":
+            module = installed_modules.get("spawner-ui")
+            profile = None
+        else:
+            module = installed_modules.get("spark-telegram-bot")
+            profile = bridge_process_profile(process_key)
+        if module is None or not start_module(module, profile=profile):
+            ok = False
+            break
+    return ok
+
+
+def stop_live_bridge_consumers() -> None:
+    with pid_file_lock():
+        process_keys = bridge_consumer_process_keys(load_pids())
+    for process_key in process_keys:
+        stop_tracked_process_key(process_key)
+
+
+def scrub_legacy_bridge_key_files(installed_modules: dict[str, Module]) -> None:
+    paths: list[tuple[Path, Module | None]] = []
+    for module_name in sorted(BRIDGE_CONSUMER_MODULES):
+        module = installed_modules.get(module_name)
+        if module is not None:
+            paths.append((generated_module_env_path(module), module))
+    setup_state = load_json(CONFIG_PATH, {})
+    for path in telegram_generated_env_paths(setup_state):
+        if all(path != existing for existing, _module in paths):
+            paths.append((path, None))
+    for path, module in paths:
+        values = read_generated_env(path)
+        if BRIDGE_API_KEY_ENV not in values:
+            continue
+        values.pop(BRIDGE_API_KEY_ENV, None)
+        write_generated_env(path, values)
+        if module is not None:
+            env_path = module_env_path(module)
+            if env_path is not None:
+                update_env_file(env_path, values)
+
+
+def rotate_managed_bridge_api_key(new_value: str, *, backend: str) -> str:
+    installed_modules = resolve_installed_modules()
+    missing = sorted(BRIDGE_CONSUMER_MODULES - set(installed_modules))
+    if missing:
+        raise SystemExit(
+            "Install the Telegram starter stack before rotating the local bridge key: "
+            + ", ".join(missing)
+        )
+    generated_envs = load_generated_bridge_envs(MODULE_CONFIG_DIR, read_generated_env)
+    old_stored = (fetch_secret(BRIDGE_API_KEY_SECRET_ID) or "").strip()
+    parent = (os.environ.get(BRIDGE_API_KEY_ENV) or "").strip()
+    old_value = resolve_existing_bridge_api_key(
+        generated_envs,
+        stored=old_stored,
+        parent=parent,
+    )
+    candidate = resolve_shared_spawner_bridge_api_key(
+        {},
+        explicit=new_value,
+        forbidden_secrets=(old_value,),
+    )
+    if candidate == old_value:
+        raise SystemExit("Refusing to reuse the current Spark bridge API key.")
+
+    store_secret(BRIDGE_API_KEY_PENDING_SECRET_ID, candidate, preferred=backend)
+    if fetch_secret(BRIDGE_API_KEY_PENDING_SECRET_ID) != candidate:
+        delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
+        raise SystemExit("Bridge key rotation stopped because staged secret verification failed.")
+
+    snapshot: list[str] = []
+    promoted = False
+    promotion_attempted = False
+    promoted_backend = backend
+    try:
+        with process_log_lock(BRIDGE_ROTATION_LOCK_PATH, timeout_seconds=30.0):
+            with pid_file_lock(timeout_seconds=30.0):
+                pids = load_pids()
+                snapshot = [
+                    key
+                    for key in bridge_consumer_process_keys(pids)
+                    if isinstance(pids.get(key), dict)
+                    and int(pids[key].get("pid") or 0)
+                    and pid_is_running(int(pids[key].get("pid") or 0))
+                ]
+                for process_key in snapshot:
+                    record = pids.get(process_key, {})
+                    pid = int(record.get("pid") or 0) if isinstance(record, dict) else 0
+                    if pid:
+                        stop_module(process_key, pid)
+                    if pid and pid_is_running(pid):
+                        raise SystemExit(
+                            f"Bridge key rotation stopped because {process_key} did not exit cleanly."
+                        )
+                    pids.pop(process_key, None)
+                save_pids(pids)
+                promotion_attempted = True
+                promoted_backend = store_secret(BRIDGE_API_KEY_SECRET_ID, candidate, preferred=backend)
+                if fetch_secret(BRIDGE_API_KEY_SECRET_ID) != candidate:
+                    raise SystemExit("Bridge key rotation stopped because promoted secret verification failed.")
+                promoted = True
+                scrub_legacy_bridge_key_files(installed_modules)
+
+            if not start_bridge_consumer_snapshot(snapshot, installed_modules):
+                raise SystemExit("A bridge consumer did not become healthy with the new key.")
+    except (SystemExit, Exception) as exc:
+        stop_live_bridge_consumers()
+        if promoted or promotion_attempted:
+            store_secret(BRIDGE_API_KEY_SECRET_ID, old_value, preferred=backend)
+        rollback_started = start_bridge_consumer_snapshot(snapshot, installed_modules)
+        delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
+        if not rollback_started:
+            raise SystemExit(
+                "Bridge key rotation failed and the prior consumer set could not be fully restored."
+            ) from None
+        if isinstance(exc, SystemExit):
+            raise
+        raise SystemExit("Bridge key rotation failed and the prior generation was restored.") from None
+
+    delete_secret(BRIDGE_API_KEY_PENDING_SECRET_ID)
+    remember_setup_secret_key(BRIDGE_API_KEY_SECRET_ID)
+    return promoted_backend
+
+
 def cmd_secrets_set(args: argparse.Namespace) -> int:
-    if args.value is not None:
+    if args.secret_id == BRIDGE_API_KEY_SECRET_ID and args.value is not None:
+        raise SystemExit(
+            "Refusing --value for spark.bridge_api_key because command arguments may be recorded. "
+            "Use --generate or the masked prompt."
+        )
+    if getattr(args, "generate", False):
+        value = py_secrets.token_urlsafe(32)
+    elif args.value is not None:
         value = args.value
     elif stdin_is_tty():
         value = read_secret_interactive(
@@ -20311,6 +20544,10 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     value = resolve_secret_input(value)
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
+    if args.secret_id == BRIDGE_API_KEY_SECRET_ID:
+        backend = rotate_managed_bridge_api_key(value, backend=args.backend)
+        print(f"Rotated {args.secret_id} in {backend}; restored the prior bridge consumer set.")
+        return 0
     backend = store_secret(args.secret_id, value, preferred=args.backend)
     # This prints the secret label and backend, never the stored value.
     # codeql[py/clear-text-logging-sensitive-data]
@@ -21612,12 +21849,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     secrets_set_parser = secrets_sub.add_parser("set", help="Store or rotate a secret")
     secrets_set_parser.add_argument("secret_id", help=SECRET_ID_SET_HELP)
-    secrets_set_parser.add_argument(
+    secrets_set_input = secrets_set_parser.add_mutually_exclusive_group()
+    secrets_set_input.add_argument(
         "--value",
         help=(
             "omit --value to paste securely when prompted; advanced input supports @clipboard, @env:NAME, or "
             "@file:path (in PowerShell, quote '@clipboard')"
         ),
+    )
+    secrets_set_input.add_argument(
+        "--generate",
+        action="store_true",
+        help="generate a new strong random value without placing it in argv or terminal output",
     )
     secrets_set_parser.add_argument("--backend", choices=["keychain", "file"], default="keychain", help=SECRET_BACKEND_HELP)
     secrets_set_parser.set_defaults(func=cmd_secrets_set)
