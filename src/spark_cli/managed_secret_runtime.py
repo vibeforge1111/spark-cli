@@ -591,7 +591,12 @@ def rotate_managed_bridge_api_key(runtime: Any, new_value: str, *, backend: str)
                     except BaseException:  # noqa: BLE001 - report uncertainty instead of claiming containment
                         consumer_state_uncertain = True
             if rollback_failed:
-                state = "consumer state is uncertain" if consumer_state_uncertain else "bridge consumers remain stopped"
+                if consumer_state_uncertain:
+                    state = "consumer state is uncertain"
+                elif consumers_stopped:
+                    state = "bridge consumers remain stopped"
+                else:
+                    state = "the original consumer set remains unchanged"
                 raise SystemExit(
                     f"Bridge key rotation failed and rollback could not complete; {state}."
                 ) from None

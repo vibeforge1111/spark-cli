@@ -865,6 +865,28 @@ class BridgeRotationTests(unittest.TestCase):
 
         self.assertEqual(managed.bridge_consumer_process_keys(pids), [])
 
+    def test_pre_stop_failure_with_cleanup_failure_reports_original_set_unchanged(self) -> None:
+        old = "old-bridge-" + "o" * 32
+        stored = {managed.BRIDGE_API_KEY_SECRET_ID: old}
+        generated = {"spawner-ui": {}, "spark-telegram-bot": {}}
+        pids: dict[str, Any] = {"spawner-ui": {"pid": 22}}
+        patches, _writes, stopped = self.rotation_patches(stored=stored, generated=generated, pids=pids)
+
+        @contextmanager
+        def unavailable_pid_lock(*_args: object, **_kwargs: object):
+            raise TimeoutError("busy")
+            yield
+
+        with patch.dict(os.environ, {}, clear=True), patches, patch.object(
+            cli, "pid_file_lock", side_effect=unavailable_pid_lock
+        ), patch.object(
+            managed, "_delete_pending_or_raise", side_effect=SystemExit("cleanup unavailable")
+        ), self.assertRaisesRegex(SystemExit, "original consumer set remains unchanged"):
+            managed.rotate_managed_bridge_api_key(cli, "new-bridge-" + "n" * 32, backend="keychain")
+
+        self.assertEqual(pids, {"spawner-ui": {"pid": 22}})
+        self.assertEqual(stopped, [])
+
     def test_partial_rollback_restart_is_stopped_before_failure_returns(self) -> None:
         old = "old-bridge-" + "o" * 32
         stored = {managed.BRIDGE_API_KEY_SECRET_ID: old}
