@@ -20267,11 +20267,10 @@ def cmd_secrets_set(args: argparse.Namespace) -> int:
     if not value:
         raise SystemExit(f"Refusing to store empty value for {args.secret_id}.")
     if args.secret_id == BRIDGE_API_KEY_SECRET_ID:
-        backend = managed_secret_runtime.rotate_managed_bridge_api_key(
+        managed_secret_runtime.rotate_managed_bridge_api_key(
             sys.modules[__name__], value, backend=args.backend
         )
-        # codeql[py/clear-text-logging-sensitive-data]
-        print(f"Rotated {args.secret_id} in {backend}; restored the prior bridge consumer set.")
+        print("Rotated spark.bridge_api_key; restored the prior bridge consumer set.")
         return 0
     backend = store_secret(args.secret_id, value, preferred=args.backend)
     # codeql[py/clear-text-logging-sensitive-data]
