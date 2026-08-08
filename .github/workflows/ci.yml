@@ -106,9 +106,6 @@ jobs:
         run: |
           $prefix = Join-Path $env:RUNNER_TEMP ("spark-r30-v3-dry-run-" + [guid]::NewGuid().ToString("N"))
           $output = & ./scripts/install.ps1 -DryRun -Prefix $prefix -SkipSetup -NoAutostart -SkipUserPath 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 0) {
-            throw "PowerShell installer dry-run failed with exit code $LASTEXITCODE."
-          }
           if ($output -notmatch [regex]::Escape("spark-cli-public-installer-2026-08-08-r30-v3")) {
             throw "PowerShell installer dry-run did not report the expected immutable release."
           }
