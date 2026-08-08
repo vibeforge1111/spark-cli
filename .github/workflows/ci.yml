@@ -91,6 +91,31 @@ jobs:
       - name: gate_evidence_separation
         run: python scripts/harness_checks/gate_evidence_separation.py --root . --range "${{ github.event.pull_request.base.sha && format('{0}..{1}', github.event.pull_request.base.sha, github.sha) || 'HEAD' }}"
 
+  windows-installer-dry-run:
+    name: windows-installer-dry-run
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Parse and dry-run the PowerShell installer
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP ("spark-r30-v3-dry-run-" + [guid]::NewGuid().ToString("N"))
+          $output = & ./scripts/install.ps1 -DryRun -Prefix $prefix -SkipSetup -NoAutostart -SkipUserPath 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            throw "PowerShell installer dry-run failed with exit code $LASTEXITCODE."
+          }
+          if ($output -notmatch [regex]::Escape("spark-cli-public-installer-2026-08-08-r30-v3")) {
+            throw "PowerShell installer dry-run did not report the expected immutable release."
+          }
+          if (Test-Path -LiteralPath $prefix) {
+            throw "PowerShell installer dry-run wrote to its target prefix."
+          }
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
