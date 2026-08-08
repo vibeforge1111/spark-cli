@@ -1,7 +1,7 @@
 {
   "schema": "spark.r30.merged-source-truth.v1",
   "release": "spark-r30-2026-07-27",
-  "generated_at": "2026-07-27T07:30:00Z",
+  "generated_at": "2026-08-08T13:51:13Z",
   "public_points_baseline": 24409,
   "proposed_points": 0,
   "source_overlap_count": 0,
@@ -64,20 +64,24 @@
     {
       "name": "spark-intelligence-builder",
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "pr_number": 1008,
-      "merge_commit": "cc289472ea0f65bfe5173514d46556f954405fea",
+      "pr_number": 1009,
+      "merge_commit": "19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
+      "immutable_ref": "refs/tags/spark-r30-2026-08-08-builder-voice-credential-boundary",
       "disposition": "adopt",
-      "receipt": "spark-r30-builder-merge-receipt-2026-07-27.json",
-      "receipt_sha256": "dd49bb9481dcfb2107637789aa047a3f534fd8ead7f288b5887594f0e2ca408d"
+      "receipt": "spark-r30-voice-builder-managed-credential-followup-merge-receipt-2026-08-08.md",
+      "receipt_sha256": "ee644b7abaf92a713a938587f2082b3f9ecbcbaebde2b5df9683034406394597",
+      "extends_merge_commit": "cc289472ea0f65bfe5173514d46556f954405fea"
     },
     {
       "name": "spark-voice-comms",
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "pr_number": 266,
-      "merge_commit": "e0be919b47a0c271b709361f0f2026be580a272f",
+      "pr_number": 267,
+      "merge_commit": "e94f3cd588c5051b77baead8378f32154b38a0d7",
+      "immutable_ref": "refs/tags/spark-r30-2026-08-08-voice-credential-boundary",
       "disposition": "adopt",
-      "receipt": "spark-r30-foundation-merge-receipt-2026-07-27.json",
-      "receipt_sha256": "ff62b120eb24eed68e1c800891bc92ff7c2bd680927fd9d7b059ec5756321187"
+      "receipt": "spark-r30-voice-builder-managed-credential-followup-merge-receipt-2026-08-08.md",
+      "receipt_sha256": "ee644b7abaf92a713a938587f2082b3f9ecbcbaebde2b5df9683034406394597",
+      "extends_merge_commit": "e0be919b47a0c271b709361f0f2026be580a272f"
     },
     {
       "name": "spawner-ui",
