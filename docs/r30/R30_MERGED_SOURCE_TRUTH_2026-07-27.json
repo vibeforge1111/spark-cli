@@ -1,7 +1,7 @@
 {
   "schema": "spark.r30.merged-source-truth.v1",
   "release": "spark-r30-2026-07-27",
-  "generated_at": "2026-08-08T13:51:13Z",
+  "generated_at": "2026-08-08T14:09:00Z",
   "public_points_baseline": 24409,
   "proposed_points": 0,
   "source_overlap_count": 0,
@@ -86,24 +86,26 @@
     {
       "name": "spawner-ui",
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "pr_number": 889,
-      "merge_commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
-      "immutable_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
+      "pr_number": 892,
+      "merge_commit": "b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
+      "immutable_ref": "refs/tags/spark-r30-2026-08-08-spawner-fast-terminal-relay",
       "disposition": "selectively_port",
-      "receipt": "spark-r30-spawner-level5-followup-merge-receipt-2026-07-27.md",
-      "receipt_sha256": "43044e5fdf1151afc7d0c9e0772cdbb96d03b61559438fdb5722680e76a89168",
-      "extends_merge_commit": "db6abca434d325336930f9f277c77c05390f06da",
+      "receipt": "spark-r30-telegram-spawner-final-followup-merge-receipt-2026-08-08.md",
+      "receipt_sha256": "99a37312b0f7b36460fd16d118e32c6ff8cee6d6eedaef5385380e6b4e16823d",
+      "extends_merge_commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
       "supersedes": "1b1cf1ff982c2b29cbe64a3d73e754822535b028",
-      "supersession_reason": "PR #889 extends the canonical PR #888 merge lane with the retained Level 5 sandbox behavior from the divergent source chain, preserving useful work and attribution without treating the provisional source-squash head as release truth."
+      "supersession_reason": "PR #892 extends the canonical PR #888/#889 merge lane with the retained fast-terminal relay ordering work while preserving the earlier selective-port attribution and superseding the divergent provisional source-squash head."
     },
     {
       "name": "spark-telegram-bot",
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "pr_number": 861,
-      "merge_commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+      "pr_number": 865,
+      "merge_commit": "fe8a2b322185e025c564adee7f92697fd5a07648",
+      "immutable_ref": "refs/tags/spark-r30-2026-08-08-telegram-voice-terminal-reliability",
       "disposition": "adopt",
-      "receipt": "spark-r30-telegram-merge-receipt-2026-07-27.md",
-      "receipt_sha256": "25c4f5bc9c935919c28bbdbd8fe8d7d8ff8848fb31b10d2a76a2c783f2f72254"
+      "receipt": "spark-r30-telegram-spawner-final-followup-merge-receipt-2026-08-08.md",
+      "receipt_sha256": "99a37312b0f7b36460fd16d118e32c6ff8cee6d6eedaef5385380e6b4e16823d",
+      "extends_merge_commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5"
     }
   ]
 }
