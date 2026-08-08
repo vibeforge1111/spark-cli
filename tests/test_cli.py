@@ -3230,7 +3230,7 @@ class Sandbox:
             spawner_env = read_generated_env(spawner_env_path)
             gateway_env = read_generated_env(gateway_env_path)
             self.assertEqual(spawner_env["MCP_ALLOW_CUSTOM_CONFIG"], "0")
-            self.assertNotEqual(spawner_env["SPARK_BRIDGE_API_KEY"], "old-bridge")
+            self.assertNotIn("SPARK_BRIDGE_API_KEY", spawner_env)
             self.assertNotEqual(spawner_env["SPARK_UI_API_KEY"], "old-ui")
             self.assertEqual(spawner_env["TELEGRAM_RELAY_SECRET"], gateway_env["TELEGRAM_RELAY_SECRET"])
             self.assertNotEqual(spawner_env["TELEGRAM_RELAY_SECRET"], "old-relay")
@@ -4289,7 +4289,7 @@ class Sandbox:
         self.assertEqual(env["EVENTS_API_KEY"], "events-key")
         self.assertEqual(env["MCP_API_KEY"], "mcp-key")
         self.assertEqual(env["SPARK_ALLOWED_HOSTS"], "spark-live-production.up.railway.app")
-        self.assertEqual(env["SPARK_BRIDGE_API_KEY"], "bridge-key")
+        self.assertNotIn("SPARK_BRIDGE_API_KEY", env)
         self.assertEqual(env["SPARK_UI_API_KEY"], "ui-key")
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("ZAI_BASE_URL", env)
@@ -18153,7 +18153,7 @@ class Sandbox:
     def test_ready_check_headers_use_hosted_ui_key_for_loopback_only(self) -> None:
         with patch.dict(os.environ, {"SPARK_UI_API_KEY": "ui-key", "SPARK_BRIDGE_API_KEY": "bridge-key"}, clear=True):
             self.assertEqual(
-                ready_check_headers("http://127.0.0.1:3333/api/providers"),
+                ready_check_headers("http://127.0.0.1:3333/api/providers", module_name="spawner-ui"),
                 {"x-spawner-ui-key": "ui-key", "x-api-key": "ui-key"},
             )
             self.assertEqual(ready_check_headers("https://spark-live.example.test/api/providers"), {})

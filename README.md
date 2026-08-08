@@ -51,6 +51,23 @@ spark setup telegram-voice-starter
 
 Add `--elevenlabs-api-key @clipboard` if you want hosted ElevenLabs TTS configured during setup. The key is stored in Spark secrets and injected into Builder at runtime; it is not written into Telegram config.
 
+For hosted OpenAI transcription or Realtime voice, store the dedicated Voice key first, then resume the voice bundle setup:
+
+```bash
+spark secrets set voice.openai.api_key
+spark setup telegram-voice-starter --resume
+```
+
+Spark injects that key as `VOICE_OPENAI_API_KEY` only across the installed Voice boundary. It does not reuse the Agent role's `OPENAI_API_KEY`, which may belong to another OpenAI-compatible provider.
+
+To rotate the local Telegram↔Spawner control key without putting it in command history:
+
+```bash
+spark secrets set spark.bridge_api_key --generate
+```
+
+Spark stages the replacement in managed secret storage, stops only the currently running bridge consumers, promotes one shared generation, starts Spawner first, and restores exactly the Telegram profiles that were running. A failed health check rolls the generation and consumer set back.
+
 Public builder labs such as `spark-domain-chip-labs` and `spark-personality-chip-labs` are available separately, but they are not automatic starter-bundle modules yet. Spark Swarm Workspace/network submission is private/upcoming and is not required for local recursive Builder chip loops.
 
 The current installer proof lane covers 11 canonical repos: `spark-cli` plus the 10 registry-pinned runtime/support modules. The plain `telegram-starter` bundle exercises Harness Core, Researcher, Character, Builder, Memory, Spawner, and Telegram directly. `telegram-voice-starter`, QA Evidence Lane, and Skill Graphs require their own optional-module proof before claiming the entire 11-repo lane is ship-ready.

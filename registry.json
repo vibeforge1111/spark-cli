@@ -55,59 +55,58 @@
     },
     "spark-telegram-bot": {
       "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-      "commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+      "commit": "fe8a2b322185e025c564adee7f92697fd5a07648",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Telegram ingress gateway for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-telegram-bot",
-        "commit": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
-        "verify_ref": "refs/tags/spark-r30-2026-07-27",
-        "canonical_head": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
-        "runtime_mirror_head": "b72cf5eafe0fddda124fed696e26d6739029b8f5",
+        "commit": "fe8a2b322185e025c564adee7f92697fd5a07648",
+        "verify_ref": "refs/tags/spark-r30-2026-08-08-telegram-voice-terminal-reliability",
+        "canonical_head": "fe8a2b322185e025c564adee7f92697fd5a07648",
+        "runtime_mirror_head": "fe8a2b322185e025c564adee7f92697fd5a07648",
         "tree_clean": true,
-        "validated_at": "2026-07-27T07:30:00Z",
+        "validated_at": "2026-08-08T14:09:00Z",
         "evidence": [
-          "R30 adoption merged through PR #861 at b72cf5eafe0fddda124fed696e26d6739029b8f5",
-          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
-          "authority closure ladder focused tests passed",
-          "npm run build passed after authority closure curation",
-          "Domain Chip creation, private check, live canary, and conversational closure routes covered",
-          "Loop Engineering Telegram copy QA, evaluator-flagged tests, full npm test, and npm run build passed after readability curation",
-          "Loop Engineering status copy polished for all Spawner-backed Domain Chip Labs chips; focused status, command, PRD reuse, QA-planning, buildE2E, and npm run build gates passed",
-          "R30 Telegram Loop Engineering status replies now render generic proof blocks for old and new Spawner-backed Domain Chips; focused status/surface/command/domain-chip tests and npm run build passed."
+          "R30 adoption remains preserved through PR #861 and is extended by terminal-relay PRs #862/#863/#864 plus Voice command owner PR #865 at fe8a2b322185e025c564adee7f92697fd5a07648",
+          "immutable refs/tags/spark-r30-2026-08-08-telegram-voice-terminal-reliability resolves to the exact merged head",
+          "exact-head and post-merge CI, secret scan, shared conformance, scanners, build, full suite, R-21, and zero-vulnerability audit passed",
+          "protected health matched the complete installed runtime generation and strict runtime sync passed",
+          "supervised Access-5 fast-terminal replay delivered exactly one natural terminal handoff with one request/trace join and no stale or duplicate relay",
+          "supervised /voice self-test and /voice doctor reached the canonical Voice owner and retained fail-closed hosted-provider truth without credential rotation",
+          "spark-r30-telegram-spawner-final-followup-merge-receipt-2026-08-08.md SHA-256 99a37312b0f7b36460fd16d118e32c6ff8cee6d6eedaef5385380e6b4e16823d"
         ],
         "license_spdx": "MIT"
       },
-      "verify_ref": "refs/tags/spark-r30-2026-07-27"
+      "verify_ref": "refs/tags/spark-r30-2026-08-08-telegram-voice-terminal-reliability"
     },
     "spark-intelligence-builder": {
       "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-      "commit": "cc289472ea0f65bfe5173514d46556f954405fea",
+      "commit": "19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Spark runtime core for identity, memory, and routing",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-intelligence-builder",
-        "commit": "cc289472ea0f65bfe5173514d46556f954405fea",
-        "verify_ref": "refs/tags/spark-r30-2026-07-27",
-        "canonical_head": "cc289472ea0f65bfe5173514d46556f954405fea",
-        "runtime_mirror_head": "cc289472ea0f65bfe5173514d46556f954405fea",
+        "commit": "19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
+        "verify_ref": "refs/tags/spark-r30-2026-08-08-builder-voice-credential-boundary",
+        "canonical_head": "19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
+        "runtime_mirror_head": "19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
         "tree_clean": true,
         "license_spdx": "MIT",
-        "validated_at": "2026-07-27T07:30:00Z",
+        "validated_at": "2026-08-08T13:51:13Z",
         "evidence": [
-          "R30 adoption merged through PR #1008 at cc289472ea0f65bfe5173514d46556f954405fea",
-          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
-          "focused pytest passed: 278 passed, 26 subtests passed",
-          "python3 -m compileall src tests passed",
-          "chips create Governor authorization and loop-runner evidence binding covered",
-          "R30 Builder chip-create Codex CLI bridge now uses governed execution; focused governed execution, chip-create, stop-ship, trace-context tests and compileall passed."
+          "R30 adoption remains preserved through PR #1008 and is extended by PR #1009 at 19afe6cfdd985ff0ce7a20cd25f0712dc00f9121",
+          "immutable refs/tags/spark-r30-2026-08-08-builder-voice-credential-boundary resolves to the exact merged head",
+          "canonical-source-bound full suite passed: 2600 passed, 19 skipped, 183 subtests",
+          "focused trusted Voice-root environment, attachment, and privacy suite passed: 29 tests",
+          "exact-head matrix, conformance, scanners, and secret scan passed",
+          "supervised Telegram Voice self-test reached the canonical Voice owner and preserved fail-closed behavior without a hosted credential"
         ]
       },
-      "verify_ref": "refs/tags/spark-r30-2026-07-27"
+      "verify_ref": "refs/tags/spark-r30-2026-08-08-builder-voice-credential-boundary"
     },
     "domain-chip-memory": {
       "source": "https://github.com/vibeforge1111/domain-chip-memory",
@@ -217,54 +216,53 @@
     },
     "spark-voice-comms": {
       "source": "https://github.com/vibeforge1111/spark-voice-comms",
-      "commit": "e0be919b47a0c271b709361f0f2026be580a272f",
+      "commit": "e94f3cd588c5051b77baead8378f32154b38a0d7",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Speech I/O chip for Spark voice transcription, provider onboarding, and spoken replies",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/spark-voice-comms",
-        "commit": "e0be919b47a0c271b709361f0f2026be580a272f",
-        "verify_ref": "refs/tags/spark-r30-2026-07-27",
-        "canonical_head": "e0be919b47a0c271b709361f0f2026be580a272f",
-        "runtime_mirror_head": "e0be919b47a0c271b709361f0f2026be580a272f",
+        "commit": "e94f3cd588c5051b77baead8378f32154b38a0d7",
+        "verify_ref": "refs/tags/spark-r30-2026-08-08-voice-credential-boundary",
+        "canonical_head": "e94f3cd588c5051b77baead8378f32154b38a0d7",
+        "runtime_mirror_head": "e94f3cd588c5051b77baead8378f32154b38a0d7",
         "tree_clean": true,
-        "validated_at": "2026-07-27T07:30:00Z",
+        "validated_at": "2026-08-08T13:51:13Z",
         "evidence": [
-          "R30 adoption merged through PR #266 at e0be919b47a0c271b709361f0f2026be580a272f",
-          "immutable refs/tags/spark-r30-2026-07-27 resolves to the exact merged head",
-          "PYTHONPATH=src python3 -m pytest -q passed: 132/132",
-          "voice registry drift resolved against R30 source-owned candidate ref"
+          "R30 adoption remains preserved through PR #266 and is extended by PR #267 at e94f3cd588c5051b77baead8378f32154b38a0d7",
+          "immutable refs/tags/spark-r30-2026-08-08-voice-credential-boundary resolves to the exact merged head",
+          "full Voice suite passed: 223 tests; focused managed-credential owner suite passed: 83 tests",
+          "exact-head and post-merge Python 3.11 and 3.12 CI passed",
+          "supervised Telegram Voice self-test reported the canonical Voice chip ready and truthfully retained unavailable hosted listening and speaking without a configured credential"
         ]
       },
-      "verify_ref": "refs/tags/spark-r30-2026-07-27"
+      "verify_ref": "refs/tags/spark-r30-2026-08-08-voice-credential-boundary"
     },
     "spawner-ui": {
       "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-      "commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
-      "verify_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
+      "commit": "b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
+      "verify_ref": "refs/tags/spark-r30-2026-08-08-spawner-fast-terminal-relay",
       "require_signed_commit": false,
       "blessed": true,
       "summary": "Execution plane and local dashboard for the Spark starter stack",
       "attestation": {
         "type": "git-commit-pin-v1",
         "source": "https://github.com/vibeforge1111/vibeship-spawner-ui",
-        "commit": "69b444899595ce6c44845a6a58712fc45ddce80c",
-        "verify_ref": "refs/tags/spark-r30-2026-07-27-spawner-level5",
-        "canonical_head": "69b444899595ce6c44845a6a58712fc45ddce80c",
-        "runtime_mirror_head": "69b444899595ce6c44845a6a58712fc45ddce80c",
+        "commit": "b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
+        "verify_ref": "refs/tags/spark-r30-2026-08-08-spawner-fast-terminal-relay",
+        "canonical_head": "b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
+        "runtime_mirror_head": "b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
         "tree_clean": true,
-        "validated_at": "2026-07-27T08:09:00Z",
+        "validated_at": "2026-08-08T14:09:00Z",
         "evidence": [
-          "R30 adoption merged through PR #888 at db6abca434d325336930f9f277c77c05390f06da",
-          "Level 5 follow-up selectively ported through PR #889 at 69b444899595ce6c44845a6a58712fc45ddce80c",
-          "immutable refs/tags/spark-r30-2026-07-27-spawner-level5 resolves to the exact follow-up merge",
-          "the canonical merge supersedes the divergent provisional source-squash lane while preserving its useful commits and contributor attribution",
-          "Spark CLI Access 5 verifier passed 33/33 checks against the follow-up source",
-          "bulky CUA artifact folder preserved in release artifacts instead of source branch",
-          "focused Level 5 vitest passed: 46/46",
-          "full Vitest passed: 1,295/1,295",
-          "npm run check and npm run build passed"
+          "R30 adoption through PRs #888/#889 is preserved and extended by fast-terminal ordering PRs #890/#891/#892 at b90b29734aaae5e28f2bce5a065ac15a0c4efe1f",
+          "immutable refs/tags/spark-r30-2026-08-08-spawner-fast-terminal-relay resolves to the exact merged head",
+          "focused route suite, Svelte check, production build, full suite, and zero-vulnerability audit passed",
+          "exact-head CI and post-merge run 31258120381 passed",
+          "installed merge tree, runtime sync, and live health passed",
+          "supervised Access-5 fast-terminal replay proved ordered terminal relay without late nonterminal delivery",
+          "spark-r30-telegram-spawner-final-followup-merge-receipt-2026-08-08.md SHA-256 99a37312b0f7b36460fd16d118e32c6ff8cee6d6eedaef5385380e6b4e16823d"
         ],
         "license_spdx": "MIT"
       }

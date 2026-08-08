@@ -72,6 +72,7 @@ class CliSpawnerProviderSecretRuntimeTests(unittest.TestCase):
                  patch("spark_cli.cli.initialize_builder_runtime_home", return_value=[]), \
                  patch("spark_cli.cli.persist_keychain_secrets", return_value={"llm.openrouter.api_key": "keychain"}), \
                  patch("spark_cli.cli.persist_governor_hmac_secret"), \
+                 patch("spark_cli.managed_secret_runtime.add_setup_bridge_report"), \
                  patch("spark_cli.cli.build_module_envs", return_value=generated), \
                  patch("spark_cli.cli.preserve_level5_guardrails", side_effect=lambda _name, env: env), \
                  patch("spark_cli.cli.refresh_telegram_profile_envs"):
