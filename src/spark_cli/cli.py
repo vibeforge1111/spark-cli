@@ -8280,7 +8280,10 @@ def summarize_command_output(result: subprocess.CompletedProcess[str]) -> str:
     if not lines:
         return "no output"
     try:
-        payload = json.loads("\n".join(lines))
+        try:
+            payload = json.loads("\n".join(lines))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON (cli.py)") from exc
     except json.JSONDecodeError:
         payload = None
     if isinstance(payload, dict):
