@@ -1,0 +1,86 @@
+{
+  "schema": "spark-compete-hotfix-v1",
+  "event": "spark-compete-first-event",
+  "submission_mode": "public_repo_pr",
+  "submission_target_url": "https://github.com/vibeforge1111/spark-cli/pull/1426",
+  "team": {
+    "name": "drophub_sir",
+    "members": ["esc1200", "drophub_sir", "spark-agent"],
+    "github_accounts": ["Esc1200"],
+    "llm_device_holder": "Esc1200",
+    "device_holder_github": "Esc1200"
+  },
+  "target_repo": {
+    "id": "vibeforge1111/spark-cli",
+    "source": "https://github.com/vibeforge1111/spark-cli",
+    "owner_surface": "spark-cli"
+  },
+  "issue": {
+    "type": "bug",
+    "severity": "medium",
+    "title": "Operator paths and log file paths leaked in CLI print output",
+    "actual_behavior": "Lines 7789-7791 in cli.py print operator paths (provenance_drilldown, stale_current_adjudication, purge_or_decay_path) verbatim to the console via f-string interpolation, leaking internal filesystem paths. Line 7903 prints the full log file path when no logs exist yet.",
+    "expected_behavior": "Operator path availability should be shown as generic status (available/unavailable) without exposing actual paths. Missing log messages should not include filesystem paths.",
+    "repro_steps": [
+      "Run spark memory review or any command that triggers the next_memory_review display with operator_paths set.",
+      "Observe the full operator paths (provenance_drilldown, stale_current_adjudication, purge_or_decay_path) printed to console.",
+      "Run spark live logs when no log files exist yet.",
+      "Observe the full log file path printed in the No logs yet message."
+    ],
+    "affected_workflow": "Any spark CLI command that displays memory review metadata or live log status leaks internal operator paths or log file paths to the user. Affected file: src/spark_cli/cli.py lines 7789-7791 and 7903."
+  },
+  "evidence": {
+    "safe_links_only": true,
+    "before_after_proof": "Before: lines 7789-7791 use f-strings to print operator_paths dict values directly (e.g., print(f\"- provenance path: {operator_paths.get('provenance_drilldown')}\")). Line 7903 prints f\"No logs yet at {path}\". After: lines 7789-7791 print generic available/unavailable status. Line 7903 prints \"No logs yet for this target\".",
+    "links": [
+      "https://github.com/vibeforge1111/spark-cli/pull/1426"
+    ],
+    "forbidden": [
+      "pdf",
+      "zip",
+      "exe",
+      "unknown downloads",
+      "shortened links",
+      "archives",
+      "binaries",
+      "tokens",
+      "raw logs",
+      "raw conversations",
+      "raw memory",
+      "private repo maps",
+      "private scoring details"
+    ]
+  },
+  "proposed_fix": {
+    "approach": "Replace operator path values in print statements with generic available/unavailable status indicators at lines 7789-7791. Replace log file path with generic message at line 7903. Four lines changed total.",
+    "files_expected": ["src/spark_cli/cli.py"],
+    "tests_or_smoke": "Verified via git diff that all four print statements no longer interpolate sensitive path values. Python syntax check passed (lint OK). No new imports required. No control flow change."
+  },
+  "pr": {
+    "url": "https://github.com/vibeforge1111/spark-cli/pull/1426",
+    "branch": "esc1200/fix/operator-path-leak",
+    "title_prefix": "[spark-compete]",
+    "author_github": "Esc1200",
+    "body_must_include": [
+      "packet",
+      "team",
+      "pr_author",
+      "repo",
+      "actual_behavior",
+      "expected_behavior",
+      "repro_steps",
+      "before_after_proof",
+      "tests_or_smoke",
+      "duplicate_notes",
+      "risk_notes",
+      "review_claim"
+    ]
+  },
+  "review_claim": {
+    "impact_claim": "medium",
+    "evidence_types": ["redacted_terminal_excerpt", "smoke_test"],
+    "duplicate_notes": "Searched open PRs and branches for operator path leak fixes. No prior PR addresses the provenance_drilldown, stale_current_adjudication, or purge_or_decay_path print leaks, or the log file path leak at line 7903.",
+    "risk_notes": "Very low risk. Replacing interpolated path values with generic status strings is safe and backwards-compatible. No functional behavior changes; output remains informative without leaking internal paths. No new imports required. No control flow change.",
+    "review_state_requested": "pr_review"
+  }
+}
