@@ -77,6 +77,8 @@ from .system_map import compile_summary, compile_system_map, git_board_status, w
 from .telegram_fix_health import resolve_telegram_fix_health
 from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
+SPARK_CLI_STOP_MODULE_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -18820,7 +18822,9 @@ def cmd_start_plain(args: argparse.Namespace) -> int:
 
 def stop_module(name: str, pid: int) -> None:
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True
+        timeout=SPARK_CLI_STOP_MODULE_TIMEOUT_SECONDS,
+        )
     else:
         try:
             os.kill(pid, 0)
