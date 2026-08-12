@@ -212,6 +212,8 @@ def validate_url_safety(raw_url: str, *, label: str = "URL", policy: UrlPolicy |
     value = str(raw_url or "").strip()
     if not value:
         return []
+    if value.startswith("${"):
+        return [f"{label} contains unresolved template variable."]
 
     errors: list[str] = []
     parsed = _parse_url(value)
