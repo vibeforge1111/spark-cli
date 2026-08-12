@@ -949,6 +949,22 @@ def approval_required_for_command(argv: object, context: CommandContext | None =
             target_display=" ".join(parts[:4]),
             confirmation_phrase="approve aws credential reveal",
         )
+    aws_credential_keys = {"aws_access_key_id", "aws_secret_access_key", "aws_session_token", "sso_start_url", "sso_session"}
+    if first == "aws" and (
+        (lowered[1:3] == ["configure", "set"] and len(lowered) > 3 and lowered[3] in aws_credential_keys)
+        or lowered[1:3] == ["configure", "import-sso"]
+        or lowered[1:3] == ["configure", "sso"]
+        or (second == "sso" and len(lowered) > 2 and lowered[2] in {"login", "logout"})
+    ):
+        return _decision(
+            parts,
+            ctx,
+            "credential_mutation",
+            "high",
+            "AWS command can store, replace, import, or remove local cloud credentials.",
+            target_display=" ".join(parts[:4]),
+            confirmation_phrase="approve cloud credential change",
+        )
 
     if network_decision := decide_ssh_tunnel_authority(raw_parts, ctx, _decision):
         return network_decision
