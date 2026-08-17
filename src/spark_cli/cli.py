@@ -77,6 +77,8 @@ from .system_map import compile_summary, compile_system_map, git_board_status, w
 from .telegram_fix_health import resolve_telegram_fix_health
 from .trust_scanner_fixtures import is_redaction_fixture_private_key
 
+SPARK_CLI_STASH_MODULE_LOCAL_CHANGES_TIMEOUT_SECONDS = 60
+
 CLI_MAX_SUPPORTED_SCHEMA = 1
 DPAPI_SECRET_PREFIX = "dpapi:v1:"
 INSECURE_FILE_SECRET_PREFIX = "insecure-local:v1:"
@@ -1373,7 +1375,9 @@ def remove_windows_path_entry(path_value: str | None, entry: Path) -> tuple[str,
 
 def remove_spark_bin_from_windows_user_path(spark_home: Path = SPARK_HOME) -> bool:
     bin_dir = spark_home / "bin"
-    user_path = os.environ.get("Path", "")
+    user_path = os.environ.get("Path", ""
+    timeout=SPARK_CLI_STASH_MODULE_LOCAL_CHANGES_TIMEOUT_SECONDS,
+    )
     if sys.platform == "win32":
         try:
             import winreg  # type: ignore
