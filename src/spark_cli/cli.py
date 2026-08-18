@@ -40,6 +40,7 @@ import tomllib
 
 from . import secret_input_authority
 from .command_summary import sanitize_command_line, select_failure_summary
+from .codex_cli import detect_codex_cli
 from .bridge_key import BRIDGE_API_KEY_ENV, BRIDGE_API_KEY_SECRET_ID, BRIDGE_CONSUMER_MODULES
 from .bridge_key import RESERVED_CONTROL_KEYS, load_generated_bridge_envs, resolve_shared_spawner_bridge_api_key
 from .env_files import decode_env_file_bytes, parse_env_file_bytes, serialize_env_assignment, serialize_env_file
@@ -3326,11 +3327,6 @@ def detect_claude_code() -> dict[str, Any]:
             if candidate.exists():
                 return {"present": True, "path": str(candidate)}
     path = shutil.which("claude")
-    return {"present": bool(path), "path": path}
-
-
-def detect_codex_cli() -> dict[str, Any]:
-    path = shutil.which("codex")
     return {"present": bool(path), "path": path}
 
 
